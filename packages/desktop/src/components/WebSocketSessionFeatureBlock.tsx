@@ -238,8 +238,10 @@ function WebSocketSessionFeatureBody(
   const requestedFocusPending = useRequestedFeatureFocus(layoutFeatureId, requestedFocusTab);
   const readiness = useNonAgentTabReadiness({
     embedded,
+    featureId,
     focusedTabId,
     requestedFocusTab,
+    requestedFocusPending,
     sessionId,
   });
 
@@ -299,10 +301,12 @@ function WebSocketSessionFeatureBody(
     refs,
     agentVisible,
     tabReady: readiness.tabReady,
+    pluginTabsReady: readiness.workEnabled,
     hotkeysEnabled,
     sendFromGitTab,
     openAgentFileInEditor,
     pluginTabsEnabled: !embedded,
+    openingPreview: !embedded,
   });
 
   return (

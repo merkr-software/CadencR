@@ -90,18 +90,20 @@ pub async fn binary_discovery_handler(
             (id, spec, override_path)
         })
         .collect();
+    // A search that could not finish fails the request: an empty candidate
+    // list would tell onboarding the CLI is not installed.
     let providers = futures::future::join_all(discoveries.into_iter().map(
         |(id, spec, override_path)| async move {
-            let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await;
-            (
+            let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await?;
+            Ok::<_, cli_discovery::DiscoveryError>((
                 id,
                 build_provider_discovery(&spec, candidates, override_path),
-            )
+            ))
         },
     ))
     .await
     .into_iter()
-    .collect::<HashMap<_, _>>();
+    .collect::<Result<HashMap<_, _>, _>>()?;
 
     Ok(Json(BinaryDiscoveryResponse { providers }))
 }

@@ -3,6 +3,7 @@
 //! returned as a draft (NOT sent) so the user can edit and re-send.
 
 use crate::domain::ws_session::protocol::{BranchNeedsConfirmPayload, WsSessionEvent};
+use crate::shared::discard::IgnoreClosed;
 use tracing::{info, warn};
 
 use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope};
@@ -55,7 +56,9 @@ pub(crate) async fn handle_rewind(
             }),
         )
         .expect("session event payload should serialize");
-        let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
+        sender
+            .send(axum::extract::ws::Message::Text(String::from(reply).into()))
+            .ignore_closed();
         return;
     }
 

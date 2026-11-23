@@ -7,8 +7,10 @@ use crate::domain::ws_session::protocol::PromptSendPayload;
 use crate::error::AppError;
 
 use super::control_dispatch_config::build_pending_handle;
+#[cfg(test)]
 use super::control_dispatch_payload::replay_payload;
 use super::prompt_outcome::{publish_warnings, PromptDispatchOutcome};
+use super::PromptOrigin;
 use crate::domain::ws_session::runtime::prompt::prompt_followup::{
     handle_followup_prompt, FollowupPromptContext,
 };
@@ -17,45 +19,20 @@ use crate::domain::ws_session::runtime::prompt::prompt_pending::{
 };
 use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::apply_respawn_if_needed;
 use crate::domain::ws_session::runtime::prompt::prompt_selection_sync;
+use crate::domain::ws_session::runtime::prompt::user_selection::PromptedSelection;
 use crate::domain::ws_session::runtime::state::{QueryState, SdkSessions};
 
-/// Inject a prompt into a session without a connected WS client.
-///
-/// `replay` controls whether the standard prompt path persists and broadcasts
-/// the inbound text as a user message. MCP callers persist the user message
-/// themselves (with agent-to-agent origin metadata) and pass `true` to suppress
-/// the duplicate; the scheduler passes `false` so a user-authored scheduled
-/// message is persisted and mirrored to clients like any other user message.
-pub(crate) async fn dispatch_control_prompt(
+pub(super) async fn dispatch(
     app_state: &AppState,
     feature_id: i64,
     session_id: i64,
-    text: &str,
-    replay: bool,
-) -> Result<PromptDispatchOutcome, AppError> {
-    dispatch_control_prompt_with_message_uuid(app_state, feature_id, session_id, text, replay, None)
-        .await
-}
-
-pub(crate) async fn dispatch_control_prompt_with_message_uuid(
-    app_state: &AppState,
-    feature_id: i64,
-    session_id: i64,
-    text: &str,
-    replay: bool,
-    message_uuid: Option<uuid::Uuid>,
+    payload: PromptSendPayload,
+    origin: PromptOrigin,
 ) -> Result<PromptDispatchOutcome, AppError> {
     let output = SessionOutput::headless();
-    let result = dispatch_control_prompt_inner(
-        app_state,
-        feature_id,
-        session_id,
-        text,
-        replay,
-        message_uuid,
-        &output,
-    )
-    .await;
+    let result =
+        dispatch_control_prompt_inner(app_state, feature_id, session_id, payload, origin, &output)
+            .await;
     app_state
         .session_runtimes
         .prune_session(session_id, &app_state.ws_feature_senders)
@@ -68,22 +45,18 @@ async fn dispatch_control_prompt_inner(
     app_state: &AppState,
     feature_id: i64,
     session_id: i64,
-    text: &str,
-    replay: bool,
-    message_uuid: Option<uuid::Uuid>,
+    mut payload: PromptSendPayload,
+    origin: PromptOrigin,
     sender: &SessionOutput,
 ) -> Result<(), AppError> {
     require_session_row(&app_state.read_pool, feature_id, session_id).await?;
-    let mut payload = replay_payload(session_id, text, None, replay, message_uuid);
-
-    if dispatch_to_active_owner(app_state, sender, session_id, payload.clone(), replay).await? {
+    if dispatch_to_active_owner(app_state, sender, session_id, payload.clone(), origin).await? {
         return Ok(());
     }
 
-    payload.use_worktree = control_use_worktree(&app_state.read_pool, feature_id).await;
-    let sessions = ensure_control_pending_handle(app_state, feature_id, session_id).await?;
-    dispatch_control_pending(app_state, sender, &sessions, session_id, payload, replay).await?;
-    Ok(())
+    payload.use_worktree = control_use_worktree(&app_state.read_pool, feature_id).await?;
+    let sessions = ensure_control_pending_handle(app_state, feature_id, session_id, origin).await?;
+    dispatch_control_pending(app_state, sender, &sessions, session_id, payload, origin).await
 }
 
 async fn dispatch_to_active_owner(
@@ -91,7 +64,7 @@ async fn dispatch_to_active_owner(
     sender: &SessionOutput,
     session_id: i64,
     payload: PromptSendPayload,
-    internal_replay: bool,
+    origin: PromptOrigin,
 ) -> Result<bool, AppError> {
     let Some(owner) = app_state.session_runtimes.get(session_id).await else {
         return Ok(false);
@@ -129,7 +102,8 @@ async fn dispatch_to_active_owner(
                 sdk_sessions: owner.clone(),
                 active_turns: app_state.active_turns.clone(),
                 provider_id: handle.runtime_provider.clone(),
-                internal_replay,
+                internal_replay: origin.is_replay(),
+                user_selection: origin.is_user().then(|| PromptedSelection::active(handle)),
                 wait_for_delivery: true,
             }),
             QueryState::Pending(_) => None,
@@ -156,6 +130,7 @@ async fn ensure_control_pending_handle(
     app_state: &AppState,
     feature_id: i64,
     session_id: i64,
+    origin: PromptOrigin,
 ) -> Result<SdkSessions, AppError> {
     let row = require_session_row(&app_state.read_pool, feature_id, session_id).await?;
     if let Some(sessions) = app_state.session_runtimes.get(session_id).await {
@@ -166,7 +141,7 @@ async fn ensure_control_pending_handle(
     let project_id = worktree::get_project_id_for_feature(&app_state.read_pool, feature_id)
         .await
         .map_err(|error| AppError::internal(error))?;
-    let handle = build_pending_handle(app_state, project_id, row).await?;
+    let handle = build_pending_handle(app_state, project_id, row, origin.is_user()).await?;
     let candidate = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
     let sessions = app_state
         .session_runtimes
@@ -182,7 +157,7 @@ async fn dispatch_control_pending(
     sessions: &SdkSessions,
     session_id: i64,
     payload: PromptSendPayload,
-    internal_replay: bool,
+    origin: PromptOrigin,
 ) -> Result<(), AppError> {
     let spawn_claim = app_state.session_runtimes.claim_spawn(session_id).await;
     let feature_id = {
@@ -203,9 +178,7 @@ async fn dispatch_control_pending(
     };
     if active {
         drop(spawn_claim);
-        return if dispatch_to_active_owner(app_state, sender, session_id, payload, internal_replay)
-            .await?
-        {
+        return if dispatch_to_active_owner(app_state, sender, session_id, payload, origin).await? {
             Ok(())
         } else {
             Err(AppError::Conflict(
@@ -219,7 +192,7 @@ async fn dispatch_control_pending(
         sessions,
         session_id,
         payload,
-        internal_replay,
+        origin,
         spawn_claim,
     )
     .await
@@ -239,7 +212,7 @@ async fn pending_context_from_handle(
     sessions: &SdkSessions,
     session_id: i64,
     payload: PromptSendPayload,
-    internal_replay: bool,
+    origin: PromptOrigin,
     spawn_claim: tokio::sync::OwnedMutexGuard<()>,
 ) -> Option<PendingPromptContext> {
     let mut guard = app_state
@@ -275,7 +248,8 @@ async fn pending_context_from_handle(
         options,
         payload,
         permission_tx: None,
-        internal_replay,
+        internal_replay: origin.is_replay(),
+        remember_selection: origin.is_user(),
         wait_for_delivery: true,
         spawn_claim: Some(spawn_claim),
         handle_identity,
@@ -287,7 +261,7 @@ async fn require_session_row(
     feature_id: i64,
     session_id: i64,
 ) -> Result<SessionRow, AppError> {
-    let Some(row) = WsSessionPersistence::get_session_row(pool, session_id).await else {
+    let Some(row) = WsSessionPersistence::get_session_row(pool, session_id).await? else {
         return Err(AppError::NotFound(format!(
             "session {session_id} not found"
         )));
@@ -300,15 +274,20 @@ async fn require_session_row(
     Ok(row)
 }
 
-async fn control_use_worktree(pool: &sqlx::SqlitePool, feature_id: i64) -> Option<bool> {
-    match worktree::get_setting(pool, feature_id, "worktree_mode")
-        .await
-        .as_deref()
-    {
-        Some("new" | "reuse") => Some(true),
-        Some("skip") => Some(false),
-        _ => None,
-    }
+async fn control_use_worktree(
+    pool: &sqlx::SqlitePool,
+    feature_id: i64,
+) -> Result<Option<bool>, AppError> {
+    Ok(
+        match worktree::get_setting(pool, feature_id, "worktree_mode")
+            .await?
+            .as_deref()
+        {
+            Some("new" | "reuse") => Some(true),
+            Some("skip") => Some(false),
+            _ => None,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -343,14 +322,14 @@ mod tests {
             .await
             .expect("set worktree mode");
 
-        assert_eq!(control_use_worktree(&pool, 42).await, Some(true));
+        assert_eq!(control_use_worktree(&pool, 42).await.unwrap(), Some(true));
     }
 
     #[tokio::test]
     async fn control_use_worktree_does_not_default_missing_mode_to_worktree() {
         let pool = pool_with_feature_settings().await;
 
-        assert_eq!(control_use_worktree(&pool, 42).await, None);
+        assert_eq!(control_use_worktree(&pool, 42).await.unwrap(), None);
     }
     #[tokio::test]
     async fn cancelled_pending_context_preserves_config_for_retry() {
@@ -381,7 +360,7 @@ mod tests {
                 &sessions,
                 7,
                 replay_payload(7, "retry", None, true, None),
-                true,
+                PromptOrigin::Control { replay: true },
                 claim,
             )
             .await

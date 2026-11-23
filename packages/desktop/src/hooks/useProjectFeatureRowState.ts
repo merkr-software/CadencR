@@ -1,12 +1,15 @@
 import { useGetStats, type Feature, type GitStats, type PrStatusSnapshot } from "@/api/generated";
+import type { DebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { useFeaturePrefetch } from "@/hooks/useFeaturePrefetch";
 import { useFeatureAttention } from "@/hooks/useFeatureAttention";
 import type { Attention } from "@/lib/sidebar-attention";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
 import { useIsSidebarPointedFeature } from "@/stores/sidebar-pointed-feature-store";
+import { useFeatureRunningSubagentCount } from "@/stores/session-status-selectors";
 
 export interface ProjectFeatureRowState {
   attention: Attention;
+  runningSubagentCount: number;
   prStatus: PrStatusSnapshot | undefined;
   gitStats: GitStats | undefined;
   isActive: boolean;
@@ -14,7 +17,8 @@ export interface ProjectFeatureRowState {
   isPinned: boolean;
   /** Pointed at from elsewhere (an agent message's sender): the row lights up. */
   isPointed: boolean;
-  prefetchFeature: () => void;
+  /** On hover and focus; `cancel` when the pointer or focus leaves the row. */
+  prefetchFeature: DebouncedCallback<[]>;
 }
 
 /**
@@ -28,7 +32,8 @@ export interface ProjectFeatureRowState {
 export function useProjectFeatureRowState(
   feature: Feature,
   projectId: number,
-  activeFeatureId: number | null,
+  /** Whether this is the sidebar's active conversation: a boolean, so only the two rows a switch flips re-render. */
+  isActive: boolean,
   hasLiveWorktree: boolean,
   /** Conversations folded under this row; their most urgent state shows here. */
   hiddenDescendantIds?: readonly number[],
@@ -37,8 +42,8 @@ export function useProjectFeatureRowState(
   // collapsed children. Subscribes to just those ids, so another
   // conversation's status push doesn't re-render this row.
   const attention = useFeatureAttention(feature.id, hiddenDescendantIds);
+  const runningSubagentCount = useFeatureRunningSubagentCount(feature.id);
   const prStatus = usePrStatusStore(selectPrStatus(feature.id));
-  const isActive = activeFeatureId === feature.id;
   const { data: gitStats } = useGetStats(
     { feature_id: feature.id, mode: "worktree" },
     {
@@ -56,6 +61,7 @@ export function useProjectFeatureRowState(
 
   return {
     attention,
+    runningSubagentCount,
     prStatus,
     gitStats,
     isActive,

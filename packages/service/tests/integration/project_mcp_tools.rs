@@ -24,7 +24,7 @@ async fn test_ctx() -> Arc<McpContext> {
         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, agent_type TEXT, runtime_provider TEXT, model TEXT, status TEXT NOT NULL DEFAULT 'paused', pending_permission TEXT, pending_questions TEXT, started_at TEXT NOT NULL DEFAULT (datetime('now')));
         CREATE TABLE agent_messages (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, role TEXT NOT NULL, message_type TEXT, content TEXT, tool_name TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
         CREATE TABLE agent_message_origins (message_id INTEGER PRIMARY KEY, origin_kind TEXT NOT NULL, source_session_id INTEGER, source_feature_id INTEGER, source_project_id INTEGER, source_message_id INTEGER, note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
-        CREATE TABLE agent_session_message_queue (id INTEGER PRIMARY KEY, target_session_id INTEGER NOT NULL, source_session_id INTEGER, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT (datetime('now')), delivered_at TEXT, error TEXT);
+        CREATE TABLE agent_session_prompt_queue (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, source_session_id INTEGER, content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', origin_kind TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL DEFAULT (datetime('now')), delivered_at TEXT, error TEXT);
         CREATE TABLE mcp_tool_audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, server_name TEXT NOT NULL, tool_name TEXT NOT NULL, source_session_id INTEGER, source_feature_id INTEGER, source_project_id INTEGER, target_session_id INTEGER, target_feature_id INTEGER, target_project_id INTEGER, status TEXT NOT NULL, result_size_bytes INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
         CREATE VIRTUAL TABLE agent_messages_fts USING fts5(content, content='agent_messages', content_rowid='id', tokenize='unicode61');
         INSERT INTO projects (id, name, path) VALUES (10, 'Current', '/tmp/current'), (20, 'Other', '/tmp/other');
@@ -40,8 +40,8 @@ async fn test_ctx() -> Arc<McpContext> {
             (4, 1000, 'tool', 'tool_call', 'Run cargo test for workspace search', 'shell', '2026-06-18T10:03:00Z');
         INSERT INTO agent_message_origins (message_id, origin_kind, source_session_id, source_feature_id, source_project_id, source_message_id, note, created_at)
             VALUES (1, 'session_generated', 777, 42, 7, 9001, 'delegated by project MCP', '2026-06-18T10:01:30Z');
-        INSERT INTO agent_session_message_queue (id, target_session_id, source_session_id, content, status, created_at)
-            VALUES (500, 1000, 777, 'Queued helper follow-up', 'pending', '2026-06-18T10:04:00Z');
+        INSERT INTO agent_session_prompt_queue (id, session_id, source_session_id, content, status, origin_kind, created_at)
+            VALUES (500, 1000, 777, 'Queued helper follow-up', 'pending', 'session', '2026-06-18T10:04:00Z');
         INSERT INTO agent_messages_fts(agent_messages_fts) VALUES('rebuild');
         "#,
     )

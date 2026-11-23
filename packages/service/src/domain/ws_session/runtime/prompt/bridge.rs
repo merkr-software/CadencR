@@ -1,5 +1,5 @@
-use crate::domain::ws_session::protocol::WsSessionEvent;
-use crate::domain::ws_session::runtime::output::{OutputTarget, SessionOutput};
+use crate::domain::ws_session::runtime::helpers::report_session_write_failure;
+use crate::domain::ws_session::runtime::output::SessionOutput;
 use async_trait::async_trait;
 use axum::extract::ws::Message;
 use tracing::{debug, error, info};
@@ -10,8 +10,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::permission_bridge;
 use crate::domain::ws_session::persistence::{PendingUserInput, PendingUserInputKind};
 use crate::domain::ws_session::protocol::{
-    permission_request_envelope, PermissionDecision, PermissionRequestPayload, SessionErrorPayload,
-    WsEnvelope,
+    permission_request_envelope, PermissionDecision, PermissionRequestPayload,
 };
 use crate::domain::ws_session::runtime::application::{mark_agent_resumed, mark_awaiting_user};
 
@@ -190,6 +189,7 @@ impl WsBridgeCanUseTool {
             self.db_session_id,
             &self.write_pool,
             &self.sender,
+            &self.feature_senders,
         )
         .await
         {
@@ -198,13 +198,11 @@ impl WsBridgeCanUseTool {
                 error = %e,
                 "post-plan-approval: failed to push set_permission_mode to CLI"
             );
-            let err = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
-                code: "SDK_ERROR".into(),
-                message: format!("Failed to apply post-plan permission mode: {e}"),
-                ..Default::default()
-            }))
-            .expect("session event payload should serialize");
-            let _ = self.sender.send(Message::Text(String::from(err).into()));
+            self.show_session_error(
+                "SDK_ERROR",
+                format!("Failed to apply post-plan permission mode: {e}"),
+            )
+            .await;
         }
     }
 
@@ -261,16 +259,15 @@ impl WsBridgeCanUseTool {
                     error = %error,
                     "failed to persist enriched ExitPlanMode tool input"
                 );
-                let envelope =
-                    WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
-                        code: "DB_ERROR".into(),
-                        message: "Failed to persist the enriched plan approval request.".into(),
-                        ..Default::default()
-                    }))
-                    .expect("session event payload should serialize");
-                let _ = self
-                    .sender
-                    .send(Message::Text(String::from(envelope).into()));
+                // The approval request still goes out: a notice, not a failed turn.
+                report_session_write_failure(
+                    &self.feature_senders,
+                    self.feature_id,
+                    self.db_session_id,
+                    "the plan in its approval request",
+                    &error,
+                )
+                .await;
             }
         }
         enriched
@@ -304,9 +301,8 @@ impl WsBridgeCanUseTool {
     /// connected clients — the answer can then come back from any of them
     /// (resolved against the owning turn by the active-turn registry).
     async fn mirror_and_send(&self, msg: Message) {
-        let _ = self
-            .feature_senders
-            .send_and_mirror(self.feature_id, &self.sender, msg)
+        self.feature_senders
+            .publish(self.feature_id, &self.sender, msg)
             .await;
     }
 

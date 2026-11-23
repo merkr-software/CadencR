@@ -86,16 +86,15 @@ const ALL_TABS_READY = {
   preview: true,
 };
 
-// Two timer rounds drive the full reveal: round one fires the agent-first gate
-// timer, round two fires the per-tab stagger timers scheduled once the gate
-// opens.
+// The gate opens one painted frame after mount, then each tab is revealed one
+// painted frame after the previous one: a frame callback and a task per step,
+// each scheduled by the commit before it. Enough rounds to reveal them all.
 function flushTabReadiness(): void {
-  act(() => {
-    vi.runOnlyPendingTimers();
-  });
-  act(() => {
-    vi.runOnlyPendingTimers();
-  });
+  for (let round = 0; round < 16; round += 1) {
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+  }
 }
 
 describe("WebSocketSessionFeatureBlock", () => {

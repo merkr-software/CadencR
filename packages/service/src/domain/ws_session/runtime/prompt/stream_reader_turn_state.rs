@@ -3,6 +3,7 @@ pub(in crate::domain::ws_session) struct StreamTurnState {
     phase: TurnPhase,
     surfaced_error_this_turn: bool,
     started_at: std::time::Instant,
+    last_prompt_result_generation: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ impl StreamTurnState {
             phase: TurnPhase::AwaitingFirstEvent,
             surfaced_error_this_turn: false,
             started_at: std::time::Instant::now(),
+            last_prompt_result_generation: None,
         }
     }
 
@@ -58,6 +60,24 @@ impl StreamTurnState {
 
     pub(in crate::domain::ws_session) fn mark_result(&mut self) {
         self.phase = TurnPhase::BetweenTurnsAfterResult;
+    }
+
+    pub(super) fn detached_result_generation(&self) -> Option<u64> {
+        self.last_prompt_result_generation
+    }
+
+    /// The autonomous reply can finish the generation its prompt settled.
+    /// A newer generation may already be preparing its ACP request.
+    pub(super) fn accepts_result_generation(
+        &mut self,
+        detached_reply: bool,
+        generation: Option<u64>,
+    ) -> bool {
+        if detached_reply {
+            return self.detached_result_generation() == generation;
+        }
+        self.last_prompt_result_generation = generation;
+        true
     }
 }
 
@@ -105,5 +125,15 @@ mod tests {
         assert!(state.has_error_surfaced_this_turn());
         state.mark_error_surfaced(Some("spawn-other"));
         assert!(state.has_error_surfaced_this_turn());
+    }
+
+    #[test]
+    fn a_detached_reply_cannot_end_a_newer_preparing_prompt() {
+        let mut state = StreamTurnState::new();
+        assert!(state.accepts_result_generation(false, Some(2)));
+        assert!(state.accepts_result_generation(true, Some(2)));
+        assert!(!state.accepts_result_generation(true, Some(3)));
+        assert!(state.accepts_result_generation(false, Some(3)));
+        assert!(state.accepts_result_generation(true, Some(3)));
     }
 }

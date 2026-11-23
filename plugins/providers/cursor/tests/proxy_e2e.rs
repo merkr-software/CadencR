@@ -220,7 +220,7 @@ fn meta_values<'a>(option: &'a Value, key: &str) -> Vec<(&'a str, &'a str)> {
 }
 
 #[tokio::test]
-async fn host_integration_declares_worktree_config_only() {
+async fn host_integration_declares_worktree_config_and_launcher_port_exclusion() {
     let dir = tempfile::tempdir().unwrap();
     let output = connector(&dir.path().join("log.jsonl"))
         .args([
@@ -239,9 +239,9 @@ async fn host_integration_declares_worktree_config_only() {
             "worktreeConfigPaths": [
                 ".cursor/rules", ".cursor/commands", ".cursor/skills",
                 ".cursor/mcp.json", ".cursor/cli.json"
-            ]
-        }),
-        "no compactCommand / resumeCommand: Cursor ACP supports neither"
+            ],
+            "excludeLauncherPorts": true
+        })
     );
     let wrong = connector(&dir.path().join("log.jsonl"))
         .args(["host-integration", "--format", "v0"])

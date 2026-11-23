@@ -13,8 +13,11 @@ function makeContext(): FileTreeContextMenuOpenContext {
   } as unknown as FileTreeContextMenuOpenContext;
 }
 
-function makeItem(kind: "file" | "directory"): FileTreeContextMenuItem {
-  return { kind, path: "packages/desktop/src/foo.ts" } as unknown as FileTreeContextMenuItem;
+function makeItem(
+  kind: "file" | "directory",
+  path = "packages/desktop/src/foo.ts",
+): FileTreeContextMenuItem {
+  return { kind, path } as unknown as FileTreeContextMenuItem;
 }
 
 describe("FileTreeContextMenu Copy Path", () => {
@@ -40,5 +43,18 @@ describe("FileTreeContextMenu Copy Path", () => {
       />,
     );
     expect(screen.getByRole("menuitem", { name: "Copy Path" })).toBeInTheDocument();
+  });
+});
+
+describe("FileTreeContextMenu Open in Preview", () => {
+  it("offers a preview for a document whose escaped name holds a newline", () => {
+    render(
+      <FileTreeContextMenu
+        item={makeItem("file", 'docs/"a\\nb.pdf"')}
+        context={makeContext()}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("menuitem", { name: "Open in Preview" })).toBeInTheDocument();
   });
 });

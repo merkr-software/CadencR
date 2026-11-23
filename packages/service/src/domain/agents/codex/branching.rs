@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use codex_app_server_sdk_rs::{CodexAppServerClient, SdkError, ThreadSnapshot};
 
-use super::{app_server_failure, profile_runtime::app_server_spawn_options, CodexAdapter};
+use super::{app_server_failure, spawn_options::app_server_spawn_options, CodexAdapter};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, BranchContext, BranchError, BranchResult, SessionBranching,
 };
@@ -48,12 +48,15 @@ async fn truncate_with_client(
     ctx: &BranchContext,
 ) -> Result<BranchResult, BranchError> {
     client.initialize().await.map_err(branch_surgery)?;
-    let source = read_snapshot(client, &ctx.source_runtime_session_id).await?;
+    let source = client
+        .thread_read(&ctx.source_runtime_session_id, true)
+        .await
+        .map_err(source_failure)?;
     let cut = cut_before(&source, ctx.cut_user_ordinal)?;
     let forked = client
         .thread_fork(&ctx.source_runtime_session_id, &ctx.cwd)
         .await
-        .map_err(branch_surgery)?;
+        .map_err(source_failure)?;
     let cut_checked = async {
         cut_fork(client, &forked.id, &cut).await?;
         check_cut(&read_snapshot(client, &forked.id).await?, &cut)
@@ -156,15 +159,25 @@ fn cut_before(snapshot: &ThreadSnapshot, cut_user_ordinal: usize) -> Result<Cut,
     )))
 }
 
+/// A request on the source thread. One Codex no longer has (its rollout was
+/// deleted, or never written) is not a failed cut: say that it is gone. The
+/// code carries the meaning; the message is the app-server's own detail.
+fn source_failure(error: SdkError) -> BranchError {
+    if error.is_unknown_thread() {
+        return BranchError::ConversationMissing(format!("Codex {error}"));
+    }
+    branch_surgery(error)
+}
+
 fn branch_surgery(error: SdkError) -> BranchError {
     BranchError::Surgery(format!("Codex app-server branching failed: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{check_cut, cut_before, explain_surgery_failure, Cut};
+    use super::{check_cut, cut_before, explain_surgery_failure, source_failure, Cut};
     use crate::domain::agents::adapter::BranchError;
-    use codex_app_server_sdk_rs::{ThreadSnapshot, ThreadTurn};
+    use codex_app_server_sdk_rs::{SdkError, ThreadSnapshot, ThreadTurn};
 
     fn snapshot(user_counts: &[usize]) -> ThreadSnapshot {
         ThreadSnapshot {
@@ -214,6 +227,34 @@ mod tests {
         assert!(
             matches!(&error, BranchError::Surgery(message) if message.contains("kept 3 turns")),
             "{error}"
+        );
+    }
+
+    /// Codex 0.167 answers a fork of a thread whose rollout is gone this way.
+    #[test]
+    fn a_source_thread_codex_lost_is_a_missing_conversation() {
+        let gone = source_failure(SdkError::Rpc {
+            code: -32600,
+            message: "no rollout found for thread id 0199a000-0000-7000-8000-000000000000"
+                .to_string(),
+        });
+        assert!(
+            matches!(&gone, BranchError::ConversationMissing(message)
+                if message.starts_with("Codex app-server returned error -32600: no rollout")),
+            "{gone}"
+        );
+
+        let refused = source_failure(SdkError::Rpc {
+            code: -32600,
+            message: "Invalid request: missing field `threadId`".to_string(),
+        });
+        assert!(matches!(refused, BranchError::Surgery(_)), "{refused}");
+
+        // A missing conversation is not hidden behind the app-server's exit.
+        let kept = explain_surgery_failure(gone, Some("exited".to_string()));
+        assert!(
+            matches!(kept, BranchError::ConversationMissing(_)),
+            "{kept}"
         );
     }
 

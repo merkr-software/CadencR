@@ -2,7 +2,7 @@ use tracing::{error, info};
 
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::send_error;
+use super::super::helpers::{send_error, setting_or_report};
 use super::super::types::{QueryState, SdkHandle, SdkSessions, WsSender};
 use super::effort::{apply_model_default_effort, send_effort_set_ok};
 use super::fast_mode::send_fast_mode_set_ok;
@@ -52,6 +52,10 @@ pub(crate) async fn handle_model_set(
         super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
+    // Model catalog validation can run a slow CLI probe and never starts a
+    // turn; let controls (such as Stop) run without waiting on it.
+    crate::domain::ws_session::handler::let_controls_through();
+
     let Some((snapshot, model, entry)) = validate_model_set(
         sdk_sessions,
         app_state,
@@ -66,8 +70,12 @@ pub(crate) async fn handle_model_set(
     };
     // Switching models resumes the target's last-used level (or its default),
     // never the outgoing model's level.
-    let target_effort =
-        target_thinking_effort(&app_state.read_pool, &snapshot.runtime_provider, &entry).await;
+    let read = target_thinking_effort(&app_state.read_pool, &snapshot.runtime_provider, &entry);
+    let Some(target_effort) =
+        setting_or_report(sender, &envelope.id, "reasoning effort", read.await)
+    else {
+        return;
+    };
 
     let switch = match switch_handle_model(
         sdk_sessions,
@@ -150,13 +158,7 @@ async fn persist_switch(
     }
     .map_err(|error| error.to_string())?;
     let seeded_window = seed_context_window(model, &switch.runtime_provider).await;
-    persist_model_selection(
-        app_state,
-        db_session_id,
-        &switch.runtime_provider,
-        seeded_window,
-    )
-    .await;
+    persist_model_selection(app_state, switch, db_session_id, seeded_window).await;
     Ok(seeded_window)
 }
 

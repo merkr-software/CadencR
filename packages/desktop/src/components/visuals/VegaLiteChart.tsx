@@ -1,20 +1,22 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChartColumnIcon } from "lucide-react";
 import type { View } from "vega";
 import type { TopLevelSpec } from "vega-lite";
 import { VisualChrome, VisualSourceBlock } from "@/components/visuals/VisualChrome";
 import { VisualError, VisualLoading } from "@/components/visuals/VisualStatus";
-import { useElementWidth } from "@/hooks/useElementSize";
+import { useElementSize } from "@/hooks/useElementSize";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { rememberedHeight, rememberHeight } from "@/lib/visuals/height-cache";
 import { useVisualTheme } from "@/lib/visuals/live-theme";
 import {
+  fitsContainerHeight,
   fitsContainerWidth,
   parseVegaLiteSpec,
   renderVegaLite,
   resizeToContainer,
 } from "@/lib/visuals/vega-chart";
 import { vegaThemeConfig } from "@/lib/visuals/vega-theme";
+import { openVisualFullscreen } from "@/stores/visual-fullscreen-store";
 
 type ChartState =
   | { status: "rendering" }
@@ -27,14 +29,26 @@ function failed(error: unknown): ChartState {
 
 /**
  * The chart itself, drawn natively (SVG, no frame) in the live theme and
- * redrawn when the theme changes. Fills the conversation width and follows
- * pane resizes once they settle, unless the spec sets its own width.
+ * redrawn when the theme changes. Fills the conversation width (and viewport
+ * height in fullscreen) and follows resizes once they settle, unless the spec
+ * sets its own dimensions.
  */
-function ChartCanvas({ code, spec }: { code: string; spec: TopLevelSpec }) {
+function ChartCanvas({
+  code,
+  spec,
+  variant = "inline",
+}: {
+  code: string;
+  spec: TopLevelSpec;
+  variant?: "inline" | "fullscreen";
+}) {
+  const fullscreen = variant === "fullscreen";
   const theme = useVisualTheme();
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<{ view: View; width: number } | null>(null);
-  const width = useElementWidth(containerRef);
+  const viewRef = useRef<{ view: View; width: number; height: number } | null>(null);
+  const size = useElementSize(containerRef);
+  const width = size?.width ?? null;
+  const height = fullscreen ? (size?.height ?? null) : null;
   const [state, setState] = useState<ChartState>({ status: "rendering" });
 
   useEffect(() => {
@@ -42,13 +56,19 @@ function ChartCanvas({ code, spec }: { code: string; spec: TopLevelSpec }) {
     if (!container) return;
     let cancelled = false;
     setState({ status: "rendering" });
-    renderVegaLite(container, spec, vegaThemeConfig(theme)).then(
+    renderVegaLite(container, spec, vegaThemeConfig(theme), {
+      fitHeight: fullscreen,
+    }).then(
       (view) => {
         if (cancelled) {
           view.finalize();
           return;
         }
-        viewRef.current = { view, width: container.clientWidth };
+        viewRef.current = {
+          view,
+          width: container.clientWidth,
+          height: container.clientHeight,
+        };
         setState({ status: "ready" });
       },
       (error: unknown) => {
@@ -61,38 +81,54 @@ function ChartCanvas({ code, spec }: { code: string; spec: TopLevelSpec }) {
       viewRef.current = null;
       container.replaceChildren();
     };
-  }, [spec, theme]);
+  }, [fullscreen, spec, theme]);
 
   useEffect(() => {
     const rendered = viewRef.current;
-    if (!rendered || width === null || width === rendered.width || !fitsContainerWidth(spec)) {
-      return;
-    }
+    if (!rendered || width === null) return;
+    const widthChanged = fitsContainerWidth(spec) && width !== rendered.width;
+    const heightChanged =
+      fullscreen &&
+      height !== null &&
+      height > 0 &&
+      fitsContainerHeight(spec) &&
+      height !== rendered.height;
+    if (!widthChanged && !heightChanged) return;
     rendered.width = width;
+    if (height !== null) rendered.height = height;
     let cancelled = false;
-    resizeToContainer(rendered.view, spec, width).catch((error: unknown) => {
+    resizeToContainer(rendered.view, spec, width, height ?? undefined).catch((error: unknown) => {
       if (!cancelled) setState(failed(error));
     });
     return () => {
       cancelled = true;
     };
-  }, [spec, width, state.status]);
+  }, [fullscreen, spec, width, height, state.status]);
 
   useLayoutEffect(() => {
-    if (state.status === "ready" && containerRef.current) {
+    if (!fullscreen && state.status === "ready" && containerRef.current) {
       rememberHeight(code, containerRef.current.offsetHeight);
     }
-  }, [code, state.status]);
+  }, [code, fullscreen, state.status]);
 
   const rendering = state.status === "rendering";
   return (
     <>
       <div
-        className={rendering ? "relative min-h-24" : "relative"}
-        style={rendering ? { minHeight: rememberedHeight(code) } : undefined}
+        className={
+          fullscreen ? "relative min-h-0 flex-1" : rendering ? "relative min-h-24" : "relative"
+        }
+        style={!fullscreen && rendering ? { minHeight: rememberedHeight(code) } : undefined}
       >
         {rendering && <VisualLoading overlay label="Rendering chart…" />}
-        <div ref={containerRef} className="w-full overflow-x-auto" />
+        <div
+          ref={containerRef}
+          className={
+            fullscreen
+              ? "flex h-full w-full overflow-auto [&_svg]:m-auto"
+              : "w-full overflow-x-auto"
+          }
+        />
       </div>
       {state.status === "error" && (
         <VisualError message={`Could not render chart: ${state.message}`} />
@@ -103,6 +139,7 @@ function ChartCanvas({ code, spec }: { code: string; spec: TopLevelSpec }) {
 
 interface VegaLiteChartProps {
   code: string;
+  variant?: "inline" | "fullscreen";
 }
 
 const CHART_FENCE = {
@@ -112,10 +149,17 @@ const CHART_FENCE = {
 };
 
 /** A ` ```vega-lite ` fence: the chart, with its JSON one click away. */
-const VegaLiteChart = memo(function VegaLiteChart({ code }: VegaLiteChartProps) {
+const VegaLiteChart = memo(function VegaLiteChart({
+  code,
+  variant = "inline",
+}: VegaLiteChartProps) {
   const parsed = useMemo(() => parseVegaLiteSpec(code), [code]);
+  const expand = useCallback(() => openVisualFullscreen({ kind: "vega-lite", code }), [code]);
 
   if (!parsed.ok) {
+    if (variant === "fullscreen") {
+      return <VisualError message={`Could not render chart: ${parsed.error}`} />;
+    }
     return (
       <>
         <VisualError message={`Could not render chart: ${parsed.error}`} />
@@ -123,8 +167,11 @@ const VegaLiteChart = memo(function VegaLiteChart({ code }: VegaLiteChartProps) 
       </>
     );
   }
+  if (variant === "fullscreen") {
+    return <ChartCanvas code={code} spec={parsed.spec} variant="fullscreen" />;
+  }
   return (
-    <VisualChrome {...CHART_FENCE} code={code}>
+    <VisualChrome {...CHART_FENCE} code={code} onExpand={expand}>
       <ChartCanvas code={code} spec={parsed.spec} />
     </VisualChrome>
   );

@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import {
   INSTRUMENT_SLOTS,
   SESSION_SLOTS,
@@ -150,8 +150,10 @@ export function useInstrumentRows(): InstrumentRows {
       const next = chooseSplit(splitRef.current, measured.widths, measured.spacing);
       if (next === splitRef.current) return;
       splitRef.current = next;
-      // Before paint: the card never shows a frame of the outgoing layout.
-      flushSync(() => setSplit(next));
+      // Let React commit normally instead of `flushSync`: synchronously moving
+      // observed host nodes inside a ResizeObserver callback triggers
+      // Chromium's "ResizeObserver loop completed with undelivered notifications".
+      setSplit(next);
     });
     observer.observe(row);
     for (const host of Object.values(hosts)) observer.observe(host);

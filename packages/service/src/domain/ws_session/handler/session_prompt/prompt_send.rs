@@ -12,7 +12,7 @@ use super::super::session_profile::{
     validate_resume_profile_state, SessionProfileUpdate,
 };
 use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
-use super::prompt_send_entry::{report_prompt_result, PromptedSelection};
+use super::prompt_send_entry::report_prompt_result;
 use super::prompt_validation;
 use crate::domain::ws_session::runtime::prompt::prompt_followup::{
     handle_followup_prompt, FollowupPromptContext,
@@ -21,6 +21,7 @@ use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::{
     apply_respawn_if_needed, dispatch_changes, log_dispatch_decision, notify_deferred_respawn,
 };
 use crate::domain::ws_session::runtime::prompt::prompt_selection_sync::{self, StoredSelection};
+use crate::domain::ws_session::runtime::prompt::user_selection::PromptedSelection;
 
 pub(in crate::domain::ws_session) struct PreparedPrompt {
     pub payload: PromptSendPayload,
@@ -91,8 +92,9 @@ pub(in crate::domain::ws_session) async fn dispatch_local_phase(
     notify_deferred_respawn(sender, &envelope.id, &changes);
 
     if let QueryState::Active { query, .. } = &handle.state {
-        let selection = PromptedSelection::of(handle);
+        let selection = PromptedSelection::active(handle);
         let context = build_followup_context()
+            .selection(selection)
             .query(query.clone())
             .delivery_lease(handle.identity.begin_delivery())
             .feature_id(handle.feature_id)
@@ -105,7 +107,7 @@ pub(in crate::domain::ws_session) async fn dispatch_local_phase(
             .call();
         drop(sessions);
         let result = handle_followup_prompt(context, payload).await;
-        report_prompt_result(sender, &envelope.id, selection, result);
+        report_prompt_result(sender, &envelope.id, result);
         return None;
     }
     drop(sessions);
@@ -138,9 +140,9 @@ pub(in crate::domain::ws_session) async fn dispatch_owner_phase(
         .await
         {
             match target {
-                OwnerPromptTarget::Followup(context, selection) => {
+                OwnerPromptTarget::Followup(context) => {
                     let result = handle_followup_prompt(context, payload).await;
-                    report_prompt_result(sender, &envelope.id, selection, result);
+                    report_prompt_result(sender, &envelope.id, result);
                 }
                 OwnerPromptTarget::Pending(owner_sessions) => {
                     spawn_pending_prompt(
@@ -167,6 +169,7 @@ pub(in crate::domain::ws_session) async fn dispatch_owner_phase(
 #[bon::builder]
 pub(super) fn build_followup_context(
     query: RuntimeSessionHandle,
+    selection: PromptedSelection,
     delivery_lease: crate::domain::ws_session::runtime::state::RuntimeDeliveryLease,
     feature_id: i64,
     db_session_id: i64,
@@ -178,6 +181,7 @@ pub(super) fn build_followup_context(
 ) -> FollowupPromptContext {
     FollowupPromptContext {
         query,
+        user_selection: Some(selection),
         delivery_lease: Some(delivery_lease),
         feature_id,
         db_session_id,
@@ -204,7 +208,7 @@ pub(super) fn build_followup_context(
               common case, so boxing it would only add an allocation"
 )]
 enum OwnerPromptTarget {
-    Followup(FollowupPromptContext, PromptedSelection),
+    Followup(FollowupPromptContext),
     Pending(SdkSessions),
 }
 
@@ -238,7 +242,7 @@ async fn owner_prompt_target(
                 handle.identity.begin_delivery(),
                 handle.feature_id,
                 handle.runtime_provider.clone(),
-                PromptedSelection::of(handle),
+                PromptedSelection::active(handle),
             ),
             QueryState::Pending(_) => {
                 drop(sessions);
@@ -256,6 +260,7 @@ async fn owner_prompt_target(
     Some(OwnerPromptTarget::Followup(
         build_followup_context()
             .query(query)
+            .selection(selection)
             .delivery_lease(delivery_lease)
             .feature_id(feature_id)
             .db_session_id(db_session_id)
@@ -265,7 +270,6 @@ async fn owner_prompt_target(
             .app_state(app_state)
             .envelope_id(envelope_id.to_string())
             .call(),
-        selection,
     ))
 }
 

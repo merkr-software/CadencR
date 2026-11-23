@@ -60,6 +60,7 @@ mod runtime_error;
 mod server_request_method;
 mod session;
 mod session_permissions;
+mod spawn_options;
 mod thread_params;
 mod timeouts;
 mod trusted_mcp;
@@ -130,6 +131,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "default".to_string(),
             label: "Default".to_string(),
+            accent: None,
             description: Some(
                 "Runs in the workspace-write sandbox. Codex asks you to review command, network, or file access when approval is needed."
                     .to_string(),
@@ -138,6 +140,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "fullAccess".to_string(),
             label: "Full Access".to_string(),
+            accent: None,
             description: Some(
                 "Disables sandboxing and approval prompts. Codex can run commands and access files or network without asking first."
                     .to_string(),
@@ -146,6 +149,7 @@ fn access_mode_catalog() -> Vec<super::runtime::ProviderModeCatalogEntry> {
         super::runtime::ProviderModeCatalogEntry {
             id: "autoReview".to_string(),
             label: "Auto Review".to_string(),
+            accent: None,
             description: Some(
                 "Keeps the workspace-write sandbox, but lets Codex automatically review approval requests instead of routing each one to you."
                     .to_string(),
@@ -193,7 +197,7 @@ include!("adapter_impl.rs");
 
 #[cfg(test)]
 mod tests {
-    use super::{catalog_from_models, model_entry, profile_runtime, CodexAdapter};
+    use super::{catalog_from_models, model_entry, CodexAdapter};
     use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeUserShellStrategy};
     use codex_app_server_sdk_rs::{CodexModel, CodexServiceTier};
     use serde_json::Value;
@@ -325,20 +329,6 @@ mod tests {
             adapter.canonicalize_model_id("gpt-5.6-sol", &catalog.models),
             "gpt-5.6-sol"
         );
-    }
-
-    #[test]
-    fn enables_request_user_input_in_default_mode() {
-        let options = profile_runtime::app_server_spawn_options(None, Vec::new(), None);
-        assert!(options
-            .enable_features
-            .contains(&"default_mode_request_user_input".to_string()));
-    }
-
-    #[test]
-    fn leaves_live_request_timeout_to_sdk_default() {
-        let options = profile_runtime::app_server_spawn_options(None, Vec::new(), None);
-        assert!(options.request_timeout.is_none());
     }
 
     #[test]

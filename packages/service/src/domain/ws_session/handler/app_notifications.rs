@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::protocol::WsEnvelope;
@@ -14,7 +15,9 @@ pub(super) fn subscribe_storage_maintenance(sender: &WsSender, app_state: &AppSt
     if let Some(event) = app_state.storage_maintenance_events_tx.active() {
         let payload = serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({}));
         let update = WsEnvelope::new("app", "storage_maintenance", payload);
-        let _ = sender.send(Message::Text(String::from(update).into()));
+        sender
+            .send(Message::Text(String::from(update).into()))
+            .ignore_closed();
     }
     forward_app_events(sender, rx, "storage_maintenance", OnLag::Skip);
 }
@@ -70,7 +73,9 @@ pub(super) fn subscribe_provider_update_events(sender: &WsSender, app_state: &Ap
     let event = app_state.provider_updates.snapshot().into_event(None);
     let payload = serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({}));
     let update = WsEnvelope::new("app", "provider_updates", payload);
-    let _ = sender.send(Message::Text(String::from(update).into()));
+    sender
+        .send(Message::Text(String::from(update).into()))
+        .ignore_closed();
     forward_app_events(sender, rx, "provider_updates", OnLag::Skip);
 }
 

@@ -25,6 +25,7 @@ pub(crate) mod process_tree;
 mod process_tree_windows;
 pub mod runtime;
 pub mod types;
+pub mod wire_transform;
 
 pub use client::{AcpClient, AcpSpawnOptions, AcpStderrPolicy};
 pub use error::AcpError;

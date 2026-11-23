@@ -50,6 +50,11 @@ export interface UseSessionTabsArgs {
   agentVisible: boolean;
   /** Per-kind readiness; tabs reveal in priority order after the agent paints. */
   tabReady: NonAgentTabReadiness;
+  /**
+   * Custom tabs (placed, or shown in a built-in's place) open and close with
+   * the side tabs' gate, all at once: no stagger.
+   */
+  pluginTabsReady: boolean;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
   /** Opener for file references clicked inside the agent conversation. */
@@ -59,6 +64,11 @@ export interface UseSessionTabsArgs {
    * an embedded unified-grid card shows built-ins only.
    */
   pluginTabsEnabled: boolean;
+  /**
+   * Paint the transcript's tail in the workspace's first commit. Only the
+   * feature route: a grid of embedded cards mounts many transcripts at once.
+   */
+  openingPreview: boolean;
 }
 
 export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
@@ -92,13 +102,37 @@ function replaced(builtin: FeatureTabDef, replacement: FeatureTabDef | undefined
 }
 
 function useSessionPluginTabs(args: UseSessionTabsArgs): PluginTabDefs {
-  const { featureId, projectId, data, pluginTabsEnabled } = args;
-  return usePluginTabDefs({
+  const { featureId, projectId, data, pluginTabsEnabled, pluginTabsReady } = args;
+  const defs = usePluginTabDefs({
     featureId,
     projectId,
     contextData: data,
     enabled: pluginTabsEnabled,
   });
+  return useMemo(
+    () => (pluginTabsReady ? defs : deferredPluginTabs(defs)),
+    [defs, pluginTabsReady],
+  );
+}
+
+/** The same tabs, their content waiting behind the gate (`DeferredTabContent`). */
+function deferredPluginTabs({ plugin, replacements }: PluginTabDefs): PluginTabDefs {
+  return { plugin: deferredDefs(plugin), replacements: deferredDefs(replacements) };
+}
+
+function deferredDefs<K extends string>(
+  defs: Partial<Record<K, FeatureTabDef>>,
+): Partial<Record<K, FeatureTabDef>> {
+  const deferred: Partial<Record<K, FeatureTabDef>> = {};
+  for (const tab in defs) {
+    const def: FeatureTabDef | undefined = defs[tab];
+    if (def) deferred[tab] = withDeferredContent(def);
+  }
+  return deferred;
+}
+
+function withDeferredContent(def: FeatureTabDef): FeatureTabDef {
+  return { ...def, content: <DeferredTabContent label={def.label} /> };
 }
 
 /**
@@ -253,10 +287,11 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
   );
 }
 
+/**
+ * A side panel waiting for its turn to mount, a few frames behind the
+ * conversation (`useStaggeredTabReadiness`). Empty on purpose: it is on screen
+ * for less time than a message would take to read.
+ */
 function DeferredTabContent({ label }: { label: string }): ReactElement {
-  return (
-    <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
-      Loading {label} after the conversation…
-    </div>
-  );
+  return <div className="h-full" data-deferred-tab={label} aria-busy="true" />;
 }

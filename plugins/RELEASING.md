@@ -40,6 +40,27 @@ and the minimum macOS version remain separate qualification work.
 
 ## Preparation contract
 
+### Compiled providers
+
+Cursor and Antigravity use the
+[native provider build workflow](../.github/workflows/cursor-provider-build.yml)
+and its [protected author workflow](../.github/workflows/cursor-provider-author.yml).
+The native build selects one provider and tests the exact distribution binary on
+macOS (Apple silicon and Intel) and Linux (ARM64 and x86-64). The pinned CLI packs
+the four native payloads and validates the source-bound marketplace metadata.
+
+Dispatch the protected author workflow with `provider`, the reviewed
+`source_commit` on `main`, the successful native `build_run` for that commit,
+and sixty-four zeros for `request_sha256`. The reviewed provider tag
+`plugins/provider-<id>/v<version>` must resolve to the same commit. Review the
+inspection inputs, then confirm the exact digest through the same protected
+environment. Both jobs independently verify build provenance, source files,
+and qualification evidence and repackage the payloads without executing them.
+The upload publishes source release assets; registry submission and signing
+follow the [registry contribution flow](../tooling/marketplace-registry/AUTHORING.md).
+
+### Tracked payloads
+
 The trusted preparer reads candidate **Git blobs only**. It never imports, invokes
 or builds a contributor script, launcher, tab bundle or provider binary. Only the
 checksum-pinned released Rust CLI executes; there is no qualification-pin or
@@ -47,15 +68,15 @@ source-build fallback in production.
 
 `release-policy.json` schema `2` is the explicit allowlist, not tag matching:
 
-| Field                         | Meaning                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| `plugins.<kind>-<id>`         | Exact official identity and independent source version                   |
-| `source_path`, `package`      | Tracked source root and full schema-2 package template                   |
-| `preparation: READY`          | Source mapping recorded; **not** legal/native/publication approval       |
-| `payloads.<target>.directory` | Source root for reviewed payload blobs                                   |
-| `files.<destination>`         | SHA-256 and output mode; optional source path and exact source mode      |
-| `closed_directories`          | Exact runtime subtrees: extra/missing files fail rather than disappear   |
-| `publication` (top level)     | `APPROVED` only through a reviewed change; preparation never sets it     |
+| Field                         | Meaning                                                                |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `plugins.<kind>-<id>`         | Exact official identity and independent source version                 |
+| `source_path`, `package`      | Tracked source root and full schema-2 package template                 |
+| `preparation: READY`          | Source mapping recorded; **not** legal/native/publication approval     |
+| `payloads.<target>.directory` | Source root for reviewed payload blobs                                 |
+| `files.<destination>`         | SHA-256 and output mode; optional source path and exact source mode    |
+| `closed_directories`          | Exact runtime subtrees: extra/missing files fail rather than disappear |
+| `publication` (top level)     | `APPROVED` only through a reviewed change; preparation never sets it   |
 
 Themes have exact closed `theme.json` trees. Explicit readme/license/icon blobs
 are included. Author scripts, tests and dependencies are not payload.
@@ -191,9 +212,9 @@ Production also requires matching `GITHUB_REPOSITORY`, `GITHUB_SHA` and
 never grants production authority. Public metadata records the canonical repository
 identity, never the local checkout path.
 
-Private scratch is retained and its path printed to stderr on packaging attempts.
-Rust failures retain a private, bounded `cli-diagnostics.log` in that scratch
-(maximum 64 KiB, mode `0600`). Public errors expose only the command stage and
-stable error code; the log is never copied into output or uploaded.
-There is no recursive cleanup: an unexpected database created in CLI HOME must
-not be deleted. Review retained scratch separately; never upload it.
+Preparation uses a private scratch directory for staged payloads, the CLI home,
+and subprocess temporary files. The command removes this directory on success
+or failure. On failures with CLI diagnostics, it saves up to 64 KiB in an
+owner-only `official-plugin-diagnostics-*.log` beside the requested output and
+reports the log path on stderr. A nonzero CLI exit also reports the command
+stage and a stable error code. Review and remove the private log locally.

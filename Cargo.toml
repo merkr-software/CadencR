@@ -12,6 +12,7 @@ members = [
     "packages/opencode-sdk-rs",
     "packages/provider-plugin-sdk-rs",
     "packages/tab-backend-sdk-rs",
+    "plugins/providers/antigravity",
     "plugins/providers/cursor",
 ]
 resolver = "2"

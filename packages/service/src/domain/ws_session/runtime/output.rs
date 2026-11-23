@@ -1,4 +1,5 @@
 //! Optional transport recipient for application work that can run headlessly.
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tokio::sync::mpsc::{error::SendError, UnboundedSender};
 
@@ -25,7 +26,8 @@ pub(crate) trait OutputTarget: Send + Sync {
             }),
         )
         .expect("command error should serialize");
-        let _ = self.send(Message::Text(String::from(envelope).into()));
+        self.send(Message::Text(String::from(envelope).into()))
+            .ignore_closed();
     }
     fn report_warning(&self, code: &'static str, message: &str, correlation_id: &str) {
         use crate::domain::ws_session::protocol::{
@@ -39,7 +41,8 @@ pub(crate) trait OutputTarget: Send + Sync {
             }),
         )
         .expect("command warning should serialize");
-        let _ = self.send(Message::Text(String::from(envelope).into()));
+        self.send(Message::Text(String::from(envelope).into()))
+            .ignore_closed();
     }
 }
 
@@ -128,7 +131,9 @@ impl CommandOutput {
             }),
         )
         .expect("permission acknowledgement should serialize");
-        let _ = recipient.send(Message::Text(String::from(envelope).into()));
+        recipient
+            .send(Message::Text(String::from(envelope).into()))
+            .ignore_closed();
     }
 }
 

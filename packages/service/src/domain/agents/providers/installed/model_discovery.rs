@@ -16,6 +16,7 @@ use agent_client_protocol::schema::v1::{
 };
 use serde::Deserialize;
 
+use crate::domain::agents::acp::runtime::prompt_turn::supports_prompt_steering;
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
 mod modes;
@@ -37,6 +38,7 @@ pub struct DiscoveredModels {
     pub models: Vec<ModelCatalogEntry>,
     /// Optional mode / access-mode selectors mapped onto host modes.
     pub modes: ProviderModeMap,
+    pub prompt_steering: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -73,15 +75,35 @@ pub async fn discover_models(
         .await
         .map_err(|error| ModelDiscoveryError::new(format!("provider model discovery {error}")))?;
     if !output.status.success() {
-        // Provider stderr can contain credentials. Record only its bounded byte
-        // count; provider authors can reproduce the command in a terminal.
-        return Err(ModelDiscoveryError::new(format!(
+        return Err(ModelDiscoveryError::new(discovery_failure(&output)));
+    }
+    parse_models(&output.stdout)
+}
+
+/// Only host-authored text enters the catalog or an install error. A native
+/// CLI can print credentials to either stream when discovery fails.
+pub(super) fn discovery_failure(
+    output: &super::managed::process_policy::ManagedCommandOutput,
+) -> String {
+    #[derive(Deserialize)]
+    #[serde(tag = "code", rename_all = "SCREAMING_SNAKE_CASE")]
+    enum Failure {
+        CliNotFound,
+        AuthenticationRequired,
+    }
+    match serde_json::from_slice(&output.stdout) {
+        Ok(Failure::CliNotFound) => {
+            "Install the provider’s native CLI and make it available on PATH, then retry.".into()
+        }
+        Ok(Failure::AuthenticationRequired) => {
+            "Sign in with the provider’s native CLI, then retry.".into()
+        }
+        Err(_) => format!(
             "provider `models` command exited with {} ({} diagnostic bytes)",
             output.status,
             output.stderr.len()
-        )));
+        ),
     }
-    parse_models(&output.stdout)
 }
 
 fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
@@ -152,6 +174,7 @@ fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
         default_model,
         models,
         modes: ProviderModeMap::parse(&options)?,
+        prompt_steering: supports_prompt_steering(primary.meta.as_ref()),
     })
 }
 
@@ -204,6 +227,30 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn discovery_failure_uses_only_recognized_codes_and_never_native_diagnostics() {
+        use super::super::managed::process_policy::ManagedCommandOutput;
+        use std::os::unix::process::ExitStatusExt;
+
+        for (code, expected) in [
+            ("CLI_NOT_FOUND", "Install the provider"),
+            ("AUTHENTICATION_REQUIRED", "Sign in"),
+            ("secret stdout", "provider `models` command exited"),
+        ] {
+            let output = ManagedCommandOutput {
+                status: std::process::ExitStatus::from_raw(1 << 8),
+                stdout: json!({"code": code, "message": "secret stdout"})
+                    .to_string()
+                    .into_bytes(),
+                stderr: b"secret stderr".to_vec(),
+            };
+            let message = super::discovery_failure(&output);
+            assert!(message.starts_with(expected), "{message}");
+            assert!(!message.contains("secret"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn managed_discovery_descendant_helper() {
         let Some(pid_file) = std::env::var_os("MODEL_DISCOVERY_TEST_PID_FILE") else {
             return;
@@ -212,7 +259,11 @@ mod tests {
             .arg("60")
             .spawn()
             .expect("spawn descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(
+            std::path::Path::new(&pid_file),
+            descendant.id(),
+        )
+        .expect("write descendant pid");
         let _ = descendant.wait();
     }
 
@@ -241,7 +292,8 @@ mod tests {
         let error = capture_provider_command(command, true, std::time::Duration::from_secs(1))
             .await
             .expect_err("managed discovery helper must time out");
-        assert!(error.to_string().contains("timed out"), "{error}");
+        // Not "could not terminate timed-out …": the tree was terminated.
+        assert!(error.to_string().contains("timed out after"), "{error}");
         let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
             .expect("helper should publish descendant pid")
             .parse()
@@ -266,6 +318,7 @@ mod tests {
             "category": "model",
             "type": "select",
             "currentValue": "vendor/opus",
+            "_meta": { "cadencr": { "promptSteering": true }},
             "options": [{
                 "value": "vendor/opus",
                 "name": "Opus",
@@ -280,6 +333,7 @@ mod tests {
         let parsed = parse_models(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert_eq!(parsed.config_id, "model");
         assert_eq!(parsed.default_model, "vendor/opus");
+        assert!(parsed.prompt_steering);
         assert_eq!(parsed.models[0].label, "Opus");
         assert_eq!(parsed.models[0].supports_effort, Some(true));
         assert_eq!(

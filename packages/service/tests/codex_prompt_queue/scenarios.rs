@@ -8,26 +8,43 @@ fn requests(h: &Harness) -> Vec<Value> {
         .collect()
 }
 
-async fn wait_idle(h: &Harness, session: i64) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id=?")
-                .bind(session)
-                .fetch_one(&h.pool)
+pub(super) async fn completed_turn_with_late_ack_drains_queue(h: &Harness) {
+    let (mut socket, session) = h.session(false).await;
+    // The first turn's reply is required before the service starts reading
+    // the runtime's stream. Warm up so it can process the next turn's events.
+    prompt(&mut socket, session, "warmup").await;
+    until(&mut socket, "ended").await;
+    until(&mut socket, "mcp_servers").await;
+
+    let reply = ProviderGate::arm(&h.repo, "turn-start-reply");
+    let (slow, later) = tokio::join!(h.enqueue(session, "slow-ack"), async {
+        reply.wait().await;
+        let ended = until(&mut socket, "ended").await;
+        assert_eq!(ended["payload"]["reason"], "turn_complete");
+        // The post-turn MCP refresh follows the completion-triggered drain.
+        until(&mut socket, "mcp_servers").await;
+        let later =
+            tokio::time::timeout(Duration::from_secs(2), h.enqueue(session, "after slow ack"))
                 .await
-                .unwrap();
-            if status != "running" {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
+                .expect("enqueue must return while the previous delivery is unacknowledged");
+        let queue = h.queue(session).await;
+        assert_eq!(queue.len(), 2, "{queue:?}");
+        assert_eq!(queue[0]["content"], "slow-ack");
+        assert_eq!(queue[0]["status"], "delivering");
+        assert_eq!(queue[1]["id"], later);
+        assert_eq!(queue[1]["status"], "pending");
+        reply.release();
+        later
+    });
+    h.wait_empty(session).await;
+    assert_eq!(h.state(slow).await, "delivered");
+    assert_eq!(h.state(later).await, "delivered");
+    socket.close(None).await.unwrap();
 }
 
 pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
+    let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
     send(
         &mut socket,
         "compact",
@@ -35,6 +52,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     )
     .await;
     until(&mut socket, "compact.started").await;
+    completion.wait().await;
     let message_uuid = uuid::Uuid::new_v4().to_string();
     let payload = json!({"session_id":session.to_string(),"text":"same logical request","message_uuid":message_uuid});
     send(&mut socket, "prompt.send", payload.clone()).await;
@@ -49,8 +67,9 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     .await
     .unwrap();
     assert_eq!(h.queue(session).await.len(), 2);
+    completion.release();
     h.wait_empty(session).await;
-    wait_idle(h, session).await;
+    h.wait_idle(session).await;
     send(&mut socket, "prompt.send", payload).await;
     prompt(&mut socket, session, "after replay").await;
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -66,7 +85,7 @@ pub(super) async fn deferred_retransmissions_run_once(h: &Harness) {
     })
     .await
     .unwrap();
-    wait_idle(h, session).await;
+    h.wait_idle(session).await;
     let delivered: Vec<Value> = requests(h)
         .into_iter()
         .filter(|r| r["params"]["input"][0]["text"] == "same logical request")
@@ -100,8 +119,7 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
                 .fetch_one(&h.pool)
                 .await
                 .unwrap();
-        let barrier = h.repo.join("pause-resume");
-        std::fs::write(&barrier, "").unwrap();
+        let resume = ProviderGate::arm(&h.repo, "resume-reply");
         if reject_resume {
             std::fs::write(h.repo.join("fail-resume-once"), "").unwrap();
         }
@@ -111,28 +129,18 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
             json!({"session_id":session.to_string()}),
         )
         .await;
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !requests(h)
-                .iter()
-                .any(|r| r["method"] == "thread/resume" && r["params"]["threadId"] == runtime_id)
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        resume.wait().await;
         let queued = tokio::time::timeout(
             Duration::from_secs(2),
             h.enqueue(session, "queued during initialization"),
         )
         .await;
-        // Release the subprocess even when acceptance unexpectedly blocked.
-        std::fs::remove_file(&barrier).unwrap();
         let queued =
             queued.expect("enqueue must not start another runtime while compaction initializes");
         assert_eq!(h.state(queued).await, "pending");
+        resume.release();
         h.wait_empty(session).await;
-        wait_idle(h, session).await;
+        h.wait_idle(session).await;
         let resume_count = requests(h)
             .iter()
             .filter(|r| r["method"] == "thread/resume" && r["params"]["threadId"] == runtime_id)
@@ -145,30 +153,28 @@ pub(super) async fn queue_waits_for_compaction_initialization(h: &Harness) {
 
 pub(super) async fn completed_compaction_with_late_ack_drains_queue(h: &Harness) {
     let (mut socket, session) = h.session(true).await;
-    let runtime_id: String =
-        sqlx::query_scalar("SELECT runtime_session_id FROM agent_sessions WHERE id=?")
-            .bind(session)
-            .fetch_one(&h.pool)
-            .await
-            .unwrap();
-    std::fs::write(h.repo.join("slow-compact-ack"), "").unwrap();
+    let reply = ProviderGate::arm(&h.repo, "compact-reply");
+    let completion = ProviderGate::arm(&h.repo, "compact-turn-completion");
     send(
         &mut socket,
         "compact",
         json!({"session_id":session.to_string()}),
     )
     .await;
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !requests(h)
-            .iter()
-            .any(|r| r["method"] == "thread/compact/start" && r["params"]["threadId"] == runtime_id)
-        {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
+    reply.wait().await;
+    let queued = tokio::time::timeout(
+        Duration::from_secs(2),
+        h.enqueue(session, "after compact late ack"),
+    )
     .await
-    .unwrap();
-    let queued = h.enqueue(session, "after compact late ack").await;
+    .expect("enqueue must not wait for the provider's compaction reply");
+    assert_eq!(h.state(queued).await, "pending");
+    completion.wait().await;
+    completion.release();
+    let ended = until(&mut socket, "ended").await;
+    assert_eq!(ended["payload"]["reason"], "turn_complete");
+    assert_eq!(h.state(queued).await, "pending");
+    reply.release();
     h.wait_empty(session).await;
     assert_eq!(h.state(queued).await, "delivered");
     socket.close(None).await.unwrap();

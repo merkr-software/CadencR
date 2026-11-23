@@ -1,5 +1,6 @@
 //! Telling the agent that its ACP session closes.
 
+use crate::shared::discard::cleanup;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{CancelNotification, CloseSessionRequest};
@@ -10,6 +11,11 @@ use super::implementation::AcpRuntimeSession;
 // peer that advertises `session/close` but never replies must still leave time
 // to close the local runtime channel before the reader is joined.
 const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+const _: () = assert!(
+    SESSION_CLOSE_TIMEOUT.as_millis()
+        < crate::domain::ws_session::stream_readers::READER_SHUTDOWN_TIMEOUT.as_millis(),
+    "an agent's session/close must leave time for the local teardown"
+);
 
 /// Prefer the stable lifecycle request when advertised. A connector that
 /// accepts it must cancel ongoing work and release the session's resources.
@@ -41,9 +47,12 @@ pub(super) async fn tell_agent(session: &AcpRuntimeSession, session_id: String) 
         true
     };
     if should_cancel {
-        let _ = session
-            .client
-            .send_notification_typed(CancelNotification::new(session_id))
-            .await;
+        cleanup(
+            session
+                .client
+                .send_notification_typed(CancelNotification::new(session_id))
+                .await,
+            "cancel the ACP session after its close failed",
+        );
     }
 }

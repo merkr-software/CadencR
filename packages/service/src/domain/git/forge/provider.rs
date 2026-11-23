@@ -243,6 +243,9 @@ pub enum ForgeError {
     /// The forge understood a write and declined it — not mergeable, head
     /// moved, branch protected. Carries the forge's own explanation.
     Refused(String),
+    /// A local helper (`gh`, `glab`) did not answer in time. Transient: a
+    /// retry may succeed without the user changing anything.
+    Timeout(String),
 }
 
 impl ForgeError {
@@ -266,7 +269,8 @@ impl fmt::Display for ForgeError {
             | Self::Http(message)
             | Self::RateLimited(message)
             | Self::Response(message)
-            | Self::Refused(message) => message,
+            | Self::Refused(message)
+            | Self::Timeout(message) => message,
         };
         f.write_str(message)
     }
@@ -335,6 +339,7 @@ mod tests {
         assert!(!ForgeError::RateLimited("slow down".into()).is_setup_failure());
         assert!(!ForgeError::Http("connection reset".into()).is_setup_failure());
         assert!(!ForgeError::Response("unexpected body".into()).is_setup_failure());
+        assert!(!ForgeError::Timeout("gh did not answer".into()).is_setup_failure());
     }
 
     #[test]

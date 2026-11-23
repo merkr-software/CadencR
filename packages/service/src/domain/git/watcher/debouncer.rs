@@ -1,25 +1,26 @@
-//! fs watch callback wiring + the background compute task.
+//! fs watch callback wiring + the background compute loop.
 //!
 //! The compute task pulls `RecomputePing`s from a channel, applies the
-//! sustained-churn cap, runs `compute_status` per registered feature, and
-//! pushes `git.status` envelopes back over the WS senders.
+//! post-completion sustained-churn cooldown (with adaptive backoff on slow
+//! recomputes), and delegates the actual Git refresh + fan-out to
+//! [`super::recompute`].
 
-use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
-use axum::extract::ws::Message;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use super::filter::is_relevant;
-use super::handle::{repo_lock, RecomputePing, RegistryInner};
+use super::handle::{RecomputePing, RegistryInner};
+use super::recompute::recompute_for_path;
 use crate::app_state::AppState;
-use crate::domain::git::git_status;
-use crate::domain::ws_session::protocol::WsEnvelope;
+use crate::error::AppError;
+use crate::shared::discard::IgnoreClosed;
 use crate::shared::git_cli::run_git_background;
 use crate::shared::ignore_watch::IgnoreAwareWatcher;
 use crate::shared::watch_limits::describe_watch_error;
@@ -29,39 +30,67 @@ pub(super) const GIT_WATCHER_DEBOUNCE_MS: u64 = 250;
 /// Window after a `nudge()` during which raw fs events are ignored as our
 /// own writes (commit, push, etc.).
 pub(super) const NUDGE_DEDUPE_MS: i64 = 750;
-/// Minimum gap between successive recomputes for the same worktree under
-/// sustained churn.
+/// Minimum post-completion rest gap between successive recomputes for the
+/// same worktree under sustained churn.
 const MIN_RECOMPUTE_GAP_MS: i64 = 1000;
-/// Slow-compute threshold; above this we coalesce.
+/// Slow-compute threshold; above this the cooldown stretches adaptively.
 const SLOW_COMPUTE_MS: u128 = 500;
+/// Upper bound for adaptive slow-compute cooldown backoff.
+const MAX_ADAPTIVE_GAP_MS: i64 = 5000;
 
+/// Monotonic millisecond timestamp (`>= 1`, reserving `0` for "never").
+/// Immune to NTP wall-clock steps backward.
 pub(super) fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_millis();
+    i64::try_from(elapsed)
+        .unwrap_or(i64::MAX - 1)
+        .saturating_add(1)
+}
+
+fn within_nudge_window(last_nudge_ms: i64, now: i64) -> bool {
+    if last_nudge_ms <= 0 {
+        return false;
+    }
+    let since_nudge = now.saturating_sub(last_nudge_ms);
+    (0..NUDGE_DEDUPE_MS).contains(&since_nudge)
+}
+
+fn remaining_cooldown_ms(last_compute_ms: i64, now: i64, gap_ms: i64) -> Option<u64> {
+    if last_compute_ms <= 0 {
+        return None;
+    }
+    let since_last = now.saturating_sub(last_compute_ms);
+    if since_last < 0 || since_last >= gap_ms {
+        return None;
+    }
+    u64::try_from(gap_ms - since_last).ok()
+}
+
+fn next_cooldown_gap_ms(compute_elapsed: Duration) -> i64 {
+    if compute_elapsed.as_millis() > SLOW_COMPUTE_MS {
+        let doubled = i64::try_from(compute_elapsed.as_millis().saturating_mul(2))
+            .unwrap_or(MAX_ADAPTIVE_GAP_MS);
+        doubled.clamp(MIN_RECOMPUTE_GAP_MS, MAX_ADAPTIVE_GAP_MS)
+    } else {
+        MIN_RECOMPUTE_GAP_MS
+    }
 }
 
 /// Start the gitignore-aware fs watch of the worktree. Blocking: walks the
 /// non-ignored tree once.
-///
-/// For linked worktrees (`git worktree add`), the worktree's gitdir and the
-/// shared common dir live outside the worktree path ([`resolve_git_roots`]);
-/// they are watched too so events on `index`, `HEAD`, refs, etc. are not
-/// missed. A Git root that cannot be watched only costs those events: fs
-/// events inside the worktree still trigger recomputes, which pick up index
-/// changes.
 pub(super) fn build_watcher(
     worktree_path: PathBuf,
     git_roots: Vec<PathBuf>,
     ping_tx: mpsc::UnboundedSender<RecomputePing>,
     last_nudge_ms: Arc<AtomicI64>,
     write_generation: Arc<AtomicU64>,
-) -> Result<IgnoreAwareWatcher, crate::error::AppError> {
+) -> Result<IgnoreAwareWatcher, AppError> {
     let cb_path = worktree_path.clone();
     let cb_roots = git_roots.clone();
     let on_change = move |paths: Vec<PathBuf>| {
         let generation = write_generation.load(Ordering::Acquire);
-        // Self-write dedupe: ignore raw fs events within NUDGE_DEDUPE_MS
-        // of an explicit nudge.
-        if now_ms() - last_nudge_ms.load(Ordering::Relaxed) < NUDGE_DEDUPE_MS {
+        if within_nudge_window(last_nudge_ms.load(Ordering::Relaxed), now_ms()) {
             debug!(
                 path = %cb_path.display(),
                 "git watcher: dropping fs event in self-write window"
@@ -69,8 +98,9 @@ pub(super) fn build_watcher(
             return;
         }
         if has_relevant_path(&cb_path, &cb_roots, &paths) {
-            // Fails only once the compute task is gone.
-            let _ = ping_tx.send(RecomputePing::FsEvent(generation));
+            ping_tx
+                .send(RecomputePing::FsEvent(generation))
+                .ignore_closed();
         }
     };
     let watcher = IgnoreAwareWatcher::start(
@@ -79,7 +109,7 @@ pub(super) fn build_watcher(
         Duration::from_millis(GIT_WATCHER_DEBOUNCE_MS),
         on_change,
     )
-    .map_err(|e| crate::error::AppError::internal(describe_watch_error("git watcher", &e)))?;
+    .map_err(|e| AppError::internal(describe_watch_error("git watcher", &e)))?;
     debug!(watches = watcher.watch_count(), "git watcher started");
     Ok(watcher)
 }
@@ -92,8 +122,7 @@ fn has_relevant_path(worktree_root: &Path, git_roots: &[PathBuf], paths: &[PathB
 }
 
 /// Resolve the worktree-specific gitdir and the shared common dir for
-/// `worktree_path`. Returns canonicalized paths, deduped. Empty when Git
-/// fails: the watcher then runs without them (see `build_watcher`).
+/// `worktree_path`. Returns canonicalized paths, deduped.
 pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
     let output = match run_git_background(
         &["rev-parse", "--git-dir", "--git-common-dir"],
@@ -112,11 +141,11 @@ pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
         }
     };
     let mut roots: Vec<PathBuf> = Vec::with_capacity(2);
-    // Each is relative to the worktree (`.git`) or absolute (a linked
-    // worktree's); joining handles both.
     for raw in output.lines().filter(|line| !line.is_empty()) {
         let candidate = worktree_path.join(raw);
-        let canonical = std::fs::canonicalize(&candidate).unwrap_or(candidate);
+        let canonical = tokio::fs::canonicalize(&candidate)
+            .await
+            .unwrap_or(candidate);
         if !roots.contains(&canonical) {
             roots.push(canonical);
         }
@@ -130,62 +159,91 @@ pub(super) fn spawn_compute_task(
     registry: Arc<Mutex<RegistryInner>>,
     worktree_path: PathBuf,
     state: AppState,
-    mut ping_rx: mpsc::UnboundedReceiver<RecomputePing>,
+    ping_rx: mpsc::UnboundedReceiver<RecomputePing>,
     last_compute_ms: Arc<AtomicI64>,
     last_nudge_ms: Arc<AtomicI64>,
     write_generation: Arc<AtomicU64>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        while let Some(ping) = ping_rx.recv().await {
-            let mut expected_generation = match ping {
-                RecomputePing::FsEvent(generation) => generation,
-                RecomputePing::Shutdown => break,
-            };
-            // Sustained-churn cap: ensure at least MIN_RECOMPUTE_GAP_MS
-            // between recomputes.
-            let now = now_ms();
-            let last = last_compute_ms.load(Ordering::Relaxed);
-            let elapsed = now - last;
-            if elapsed < MIN_RECOMPUTE_GAP_MS {
-                tokio::time::sleep(Duration::from_millis(
-                    (MIN_RECOMPUTE_GAP_MS - elapsed) as u64,
-                ))
-                .await;
-            }
-            // Always collapse work queued during the previous Git computation.
-            // In large repositories that computation can exceed the minimum
-            // gap; draining only after the sleep would then replay every stale
-            // ping from the unbounded channel.
-            match drain_latest_generation(&mut ping_rx) {
-                Ok(Some(generation)) => expected_generation = generation,
-                Ok(None) => {}
-                Err(()) => return,
-            }
-            if write_generation.load(Ordering::Acquire) != expected_generation
-                || now_ms() - last_nudge_ms.load(Ordering::Relaxed) < NUDGE_DEDUPE_MS
-            {
-                continue;
-            }
-            last_compute_ms.store(now_ms(), Ordering::Relaxed);
-
-            let started = std::time::Instant::now();
-            recompute_for_path(
-                &registry,
-                &worktree_path,
-                &state,
-                Some((write_generation.clone(), expected_generation)),
-            )
-            .await;
-            let elapsed = started.elapsed();
-            if elapsed.as_millis() > SLOW_COMPUTE_MS {
-                debug!(
-                    path = %worktree_path.display(),
-                    ms = elapsed.as_millis(),
-                    "git watcher: slow compute, will coalesce"
-                );
-            }
-        }
+        let task_path = worktree_path.clone();
+        let gen_for_closure = write_generation.clone();
+        run_compute_loop(
+            worktree_path,
+            ping_rx,
+            last_compute_ms,
+            last_nudge_ms,
+            write_generation,
+            move |expected_generation| {
+                let registry = registry.clone();
+                let task_path = task_path.clone();
+                let state = state.clone();
+                let gen = gen_for_closure.clone();
+                async move {
+                    recompute_for_path(
+                        &registry,
+                        &task_path,
+                        &state,
+                        Some((gen, expected_generation)),
+                    )
+                    .await
+                }
+            },
+        )
+        .await;
     })
+}
+
+async fn run_compute_loop<F, Fut>(
+    worktree_path: PathBuf,
+    mut ping_rx: mpsc::UnboundedReceiver<RecomputePing>,
+    last_compute_ms: Arc<AtomicI64>,
+    last_nudge_ms: Arc<AtomicI64>,
+    write_generation: Arc<AtomicU64>,
+    mut run_recompute: F,
+) where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let mut current_gap_ms = MIN_RECOMPUTE_GAP_MS;
+    while let Some(ping) = ping_rx.recv().await {
+        let mut expected_generation = match ping {
+            RecomputePing::FsEvent(generation) => generation,
+            RecomputePing::Shutdown => break,
+        };
+        // Post-completion rest gap: ensures sustained edits never lock a slow
+        // repository into a 100% duty-cycle `git status` loop.
+        let last = last_compute_ms.load(Ordering::Relaxed);
+        if let Some(sleep_ms) = remaining_cooldown_ms(last, now_ms(), current_gap_ms) {
+            tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+        }
+        match drain_latest_generation(&mut ping_rx) {
+            Ok(Some(generation)) => expected_generation = generation,
+            Ok(None) => {}
+            Err(()) => return,
+        }
+        if write_generation.load(Ordering::Acquire) != expected_generation
+            || within_nudge_window(last_nudge_ms.load(Ordering::Relaxed), now_ms())
+        {
+            continue;
+        }
+
+        let started = std::time::Instant::now();
+        let did_compute = run_recompute(expected_generation).await;
+        if !did_compute {
+            continue;
+        }
+        let elapsed = started.elapsed();
+        last_compute_ms.store(now_ms(), Ordering::Relaxed);
+        current_gap_ms = next_cooldown_gap_ms(elapsed);
+        if elapsed.as_millis() > SLOW_COMPUTE_MS {
+            debug!(
+                path = %worktree_path.display(),
+                ms = elapsed.as_millis(),
+                next_gap_ms = current_gap_ms,
+                "git watcher: slow compute, extending post-completion cooldown"
+            );
+        }
+    }
 }
 
 /// Coalesce pending fs pings to their latest write generation. A shutdown
@@ -203,133 +261,10 @@ fn drain_latest_generation(
     Ok(latest)
 }
 
-/// Resolve the live subscriber list for a worktree, then run
-/// `compute_status` per feature and broadcast the resulting envelopes.
-///
-/// `target_branch` is resolved fresh from the DB per feature on every call
-/// (not cached on `Subscriber`) so that a target-branch PATCH propagates on
-/// the next recompute without needing the registry to be mutated.
-///
-/// `pub(super)` so the parent `mod.rs` can drive a synchronous recompute
-/// from `recompute_and_broadcast` (commit / push handlers) without going
-/// through the channel + gap-enforcement path that fs events take.
-pub(super) async fn recompute_for_path(
-    registry: &Arc<Mutex<RegistryInner>>,
-    worktree_path: &Path,
-    state: &AppState,
-    expected_write_generation: Option<(Arc<AtomicU64>, u64)>,
-) {
-    // Skip observer runs that begin while Cadencr owns the worktree mutation.
-    // The endpoint drops its permit before `confirm_after_write`, which emits
-    // the fresh snapshot afterward. An observer already in flight remains
-    // protected by `--no-optional-locks` and the update runner's bounded lock
-    // recovery; terminal-driven mutations keep the existing read protection.
-    if state.git_mutations.is_active_canonical(worktree_path) {
-        return;
-    }
-    // One refresh of a repository at a time; other repositories never wait.
-    let repo_lock = repo_lock(registry, worktree_path).await;
-    let _repo = repo_lock.lock().await;
-    // A write confirmed, or a foreground mutation started, while this
-    // waited: skip the Git work.
-    if generation_changed(&expected_write_generation)
-        || state.git_mutations.is_active_canonical(worktree_path)
-    {
-        return;
-    }
-
-    // Snapshot the subscriber list under the lock, then drop it before
-    // running per-feature compute calls so we don't serialize on the slow
-    // git call.
-    let snapshot_inputs: Vec<(i64, mpsc::UnboundedSender<Message>)> = {
-        let inner = registry.lock().await;
-        match inner.handles.get(worktree_path) {
-            Some(handle) => handle
-                .subscribers
-                .iter()
-                .map(|s| (s.feature_id, s.sender.clone()))
-                .collect(),
-            None => return,
-        }
-    };
-
-    // Group senders by feature_id so we issue a single `compute_status` per
-    // feature and fan out the result to every subscriber on that feature.
-    let mut by_feature: HashMap<i64, Vec<mpsc::UnboundedSender<Message>>> = HashMap::new();
-    for (fid, tx) in snapshot_inputs {
-        by_feature.entry(fid).or_default().push(tx);
-    }
-
-    let futs = by_feature.into_iter().map(|(fid, senders)| {
-        let path = worktree_path.to_path_buf();
-        let state = state.clone();
-        let expected_write_generation = expected_write_generation.clone();
-        async move {
-            // Re-resolve target_branch every time so PATCHes on the
-            // feature setting are reflected without registry mutation.
-            // Falls back to "main" so a transient DB error still yields
-            // a determinate snapshot rather than a blank one.
-            let target =
-                crate::domain::git::workflow_service::resolve_target_branch(&state, fid, &path)
-                    .await
-                    .unwrap_or_else(|_| "main".to_string());
-            match git_status::compute_status_or_empty(&path, fid, &target).await {
-                Ok(mut snap) => {
-                    crate::domain::git::workflow_service::enrich_snapshot(
-                        &state,
-                        &mut snap,
-                        &path.to_string_lossy(),
-                    )
-                    .await;
-                    if generation_changed(&expected_write_generation) {
-                        return;
-                    }
-                    let env =
-                        WsEnvelope::new("git", "status", serde_json::to_value(&snap).unwrap());
-                    broadcast(&senders, &env);
-                }
-                Err(err) => {
-                    if generation_changed(&expected_write_generation) {
-                        return;
-                    }
-                    warn!(
-                        feature_id = fid,
-                        path = %path.display(),
-                        error = %err,
-                        "git watcher: compute_status failed"
-                    );
-                    let env = WsEnvelope::new(
-                        "git",
-                        "status_error",
-                        serde_json::json!({
-                            "feature_id": fid,
-                            "error": err.to_string(),
-                        }),
-                    );
-                    broadcast(&senders, &env);
-                }
-            }
-        }
-    });
-
-    futures::future::join_all(futs).await;
-}
-
-fn generation_changed(expected: &Option<(Arc<AtomicU64>, u64)>) -> bool {
-    expected
-        .as_ref()
-        .is_some_and(|(generation, value)| generation.load(Ordering::Acquire) != *value)
-}
-
-fn broadcast(senders: &[mpsc::UnboundedSender<Message>], envelope: &WsEnvelope) {
-    let payload = String::from(envelope.clone());
-    for tx in senders {
-        let _ = tx.send(Message::Text(payload.clone().into()));
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
 
     #[test]
@@ -348,12 +283,42 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn cooldown_and_nudge_helpers_ignore_unset_and_backward_timestamps() {
+        assert_eq!(remaining_cooldown_ms(0, 10, MIN_RECOMPUTE_GAP_MS), None);
+        assert_eq!(remaining_cooldown_ms(500, 200, MIN_RECOMPUTE_GAP_MS), None);
+        assert_eq!(
+            remaining_cooldown_ms(500, 750, MIN_RECOMPUTE_GAP_MS),
+            Some(750)
+        );
+        assert_eq!(remaining_cooldown_ms(500, 1500, MIN_RECOMPUTE_GAP_MS), None);
+
+        assert!(!within_nudge_window(0, 10));
+        assert!(!within_nudge_window(500, 200));
+        assert!(within_nudge_window(500, 700));
+        assert!(!within_nudge_window(500, 500 + NUDGE_DEDUPE_MS));
+    }
+
+    #[test]
+    fn adaptive_cooldown_scales_for_slow_computes_and_caps_at_five_seconds() {
+        assert_eq!(
+            next_cooldown_gap_ms(Duration::from_millis(100)),
+            MIN_RECOMPUTE_GAP_MS
+        );
+        assert_eq!(
+            next_cooldown_gap_ms(Duration::from_millis(500)),
+            MIN_RECOMPUTE_GAP_MS
+        );
+        assert_eq!(next_cooldown_gap_ms(Duration::from_millis(750)), 1500);
+        assert_eq!(next_cooldown_gap_ms(Duration::from_millis(1200)), 2400);
+        assert_eq!(
+            next_cooldown_gap_ms(Duration::from_millis(4000)),
+            MAX_ADAPTIVE_GAP_MS
+        );
+    }
+
     #[tokio::test]
     async fn rapid_writes_coalesce_to_one_emission() {
-        // Simulate the fs callback path directly: the OS-level debouncer is
-        // too platform-dependent to assert exact emission counts in a unit
-        // test. What we own is the channel between callback and compute
-        // task, and the gap-enforcement drain logic.
         let (tx, mut rx) = mpsc::unbounded_channel::<RecomputePing>();
         for _ in 0..5 {
             tx.send(RecomputePing::FsEvent(0)).unwrap();
@@ -380,5 +345,62 @@ mod tests {
         tx.send(RecomputePing::FsEvent(1)).unwrap();
         tx.send(RecomputePing::FsEvent(2)).unwrap();
         assert_eq!(drain_latest_generation(&mut rx), Ok(Some(2)));
+    }
+
+    #[tokio::test]
+    async fn slow_recompute_enforces_post_completion_adaptive_cooldown_before_next_ping() {
+        let (ping_tx, ping_rx) = mpsc::unbounded_channel::<RecomputePing>();
+        let last_compute_ms = Arc::new(AtomicI64::new(0));
+        let last_nudge_ms = Arc::new(AtomicI64::new(0));
+        let write_generation = Arc::new(AtomicU64::new(0));
+        let (events_tx, mut events_rx) = mpsc::unbounded_channel::<(usize, std::time::Instant)>();
+        let run_count = Arc::new(AtomicUsize::new(0));
+
+        let loop_task = tokio::spawn({
+            let run_count = Arc::clone(&run_count);
+            run_compute_loop(
+                PathBuf::from("/slow-repo"),
+                ping_rx,
+                last_compute_ms,
+                last_nudge_ms,
+                write_generation,
+                move |_| {
+                    let run_count = Arc::clone(&run_count);
+                    let events_tx = events_tx.clone();
+                    async move {
+                        let idx = run_count.fetch_add(1, Ordering::SeqCst);
+                        events_tx.send((idx, std::time::Instant::now())).unwrap();
+                        if idx == 0 {
+                            tokio::time::sleep(Duration::from_millis(1050)).await;
+                        }
+                        true
+                    }
+                },
+            )
+        });
+
+        ping_tx.send(RecomputePing::FsEvent(0)).unwrap();
+        let (first_idx, first_start) = events_rx.recv().await.unwrap();
+        assert_eq!(first_idx, 0);
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        ping_tx.send(RecomputePing::FsEvent(0)).unwrap();
+
+        let (second_idx, second_start) =
+            tokio::time::timeout(Duration::from_secs(5), events_rx.recv())
+                .await
+                .expect("second recompute should run after adaptive cooldown")
+                .unwrap();
+        assert_eq!(second_idx, 1);
+
+        let first_end_approx = first_start + Duration::from_millis(1050);
+        let post_completion_gap = second_start.saturating_duration_since(first_end_approx);
+        assert!(
+            post_completion_gap >= Duration::from_millis(1800),
+            "expected adaptive post-completion gap (~2100 ms), got {post_completion_gap:?}"
+        );
+
+        ping_tx.send(RecomputePing::Shutdown).unwrap();
+        loop_task.await.unwrap();
     }
 }

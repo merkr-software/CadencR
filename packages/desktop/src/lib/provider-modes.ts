@@ -4,7 +4,7 @@
  *
  * Built-ins keep their hand-styled tables (mirroring the backend
  * `provider_supports_mode` matrix); every other provider gets its modes from
- * the runtime catalog, styled by the host mode id alone.
+ * the runtime catalog, with host defaults and optional theme accents.
  */
 import {
   ClipboardList,
@@ -17,6 +17,7 @@ import {
 
 import { PROVIDER_IDS, type ProviderId } from "./providers";
 import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
+import { MODE_ACCENTS } from "./provider-mode-accents";
 import { catalogProviderMode, UNKNOWN_MODE_STYLE } from "./provider-catalog-modes";
 import { getCatalogProviderMetadata } from "./provider-catalog-registry";
 import { OPENCODE_AGENT_MODE_PREFIX, type PermissionMode } from "@/types/permission-mode";
@@ -81,8 +82,7 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     label: "Auto",
     icon: Sparkles,
     risk: "auto",
-    tone: "var(--acc-yellow)",
-    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
+    ...MODE_ACCENTS.yellow,
     description:
       "Classifier-backed: safe actions auto-run, risky ones blocked. Requires Sonnet 4.6 / Opus 4.6+.",
   },
@@ -91,9 +91,7 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     label: "Auto-Accept Edits",
     icon: FileEditIcon,
     risk: "edits",
-    tone: "var(--chip-violet-fg)",
-    chipClass:
-      "bg-[var(--chip-violet-bg)]/15 text-[var(--chip-violet-fg)] hover:bg-[var(--chip-violet-bg)]/25",
+    ...MODE_ACCENTS.violet,
     description: "Auto-approve file edits in the working directory.",
   },
   {
@@ -101,8 +99,7 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     label: "Plan",
     icon: ClipboardList,
     risk: "read",
-    tone: "var(--acc-green)",
-    chipClass: "bg-[var(--acc-green)]/15 text-[var(--acc-green)] hover:bg-[var(--acc-green)]/25",
+    ...MODE_ACCENTS.green,
     description: "Research and propose changes without editing source.",
   },
   {
@@ -123,8 +120,7 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     icon: Hammer,
     risk: "ask",
     tone: "var(--muted-foreground)",
-    chipClass:
-      "bg-[var(--chip-blue-bg)]/15 text-[var(--chip-blue-fg)] hover:bg-[var(--chip-blue-bg)]/25",
+    chipClass: MODE_ACCENTS.blue.chipClass,
     description: "Ask before each edit or command, as Claude Code's default mode.",
     heldOnly: true,
   },
@@ -146,8 +142,7 @@ const OPENCODE_MODES: ProviderMode[] = [
     label: "Plan",
     icon: ClipboardList,
     risk: "read",
-    tone: "var(--acc-yellow)",
-    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
+    ...MODE_ACCENTS.yellow,
     description: "Restricted OpenCode agent for analysis without changes.",
   },
 ];
@@ -161,8 +156,7 @@ const CODEX_MODES: ProviderMode[] = [
     // Grey in the composer: on Codex only Plan is a "mode". The compact chip
     // (other surfaces) keeps its historical blue.
     tone: "var(--muted-foreground)",
-    chipClass:
-      "bg-[var(--chip-blue-bg)]/15 text-[var(--chip-blue-fg)] hover:bg-[var(--chip-blue-bg)]/25",
+    chipClass: MODE_ACCENTS.blue.chipClass,
     description: "Workspace-write sandbox with on-request approvals.",
   },
   {
@@ -200,9 +194,7 @@ export function getProviderModes(
     if (providerId !== PROVIDER_IDS.OPENCODE || !catalogModes?.length) return modes;
     return [...modes, ...catalogModes.map(opencodeCatalogMode)];
   }
-  const declared = catalogModes?.length
-    ? catalogModes
-    : (getCatalogProviderMetadata(providerId)?.modes ?? []);
+  const declared = catalogModes ?? getCatalogProviderMetadata(providerId)?.modes ?? [];
   return declared.map(catalogProviderMode);
 }
 

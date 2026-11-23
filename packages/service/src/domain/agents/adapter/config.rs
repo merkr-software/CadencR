@@ -38,9 +38,9 @@ pub struct RuntimeTokenUsageEntry {
 /// Provider-native accounting attached to a runtime event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeTokenUsage {
-    /// Final usage for one completed turn. `event_id` makes replay idempotent.
+    /// Usage for one turn or provider response. `event_id` makes replay idempotent.
     Delta {
-        /// Provider-native result/request identity.
+        /// Stable result/request identity.
         event_id: Option<String>,
         /// Correlation identity shared with history import. Claimed alongside
         /// `event_id` without replacing the provider-native replay key.
@@ -125,23 +125,25 @@ impl RuntimeTokenUsage {
     }
 
     /// Add a history/live correlation key while preserving the provider's own
-    /// replay identity. `fallback` is used only when the provider supplied no
-    /// event id at all.
-    pub fn correlate_event_id(&mut self, correlation: Option<String>, fallback: Option<String>) {
-        if let Self::Delta {
+    /// replay identity. The correlation key is built only for reports that
+    /// accept it. `fallback` is used only when the provider supplied no event id.
+    pub fn correlate_event_id(
+        &mut self,
+        correlation: impl FnOnce() -> Option<String>,
+        fallback: Option<&str>,
+    ) {
+        let Self::Delta {
             event_id,
             correlation_id,
-            correlate_provider_message,
+            correlate_provider_message: true,
             ..
         } = self
-        {
-            if !*correlate_provider_message {
-                return;
-            }
-            *correlation_id = correlation.filter(|id| Some(id) != event_id.as_ref());
-            if event_id.is_none() {
-                *event_id = fallback;
-            }
+        else {
+            return;
+        };
+        *correlation_id = correlation().filter(|id| Some(id) != event_id.as_ref());
+        if event_id.is_none() {
+            *event_id = fallback.map(str::to_owned);
         }
     }
 
@@ -273,6 +275,8 @@ pub enum RuntimePurpose {
 pub struct RuntimeSpawnConfig {
     pub cwd: PathBuf,
     pub permission_mode: Option<RuntimePermissionMode>,
+    /// The saved mode could not be checked because discovery failed during init.
+    pub validate_restored_permission_mode: bool,
     pub access_mode: Option<RuntimeAccessMode>,
     pub model: Option<String>,
     pub thinking_effort: Option<String>,
@@ -306,6 +310,7 @@ impl Default for RuntimeSpawnConfig {
         Self {
             cwd: PathBuf::new(),
             permission_mode: None,
+            validate_restored_permission_mode: false,
             access_mode: None,
             model: None,
             thinking_effort: None,

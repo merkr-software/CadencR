@@ -8,13 +8,16 @@
 mod git_ops;
 mod repo;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use sqlx::SqlitePool;
+use tokio::sync::RwLock;
 use tracing::warn;
 
 use crate::error::AppError;
+use crate::shared::keyed_locks::KeyedLocks;
 
 pub use repo::get_commit_sha;
 
@@ -22,6 +25,21 @@ pub use repo::get_commit_sha;
 /// under this; the cap only guards against a hung git so a turn never stalls
 /// indefinitely behind the checkpoint barrier.
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// A rewind's restore never overlaps a capture of the same worktree. The
+/// capture no longer holds the runtime the rewind closes first, so it would
+/// snapshot a tree half rolled back, and both would contend for git's locks.
+/// Captures share the lock: each stages into its own index and writes its own
+/// ref.
+static WORKTREE_LOCKS: LazyLock<KeyedLocks<PathBuf, RwLock<()>>> =
+    LazyLock::new(KeyedLocks::default);
+
+async fn worktree_lock(cwd: &Path) -> Result<Arc<RwLock<()>>, AppError> {
+    let key = tokio::fs::canonicalize(cwd).await.map_err(|error| {
+        AppError::internal(format!("resolve the worktree {}: {error}", cwd.display()))
+    })?;
+    Ok(WORKTREE_LOCKS.lock_for(&key).await)
+}
 
 fn checkpoint_ref(feature_id: i64, message_id: i64) -> String {
     format!("refs/cadencr/checkpoints/{feature_id}/{message_id}")
@@ -66,13 +84,19 @@ async fn try_capture_pre_turn(
 ) -> Result<(), AppError> {
     let ref_name = checkpoint_ref(feature_id, message_id);
     let label = format!("{feature_id}/{message_id}");
-    let commit = git_ops::snapshot_commit(cwd, &ref_name, &label).await?;
+    let commit = {
+        let worktree = worktree_lock(cwd).await?;
+        let _capturing = worktree.read().await;
+        git_ops::snapshot_commit(cwd, &ref_name, &label).await?
+    };
     repo::upsert_checkpoint(pool, message_id, &commit).await?;
     Ok(())
 }
 
 /// Roll the worktree back to a checkpoint commit. Used by rewind only.
 pub async fn restore(cwd: &Path, commit_sha: &str) -> Result<(), AppError> {
+    let worktree = worktree_lock(cwd).await?;
+    let _restoring = worktree.write().await;
     git_ops::restore_worktree(cwd, commit_sha).await
 }
 
@@ -183,5 +207,35 @@ mod tests {
         // Not a git repo — capture must swallow the error, not panic.
         capture_pre_turn(&pool, dir.path(), 1, 1).await;
         assert!(get_commit_sha(&pool, 1).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_restore_waits_for_captures_which_share_the_worktree() {
+        let dir = init_repo().await;
+        let p = dir.path().to_path_buf();
+        let lock = worktree_lock(&p).await.unwrap();
+        let capturing = lock.clone().read_owned().await;
+        let other_capture = tokio::time::timeout(Duration::from_secs(1), lock.read())
+            .await
+            .expect("captures of one worktree run together");
+        drop(other_capture);
+        let sha = crate::shared::git_cli::run_git(&["rev-parse", "HEAD"], &p)
+            .await
+            .unwrap();
+        let restore = tokio::spawn({
+            let p = p.clone();
+            async move { restore(&p, sha.trim()).await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!restore.is_finished(), "the restore waits for the capture");
+
+        drop(capturing);
+        restore.await.unwrap().unwrap();
+        assert!(
+            worktree_lock(Path::new("/nonexistent/cadencr-worktree"))
+                .await
+                .is_err(),
+            "an unresolvable worktree is an error, not a lock of its own"
+        );
     }
 }

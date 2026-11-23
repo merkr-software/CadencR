@@ -3,6 +3,7 @@
 //! Runs OpenCode ACP `/compact` in the background so Stop can still interrupt
 //! the in-flight `session/prompt` turn.
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -44,9 +45,10 @@ pub(super) async fn spawn_compact_turn(session: &AcpRuntimeSession) -> Result<()
     tokio::spawn(async move {
         let result = turn.run().await;
         if let Err(error) = result {
-            let _ = local_tx
+            local_tx
                 .send(Err(RuntimeError::compact_failed(error.to_string())))
-                .await;
+                .await
+                .ignore_closed();
         }
     });
     Ok(())
@@ -133,6 +135,7 @@ mod tests {
             current_mode: None,
             session_config: Default::default(),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         }
     }
@@ -264,6 +267,7 @@ mod tests {
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
             indexer: Arc::clone(&indexer),
+            prompt_turn_lock: Default::default(),
         };
         let _loop_task = spawn_event_loop(client.clone(), event_rx, tx.clone(), cfg);
         let mut session = AcpRuntimeSession::assemble()

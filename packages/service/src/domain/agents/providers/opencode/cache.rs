@@ -4,16 +4,18 @@
 //! `domain::agents::catalog_cache` one; this module adds the context-window
 //! table probed alongside the catalog and the spawn-path read.
 //!
-//! The probe seam is intentional: the production path uses
-//! `super::probe::run`, but inline tests inject a closure via
-//! `live_catalog_entry_with` without actually spawning a subprocess.
+//! The production path uses `super::probe::run` via stale-while-revalidate;
+//! inline tests inject a closure via `live_catalog_entry_with` without spawning
+//! a subprocess.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, LazyLock};
 
+#[cfg(test)]
 use opencode_sdk_rs::ConfigProvidersResponse;
 
+#[cfg(test)]
 use crate::domain::agents::adapter::RuntimeError;
 use crate::domain::agents::catalog_cache::{CachedCatalog, CatalogProvider, LiveCatalogCache};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
@@ -21,25 +23,32 @@ use crate::domain::agents::runtime::ProviderCatalogEntry;
 /// The catalog plus a `model id → context window` table.
 pub(super) type CatalogCacheEntry = CachedCatalog<HashMap<String, u64>>;
 
-static CATALOG_CACHE: LazyLock<LiveCatalogCache<(), HashMap<String, u64>>> = LazyLock::new(|| {
-    LiveCatalogCache::new(CatalogProvider {
-        id: super::PROVIDER_ID,
-        label: super::PROVIDER_LABEL,
-        name: super::PROVIDER_LABEL,
-    })
-});
+static CATALOG_CACHE: LazyLock<Arc<LiveCatalogCache<(), HashMap<String, u64>>>> =
+    LazyLock::new(|| {
+        Arc::new(LiveCatalogCache::new(CatalogProvider::borrowed(
+            super::PROVIDER_ID,
+            super::PROVIDER_LABEL,
+            super::PROVIDER_LABEL,
+        )))
+    });
 
-/// Production entry points use the real subprocess probe.
+/// Production entry points use stale-while-revalidate so a warm catalog never
+/// blocks `/api/agent-catalog` or session init on `opencode models --verbose`.
 pub(super) async fn live_catalog() -> Arc<ProviderCatalogEntry> {
     live_catalog_entry().await.catalog
 }
 
 pub(super) async fn live_catalog_entry() -> CatalogCacheEntry {
-    live_catalog_entry_with(super::probe::run).await
+    CATALOG_CACHE
+        .get_or_revalidate((), || async {
+            super::probe::run().await.map(super::catalog_from_response)
+        })
+        .await
 }
 
 /// Probe seam. Tests inject a closure that returns `Ok`/`Err`
 /// deterministically without spawning a subprocess.
+#[cfg(test)]
 pub(super) async fn live_catalog_entry_with<F, Fut>(probe: F) -> CatalogCacheEntry
 where
     F: Fn() -> Fut,
@@ -59,7 +68,13 @@ where
 /// cache waits for the probe.
 pub(super) async fn cached_catalog_entry() -> CatalogCacheEntry {
     cached_catalog_entry_with(live_catalog_entry, || {
-        tokio::spawn(live_catalog_entry());
+        tokio::spawn(async {
+            let _ = CATALOG_CACHE
+                .get_with(&(), || async {
+                    super::probe::run().await.map(super::catalog_from_response)
+                })
+                .await;
+        });
     })
     .await
 }

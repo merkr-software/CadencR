@@ -1,6 +1,7 @@
 //! Tiny helpers shared across the per-action handlers: permission-mode
 //! parsing, runtime-session ID persistence, error envelope emission.
 use crate::domain::ws_session::runtime::output::OutputTarget;
+use crate::shared::discard::IgnoreClosed;
 
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
@@ -17,6 +18,7 @@ use crate::domain::ws_session::protocol::{
     RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope,
 };
 
+use super::prompt::mcp_servers::mcp_servers_message_from_servers;
 use super::session_init_resume::persistable_resume_session_id_for_provider;
 use crate::domain::ws_session::stream_readers::{close_failure_is_benign, process_alive};
 
@@ -30,6 +32,19 @@ pub(in crate::domain::ws_session) struct RuntimeCloseContext<'a> {
     /// The caller proved no turn needs the runtime.
     #[builder(default)]
     idle: bool,
+}
+
+impl RuntimeCloseContext<'_> {
+    /// Tell every viewer of `feature_id` about a session error once the
+    /// session lock is released.
+    pub(in crate::domain::ws_session) async fn broadcast_error(
+        &self,
+        feature_id: i64,
+        code: &str,
+        message: String,
+    ) {
+        broadcast_session_error(self.feature_senders, feature_id, code, message).await;
+    }
 }
 
 /// Parse a session_id string from client payload into i64 DB key.
@@ -104,7 +119,17 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
     }
     // Read first: closing may drop the process handle.
     let pid = q.pid();
-    if let Err(error) = q.close().await {
+    let result = q.close().await;
+    // Intentional retirement can already have detached this runtime. Publish
+    // from the exact instance while its caller still prevents replacement.
+    if let Some(servers) = q.ended_mcp_servers().await {
+        let message = mcp_servers_message_from_servers(db_session_id, servers);
+        context
+            .feature_senders
+            .broadcast_all(feature_id, &message)
+            .await;
+    }
+    if let Err(error) = result {
         // The shutdown's own rule: an idle runtime whose process is already
         // gone (the service's process group took it) lost nothing.
         if context.idle
@@ -134,29 +159,33 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
     resume_sid
 }
 
-/// The value whose anchoring write succeeded, or `None` once the failure was
-/// reported to the requester.
-pub(in crate::domain::ws_session) fn saved_or_report<T>(
+/// The setting that was read, or `None` once the read failure was reported to
+/// the requester. A setting that cannot be read never falls back to a default:
+/// the session would start with a value the user did not choose.
+pub(in crate::domain::ws_session) fn setting_or_report<T>(
     sender: &impl OutputTarget,
     envelope_id: &str,
     what: &str,
-    saved: Result<T, sqlx::Error>,
+    read: Result<T, crate::error::AppError>,
 ) -> Option<T> {
-    saved
-        .map_err(|error| {
-            let message = format!("Failed to save the conversation's {what}: {error}");
-            send_error(sender, envelope_id, "DB_ERROR", &message);
-        })
-        .ok()
+    read.map_err(|error| {
+        let message = format!("Failed to read the {what} setting: {error}");
+        send_error(sender, envelope_id, SETTINGS_READ_FAILED, &message);
+    })
+    .ok()
 }
 
 /// Send an uncorrelated session error: no request is waiting on this failure.
+/// It reaches only `sender`; work that may run headless (HTTP, MCP, a
+/// schedule) uses [`broadcast_session_error`] so a viewer sees it.
 pub(in crate::domain::ws_session) fn send_session_error(
     sender: &impl OutputTarget,
     code: &str,
     message: String,
 ) {
-    let _ = sender.send(session_error_message(code, message));
+    sender
+        .send(session_error_message(code, message))
+        .ignore_closed();
 }
 
 fn session_error_message(code: &str, message: String) -> Message {
@@ -185,6 +214,14 @@ pub(in crate::domain::ws_session) async fn broadcast_session_error(
 /// The code of a session-state write that failed while the change itself
 /// applies; clients show it as a notice, not as a failed turn.
 pub(in crate::domain::ws_session) const SESSION_STATE_NOT_SAVED: &str = "SESSION_STATE_NOT_SAVED";
+
+/// The code of a setting the request needed but could not read. The request
+/// fails instead of running with a value the user did not choose.
+pub(in crate::domain::ws_session) use crate::domain::settings_store::file::SETTINGS_READ_FAILED;
+
+/// The code of a session-state read that failed while the work carries on on
+/// its safe branch; clients show it as a notice, not as a failed turn.
+pub(in crate::domain::ws_session) const SESSION_STATE_UNREADABLE: &str = "SESSION_STATE_UNREADABLE";
 
 pub(in crate::domain::ws_session) fn state_not_saved_message(
     what: &str,
@@ -293,7 +330,9 @@ pub(in crate::domain::ws_session) fn send_runtime_session_id(
             runtime_session_id: cli_sid.to_string(),
         }))
         .expect("runtime session id payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
+    sender
+        .send(Message::Text(String::from(envelope).into()))
+        .ignore_closed();
 }
 
 #[cfg(test)]

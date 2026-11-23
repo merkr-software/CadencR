@@ -1,6 +1,7 @@
 //! WebSocket upgrade + per-connection loop, dispatch, and disconnect cleanup.
 
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -48,6 +49,17 @@ struct ConnectionLifetime {
 }
 
 impl ConnectionLifetime {
+    /// Immediately abort socket transport tasks so `outbound_rx` drops and
+    /// `sender.closed()` fires for all app broadcast forwarders, and detach
+    /// read-only watchers before draining in-flight ordered commands.
+    async fn detach_transport_and_watchers(&self) {
+        self.bridge.abort();
+        self.socket.abort();
+        if let Some(sender) = self.sender.as_ref() {
+            detach_read_only_watchers(&self.state, sender).await;
+        }
+    }
+
     async fn finish(mut self) {
         self.bridge.abort();
         self.socket.abort();
@@ -71,9 +83,13 @@ impl Drop for ConnectionLifetime {
     }
 }
 
-async fn detach_viewer(state: &AppState, sender: &mpsc::UnboundedSender<Message>) {
+async fn detach_read_only_watchers(state: &AppState, sender: &mpsc::UnboundedSender<Message>) {
     state.git_watcher.unsubscribe_sender(sender).await;
     state.editor_watchers.unsubscribe_sender(sender).await;
+}
+
+async fn detach_viewer(state: &AppState, sender: &mpsc::UnboundedSender<Message>) {
+    detach_read_only_watchers(state, sender).await;
     state.ws_feature_senders.unregister_sender(sender).await;
     state
         .session_runtimes
@@ -115,6 +131,10 @@ async fn finish_graceful_close(
         return;
     }
     // Wait for the close echo; dropping immediately produces code 1006.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "bounded wait for the peer's close echo; the socket closes either way"
+    )]
     let _ = tokio::time::timeout(GRACEFUL_CLOSE_ECHO_TIMEOUT, async {
         while let Some(message) = ws_stream.next().await {
             match message {
@@ -160,9 +180,10 @@ async fn handle_remote_connection(socket: WebSocket, state: AppState, device_id:
         // One toast per device-connection: only the device's first live socket
         // emits (the registry deduped the rest). `send` errors only when no host
         // client is subscribed, which is fine — nothing to notify.
-        let _ = state
+        state
             .remote_events_tx
-            .send(crate::domain::remote::models::RemoteConnectedEvent { device_id });
+            .send(crate::domain::remote::models::RemoteConnectedEvent { device_id })
+            .ignore_closed();
     }
     tokio::select! {
         _ = handle_connection(socket, state) => {}
@@ -177,9 +198,16 @@ async fn handle_remote_connection(socket: WebSocket, state: AppState, device_id:
 fn record_remote_connect(state: &AppState, device_id: i64) {
     let pool = state.write_pool.clone();
     tokio::spawn(async move {
-        let _ = crate::domain::remote::repo::touch_last_seen(&pool, device_id).await;
-        let _ = crate::domain::remote::repo::record_audit(&pool, "connect", Some(device_id), None)
-            .await;
+        // Nobody waits on these writes; a failure only leaves the device
+        // list or the audit trail, which the log must still show.
+        if let Err(error) = crate::domain::remote::repo::touch_last_seen(&pool, device_id).await {
+            tracing::warn!(device_id, %error, "failed to record remote device last_seen");
+        }
+        if let Err(error) =
+            crate::domain::remote::repo::record_audit(&pool, "connect", Some(device_id), None).await
+        {
+            tracing::warn!(device_id, %error, "failed to record remote connect audit event");
+        }
     });
 }
 
@@ -189,8 +217,6 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
     let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Message>();
     let (socket_tx, socket_rx) = mpsc::channel::<Message>(OUTBOUND_SOCKET_CAPACITY);
     let (bridge_task, mut bridge_exit_rx) = spawn_outbound_bridge(outbound_rx, socket_tx);
-    let mut inbound_rate = InboundRateLimit::new();
-    let mut graceful_close_requested = false;
 
     // A separate priority channel lets overload shutdown bypass the full data
     // queue and cancel an in-progress normal `send`. The framed socket may
@@ -213,103 +239,148 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
         })
     };
 
-    let lane_ended = lanes.ended();
-
-    // Inbound loop: read messages from client. We `select!` against the
-    // outbound task so a half-open TCP socket (e.g. laptop sleep, Wi-Fi
-    // change) is detected within ~one outbound send attempt instead of
-    // waiting minutes for OS-level TCP keepalive. Without this, the cleanup
-    // block below — which broadcasts `Idle` for every active session —
-    // never runs, leaving the UI stuck on "agent working" while the
-    // streamed events drop into a subscriber that nobody reads.
-    loop {
-        tokio::select! {
-            biased;
-            _ = &mut send_task => {
-                debug!("ws_sink closed; ending inbound loop");
-                break;
-            }
-            _ = lane_ended.notified() => {
-                warn!("WebSocket command lane ended; ending connection");
-                break;
-            }
-            bridge_exit = &mut bridge_exit_rx => {
-                match bridge_exit {
-                    Ok(OutboundBridgeExit::SendTimeout) => {
-                        warn!(
-                            capacity = OUTBOUND_SOCKET_CAPACITY,
-                            timeout_ms = OUTBOUND_SOCKET_SEND_TIMEOUT.as_millis(),
-                            "WebSocket peer did not drain the outbound queue before timeout"
-                        );
-                        if close_tx.send(retryable_shutdown("overloaded")).await.is_err() {
-                            debug!("WebSocket sender closed before overload close could be requested");
-                        }
-                        graceful_close_requested = true;
-                    }
-                    Ok(OutboundBridgeExit::SocketClosed) | Err(_) => {
-                        debug!("WebSocket outbound bridge closed");
-                    }
-                }
-                break;
-            }
-            msg = ws_stream.next() => {
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        if !inbound_rate.allow(Instant::now()) {
-                            warn!(
-                                max_messages_per_second = MAX_INBOUND_MESSAGES_PER_SECOND,
-                                retry_after_ms = INBOUND_RATE_RETRY_AFTER_MS,
-                                "WebSocket inbound message rate exceeded"
-                            );
-                            let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
-                                    code: "RATE_LIMITED".into(),
-                                    message: "WebSocket message rate exceeded".into(),
-                                    retry_after_ms: Some(INBOUND_RATE_RETRY_AFTER_MS),
-                                    ..Default::default()
-                                })).expect("session event payload should serialize");
-                            let shutdown = retryable_error_shutdown(
-                                Message::Text(String::from(err_env).into()),
-                                "rate-limited",
-                            );
-                            if close_tx.send(shutdown).await.is_err() {
-                                debug!("WebSocket sender closed before rate-limit shutdown could be requested");
-                            }
-                            graceful_close_requested = true;
-                            break;
-                        }
-                        let text_str: &str = &text;
-                        match WsEnvelope::try_from(text_str.to_string()) {
-                            Ok(envelope) => {
-                                if lanes.route(envelope).await.is_err() {
-                                    warn!("WebSocket command lane closed; ending connection");
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
-                                        code: "PARSE_ERROR".into(),
-                                        message: format!("Invalid envelope: {e}"),
-                                        ..Default::default()
-                                    })).expect("session event payload should serialize");
-                                let _ = outbound_tx
-                                    .send(Message::Text(String::from(err_env).into()));
-                            }
-                        }
-                    }
-                    Some(Ok(Message::Close(_))) => break,
-                    Some(Ok(_)) => {} // ignore binary, ping, pong
-                    Some(Err(_)) | None => break,
-                }
-            }
-        }
-    }
+    let graceful_close_requested = run_inbound_loop(
+        &mut ws_stream,
+        &mut send_task,
+        &mut bridge_exit_rx,
+        &mut lanes,
+        &outbound_tx,
+        &close_tx,
+    )
+    .await;
 
     if graceful_close_requested {
         finish_graceful_close(&mut send_task, &mut ws_stream).await;
     }
 
+    // Abort transport tasks and detach read-only watchers before draining
+    // in-flight lane commands so `sender.closed()` immediately tears down
+    // broadcast forwarders while in-flight `destroy`/`draft.save` still finish.
+    lifetime.detach_transport_and_watchers().await;
     lanes.finish().await;
     lifetime.finish().await;
+}
+
+/// Read frames until the peer closes, a lane/sink fails, or backpressure/rate
+/// limits request a graceful close. Returns `true` when the caller should wait
+/// for the queued close frame to flush.
+async fn run_inbound_loop(
+    ws_stream: &mut futures::stream::SplitStream<WebSocket>,
+    send_task: &mut tokio::task::JoinHandle<()>,
+    bridge_exit_rx: &mut tokio::sync::oneshot::Receiver<OutboundBridgeExit>,
+    lanes: &mut InboundLanes,
+    outbound_tx: &WsSender,
+    close_tx: &mpsc::Sender<outbound::PriorityShutdown>,
+) -> bool {
+    let mut inbound_rate = InboundRateLimit::new();
+    let lane_ended = lanes.ended();
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut *send_task => {
+                debug!("ws_sink closed; ending inbound loop");
+                return false;
+            }
+            _ = lane_ended.notified() => {
+                warn!("WebSocket command lane ended; ending connection");
+                return false;
+            }
+            bridge_exit = &mut *bridge_exit_rx => {
+                return handle_bridge_exit(bridge_exit, close_tx).await;
+            }
+            msg = ws_stream.next() => match msg {
+                Some(Ok(Message::Text(text))) => {
+                    if !inbound_rate.allow(Instant::now()) {
+                        send_rate_limit_shutdown(close_tx).await;
+                        return true;
+                    }
+                    let envelope = match WsEnvelope::try_from(text.as_str().to_string()) {
+                        Ok(envelope) => envelope,
+                        Err(e) => {
+                            let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(
+                                SessionErrorPayload {
+                                    code: "PARSE_ERROR".into(),
+                                    message: format!("Invalid envelope: {e}"),
+                                    ..Default::default()
+                                },
+                            ))
+                            .expect("session event payload should serialize");
+                            outbound_tx.send(Message::Text(String::from(err_env).into())).ignore_closed();
+                            continue;
+                        }
+                    };
+                    let routed = tokio::select! {
+                        biased;
+                        _ = &mut *send_task => {
+                            debug!("ws_sink closed while routing inbound envelope; ending inbound loop");
+                            return false;
+                        }
+                        _ = lane_ended.notified() => {
+                            warn!("WebSocket command lane ended while routing; ending connection");
+                            return false;
+                        }
+                        bridge_exit = &mut *bridge_exit_rx => {
+                            return handle_bridge_exit(bridge_exit, close_tx).await;
+                        }
+                        result = lanes.route(envelope) => result,
+                    };
+                    if routed.is_err() {
+                        warn!("WebSocket command lane closed; ending connection");
+                        return false;
+                    }
+                }
+                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return false,
+                Some(Ok(_)) => {} // ignore binary, ping, pong
+            },
+        }
+    }
+}
+
+async fn send_rate_limit_shutdown(close_tx: &mpsc::Sender<outbound::PriorityShutdown>) {
+    warn!(
+        max_messages_per_second = MAX_INBOUND_MESSAGES_PER_SECOND,
+        retry_after_ms = INBOUND_RATE_RETRY_AFTER_MS,
+        "WebSocket inbound message rate exceeded"
+    );
+    let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+        code: "RATE_LIMITED".into(),
+        message: "WebSocket message rate exceeded".into(),
+        retry_after_ms: Some(INBOUND_RATE_RETRY_AFTER_MS),
+        ..Default::default()
+    }))
+    .expect("session event payload should serialize");
+    let shutdown =
+        retryable_error_shutdown(Message::Text(String::from(err_env).into()), "rate-limited");
+    if close_tx.send(shutdown).await.is_err() {
+        debug!("WebSocket sender closed before rate-limit shutdown could be requested");
+    }
+}
+
+async fn handle_bridge_exit(
+    bridge_exit: Result<OutboundBridgeExit, tokio::sync::oneshot::error::RecvError>,
+    close_tx: &mpsc::Sender<outbound::PriorityShutdown>,
+) -> bool {
+    match bridge_exit {
+        Ok(OutboundBridgeExit::SendTimeout) => {
+            warn!(
+                capacity = OUTBOUND_SOCKET_CAPACITY,
+                timeout_ms = OUTBOUND_SOCKET_SEND_TIMEOUT.as_millis(),
+                "WebSocket peer did not drain the outbound queue before timeout"
+            );
+            if close_tx
+                .send(retryable_shutdown("overloaded"))
+                .await
+                .is_err()
+            {
+                debug!("WebSocket sender closed before overload close could be requested");
+            }
+            true
+        }
+        Ok(OutboundBridgeExit::SocketClosed) | Err(_) => {
+            debug!("WebSocket outbound bridge closed");
+            false
+        }
+    }
 }
 
 /// Run one inbound command (see [`InboundLanes`] for which lane it runs on).

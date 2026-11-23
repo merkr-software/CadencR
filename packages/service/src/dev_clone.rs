@@ -57,6 +57,7 @@ pub fn instance_role(db_path: &Path) -> InstanceRole {
 pub struct InheritedRuntimeState {
     pub agent_processes: u64,
     pub pending_continuations: u64,
+    pub background_work: u64,
     pub running_sessions: u64,
     pub enabled_schedules: u64,
     pub queued_messages: u64,
@@ -66,9 +67,9 @@ pub struct InheritedRuntimeState {
 /// was copied from, in one transaction. Only call this on the clone.
 ///
 /// - agent pids: the processes are the source service's, alive and working;
-/// - pending continuations and `running` sessions: the source service still
-///   drives those turns (pausing them here keeps the crash capture from
-///   queueing a resume);
+/// - pending continuations, background work and `running` sessions: the
+///   source service still drives those turns and that work (forgetting them
+///   here keeps the crash capture from queueing a resume);
 /// - schedules are paused, not deleted, so the user can re-enable one to test
 ///   it in the worktree;
 /// - queued agent-to-agent messages are cancelled: the source delivers them.
@@ -85,6 +86,10 @@ pub async fn forget_inherited_runtime_state(
             .execute(&mut *tx)
             .await?
             .rows_affected();
+    let background_work = sqlx::query("DELETE FROM agent_background_work")
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
     let running_sessions = sqlx::query(
         "UPDATE agent_sessions SET status = 'paused', ended_at = ? WHERE status = 'running'",
     )
@@ -99,10 +104,10 @@ pub async fn forget_inherited_runtime_state(
     .await?
     .rows_affected();
     let queued_messages = sqlx::query(
-        "UPDATE agent_session_message_queue
+        "UPDATE agent_session_prompt_queue
          SET status = 'cancelled',
              error = 'Copied from another checkout''s database; that checkout delivers it.'
-         WHERE status IN ('pending', 'delivering')",
+         WHERE origin_kind = 'session' AND status IN ('pending', 'delivering')",
     )
     .execute(&mut *tx)
     .await?
@@ -111,6 +116,7 @@ pub async fn forget_inherited_runtime_state(
     Ok(InheritedRuntimeState {
         agent_processes,
         pending_continuations,
+        background_work,
         running_sessions,
         enabled_schedules,
         queued_messages,
@@ -204,9 +210,16 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+        sqlx::query("INSERT INTO agent_background_work (session_id) VALUES (?)")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .unwrap();
         sqlx::query(
-            "INSERT INTO agent_session_message_queue (target_session_id, content) VALUES (?, 'hi')",
+            "INSERT INTO agent_session_prompt_queue (session_id, content, origin_kind)
+             VALUES (?, 'hi', 'session'), (?, 'mine', 'user')",
         )
+        .bind(session_id)
         .bind(session_id)
         .execute(pool)
         .await
@@ -230,6 +243,7 @@ mod tests {
 
         assert_eq!(forgotten.agent_processes, 1);
         assert_eq!(forgotten.pending_continuations, 1);
+        assert_eq!(forgotten.background_work, 1);
         assert_eq!(forgotten.running_sessions, 1);
         assert_eq!(forgotten.queued_messages, 1);
         assert_eq!(forgotten.enabled_schedules, 1);
@@ -261,7 +275,7 @@ mod tests {
         assert_eq!(
             scalar(
                 &pool,
-                "SELECT COUNT(*) FROM agent_session_message_queue WHERE status = 'cancelled'"
+                "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE status = 'cancelled'"
             )
             .await,
             1

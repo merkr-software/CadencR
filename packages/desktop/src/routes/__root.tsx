@@ -1,4 +1,5 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { memo, useMemo } from "react";
+import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
 import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
@@ -14,7 +15,11 @@ import { SidebarContext } from "@/components/SidebarContext";
 import { SuspendedBanner } from "@/components/SuspendedBanner";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
 import UniversalContextMenu from "@/components/UniversalContextMenu";
-import { useRootLayoutController } from "./useRootLayoutController";
+import {
+  LastScreenTracker,
+  MobileDrawerRouteCloser,
+  useRootLayoutController,
+} from "./useRootLayoutController";
 
 interface RootSearch {
   [THEME_SELECTOR_SEARCH_KEY]?: true;
@@ -28,17 +33,72 @@ export const Route = createRootRoute({
   },
 });
 
+/**
+ * The root's prop-less hosts and bridges. Behind one memo boundary: the root
+ * renders on every navigation (its content is keyed on the pathname), and none
+ * of these depends on it.
+ */
+const RootHosts = memo(function RootHosts() {
+  return (
+    <>
+      <SuspendedBanner />
+      <GlobalOperationToasts />
+      <ManagedThemeRegistry />
+      <NavigationHistoryTracker />
+      <LastScreenTracker />
+      <NotchChannelBridge />
+      <CliRequestBridge />
+      <CustomActionEditorHost />
+      <RunVariablesDialogHost />
+    </>
+  );
+});
+
+const RootWindowControls = memo(AppWindowControls);
+const RootAppShell = memo(AppShell);
+
+/**
+ * What the routed content is keyed on. Every conversation shares one key: the
+ * `ws-session` page keeps its workspaces mounted across a switch
+ * (`WorkspacePool`), so a switch must re-render that page, not remount it.
+ */
+function routedContentKey(pathname: string): string {
+  return pathname.startsWith("/ws-session/") ? "/ws-session" : pathname;
+}
+
+/**
+ * The routed page. A leaf that selects its own key, so a conversation switch
+ * (same key) renders nothing in the root chain above the page.
+ */
+const RoutedContent = memo(function RoutedContent() {
+  const contentKey = useRouterState({
+    select: (state) => routedContentKey(state.location.pathname),
+  });
+  return (
+    <RootErrorBoundary>
+      <div key={contentKey} className="h-full animate-in fade-in-0 duration-200 ease-out">
+        <Outlet />
+      </div>
+    </RootErrorBoundary>
+  );
+});
+
+// One element for the root's lifetime: `RootAppShell` compares its children too.
+const ROUTED_CONTENT = <RoutedContent />;
+
 function RootLayout() {
   const controller = useRootLayoutController();
-  const { features, route, sidebar } = controller;
+  const { features, sidebar } = controller;
+  const sidebarContext = useMemo(
+    () => ({ collapsed: sidebar.collapsed, setCollapsed: sidebar.setCollapsed }),
+    [sidebar.collapsed, sidebar.setCollapsed],
+  );
   return (
-    <SidebarContext.Provider
-      value={{ collapsed: sidebar.collapsed, setCollapsed: sidebar.setCollapsed }}
-    >
+    <SidebarContext.Provider value={sidebarContext}>
       <UniversalContextMenu>
         <div className="flex h-[var(--app-vh)]">
-          <AppWindowControls />
-          <AppShell
+          <RootWindowControls />
+          <RootAppShell
             isMobile={controller.isMobile}
             collapsed={sidebar.collapsed}
             setCollapsed={sidebar.setCollapsed}
@@ -48,28 +108,13 @@ function RootLayout() {
             onLayoutChanged={sidebar.handleLayoutChanged}
             onSearch={controller.openCommandPalette}
           >
-            <RootErrorBoundary>
-              <div
-                key={route.pathname}
-                className="h-full animate-in fade-in-0 duration-200 ease-out"
-              >
-                <Outlet />
-              </div>
-            </RootErrorBoundary>
-          </AppShell>
-          <SuspendedBanner />
-          <GlobalOperationToasts />
-          <ManagedThemeRegistry />
-          <NavigationHistoryTracker />
-          <NotchChannelBridge />
-          <CliRequestBridge />
-          <CustomActionEditorHost />
-          <RunVariablesDialogHost />
+            {ROUTED_CONTENT}
+          </RootAppShell>
+          <RootHosts />
+          <MobileDrawerRouteCloser close={sidebar.closeMobileDrawer} />
           <RootOverlays
             commandPaletteOpen={controller.commandPaletteOpen}
             setCommandPaletteOpen={controller.setCommandPaletteOpen}
-            activeProjectId={route.activeProjectId}
-            activeFeatureId={route.activeFeatureId}
             confirmAction={features.confirmAction}
             setConfirmAction={features.setConfirmAction}
             onArchiveFeature={features.archiveFeature}

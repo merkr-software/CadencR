@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use super::mcp_registry::PAGE_SIZE;
 use super::mcp_service;
-use super::service::{detached, service};
+use super::service::{detached, service, ExtensionHost};
 use super::skills_service::{self, SkillAction, SkillFilter};
 use super::types::{
     ExtensionClisResponse, McpInstallRequest, McpInventoryResponse, McpRegistryPage,
@@ -31,7 +31,10 @@ pub async fn list_extension_clis(
 ) -> Result<Json<ExtensionClisResponse>, AppError> {
     let hosts = service().hosts(&state.read_pool).await;
     Ok(Json(ExtensionClisResponse {
-        clis: hosts.iter().map(|host| host.summary()).collect(),
+        clis: hosts
+            .iter()
+            .map(ExtensionHost::summary)
+            .collect::<Result<_, _>>()?,
     }))
 }
 

@@ -1,3 +1,5 @@
+use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::{error, info};
 
@@ -182,7 +184,7 @@ async fn plan_under_lock(
         ));
     }
     info!(db_session_id, mode = %wire_mode, "updating permission mode");
-    let step = plan_mode_change(handle, db_session_id, new_mode.clone(), app_state).await;
+    let step = plan_mode_change(handle, db_session_id, new_mode.clone(), app_state).await?;
     Ok((handle.feature_id, step))
 }
 
@@ -191,13 +193,19 @@ async fn plan_mode_change(
     db_session_id: i64,
     new_mode: RuntimePermissionMode,
     app_state: &AppState,
-) -> ModeStep {
+) -> Result<ModeStep, SessionErrorPayload> {
     let Some(query) = handle.state.active_query() else {
         queue_pending_permission_mode(handle, new_mode);
-        return ModeStep::Done(ModeApplied::Live);
+        return Ok(ModeStep::Done(ModeApplied::Live));
     };
-    if !should_rearm_bypass(handle, &new_mode, &app_state.read_pool).await {
-        return ModeStep::SetLive(query);
+    let rearm = should_rearm_bypass(handle, &new_mode, &app_state.read_pool)
+        .await
+        .map_err(|error| {
+            let message = format!("Failed to read the bypass permissions setting: {error}");
+            error_payload(SETTINGS_READ_FAILED, message)
+        })?;
+    if !rearm {
+        return Ok(ModeStep::SetLive(query));
     }
     if let Some(reason) = respawn_deferral(app_state, db_session_id, &query) {
         // Re-arming closes the runtime, cutting off its turn or background
@@ -209,16 +217,16 @@ async fn plan_mode_change(
             "runtime is busy; deferring bypass re-arm"
         );
         record_mode(handle, new_mode, false);
-        return ModeStep::Done(ModeApplied::Deferred(reason));
+        return Ok(ModeStep::Done(ModeApplied::Deferred(reason)));
     }
-    rearm_claude_bypass_session(
+    Ok(rearm_claude_bypass_session(
         handle,
         query,
         db_session_id,
         new_mode,
         &app_state.session_runtimes,
     )
-    .await
+    .await)
 }
 
 fn parse_mode_set_payload(envelope: &WsEnvelope, sender: &WsSender) -> Option<ModeSetPayload> {
@@ -343,7 +351,9 @@ fn mode_set_error_payload(
 fn send_mode_set_error(sender: &WsSender, ref_id: &str, payload: SessionErrorPayload) {
     let err = WsEnvelope::session_reply(ref_id, &WsSessionEvent::Error(payload))
         .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(err).into()));
+    sender
+        .send(Message::Text(String::from(err).into()))
+        .ignore_closed();
 }
 
 #[cfg(test)]

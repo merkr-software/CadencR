@@ -55,6 +55,7 @@ async fn count(pool: &SqlitePool, sql: &'static str) -> i64 {
 #[tokio::test]
 async fn widening_the_marker_preserves_projects_children_and_markers() {
     let pool = legacy_pool().await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();
@@ -109,6 +110,7 @@ async fn widening_the_marker_preserves_projects_children_and_markers() {
 #[tokio::test]
 async fn tab_projects_and_plugin_tab_tables_are_usable_after_migration() {
     let pool = legacy_pool().await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

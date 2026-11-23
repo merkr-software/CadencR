@@ -81,7 +81,7 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         fail_statement(&pool, "INSERT").await;
         assert!(matches!(
-            p.persist_runtime_event(&text_start("root", 0, "Hello"))
+            p.persist_event_then_flush_due(&text_start("root", 0, "Hello"))
                 .await,
             Err(TranscriptPersistenceError::Database(_))
         ));
@@ -91,11 +91,12 @@ mod tests {
         );
         recover_database(&pool).await;
         assert!(matches!(
-            p.persist_runtime_event(&text_delta("root", " world")).await,
+            p.persist_event_then_flush_due(&text_delta("root", " world"))
+                .await,
             Err(TranscriptPersistenceError::AwaitingReconciliation)
         ));
         assert!(contents(&pool).await.is_empty());
-        p.persist_runtime_event(&complete("root", vec![text("Hello world")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("Hello world")]))
             .await
             .unwrap();
         assert_eq!(
@@ -116,13 +117,13 @@ mod tests {
     async fn failed_append_repairs_the_same_row_after_stop_without_truncation() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-        p.persist_runtime_event(&text_start("root", 0, "Hello"))
+        p.persist_event_then_flush_due(&text_start("root", 0, "Hello"))
             .await
             .unwrap();
         let id = contents(&pool).await[0].0;
         fail_statement(&pool, "UPDATE").await;
         assert!(p
-            .persist_runtime_event(&text_delta("root", " world"))
+            .persist_event_then_flush_due(&text_delta("root", " world"))
             .await
             .is_err());
         assert_eq!(
@@ -131,17 +132,17 @@ mod tests {
         );
         recover_database(&pool).await;
         assert!(p
-            .persist_runtime_event(&text_delta("root", "!"))
+            .persist_event_then_flush_due(&text_delta("root", "!"))
             .await
             .is_err());
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             "root",
             None,
             RuntimeStreamEvent::ContentBlockStop { index: 0 },
         ))
         .await
         .unwrap();
-        p.persist_runtime_event(&complete("root", vec![text("Hello world!")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("Hello world!")]))
             .await
             .unwrap();
         assert_eq!(contents(&pool).await, vec![(id, "Hello world!".into())]);
@@ -155,19 +156,19 @@ mod tests {
     async fn reconciliation_is_atomic_and_retries_without_duplicates() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-        p.persist_runtime_event(&text_start("root", 0, "prefix"))
+        p.persist_event_then_flush_due(&text_start("root", 0, "prefix"))
             .await
             .unwrap();
         fail_statement(&pool, "UPDATE").await;
         assert!(p
-            .persist_runtime_event(&text_delta("root", " missing"))
+            .persist_event_then_flush_due(&text_delta("root", " missing"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
         fail_statement(&pool, "INSERT").await;
         let full = complete("root", vec![text("prefix missing"), text("second block")]);
-        assert!(p.persist_runtime_event(&full).await.is_err());
+        assert!(p.persist_event_then_flush_due(&full).await.is_err());
         assert_eq!(
             contents(&pool).await[0].1,
             "prefix",
@@ -175,7 +176,7 @@ mod tests {
         );
         assert_eq!(p.take_transcript_status_change(false), None);
         recover_database(&pool).await;
-        p.persist_runtime_event(&full).await.unwrap();
+        p.persist_event_then_flush_due(&full).await.unwrap();
         let rows = contents(&pool).await;
         assert_eq!(
             rows.iter().map(|r| r.1.as_str()).collect::<Vec<_>>(),
@@ -193,16 +194,16 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         fail_statement(&pool, "INSERT").await;
         assert!(p
-            .persist_runtime_event(&text_start("root", 0, "root"))
+            .persist_event_then_flush_due(&text_start("root", 0, "root"))
             .await
             .is_err());
         assert!(p
-            .persist_runtime_event(&text_start("child", 0, "child"))
+            .persist_event_then_flush_due(&text_start("child", 0, "child"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
-        p.persist_runtime_event(&complete("child", vec![text("child complete")]))
+        p.persist_event_then_flush_due(&complete("child", vec![text("child complete")]))
             .await
             .unwrap();
         assert_eq!(p.take_transcript_status_change(false), None);
@@ -210,7 +211,7 @@ mod tests {
             p.take_transcript_status_change(true),
             Some(TranscriptPersistenceStatus::Failed)
         );
-        p.persist_runtime_event(&complete("root", vec![text("root complete")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("root complete")]))
             .await
             .unwrap();
         assert_eq!(
@@ -225,7 +226,7 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         fail_statement(&pool, "INSERT").await;
         assert!(p
-            .persist_runtime_event(&text_start("root", 0, "Hello"))
+            .persist_event_then_flush_due(&text_start("root", 0, "Hello"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
@@ -243,7 +244,7 @@ mod tests {
                 },
             ],
         );
-        assert!(p.persist_runtime_event(&message).await.is_err());
+        assert!(p.persist_event_then_flush_due(&message).await.is_err());
         assert!(
             contents(&pool).await.is_empty(),
             "tool failure must precede repaired text insertion"
@@ -252,7 +253,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let identities = p.persist_runtime_event(&message).await.unwrap();
+        let identities = p.persist_event_then_flush_due(&message).await.unwrap();
         let Some(PersistedEventRef::AssistantContent(ids)) = identities else {
             panic!("expected durable assistant identities")
         };
@@ -268,23 +269,25 @@ mod tests {
     async fn root_result_preserves_child_proof_and_row_identity_for_later_repair() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-        p.persist_runtime_event(&text_start("root", 0, "root"))
+        p.persist_event_then_flush_due(&text_start("root", 0, "root"))
             .await
             .unwrap();
-        p.persist_runtime_event(&text_start("child", 0, "child"))
+        p.persist_event_then_flush_due(&text_start("child", 0, "child"))
             .await
             .unwrap();
         let child_id = contents(&pool).await[1].0;
-        p.persist_runtime_event(&result("root")).await.unwrap();
+        p.persist_event_then_flush_due(&result("root"))
+            .await
+            .unwrap();
         assert_eq!(p.take_transcript_status_change(true), None);
         fail_statement(&pool, "UPDATE").await;
         assert!(p
-            .persist_runtime_event(&text_delta("child", " suffix"))
+            .persist_event_then_flush_due(&text_delta("child", " suffix"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
-        p.persist_runtime_event(&complete("child", vec![text("child suffix")]))
+        p.persist_event_then_flush_due(&complete("child", vec![text("child suffix")]))
             .await
             .unwrap();
         assert_eq!(
@@ -314,7 +317,7 @@ mod tests {
             ],
         );
         assert!(matches!(
-            p.persist_runtime_event(&original).await,
+            p.persist_event_then_flush_due(&original).await,
             Err(TranscriptPersistenceError::Database(_))
         ));
         assert_eq!(
@@ -325,7 +328,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        p.persist_runtime_event(&complete("root", vec![text("answer")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("answer")]))
             .await
             .unwrap();
         assert_eq!(

@@ -38,10 +38,23 @@ export function resolveDevProfile(
     envError = error;
   }
   return {
-    userDataPath: devUserDataPath(appDataPath, env.CADENCR_DEV_USER_DATA_SUFFIX),
+    userDataPath:
+      explicitUserDataDir(env.CADENCR_DEV_USER_DATA_DIR) ??
+      devUserDataPath(appDataPath, env.CADENCR_DEV_USER_DATA_SUFFIX),
     envPath,
     envError,
   };
+}
+
+/**
+ * `CADENCR_DEV_USER_DATA_DIR` puts the whole profile in a given folder: an
+ * isolated QA run (`pnpm qa:up`) keeps it inside its run directory so `qa:down`
+ * removes it with the run. Only an absolute path counts, so a stray relative
+ * value can never land a profile inside the checkout.
+ */
+function explicitUserDataDir(value: string | undefined): string | null {
+  const dir = value?.trim();
+  return dir && path.isAbsolute(dir) ? dir : null;
 }
 
 export function devUserDataPath(appDataPath: string, suffix: string | undefined): string {

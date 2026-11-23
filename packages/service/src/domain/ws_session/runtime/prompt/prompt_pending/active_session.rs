@@ -127,6 +127,7 @@ mod tests {
             permission_tx: Some(permission_response_channel().0),
             internal_replay: true,
             wait_for_delivery: true,
+            remember_selection: false,
             spawn_claim: None,
             handle_identity,
         }
@@ -204,5 +205,82 @@ mod tests {
                 Some(QueryState::Active { .. })
             ));
         }
+    }
+
+    /// A runtime that reports one MCP server in its init, then ends.
+    struct InitOnlyRuntime;
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for InitOnlyRuntime {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            let init = crate::domain::agents::adapter::RuntimeEvent::new(
+                Default::default(),
+                crate::domain::agents::adapter::RuntimeEventKind::Init(
+                    crate::domain::agents::adapter::RuntimeInitEvent {
+                        model: None,
+                        mcp_servers: vec![crate::domain::agents::adapter::RuntimeMcpServerStatus {
+                            name: "only-server".into(),
+                            status: "connected".into(),
+                        }],
+                        context_window: None,
+                    },
+                ),
+            );
+            tx.try_send(Ok(init)).unwrap();
+            rx
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// The spawn published the runtime's servers, then its init published the
+    /// same list again.
+    #[tokio::test]
+    async fn a_new_runtime_publishes_its_mcp_servers_once() {
+        let context = pending_context().await;
+        let (viewer, mut viewer_rx) = tokio::sync::mpsc::unbounded_channel();
+        context
+            .app_state
+            .ws_feature_senders
+            .register(1, viewer)
+            .await;
+
+        super::super::runtime_registration::register_runtime(
+            context,
+            Box::new(InitOnlyRuntime),
+            true,
+        )
+        .await
+        .unwrap();
+
+        let mut published = 0;
+        while let Ok(Some(axum::extract::ws::Message::Text(text))) =
+            tokio::time::timeout(std::time::Duration::from_secs(1), viewer_rx.recv()).await
+        {
+            let envelope: serde_json::Value = serde_json::from_str(&text).unwrap();
+            if envelope["action"] == "mcp_servers" {
+                published += 1;
+            }
+        }
+        assert_eq!(published, 1);
     }
 }

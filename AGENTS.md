@@ -28,7 +28,7 @@ Never commit session artifacts: QA reports, qualification evidence, investigatio
 
 ## Commands
 
-Use pnpm and the Node version pinned by `.nvmrc` (`>=22.19.0 <23.0.0`).
+Use pnpm and the Node version pinned by `.nvmrc` (`>=22.23.5 <23.0.0`).
 
 | Command | Purpose |
 | --- | --- |
@@ -38,6 +38,7 @@ Use pnpm and the Node version pinned by `.nvmrc` (`>=22.19.0 <23.0.0`).
 | `pnpm lint` | Provider boundaries, oxlint, and workspace clippy |
 | `pnpm format` / `pnpm format:check` | Format / verify formatting |
 | `pnpm doctor` | Diagnose toolchain, environment, ports, watcher, and Electron |
+| `pnpm qa:up` / `pnpm qa:down <run>` | Start / stop an isolated QA run (see the `qa` skill) |
 | `pnpm rust -- <args>` | All Cargo commands; never run bare `cargo` |
 
 The Rust wrapper isolates `CARGO_TARGET_DIR` per worktree and strips `RUSTC_WRAPPER` / `SCCACHE_*`. Use package-scoped checks and related tests from [CONTRIBUTING.md](CONTRIBUTING.md#common-commands) during iteration.
@@ -52,7 +53,7 @@ The Rust wrapper isolates `CARGO_TARGET_DIR` per worktree and strips `RUSTC_WRAP
 ## Validation
 
 - Run the checks affected by the change: relevant tests, lint, type checks, and `knip` for frontend changes. Desktop types: `pnpm --filter @cadencr/desktop ts-check`; unused exports: `pnpm --filter @cadencr/desktop knip`. CI runs the full set; scoped local checks do not replace CI.
-- Exercise application behavior changes against live `pnpm dev`: real API calls for backend changes and real UI interactions for frontend changes. Use the `qa` skill for UI verification. Documentation-only changes need document/generator checks, not an app launch.
+- Exercise application behavior changes against a running app: real API calls for backend changes and real UI interactions for frontend changes. Use the `qa` skill, which starts an isolated run with `pnpm qa:up` (fresh database, ports and data root; parallel-safe) and stops it with `pnpm qa:down`. Documentation-only changes need document/generator checks, not an app launch.
 - When changing shared application behavior, verify macOS and Linux paths and report which checks ran and which platform checks remain. See the platform rule for details.
 
 ## Skills
@@ -67,6 +68,7 @@ Shared sources live in `.agents/skills/<name>/SKILL.md`; `.claude/skills/` conta
 | Change destructive migrations, schema rebuilds, or foreign keys | `migration-safety` |
 | Add or modify keyboard shortcuts | `keyboard-shortcuts` |
 | Simplify, verify, and prepare commits | `finish-job` |
+| Investigate or fix slowness, freezes, or resource use; any `perf` commit | `perf` |
 
 Treat `/qa` and `/finish-job` as invocations of those skills even when the agent does not provide native slash commands. `finish-job` includes its own commit-plan approval step.
 

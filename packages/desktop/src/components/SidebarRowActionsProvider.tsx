@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -54,6 +55,7 @@ export function SidebarRowActionsProvider({ children }: { children: ReactNode })
     () => ({ togglePin, archiveOrDelete: setConfirmFeature, unarchive, closeActivity }),
     [closeActivity, togglePin, unarchive],
   );
+  const closeConfirmation = useCallback(() => setConfirmFeature(null), []);
   return (
     <SidebarRowActionsContext.Provider value={actions}>
       {children}
@@ -61,7 +63,7 @@ export function SidebarRowActionsProvider({ children }: { children: ReactNode })
         projectId={confirmFeature?.project_id ?? 0}
         confirmFeatureId={confirmFeature?.id ?? null}
         confirmation={confirmation}
-        onClose={() => setConfirmFeature(null)}
+        onClose={closeConfirmation}
         onArchive={archiveFeature}
         onDelete={mutations.deleteFeature}
       />
@@ -105,6 +107,10 @@ function useCrossProjectFeatureActions(feature: Feature | null) {
     activeFeatures,
     projectId: feature?.project_id ?? null,
   });
-  const mutations = useFeatureRowMutations({ activeFeatureId, activeFeatures, projectId });
+  const mutations = useFeatureRowMutations({
+    activeFeatureId,
+    activeFeatures,
+    projectId: feature?.project_id ?? null,
+  });
   return { confirmation, archiveFeature, mutations };
 }

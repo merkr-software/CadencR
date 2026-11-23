@@ -107,6 +107,7 @@ async fn legacy_pool() -> SqlitePool {
 async fn migrate_legacy_pool() -> SqlitePool {
     let pool = legacy_pool().await;
     super::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

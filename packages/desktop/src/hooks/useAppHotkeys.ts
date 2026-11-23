@@ -8,6 +8,10 @@ import {
   type RegisterableHotkey,
 } from "@tanstack/hotkeys";
 import type { UseHotkeyOptions } from "@tanstack/react-hotkeys";
+import {
+  useWorkspaceActivity,
+  type WorkspaceActivity,
+} from "@/components/workspace-pool/workspace-activity";
 import { expandCharacterHotkey } from "@/lib/shortcuts/character-hotkeys";
 import { shellOwnsKeyEvent } from "@/lib/shortcuts/shell-keys";
 
@@ -91,8 +95,13 @@ function toHotkeyCallback(
   definition: ExpandedHotkey,
   callback: HotkeyCallback,
   options: ShortcutHotkeyOptions | undefined,
+  activity: WorkspaceActivity,
 ): HotkeyCallback {
   return (event: KeyboardEvent, context: HotkeyCallbackContext) => {
+    // A workspace kept mounted but hidden (see `WorkspacePool`) handles no key.
+    // Read when the key arrives: re-binding on every switch would re-render
+    // each shortcut's host in two whole workspaces.
+    if (!activity.isActive()) return;
     // Optional Shift is already expanded explicitly for layout-produced glyphs.
     if (event.shiftKey !== context.parsedHotkey.shift) return;
     if (definition.exactKeys && !definition.exactKeys.includes(event.key)) return;
@@ -112,6 +121,7 @@ export function useAppHotkeys(
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
+  const activity = useWorkspaceActivity();
   const hotkeys = useMemo(() => expandShortcutInput(keys), [keys]);
   const tanStackOptions = useMemo(() => toTanStackOptions(options), [options]);
   const definitions = useMemo(
@@ -124,10 +134,11 @@ export function useAppHotkeys(
             callbackRef.current(event, context);
           },
           options,
+          activity,
         ),
         options: tanStackOptions,
       })),
-    [hotkeys, options, tanStackOptions],
+    [activity, hotkeys, options, tanStackOptions],
   );
 
   useTanStackHotkeys(definitions);

@@ -102,6 +102,23 @@ describe("useNeovimWebSocket", () => {
     expect(onError).toHaveBeenCalledWith("boom");
   });
 
+  it("toasts undelivered input and keeps the session usable", async () => {
+    const { toast } = await import("sonner");
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useNeovimWebSocket({ featureId: 1, onData: vi.fn(), onAttached: vi.fn(), onError }),
+    );
+    act(() => result.current.connect());
+    act(() =>
+      capturedHandlers.onMessage?.(JSON.stringify({ type: "input_error", message: "EIO" })),
+    );
+    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.lastError).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith("Neovim input was not delivered: EIO", {
+      id: "neovim-input-error",
+    });
+  });
+
   it("encodes outgoing bytes as a JSON string before sending", () => {
     const { result } = renderHook(() =>
       useNeovimWebSocket({ featureId: 1, onData: vi.fn(), onAttached: vi.fn(), onError: vi.fn() }),

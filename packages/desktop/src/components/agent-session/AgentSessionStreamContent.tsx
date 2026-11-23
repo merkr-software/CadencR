@@ -3,6 +3,7 @@ import { AgentStream } from "../AgentStream";
 import type { AgentBlockData } from "@/types/agent-block";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnClock } from "@/lib/turn-clock";
+import type { UseAgentSessionScrollResult } from "./agent-session-scroll-utils";
 
 type AgentStreamProps = ComponentProps<typeof AgentStream>;
 
@@ -17,19 +18,15 @@ interface AgentSessionStreamContentProps {
   workingLabel: string;
   workingClock: TurnClock | null;
   projectPath?: string;
-  scrollContainerRef: AgentStreamProps["scrollContainerRef"];
-  virtuosoRef: AgentStreamProps["virtuosoRef"];
-  itemSize: AgentStreamProps["itemSize"];
-  followOutput: AgentStreamProps["followOutput"];
-  onAtBottomStateChange: (atBottom: boolean) => void;
-  onTotalListHeightChanged: (height: number) => void;
-  onStartReached: () => void;
-  isLoadingOlder: boolean;
+  /** The transcript's scroll wiring, history loading included. */
+  scroll: UseAgentSessionScrollResult;
   historyPrependDisplayOffset?: number;
+  historyGaps: AgentStreamProps["historyGaps"];
   verbosityMode: AgentStreamProps["verbosityMode"];
   summaryMode: AgentStreamProps["summaryMode"];
   searchEnabled: boolean;
   messageNavigator: AgentStreamProps["messageNavigator"];
+  openingPreview: AgentStreamProps["openingPreview"];
 }
 
 export const AgentSessionStreamContent = memo(function AgentSessionStreamContent({
@@ -42,19 +39,14 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   workingLabel,
   workingClock,
   projectPath,
-  scrollContainerRef,
-  virtuosoRef,
-  itemSize,
-  followOutput,
-  onAtBottomStateChange,
-  onTotalListHeightChanged,
-  onStartReached,
-  isLoadingOlder,
+  scroll,
   historyPrependDisplayOffset,
+  historyGaps,
   verbosityMode,
   summaryMode,
   searchEnabled,
   messageNavigator,
+  openingPreview,
 }: AgentSessionStreamContentProps): ReactElement | null {
   if (blocks.length === 0 && !isAgentWorking) return null;
 
@@ -69,19 +61,20 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       workingLabel={workingLabel}
       workingClock={workingClock}
       basePath={projectPath}
-      scrollContainerRef={scrollContainerRef}
-      virtuosoRef={virtuosoRef}
-      itemSize={itemSize}
-      followOutput={followOutput}
-      onAtBottomStateChange={onAtBottomStateChange}
-      onTotalListHeightChanged={onTotalListHeightChanged}
-      onStartReached={onStartReached}
-      isLoadingOlder={isLoadingOlder}
+      scrollContainerRef={scroll.scrollContainerRef}
+      virtuosoRef={scroll.virtuosoRef}
+      itemSize={scroll.itemSize}
+      followOutput={scroll.followOutput}
+      onAtBottomStateChange={scroll.onAtBottomStateChange}
+      onTotalListHeightChanged={scroll.onTotalListHeightChanged}
       historyPrependDisplayOffset={historyPrependDisplayOffset}
+      historyGaps={historyGaps}
+      historyGapStatus={scroll.historyGapStatus}
       verbosityMode={verbosityMode}
       summaryMode={summaryMode}
       searchEnabled={searchEnabled}
       messageNavigator={messageNavigator}
+      openingPreview={openingPreview}
     />
   );
 });

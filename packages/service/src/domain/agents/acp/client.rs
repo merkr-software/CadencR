@@ -16,6 +16,7 @@ use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::process_tree::AcpProcessTreePolicy;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent, AcpEventBarrier};
+use crate::shared::discard::{cleanup, SendIgnoreClosed};
 
 /// Generic ACP subprocess client backed by the official ACP Rust SDK.
 #[derive(Clone)]
@@ -36,7 +37,12 @@ pub struct AcpSpawnOptions {
     /// Opt-in process-tree ownership. Built-ins preserve their current behavior.
     #[builder(default)]
     pub process_tree_policy: AcpProcessTreePolicy,
+    #[builder(default)]
+    pub exclude_launcher_ports: bool,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,
+    /// Rewrites the wire between the agent's pipes and this client.
+    pub wire_transform:
+        Option<std::sync::Arc<dyn crate::domain::agents::acp::wire_transform::AcpWireTransform>>,
 }
 
 /// Provider-neutral handling of ACP subprocess diagnostics.
@@ -93,21 +99,36 @@ impl AcpClient {
         self.inner.events.subscribe_reliable()
     }
 
-    /// Queue a fence behind every event received so far. The receiver
-    /// resolves once the event loop reaches it, or errors if the loop's
-    /// queue is gone — it never waits on a fence that was skipped.
-    pub(crate) fn enqueue_event_barrier(&self) -> Result<oneshot::Receiver<()>, AcpError> {
-        let (barrier, released) = AcpEventBarrier::new();
-        if !self
-            .inner
-            .events
-            .send_reliable(AcpEvent::EventBarrier(barrier))
-        {
-            return Err(AcpError::Protocol(
-                "ACP runtime event loop is unavailable".to_string(),
-            ));
+    /// Insert the runtime event fence at the prompt response's position on the
+    /// wire. The SDK keeps later messages behind this callback until it returns.
+    /// A JSON-RPC rejection still has a fence. The outer error means the
+    /// request failed before receiving any wire response.
+    pub(super) async fn request_prompt_with_event_barrier(
+        &self,
+        params: Value,
+        barrier: AcpEventBarrier,
+        submitted: impl FnOnce(),
+    ) -> Result<Result<Value, AcpError>, AcpError> {
+        let request = UntypedMessage::new("session/prompt", params).map_err(AcpError::from_acp)?;
+        let mut closed = self.inner.closed.subscribe();
+        let (respond, response) = oneshot::channel();
+        let events = self.inner.events.clone();
+        let pending = self.inner.connection.send_request_to(Agent, request);
+        let _cancel_on_drop = CancelPendingPrompt(pending.cancellation_handle());
+        pending
+            .on_receiving_result(async move |result| {
+                // A missing queue drops the fence and wakes its waiter with an error.
+                events.send_reliable(AcpEvent::EventBarrier(barrier));
+                respond.send_ignore_closed(result.map_err(AcpError::from_acp));
+                Ok(())
+            })
+            .map_err(AcpError::from_acp)?;
+        submitted();
+        tokio::select! {
+            biased;
+            result = response => result.map_err(|_| AcpError::ConnectionClosed("session/prompt")),
+            _ = closed.wait_for(|closed| *closed) => Err(AcpError::ConnectionClosed("session/prompt")),
         }
-        Ok(released)
     }
 
     pub fn client_info(&self) -> &AcpClientInfo {
@@ -226,6 +247,15 @@ impl AcpClient {
     }
 }
 
+struct CancelPendingPrompt(agent_client_protocol::RequestCancellationHandle);
+
+impl Drop for CancelPendingPrompt {
+    fn drop(&mut self) {
+        // An already-settled request disarms the SDK cancellation handle.
+        cleanup(self.0.cancel(), "cancel abandoned ACP prompt request");
+    }
+}
+
 pub(crate) fn server_request_key(id: &Value) -> String {
     serde_json::to_string(id).unwrap_or_else(|_| id.to_string())
 }
@@ -293,7 +323,11 @@ mod tests {
             .arg("60")
             .spawn()
             .expect("spawn ACP descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(
+            std::path::Path::new(&pid_file),
+            descendant.id(),
+        )
+        .expect("write descendant pid");
         let _ = descendant.wait();
     }
 
@@ -325,23 +359,19 @@ mod tests {
         )
         .await
         .expect("spawn isolated ACP process");
-        let pid = wait_for_test_pid(&pid_file).await;
+        // The helper is this test binary started again: under load, loading
+        // it takes seconds. The wait ends as soon as the pid is published.
+        let pid = crate::shared::test_processes::wait_for_published_pid(
+            &pid_file,
+            Duration::from_secs(30),
+        )
+        .await
+        .expect("ACP helper did not publish its descendant pid");
         let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid as u32);
 
         client.shutdown().await;
 
         wait_for_process_exit(pid).await;
-    }
-
-    #[cfg(unix)]
-    async fn wait_for_test_pid(path: &std::path::Path) -> libc::pid_t {
-        for _ in 0..100 {
-            if let Ok(contents) = std::fs::read_to_string(path) {
-                return contents.parse().expect("numeric ACP descendant pid");
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("ACP helper did not publish its descendant pid");
     }
 
     #[cfg(unix)]

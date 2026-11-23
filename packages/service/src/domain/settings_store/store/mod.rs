@@ -8,10 +8,14 @@ use std::path::Path;
 
 use crate::error::AppError;
 
+use super::cache::{self, CachedEntry};
 use super::{file, lock, validate, Scope, SettingWarning};
 
 mod global;
 mod project;
+mod scalars;
+pub(super) use scalars::set_value;
+use scalars::set_values;
 
 pub use global::*;
 pub use project::*;
@@ -20,26 +24,46 @@ pub use project::*;
 /// empty map, and a malformed file degrades to an empty map plus a warning so a
 /// corrupt file can't brick the app on a hot read path.
 pub fn load(path: &Path, scope: Scope) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
-    match file::read_file(path) {
-        Ok(Some(text)) => load_text(scope, &text),
-        Ok(None) => (BTreeMap::new(), Vec::new()),
-        Err(e) => (
+    read(path, scope).unwrap_or_else(|e| {
+        (
             BTreeMap::new(),
             vec![SettingWarning::new("", e.to_string())],
-        ),
+        )
+    })
+}
+
+/// Like [`load`], but a file that exists and cannot be read is an error rather
+/// than an empty map. Invalid content still degrades to warnings. The settings
+/// cascade uses this so an unreadable level never silently hands the decision
+/// to the next one.
+pub fn read(
+    path: &Path,
+    scope: Scope,
+) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Missing => Ok((BTreeMap::new(), Vec::new())),
+        CachedEntry::Present(doc) => Ok(doc.validated(scope)),
+        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
     }
 }
 
-/// Parse + validate already-read document text. Split out so `read_for_edit`
-/// can reuse this pass without reading the same file from disk a second time.
-fn load_text(scope: Scope, text: &str) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
-    let (parsed, mut warnings) = match file::parse_object(text) {
-        Ok(result) => result,
-        Err(message) => return (BTreeMap::new(), vec![SettingWarning::new("", message)]),
-    };
-    let (clean, mut validation_warnings) = validate::validate(scope, parsed);
-    warnings.append(&mut validation_warnings);
-    (clean, warnings)
+/// Read a single validated scalar setting without cloning the entire map.
+/// Missing or unreadable files return `None` (matching [`load`]).
+pub(super) fn load_key(path: &Path, scope: Scope, key: &str) -> Option<String> {
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Present(doc) => doc.get_validated(scope, key),
+        CachedEntry::Missing | CachedEntry::Unreadable(_) => None,
+    }
+}
+
+/// Like [`load_key`], but an unreadable file returns `Err(SETTINGS_READ_FAILED)`
+/// (matching [`read`]).
+pub(super) fn read_key(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Missing => Ok(None),
+        CachedEntry::Present(doc) => Ok(doc.get_validated(scope, key)),
+        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
+    }
 }
 
 /// Read the full stored document (all keys preserved, nested sections intact) for
@@ -59,46 +83,86 @@ pub(super) fn load_document_for_write(
     }
 }
 
-/// Set a single scalar key, preserving every other key (unknown scalars and
-/// nested sections like `profiles` alike).
-pub(super) async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
-    set_values(
-        path,
-        &BTreeMap::from([(key.to_string(), Some(value.to_string()))]),
-    )
-    .await
-    .map(drop)
+/// How [`update_document_locked`] handles a missing or unparseable settings file.
+pub(crate) enum ReadPolicy {
+    /// Missing file starts from `{}`; invalid JSON returns `BadRequest` so a
+    /// write never clobbers a file the user is mid-edit on.
+    Strict,
+    /// Missing or invalid JSON leaves the file untouched and returns `Ok(None)`
+    /// without calling `mutate`. Used by best-effort startup cleanups.
+    SkipMissingOrCorrupt,
 }
 
-/// Set or remove several scalar keys in one atomic write (`None` removes the
-/// key, so its in-code default applies again). Every other key is preserved.
-/// Returns each touched key's previous stored value, read under the same lock.
-pub(super) async fn set_values(
+/// Serialize a read-modify-write over `path` under `WRITE_LOCK`, offloading
+/// disk I/O and JSON serialization to `spawn_blocking` and refreshing the
+/// watcher cache whenever a write occurs.
+///
+/// The lock guard moves into the blocking task: if the caller's future is
+/// dropped (client gone, request cancelled), the task still runs to the end,
+/// and the lock must stay held until it does or another writer could read the
+/// old document and overwrite this write.
+///
+/// `mutate` returns `Ok((value, true))` to persist the updated document or
+/// `Ok((value, false))` to leave disk untouched.
+pub(crate) async fn update_document_locked<T, F>(
     path: &Path,
-    entries: &BTreeMap<String, Option<String>>,
-) -> Result<BTreeMap<String, Option<String>>, AppError> {
-    let _guard = lock::write_lock().lock().await;
-    let mut doc = load_document_for_write(path)?;
-    let previous = entries
-        .iter()
-        .map(|(key, value)| {
-            let old = match value {
-                Some(value) => doc.insert(key.clone(), serde_json::Value::String(value.clone())),
-                None => doc.remove(key),
-            };
-            (key.clone(), old.map(stored_text))
-        })
-        .collect();
-    file::write_atomic(path, &file::serialize_document(&doc))?;
-    Ok(previous)
+    policy: ReadPolicy,
+    task_label: &'static str,
+    mutate: F,
+) -> Result<Option<T>, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(T, bool), AppError>
+        + Send
+        + 'static,
+{
+    let owned_path = path.to_path_buf();
+    let guard = lock::write_lock().lock().await;
+    tokio::task::spawn_blocking(move || -> Result<Option<T>, AppError> {
+        let _guard = guard;
+        let mut doc = match policy {
+            ReadPolicy::Strict => load_document_for_write(&owned_path)?,
+            ReadPolicy::SkipMissingOrCorrupt => {
+                let Some(text) = file::read_file(&owned_path)? else {
+                    return Ok(None);
+                };
+                let Ok(doc) = file::parse_document(&text) else {
+                    // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
+                    return Ok(None);
+                };
+                doc
+            }
+        };
+        let (value, changed) = mutate(&mut doc)?;
+        if changed {
+            let serialized = file::serialize_document(&doc);
+            file::write_atomic(&owned_path, &serialized)?;
+            cache::invalidate_path(&owned_path);
+        }
+        Ok(Some(value))
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))?
 }
 
-/// A stored value as the text a scalar setting holds.
-fn stored_text(value: serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(text) => text,
-        other => other.to_string(),
-    }
+/// Atomically write an already-serialized document and refresh the watcher
+/// cache. Takes the `WRITE_LOCK` guard by value and releases it only when the
+/// blocking write is done, even if the caller's future is dropped first.
+pub(super) async fn write_serialized_under_lock(
+    guard: tokio::sync::MutexGuard<'static, ()>,
+    path: &Path,
+    serialized: String,
+    task_label: &'static str,
+) -> Result<(), AppError> {
+    let owned_path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        file::write_atomic(&owned_path, &serialized)?;
+        cache::invalidate_path(&owned_path);
+        Ok(())
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("{task_label} task failed: {error}")))?
 }
 
 /// Validate and atomically write a full settings document (the "Edit JSON" save
@@ -110,26 +174,26 @@ pub(super) async fn write_content(
     content: &str,
 ) -> Result<Vec<SettingWarning>, AppError> {
     let doc = file::parse_document(content).map_err(AppError::BadRequest)?;
-    let (scalars, mut warnings) = file::parse_object(content).map_err(AppError::BadRequest)?;
+    let (scalars, mut warnings) = file::scalars_from_document(&doc);
     let (_clean, mut validation_warnings) = validate::validate(scope, scalars);
     warnings.append(&mut validation_warnings);
 
-    let _guard = lock::write_lock().lock().await;
-    file::write_atomic(path, &file::serialize_document(&doc))?;
+    let serialized = file::serialize_document(&doc);
+    let guard = lock::write_lock().lock().await;
+    write_serialized_under_lock(guard, path, serialized, "settings write").await?;
     Ok(warnings)
 }
 
 /// Current document text for the editor, plus warnings. Empty file → `{}`.
 pub fn read_for_edit(path: &Path, scope: Scope) -> (String, Vec<SettingWarning>) {
-    match file::read_file(path) {
-        Ok(Some(text)) if !text.trim().is_empty() => {
-            let (_map, warnings) = load_text(scope, &text);
-            (text, warnings)
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Present(doc) if !doc.raw.trim().is_empty() => {
+            (doc.raw.clone(), doc.validated_warnings(scope))
         }
-        Ok(_) => ("{}\n".to_string(), Vec::new()),
-        Err(e) => (
+        CachedEntry::Present(_) | CachedEntry::Missing => ("{}\n".to_string(), Vec::new()),
+        CachedEntry::Unreadable(message) => (
             "{}\n".to_string(),
-            vec![SettingWarning::new("", e.to_string())],
+            vec![SettingWarning::new("", message.clone())],
         ),
     }
 }
@@ -137,6 +201,44 @@ pub fn read_for_edit(path: &Path, scope: Scope) -> (String, Vec<SettingWarning>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dropped_writer_keeps_the_lock_until_its_write_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let task_path = path.clone();
+        let task = tokio::spawn(async move {
+            update_document_locked(&task_path, ReadPolicy::Strict, "test", move |doc| {
+                started_tx.send(()).expect("test waiting");
+                release_rx.recv().expect("test releases");
+                doc.insert("theme_current".into(), "aurora".into());
+                Ok(((), true))
+            })
+            .await
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv())
+            .await
+            .unwrap()
+            .expect("the read-modify-write started");
+
+        // The handler is dropped while its blocking write is still running.
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(
+            lock::write_lock().try_lock().is_err(),
+            "the lock must stay held until the in-flight write lands"
+        );
+
+        release_tx.send(()).unwrap();
+        let _held =
+            tokio::time::timeout(std::time::Duration::from_secs(5), lock::write_lock().lock())
+                .await
+                .expect("the lock is released once the write finishes");
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("aurora"), "{written}");
+    }
 
     #[tokio::test]
     async fn set_preserves_other_and_unknown_keys() {
@@ -180,7 +282,9 @@ mod tests {
             ("sidebar_density".to_string(), None),
             ("sidebar_row_diff".to_string(), Some("false".to_string())),
         ]);
-        let previous = set_values(&path, &entries).await.unwrap();
+        let (previous, changed) = set_values(&path, &entries).await.unwrap();
+        assert!(changed);
+        assert!(!set_values(&path, &entries).await.unwrap().1);
         assert_eq!(
             previous,
             BTreeMap::from([
@@ -259,6 +363,22 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ corrupt").unwrap();
         let (map, warnings) = load(&path, Scope::Workspace);
+        assert!(map.is_empty());
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn read_fails_on_an_unreadable_file_but_degrades_on_corrupt_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let unreadable = dir.path().join("unreadable.json");
+        std::fs::create_dir(&unreadable).unwrap();
+        let error = read(&unreadable, Scope::Workspace).unwrap_err().to_string();
+        // The cause reaches the user, not only "open private file <path>".
+        assert!(error.to_lowercase().contains("directory"), "{error}");
+
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, "{ corrupt").unwrap();
+        let (map, warnings) = read(&corrupt, Scope::Workspace).unwrap();
         assert!(map.is_empty());
         assert_eq!(warnings.len(), 1);
     }

@@ -1,4 +1,5 @@
 import type { AgentSessionProps } from "./types";
+import { useIsNewConversation } from "./AgentSessionHistoryFailure";
 
 export function useAgentSessionMetaVisibility(
   props: AgentSessionProps,
@@ -17,8 +18,8 @@ export function useAgentSessionMetaVisibility(
     onStop,
     todos,
   } = props;
-  const showWorktreeChip =
-    blocks.length === 0 && !!onWorktreeModeChange && worktreeProjectId != null;
+  const isNewConversation = useIsNewConversation(props.wsSessionId, blocks.length);
+  const showWorktreeChip = isNewConversation && !!onWorktreeModeChange && worktreeProjectId != null;
   const showClaudeProfileSelector = isClaudeProvider;
   const showAutoScrollChip = !!shouldShowPromptBar;
 

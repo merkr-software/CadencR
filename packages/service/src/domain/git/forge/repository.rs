@@ -3,13 +3,13 @@ use std::path::Path;
 
 use futures::{stream, StreamExt};
 
+mod batch;
+
 use super::auth::{forge_to_app_error, host_configs, resolve_credentials};
 use super::provider::{ForgeContext, ForgeProvider};
 use super::{api_base_url, effective_kind, provider_for};
 use crate::app_state::AppState;
 use crate::domain::git::host::{detect_origin_remote, GitHost, RemoteInfo};
-use crate::domain::git::linked_branches;
-use crate::domain::git::service;
 use crate::error::AppError;
 
 /// A feature's forge, resolved end to end: which provider speaks for it, where
@@ -86,70 +86,49 @@ pub struct TrackedBranch {
 }
 
 pub async fn active_feature_targets(state: &AppState) -> Result<Vec<FeatureForgeTarget>, AppError> {
-    let feature_ids =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM features WHERE status = 'active' ORDER BY id")
-            .fetch_all(&state.read_pool)
-            .await?;
-    Ok(stream::iter(feature_ids)
-        .map(|feature_id| resolve_feature_target(state, feature_id))
-        .buffered(8)
-        .collect()
-        .await)
+    batch::active_feature_targets(&state.read_pool).await
 }
 
+/// Resolve one feature's forge target with the same rules as the poller.
 pub async fn resolve_feature_target(state: &AppState, feature_id: i64) -> FeatureForgeTarget {
-    match try_resolve_feature_target(state, feature_id).await {
-        Ok((branch, remote)) => {
-            match tracked_branches(state, feature_id, branch.as_deref()).await {
-                Ok(tracked) => FeatureForgeTarget {
-                    feature_id,
-                    branch,
-                    tracked,
-                    remote,
-                    error: None,
-                },
-                Err(error) => failed_target(feature_id, error),
-            }
-        }
-        Err(error) => failed_target(feature_id, error),
-    }
+    batch::feature_target(&state.read_pool, feature_id).await
 }
 
-fn failed_target(feature_id: i64, error: AppError) -> FeatureForgeTarget {
+pub(super) fn failed_target(feature_id: i64, error: impl Into<String>) -> FeatureForgeTarget {
     FeatureForgeTarget {
         feature_id,
         branch: None,
         tracked: Vec::new(),
         remote: None,
-        error: Some(error.to_string()),
+        error: Some(error.into()),
     }
 }
 
-async fn tracked_branches(
-    state: &AppState,
-    feature_id: i64,
+pub(super) fn linked_branch_entry(
+    branch: String,
+    pr_number: Option<i64>,
+    pr_state: Option<String>,
+) -> TrackedBranch {
+    TrackedBranch {
+        stored_pr: pr_number
+            .and_then(|number| u64::try_from(number).ok())
+            .map(|number| (number, pr_state.unwrap_or_default())),
+        name: branch,
+        linked: true,
+    }
+}
+
+pub(super) fn assemble_tracked(
+    mut tracked: Vec<TrackedBranch>,
+    recorded: Option<String>,
     current: Option<&str>,
-) -> Result<Vec<TrackedBranch>, AppError> {
-    let rows = linked_branches::repository::list_linked(&state.read_pool, feature_id).await?;
-    let mut tracked = rows
-        .into_iter()
-        .map(|row| TrackedBranch {
-            stored_pr: row
-                .pr_number
-                .and_then(|number| u64::try_from(number).ok())
-                .map(|number| (number, row.pr_state.unwrap_or_default())),
-            name: row.branch,
+) -> Vec<TrackedBranch> {
+    if let Some(name) = recorded.filter(|n| !tracked.iter().any(|branch| branch.name == *n)) {
+        tracked.push(TrackedBranch {
+            name,
             linked: true,
-        })
-        .collect::<Vec<_>>();
-    if let Some(name) = service::recorded_feature_branch(&state.read_pool, feature_id).await? {
-        if !tracked.iter().any(|branch| branch.name == name) {
-            tracked.push(TrackedBranch {
-                name,
-                linked: true,
-                stored_pr: None,
-            });
-        }
+            stored_pr: None,
+        });
     }
     if let Some(current) = current {
         let entry = match tracked.iter().position(|branch| branch.name == current) {
@@ -162,7 +141,7 @@ async fn tracked_branches(
         };
         tracked.insert(0, entry);
     }
-    Ok(tracked)
+    tracked
 }
 
 pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo>, AppError> {
@@ -188,32 +167,9 @@ pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo
     Ok(remotes)
 }
 
-async fn try_resolve_feature_target(
-    state: &AppState,
-    feature_id: i64,
-) -> Result<(Option<String>, Option<RemoteInfo>), AppError> {
-    let path = service::resolve_feature_working_path(state, feature_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("No repository found for feature {feature_id}"))
-        })?;
-    if !crate::shared::git_context::has_git_metadata(Path::new(&path)).await? {
-        return Ok((None, None));
-    }
-    // The branch the feature is *bound to*, not whatever the resolved
-    // repository happens to have checked out: a feature whose worktree was
-    // removed, or one created by the worktree-free "From branch" flow, both
-    // resolve to the project directory, whose HEAD is usually the default
-    // branch. Matching PRs against that would report the wrong proposal.
-    let branch =
-        service::resolve_feature_branch(&state.read_pool, feature_id, Path::new(&path)).await?;
-    let remote = detect_origin_remote(Path::new(&path)).await;
-    Ok((branch, remote))
-}
-
 async fn remote_for_path(path: &Path) -> Result<Option<RemoteInfo>, AppError> {
     if !crate::shared::git_context::has_git_metadata(path).await? {
         return Ok(None);
     }
-    Ok(detect_origin_remote(path).await)
+    detect_origin_remote(path).await
 }

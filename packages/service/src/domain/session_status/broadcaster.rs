@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -235,6 +236,26 @@ impl SessionStatusBroadcaster {
         Some(self.publish(applied))
     }
 
+    /// Report how many sub-agents are currently running in `session_id`.
+    /// Absorbs repeats so unchanged counts emit no broadcast.
+    pub fn set_running_subagents(
+        &self,
+        session_id: i64,
+        feature_id: i64,
+        count: u32,
+    ) -> Option<u64> {
+        let mut book = self.lock();
+        let applied = book.set_running_subagents(session_id, feature_id, count, now_ms())?;
+        Some(self.publish(applied))
+    }
+
+    /// Drop a deleted session's live status and any running sub-agents in one event.
+    pub fn forget_session(&self, session_id: i64, feature_id: i64) -> Option<u64> {
+        let mut book = self.lock();
+        let applied = book.forget_session(session_id, feature_id, now_ms())?;
+        Some(self.publish(applied))
+    }
+
     /// Mark idle every tracked session whose row is gone (its feature or
     /// project was deleted): no turn will ever end for it to say so.
     pub async fn forget_deleted_sessions(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -254,7 +275,7 @@ impl SessionStatusBroadcaster {
         .collect();
         for (session_id, feature_id) in tracked {
             if !existing.contains(&session_id) {
-                self.broadcast(session_id, feature_id, AgentStatus::Idle, None);
+                self.forget_session(session_id, feature_id);
             }
         }
         Ok(())
@@ -287,7 +308,7 @@ impl SessionStatusBroadcaster {
             self.journal.push(JournalEntry::Completed(turn));
         }
         let seq = event.seq;
-        let _ = self.tx.send(event);
+        self.tx.send(event).ignore_closed();
         seq
     }
 
@@ -563,5 +584,43 @@ mod tests {
         assert_eq!((event.session_id, event.status), (2, AgentStatus::Idle));
         assert!(rx.try_recv().is_err());
         assert_eq!(broadcaster.snapshot().states.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn running_subagents_broadcast_and_clear_when_a_session_is_deleted() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let broadcaster = broadcaster();
+        let mut rx = broadcaster.subscribe();
+
+        assert!(broadcaster.set_running_subagents(9, 90, 2).is_some());
+        let launched = rx.recv().await.unwrap();
+        assert_eq!(launched.running_subagents, 2);
+        assert_eq!(
+            serde_json::to_value(&launched).unwrap()["running_subagents"],
+            2
+        );
+        assert!(broadcaster.set_running_subagents(9, 90, 2).is_none());
+
+        broadcaster.forget_deleted_sessions(&pool).await.unwrap();
+        let cleared = rx.recv().await.unwrap();
+        assert_eq!((cleared.session_id, cleared.running_subagents), (9, 0));
+        assert!(serde_json::to_value(&cleared)
+            .unwrap()
+            .get("running_subagents")
+            .is_none());
+        assert!(broadcaster.snapshot().states.is_empty());
+
+        // Direct session deletion clears an idle session's running sub-agents too.
+        assert!(broadcaster.set_running_subagents(11, 110, 1).is_some());
+        let _ = rx.recv().await.unwrap();
+        assert!(broadcaster.forget_session(11, 110).is_some());
+        let deleted = rx.recv().await.unwrap();
+        assert_eq!((deleted.session_id, deleted.running_subagents), (11, 0));
+        assert!(broadcaster.forget_session(11, 110).is_none());
+        assert!(broadcaster.snapshot().states.is_empty());
     }
 }

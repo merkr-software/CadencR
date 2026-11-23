@@ -14,6 +14,8 @@ export interface AgentQuestion {
   options?: AgentQuestionOption[];
   /** Whether multiple options can be selected */
   multiSelect?: boolean;
+  /** False when the provider accepts only its offered options. */
+  allowCustomAnswer?: boolean;
 }
 
 export type AgentQuestionAnswers = string[][];

@@ -41,6 +41,7 @@ import {
   handleMcpServers,
   handlePermissionRequest,
   handlePromptReceived,
+  handlePromptSteering,
   handleCanonicalUserMessage,
   handleTranscriptBlock,
 } from "./ws-envelope-session-handlers";
@@ -198,6 +199,7 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.draftsaved]: ignoreSessionAction,
   [SESSION_ACTION.branchneeds_confirm]: ignoreSessionAction,
   [SESSION_ACTION.runtime_session_id]: handleRuntimeSessionId,
+  [SESSION_ACTION.prompt_steering]: handlePromptSteering,
   [SESSION_ACTION.mcp_servers]: handleMcpServers,
   [SESSION_ACTION.user_message]: handleCanonicalUserMessage,
   [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
@@ -290,8 +292,10 @@ function handleProviderSetOk(ctx: StoreAccessors, sessionId: string, payload: un
         : {}),
       fastMode: p.fast_mode ?? (providerChanged ? false : session.fastMode),
       mcpServers: null,
+      mcpServersError: null,
       ...createSessionConfigState(),
       supportsPromptReceipts: p.supports_prompt_receipts ?? false,
+      promptReceiptsAtSubmission: p.prompt_receipts_at_submission ?? false,
       ...(accessMode
         ? {
             accessMode: parseAccessMode(accessMode),

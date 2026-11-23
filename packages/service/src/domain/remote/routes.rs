@@ -228,12 +228,11 @@ pub async fn revoke_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<RemoteStatus>, AppError> {
-    if !repo::revoke_device(&state.write_pool, id).await? {
+    // Its cached token and live sockets go with the row, before the fallible
+    // audit write below.
+    if !super::revocation::revoke_device(&state, id).await? {
         return Err(AppError::NotFound(format!("device {id}")));
     }
-    // Force-close any live sockets this device still holds as soon as the
-    // revocation is committed, before the fallible audit write below.
-    state.remote.live().cancel_device(id);
     repo::record_audit(&state.write_pool, "revoke", Some(id), None).await?;
     Ok(Json(current_status(&state).await?))
 }
@@ -367,20 +366,7 @@ mod tests {
     async fn revoke_closes_sockets_even_when_the_audit_write_fails() {
         // One connection so the in-memory schema is shared; no `remote_audit`
         // table, so the audit insert fails after the revocation commits.
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::query(
-            "CREATE TABLE remote_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, \
-             token_hash TEXT NOT NULL UNIQUE, label TEXT, \
-             created_at TEXT NOT NULL DEFAULT (datetime('now')), \
-             last_seen_at TEXT, revoked_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        let pool = repo::remote_devices_test_pool().await;
         let id = repo::insert_device(&pool, "hash", "phone").await.unwrap();
         let state = AppState::with_pool(pool);
         let (open_socket, _) = state.remote.live().register(id);
@@ -389,7 +375,7 @@ mod tests {
 
         assert!(result.is_err(), "the audit failure is still reported");
         assert!(open_socket.token.is_cancelled());
-        assert!(!repo::revoke_device(&state.write_pool, id).await.unwrap());
+        assert!(!repo::mark_revoked(&state.write_pool, id).await.unwrap());
     }
 
     #[tokio::test]

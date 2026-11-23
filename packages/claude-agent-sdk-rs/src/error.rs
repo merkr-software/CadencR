@@ -12,6 +12,11 @@ pub enum SdkError {
     #[error("claude CLI not found; searched {} location(s)", searched.len())]
     CliNotFound { searched: Vec<PathBuf> },
 
+    /// The search for the `claude` binary could not finish (a discovery step
+    /// panicked); unlike `CliNotFound`, the CLI may well be installed.
+    #[error(transparent)]
+    Discovery(#[from] cli_discovery::DiscoveryError),
+
     /// Failed to spawn the child process.
     #[error("failed to spawn child process: {0}")]
     SpawnFailed(std::io::Error),

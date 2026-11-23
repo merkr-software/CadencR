@@ -13,6 +13,7 @@ export const VISUAL_MESSAGE = {
   ready: "cadencr-visual:ready",
   size: "cadencr-visual:size",
   error: "cadencr-visual:error",
+  escape: "cadencr-visual:escape",
 } as const;
 
 /** Longest error text a visual may report. */
@@ -20,11 +21,15 @@ export const MAX_VISUAL_ERROR_LENGTH = 2000;
 
 const visualFrameMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal(VISUAL_MESSAGE.ready) }),
-  z.object({ type: z.literal(VISUAL_MESSAGE.size), height: z.number().finite().nonnegative() }),
+  z.object({
+    type: z.literal(VISUAL_MESSAGE.size),
+    height: z.number().finite().nonnegative(),
+  }),
   z.object({
     type: z.literal(VISUAL_MESSAGE.error),
     message: z.string().max(MAX_VISUAL_ERROR_LENGTH),
   }),
+  z.object({ type: z.literal(VISUAL_MESSAGE.escape) }),
 ]);
 
 export type VisualFrameMessage = z.infer<typeof visualFrameMessageSchema>;

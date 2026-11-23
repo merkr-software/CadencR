@@ -349,6 +349,16 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
   scroll-margin-top: calc(2rem + 2 * var(--sidebar-row-pad, 6px));
 }
 
+/* Running sub-agents count on a row's details: carries the working blue tone
+ * in every color mode so live sub-agent work reads at a glance. */
+[data-feature-subagents] > * {
+  color: var(
+    --row-tone-working,
+    color-mix(in oklab, var(--color-blue-500) 65%, var(--sidebar-foreground))
+  );
+  border-color: color-mix(in oklab, var(--color-blue-500) 35%, transparent);
+}
+
 /* Display options: the option under the pointer or focus outlines what it
  * changes, in the sidebar and in the Settings preview (useSidebarOptionHighlight). */
 [data-sidebar-highlight="density"] :is(.sidebar-row, .sidebar-project-row),
@@ -377,6 +387,7 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
     [data-feature-branch],
     [data-feature-worktree-icon],
     [data-feature-todos],
+    [data-feature-subagents],
     [data-feature-activity-indicators]
   ),
 [data-sidebar-highlight="sectionOrder"] :is([data-sidebar-block], [data-sidebar-lens-menu]),

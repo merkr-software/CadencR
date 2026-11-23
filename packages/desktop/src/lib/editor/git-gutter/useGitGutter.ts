@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import type { Extension } from "@codemirror/state";
 import { useGetFileContent } from "@/api/generated";
 import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
+import { useQueryErrorToast } from "@/hooks/useQueryErrorToast";
+import { apiErrorCode, retryUnlessRefusedForSize } from "@/lib/api-errors";
 import { featurePathToGitPath } from "@/lib/git-paths";
 import { gitGutterExtension } from "./git-gutter-extension";
 
@@ -54,16 +56,27 @@ export function useGitGutter({
   // to the checkout root.
   const prefix = useGitPathPrefix(featureId);
   const gitPath = prefix == null ? "" : featurePathToGitPath(filePath, prefix);
-  const { data } = useGetFileContent(
+  const query = useGetFileContent(
     { feature_id: featureId, file_path: gitPath, mode: "uncommitted" },
     {
       query: {
         enabled: enabled && Boolean(projectId && featureId && filePath) && prefix != null,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
+        retry: retryUnlessRefusedForSize,
       },
     },
   );
+
+  // No markers would otherwise read as "no changes since HEAD". A symlink or
+  // special file simply has no text baseline: no markers, nothing to report.
+  const noTextBaseline = apiErrorCode(query.error) === "UNSUPPORTED_FILE_TYPE";
+  useQueryErrorToast(
+    { isError: query.isError && !noTextBaseline, error: query.error },
+    "Git change markers unavailable",
+    `git-gutter:${featureId}:${gitPath}`,
+  );
+  const { data } = query;
 
   // Binary files have no meaningful text baseline to diff against.
   const baseline = useMemo<string | null>(() => {

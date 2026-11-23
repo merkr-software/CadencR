@@ -35,7 +35,7 @@ impl CadencrBrowserTrust {
     pub fn injected_in(servers: Option<&HashMap<String, RuntimeMcpServerConfig>>) -> Self {
         let injected = servers
             .and_then(|servers| servers.get(&browser_server_name()))
-            .is_some_and(is_cadencr_browser_server);
+            .is_some_and(|config| is_cadencr_server(config, AgentType::Browser));
         Self { injected }
     }
 
@@ -84,18 +84,18 @@ fn browser_server_name() -> String {
     mcp_server_name(AgentType::Browser)
 }
 
-fn is_cadencr_browser_server(config: &RuntimeMcpServerConfig) -> bool {
+pub(super) fn is_cadencr_server(config: &RuntimeMcpServerConfig, agent: AgentType) -> bool {
     let RuntimeMcpServerConfig::Stdio { command, args, .. } = config;
     let own_binary =
         std::env::current_exe().is_ok_and(|exe| std::path::Path::new(command) == exe.as_path());
-    let serves_browser = args.as_deref().is_some_and(|args| {
+    let serves_agent = args.as_deref().is_some_and(|args| {
         args.windows(3).any(|window| {
             window[0] == MCP_SERVE_SUBCOMMAND
                 && window[1] == AGENT_TYPE_FLAG
-                && window[2] == AgentType::Browser.short_name()
+                && window[2] == agent.short_name()
         })
     });
-    own_binary && serves_browser
+    own_binary && serves_agent
 }
 
 fn aliases_browser_server(name: &str) -> bool {

@@ -25,8 +25,14 @@ function composedPathOwnsTextInput(event: KeyboardEvent): boolean {
   return event.composedPath().some((target) => isEditableShortcutElement(target));
 }
 
+/**
+ * An overlay left open in an inert subtree (a conversation workspace kept
+ * mounted but hidden, a collapsed sidebar) owns no key: only reachable ones count.
+ */
 function hasOpenOverlay(): boolean {
-  return document.querySelector(OPEN_OVERLAY_SELECTOR) != null;
+  return Array.from(document.querySelectorAll(OPEN_OVERLAY_SELECTOR)).some(
+    (overlay) => overlay.closest("[inert]") === null,
+  );
 }
 
 /**

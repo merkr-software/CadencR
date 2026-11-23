@@ -202,6 +202,46 @@ describe("fixedRowLines", () => {
     });
   });
 
+  it("borrows a spare reply line for running sub-agents when no activity lane was reserved", () => {
+    const noActivity = rowLayout(
+      {
+        ...options,
+        rowHeight: "fixed",
+        uniformRows: false,
+        preview: "last_message",
+        ports: false,
+        activity: false,
+        todos: false,
+        label: "hidden",
+        provider: "logo",
+      },
+      "working",
+      false,
+    );
+    expect(noActivity.holdsActivityLane).toBe(false);
+    expect(fixedRowLines(noActivity, { ...bare, activity: true, hasSubagents: true })).toEqual({
+      asks: false,
+      code: false,
+      activity: true,
+      replyLines: 1,
+    });
+    // Never displaces a pending request when no spare reply line remains.
+    expect(
+      fixedRowLines(noActivity, {
+        ...bare,
+        asks: true,
+        code: true,
+        activity: true,
+        hasSubagents: true,
+      }),
+    ).toEqual({
+      asks: true,
+      code: true,
+      activity: false,
+      replyLines: 0,
+    });
+  });
+
   it("drops what the options hold no line for", () => {
     const uniform = rowLayout(
       { ...options, rowHeight: "fixed", preview: "last_message" },

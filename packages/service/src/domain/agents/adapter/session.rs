@@ -36,6 +36,15 @@ pub struct WithdrawnInputs {
 #[async_trait]
 pub trait AgentRuntimeSession: Send + Sync {
     fn take_message_rx(&mut self) -> RuntimeMessageRx;
+    /// Whether this session negotiated concurrent ACP prompts acknowledged at submission position.
+    /// Other runtimes keep their adapter's receipt policy.
+    fn negotiated_prompt_steering(&self) -> Option<bool> {
+        None
+    }
+    /// Controls at the last accepted turn, for providers that resolve settings inside their runtime.
+    async fn delivered_turn_config(&self) -> Option<super::config::RuntimeEffectiveConfig> {
+        None
+    }
     /// Sub-agents earlier runtimes of the conversation launched. Called at
     /// most once, before `take_message_rx`, so a provider that can resume one of them
     /// reports the resumed run under its carrier. Ignored by runtimes that
@@ -57,8 +66,18 @@ pub trait AgentRuntimeSession: Send + Sync {
     async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
         Ok(Vec::new())
     }
+    /// MCP snapshot for a viewer joining a live runtime. Implementations must
+    /// read local state only and return `None` when the runtime is closing.
+    async fn cached_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        None
+    }
     async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
         self.available_mcp_servers().await
+    }
+    /// The final catalog for a runtime with host-observed MCP connections.
+    /// Providers without host-observed connections have no terminal update.
+    async fn ended_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        None
     }
     async fn stream_input(&self, content: Value) -> Result<(), RuntimeError>;
     /// The live runtime is temporarily unable to accept steering input.
@@ -73,6 +92,17 @@ pub trait AgentRuntimeSession: Send + Sync {
     ) -> Result<(), RuntimeError> {
         let _ = client_message_id;
         self.stream_input(content).await
+    }
+    /// A runtime that accepts overlapping prompts may release the order guard
+    /// after submitting this request and continue awaiting its acknowledgement.
+    async fn stream_input_with_delivery_order(
+        &self,
+        content: Value,
+        client_message_id: Option<String>,
+        _order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+    ) -> Result<(), RuntimeError> {
+        self.stream_input_with_client_message_id(content, client_message_id)
+            .await
     }
     /// Dispatch a provider-native user shell command. Shared orchestration only
     /// calls this when the adapter advertises `ProviderNative`.

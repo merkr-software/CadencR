@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::{debug, warn};
 
@@ -111,7 +112,9 @@ async fn handle_subscribe_git_status(
                     "status",
                     serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
                 );
-                let _ = reply.send(Message::Text(String::from(env).into()));
+                reply
+                    .send(Message::Text(String::from(env).into()))
+                    .ignore_closed();
             }
             Err(e) => {
                 warn!(error = %e, feature_id, "failed to subscribe git watcher");
@@ -173,14 +176,20 @@ async fn handle_subscribe_session_status(
         "session_status.snapshot",
         session_status_snapshot(&app_state.session_status_tx),
     );
-    let _ = sender.send(Message::Text(String::from(snapshot).into()));
+    sender
+        .send(Message::Text(String::from(snapshot).into()))
+        .ignore_closed();
 
     let sender = sender.clone();
     let broadcaster = app_state.session_status_tx.clone();
 
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
+            let received = tokio::select! {
+                _ = sender.closed() => break,
+                received = rx.recv() => received,
+            };
+            match received {
                 Ok(event) => {
                     let update = WsEnvelope::new(
                         "app",
@@ -322,7 +331,11 @@ async fn handle_subscribe_alacritty_config_events(sender: &WsSender, app_state: 
     let sender = sender.clone();
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
+            let received = tokio::select! {
+                _ = sender.closed() => break,
+                received = rx.recv() => received,
+            };
+            match received {
                 Ok(_event) => {
                     let update =
                         WsEnvelope::new("app", "alacritty_config_event", serde_json::json!({}));

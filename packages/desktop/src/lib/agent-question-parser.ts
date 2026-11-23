@@ -23,26 +23,20 @@ function normalizeOptions(raw: unknown): AgentQuestionOption[] | undefined {
   });
 }
 
+function parseQuestion(input: Record<string, unknown>): AgentQuestion {
+  return {
+    question: typeof input.question === "string" ? input.question : "",
+    options: normalizeOptions(input.options),
+    ...(input.allowCustomAnswer === false && { allowCustomAnswer: false }),
+    multiSelect: input.multiSelect === true || input.multiple === true,
+  };
+}
+
 export function parseAskUserQuestions(toolInput: Record<string, unknown>): AgentQuestion[] {
-  // Handle multiple questions format
   if (Array.isArray(toolInput.questions)) {
-    return (toolInput.questions as Record<string, unknown>[]).map((q) => ({
-      question: (q.question as string) ?? "",
-      options: normalizeOptions(q.options),
-      multiSelect: q.multiSelect === true || q.multiple === true,
-    }));
+    return toolInput.questions
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map(parseQuestion);
   }
-
-  // Handle single question format
-  if (typeof toolInput.question === "string") {
-    return [
-      {
-        question: toolInput.question as string,
-        options: normalizeOptions(toolInput.options),
-        multiSelect: toolInput.multiSelect === true || toolInput.multiple === true,
-      },
-    ];
-  }
-
-  return [];
+  return typeof toolInput.question === "string" ? [parseQuestion(toolInput)] : [];
 }

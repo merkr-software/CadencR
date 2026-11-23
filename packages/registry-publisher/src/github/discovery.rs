@@ -258,7 +258,7 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let mut observed = Vec::new();
             for body in bodies {
-                let mut stream = accept_bounded(&listener);
+                let mut stream = crate::github::fixture::accept_bounded(&listener);
                 let mut bytes = [0_u8; 16 * 1024];
                 let count = stream.read(&mut bytes).unwrap();
                 observed.push(String::from_utf8_lossy(&bytes[..count]).into_owned());
@@ -272,31 +272,6 @@ mod tests {
             observed
         });
         (format!("http://{address}"), handle)
-    }
-
-    fn accept_bounded(listener: &TcpListener) -> std::net::TcpStream {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        loop {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(false).unwrap();
-                    stream
-                        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-                        .unwrap();
-                    stream
-                        .set_write_timeout(Some(std::time::Duration::from_secs(2)))
-                        .unwrap();
-                    return stream;
-                }
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::WouldBlock
-                        && std::time::Instant::now() < deadline =>
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                Err(error) => panic!("fixture accept failed: {error}"),
-            }
-        }
     }
 
     #[test]

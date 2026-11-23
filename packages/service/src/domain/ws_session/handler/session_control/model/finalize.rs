@@ -9,8 +9,10 @@ use super::super::super::super::protocol::*;
 use super::super::super::helpers::send_error;
 use super::super::super::types::{SdkSessions, WsSender};
 use super::super::fast_mode::{apply_fast_mode_change, FastModeChangeError};
+use super::ModelSwitch;
 use crate::app_state::AppState;
 use crate::domain::agents::runtime_adapter;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 pub(super) async fn clear_unsupported_fast_mode(
     sdk_sessions: &SdkSessions,
@@ -58,27 +60,40 @@ pub(super) async fn clear_unsupported_fast_mode(
     }
 }
 
-/// Persist what a model switch changes besides the model itself.
+/// Persist what a model switch changes besides the model itself. The switch
+/// already applies, so a failed write is an uncorrelated notice: answering
+/// the `model.set` request with it would read as a failed switch.
 pub(super) async fn persist_model_selection(
     app_state: &AppState,
+    switch: &ModelSwitch,
     db_session_id: i64,
-    runtime_provider: &str,
     context_window: Option<u64>,
 ) {
-    if let Err(error) = sqlx::query("UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?")
-        .bind(runtime_provider)
+    let provider_saved = sqlx::query("UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?")
+        .bind(&switch.runtime_provider)
         .bind(db_session_id)
         .execute(&app_state.write_pool)
         .await
-    {
-        error!(%error, session_db_id = db_session_id, "failed to persist runtime provider");
-    }
-    WsSessionPersistence::update_context_window(
+        .map(drop);
+    let window_saved = WsSessionPersistence::update_context_window(
         &app_state.write_pool,
         db_session_id,
         context_window,
     )
     .await;
+    for (what, saved) in [
+        ("its agent provider", provider_saved),
+        ("its context window", window_saved),
+    ] {
+        report_if_unsaved(
+            &app_state.ws_feature_senders,
+            switch.feature_id,
+            db_session_id,
+            what,
+            saved,
+        )
+        .await;
+    }
 }
 
 pub(super) async fn seed_context_window(model: &str, runtime_provider: &str) -> Option<u64> {

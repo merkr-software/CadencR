@@ -106,14 +106,31 @@ impl NeovimManager {
 
         let project_id = project_id_for_feature(&self.read_pool, feature_id).await?;
         let cwd = resolve_cwd(&self.read_pool, feature_id, project_id).await?;
-        let (pty_id, pty_handle) = self
-            .pty_manager
-            .create_pty_with_command(feature_id, cmd, &cwd, 120, 40, PtyKind::Neovim)
-            .map_err(|e| AppError::NeovimSpawnError {
-                detail: e.to_string(),
-            })?;
+        let pty_manager = self.pty_manager.clone();
+        let spawn_cwd = cwd.clone();
+        // The kill-on-drop guard is armed inside the blocking task: if this
+        // future is dropped while the spawn runs, Tokio drops the task's
+        // output when it lands, and the guard kills the orphaned Neovim.
+        let (pty_id, pty_handle, mut startup) = tokio::task::spawn_blocking(move || {
+            let (pty_id, handle) = pty_manager.create_pty_with_command(
+                feature_id,
+                cmd,
+                &spawn_cwd,
+                120,
+                40,
+                PtyKind::Neovim,
+            )?;
+            let startup = StartupPty::new(pty_manager, pty_id.clone());
+            anyhow::Ok((pty_id, handle, startup))
+        })
+        .await
+        .map_err(|e| AppError::NeovimSpawnError {
+            detail: format!("neovim spawn task failed: {e}"),
+        })?
+        .map_err(|e| AppError::NeovimSpawnError {
+            detail: e.to_string(),
+        })?;
 
-        let mut startup = StartupPty::new(self.pty_manager.clone(), pty_id.clone());
         let mut alive = pty_handle.alive.subscribe();
         wait_for_socket(&control_socket, &mut alive).await?;
 

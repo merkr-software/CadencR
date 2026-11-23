@@ -50,7 +50,7 @@ export function useMetaBarDerivedState(
     onPermissionModeToggle,
     permissionMode,
     enabledOptInModes,
-    providerModes = [],
+    providerModes,
     variant = "session",
     onModelChange,
     showReadOnlyModel = false,

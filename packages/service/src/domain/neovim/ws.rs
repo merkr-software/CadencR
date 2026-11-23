@@ -4,19 +4,21 @@
 //! continuous stream of raw terminal bytes, which does not fit that JSON
 //! envelope. `/api/terminal/ws` sets the same precedent for the same reason.
 
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Extension, Router};
-use futures::{SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::api::middleware::authenticate_ws;
 use crate::app_state::AppState;
+use crate::domain::terminal::input::InputPump;
 use crate::remote::RemoteContext;
 
 /// Client → server messages over the Neovim PTY socket.
@@ -50,6 +52,11 @@ pub enum ServerMessage {
         scrollback: String,
     },
     Error {
+        message: String,
+    },
+    /// Input Neovim could not take (it exited, the write failed). Not fatal:
+    /// the client shows it and the socket stays attached.
+    InputError {
         message: String,
     },
 }
@@ -103,25 +110,25 @@ pub async fn neovim_ws_handler(
         .into_response()
 }
 
-type WsSink = futures::stream::SplitSink<WebSocket, Message>;
-type WsStream = futures::stream::SplitStream<WebSocket>;
-
 struct AttachedPty {
     id: String,
     handle: std::sync::Arc<crate::domain::terminal::service::PtyHandle>,
     data: broadcast::Receiver<String>,
 }
 
-async fn send_error(sink: &mut WsSink, message: impl Into<String>) {
-    let _ = sink
-        .send(Message::Text(
-            ServerMessage::Error {
-                message: message.into(),
-            }
-            .to_json()
-            .into(),
-        ))
-        .await;
+async fn send_error<Si>(sink: &mut Si, message: impl Into<String>)
+where
+    Si: Sink<Message, Error = axum::Error> + Unpin,
+{
+    sink.send(Message::Text(
+        ServerMessage::Error {
+            message: message.into(),
+        }
+        .to_json()
+        .into(),
+    ))
+    .await
+    .ignore_closed();
 }
 
 async fn attach_pty(
@@ -170,13 +177,26 @@ async fn handle_socket(socket: WebSocket, app_state: AppState, feature_id: i64) 
     info!(feature_id, "neovim ws client detached");
 }
 
-async fn stream_pty(
-    mut sink: WsSink,
-    mut stream: WsStream,
+/// What one client frame asks the stream loop to do next.
+enum Input {
+    Continue,
+    Write(Vec<u8>),
+    Stop,
+}
+
+async fn stream_pty<Si, St>(
+    mut sink: Si,
+    mut stream: St,
     mut pty: AttachedPty,
     manager: &crate::domain::terminal::service::PtyManager,
-) {
+) where
+    Si: Sink<Message, Error = axum::Error> + Unpin,
+    St: Stream<Item = Result<Message, axum::Error>> + Unpin,
+{
     let mut alive = pty.handle.alive.subscribe();
+    // Writes are never awaited by this loop: one stuck on Neovim's stdin must
+    // not stall output forwarding, a resize or a detach.
+    let mut input = InputPump::for_pty(manager, &pty.id);
     loop {
         if alive.borrow_and_update().is_some() {
             send_error(&mut sink, "Neovim exited").await;
@@ -199,35 +219,57 @@ async fn stream_pty(
             changed = alive.changed() => {
                 if changed.is_err() { break; }
             }
+            result = input.next_result() => report_input_result(&mut sink, result).await,
             incoming = stream.next() => {
-                match incoming {
-                    Some(Ok(Message::Text(text))) => {
-                        match handle_input(&text, &pty.id, manager) {
-                            Ok(true) => {}
-                            Ok(false) => break,
-                            Err(error) => { send_error(&mut sink, error).await; break; }
-                        }
-                    }
-                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                let text = match incoming {
+                    Some(Ok(Message::Text(text))) => text,
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue,
                     _ => break,
+                };
+                match handle_input(&text, &pty.id, manager) {
+                    Ok(Input::Continue) => {}
+                    Ok(Input::Write(data)) => {
+                        let queued = input.push(data);
+                        report_input_result(&mut sink, queued).await;
+                    }
+                    Ok(Input::Stop) => break,
+                    Err(error) => { send_error(&mut sink, error).await; break; }
                 }
             }
         }
     }
+    input.finish_detached(pty.id);
+}
+
+async fn report_input_result<Si>(sink: &mut Si, result: anyhow::Result<()>)
+where
+    Si: Sink<Message, Error = axum::Error> + Unpin,
+{
+    let Err(error) = result else {
+        return;
+    };
+    let message = format!("{error:#}");
+    tracing::error!(error = %message, "Neovim input failed");
+    let message = ServerMessage::InputError { message };
+    sink.send(Message::Text(message.to_json().into()))
+        .await
+        .ignore_closed();
 }
 
 fn handle_input(
     text: &str,
     pty_id: &str,
     manager: &crate::domain::terminal::service::PtyManager,
-) -> Result<bool, String> {
+) -> Result<Input, String> {
     let message = serde_json::from_str::<ClientMessage>(text).map_err(|error| error.to_string())?;
-    let result = match message {
-        ClientMessage::Write { data } => manager.write_pty(pty_id, data.as_bytes()),
-        ClientMessage::Resize { cols, rows } => manager.resize_pty(pty_id, cols, rows),
-        ClientMessage::Detach => return Ok(false),
-    };
-    result.map(|()| true).map_err(|error| error.to_string())
+    match message {
+        ClientMessage::Write { data } => Ok(Input::Write(data.into_bytes())),
+        ClientMessage::Resize { cols, rows } => manager
+            .resize_pty(pty_id, cols, rows)
+            .map(|()| Input::Continue)
+            .map_err(|error| error.to_string()),
+        ClientMessage::Detach => Ok(Input::Stop),
+    }
 }
 
 /// Register the Neovim websocket route.
@@ -281,5 +323,68 @@ mod tests {
             error.to_json(),
             r#"{"type":"error","message":"no neovim running for this feature"}"#
         );
+
+        let input_error = ServerMessage::InputError {
+            message: "Terminal input closed".to_string(),
+        };
+        assert_eq!(
+            input_error.to_json(),
+            r#"{"type":"input_error","message":"Terminal input closed"}"#
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resize_and_detach_are_applied_while_input_is_stuck() {
+        use crate::domain::terminal::service::{PtyKind, PtyManager};
+        use crate::domain::terminal::test_support::{spawn_stuck_child, wait_for_size};
+        use std::time::Duration;
+
+        let manager = PtyManager::new();
+        let (id, handle) = spawn_stuck_child(&manager, PtyKind::Neovim).await;
+        let (_, data) = handle.subscribe_with_scrollback();
+        let pty = AttachedPty {
+            id,
+            handle: std::sync::Arc::clone(&handle),
+            data,
+        };
+        let (client_tx, client_rx) = futures::channel::mpsc::unbounded::<Message>();
+        let (server_tx, mut server_rx) = futures::channel::mpsc::unbounded::<Message>();
+        let loop_manager = manager.clone();
+        let streaming = tokio::spawn(async move {
+            stream_pty(
+                server_tx.sink_map_err(axum::Error::new),
+                client_rx.map(Ok),
+                pty,
+                &loop_manager,
+            )
+            .await;
+        });
+        let send = |json: serde_json::Value| {
+            client_tx
+                .unbounded_send(Message::Text(json.to_string().into()))
+                .unwrap()
+        };
+
+        send(serde_json::json!({"type": "write", "data": "y".repeat(3 * 1024 * 1024)}));
+        send(serde_json::json!({"type": "write", "data": "\u{1b}"}));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            server_rx.try_recv().is_err(),
+            "the input is pending, not failed"
+        );
+
+        send(serde_json::json!({"type": "resize", "cols": 101, "rows": 33}));
+        assert!(
+            wait_for_size(&handle, 101, 33).await,
+            "resize stuck behind pending input"
+        );
+
+        send(serde_json::json!({"type": "detach"}));
+        tokio::time::timeout(Duration::from_secs(2), streaming)
+            .await
+            .expect("detach stuck behind pending input")
+            .unwrap();
+        manager.kill_all();
     }
 }

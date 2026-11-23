@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -10,12 +11,12 @@ use crate::domain::agents::adapter::{
     RuntimeTurnStartedSource,
 };
 
+use super::super::detached_replies::DetachedReply;
 use super::super::events_stream_blocks::EventIndexer;
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::provider_hooks::AcpProviderHooks;
 use super::super::turn_lifecycle::{
-    agent_was_terminated, await_event_loop_barrier, finalize_turn, request_prompt_with_cancel,
-    PromptCancel, PromptTurnLock,
+    finalize_turn, request_prompt_with_cancel, PromptCancel, PromptTurnLock,
 };
 
 pub(super) struct CompactTurn {
@@ -40,15 +41,16 @@ pub(super) struct CompactTurn {
 impl CompactTurn {
     pub(super) async fn run(self) -> Result<(), RuntimeError> {
         let _running_guard = CompactRunningGuard(Arc::clone(&self.running));
-        let _turn_guard = self.prompt_turn_lock.lock().await;
+        let turn_guard = self.prompt_turn_lock.lock().await;
         if self.closing.load(Ordering::SeqCst) {
             return Ok(());
         }
 
-        self.indexer
-            .lock()
-            .expect("EventIndexer poisoned")
-            .take_compact_boundary_emitted();
+        {
+            let mut indexer = self.indexer.lock().expect("EventIndexer poisoned");
+            indexer.detached_reply = DetachedReply::Inactive;
+            indexer.take_compact_boundary_emitted();
+        }
         let session_id = self
             .session_id_lock
             .read()
@@ -71,13 +73,13 @@ impl CompactTurn {
             effort.as_deref(),
             supports,
         );
-        let response =
+        let Some(reply) =
             request_prompt_with_cancel(&self.client, params, &self.prompt_cancel, &self.local_tx)
-                .await?;
-        if agent_was_terminated(&response) {
+                .await?
+        else {
             return Ok(());
-        }
-        await_event_loop_barrier(&self.client).await?;
+        };
+        let (response, resume_updates) = reply.after_prior_events().await?;
         if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
             finalize_turn(
                 &self.local_tx,
@@ -103,6 +105,8 @@ impl CompactTurn {
             )
             .await;
         }
+        drop(turn_guard);
+        drop(resume_updates);
         Ok(())
     }
 }
@@ -124,7 +128,7 @@ async fn emit_manual_compact_started(
         RuntimeTurnStartedSource::ManualCompact,
         None,
     );
-    let _ = tx.send(Ok(event)).await;
+    tx.send(Ok(event)).await.ignore_closed();
 }
 
 async fn emit_manual_compact_boundary(
@@ -156,5 +160,5 @@ async fn emit_manual_compact_boundary(
             metadata: Some(compact_metadata),
         },
     );
-    let _ = tx.send(Ok(event)).await;
+    tx.send(Ok(event)).await.ignore_closed();
 }

@@ -1,5 +1,5 @@
 /** App-envelope presentation effects and backend-confirmed status notifications. */
-import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
+import { invalidateByExactUrl, queryClient } from "@/lib/queryClient";
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
 import { invalidateChangedDocuments } from "@/lib/document-file";
 import { scheduleSettingsInvalidation } from "@/lib/settingsInvalidation";
@@ -14,7 +14,7 @@ import {
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { invalidatePromptQueue } from "@/lib/prompt-queue";
 import { applyCustomActionEvent } from "@/lib/custom-actions/events";
-import { GLOBAL_FEATURE_LIST_URLS, invalidateFeatureQueries } from "@/lib/featureUpdated";
+import { invalidateFeatureLists, invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
 import { openingClearsForMe } from "@/stores/for-me-ack";
 import { useUnreadStore } from "@/stores/unread-store";
@@ -248,30 +248,25 @@ export function handleAppEnvelope(
     // reshuffles its own project's list, scoped to that project. That prompt
     // also recorded the provider, model and effort it was sent with, which the
     // individual record shows too (the "For me" rows read it).
-    // create/delete reshape the lists too, but a created feature isn't cached
-    // yet, so they fall back to invalidating every project's list. The
+    // create/delete reshape the lists too — scoped to `project_id` when the
+    // event carries it, falling back to every project's list otherwise. The
     // single-feature refetch (a guaranteed 404 after a delete) is skipped for
     // all but "updated".
     const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
+    const eventProjectId = typeof payload.project_id === "number" ? payload.project_id : null;
     if (payload.action === "updated" && featureId != null) {
       invalidateFeatureQueries(featureId, ["title"]);
-    } else if (payload.action === "reordered" && featureId != null) {
-      void queryClient.invalidateQueries({ queryKey: getGetFeatureQueryKey(featureId) });
-      const projectId = lookupFeature(featureId)?.project_id;
-      void queryClient.invalidateQueries({
-        queryKey:
-          projectId != null
-            ? getListFeaturesQueryKey({ project_id: projectId })
-            : getListFeaturesQueryKey(),
-      });
-    } else {
-      void queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey() });
+      return true;
     }
-    // The cross-project lists (Pinned, Recent, lenses) are keyed by sibling URLs
-    // that the `["/api/features"]` array-prefix above can't reach (React Query
-    // only prefix-matches array elements). Refresh them explicitly so a pin, a
-    // rename or a delete on any device keeps them in sync.
-    void invalidateByUrlPrefix(queryClient, GLOBAL_FEATURE_LIST_URLS);
+    if (payload.action === "reordered" && featureId != null) {
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureQueryKey(featureId) });
+      void invalidateFeatureLists(
+        queryClient,
+        eventProjectId ?? lookupFeature(featureId)?.project_id,
+      );
+      return true;
+    }
+    void invalidateFeatureLists(queryClient, eventProjectId);
     return true;
   }
   return false;

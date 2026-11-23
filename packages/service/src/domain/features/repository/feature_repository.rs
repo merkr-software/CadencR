@@ -24,18 +24,29 @@ const FEATURE_COLUMNS: &str = r#"f.id, f.project_id, f.title, f.status,
             WHERE target_session.feature_id = f.id AND link.link_type IN ('spawned', 'handoff')
             ORDER BY link.created_at ASC, link.id ASC LIMIT 1) AS spawn_link_type"#;
 
-/// Latest user message per feature (`ua.last_user_at`): the list endpoints'
-/// sort key, exposed as `last_activity_at`.
-pub(crate) const LAST_USER_MESSAGE_JOIN: &str = r#"
-LEFT JOIN (
-  SELECT s.feature_id AS feature_id, MAX(m.created_at) AS last_user_at
-  FROM agent_sessions s
-  JOIN agent_messages m ON m.session_id = s.id AND m.role = 'user'
-  GROUP BY s.feature_id
-) ua ON ua.feature_id = f.id"#;
-
-pub(crate) const LAST_ACTIVITY_COLUMN: &str =
-    "COALESCE(ua.last_user_at, f.created_at) AS last_activity_at";
+/// `activity(feature_id, last_activity_at)` for the features matching `filter`
+/// (a `WHERE` body over `features f`): the latest user message in any of their
+/// sessions, else the creation time. One correlated lookup per feature through
+/// `idx_agent_sessions_feature_id` and `idx_agent_messages_session_role_created`,
+/// never a `GROUP BY` over every message.
+///
+/// `MATERIALIZED` computes it once per feature: as a plain column, the
+/// `ORDER BY datetime(last_activity_at)` key would re-run the subquery.
+pub(crate) fn last_activity_cte(filter: &str) -> String {
+    format!(
+        "WITH activity AS MATERIALIZED ( \
+           SELECT f.id AS feature_id, COALESCE( \
+             (SELECT MAX( \
+                (SELECT MAX(m.created_at) \
+                 FROM agent_messages m \
+                 WHERE m.session_id = s.id AND m.role = 'user')) \
+              FROM agent_sessions s \
+              WHERE s.feature_id = f.id), \
+             f.created_at) AS last_activity_at \
+           FROM features f \
+           WHERE {filter})"
+    )
+}
 
 /// Join the latest agent session once so model/provider/thinking come from the same row.
 pub(crate) const LATEST_SESSION_JOIN: &str = r#"
@@ -48,12 +59,13 @@ LEFT JOIN agent_sessions ls ON ls.id = (
 /// time. One ordering for the project lists, Pinned and Recent.
 fn by_activity_sql(filter: &str) -> String {
     format!(
-        "SELECT {FEATURE_COLUMNS}, {LAST_ACTIVITY_COLUMN} \
-         FROM features f \
+        "{} \
+         SELECT {FEATURE_COLUMNS}, activity.last_activity_at AS last_activity_at \
+         FROM activity \
+         JOIN features f ON f.id = activity.feature_id \
          {LATEST_SESSION_JOIN} \
-         {LAST_USER_MESSAGE_JOIN} \
-         WHERE {filter} \
-         ORDER BY datetime(last_activity_at) DESC, f.id DESC"
+         ORDER BY datetime(activity.last_activity_at) DESC, f.id DESC",
+        last_activity_cte(filter)
     )
 }
 
@@ -72,6 +84,26 @@ pub async fn list_by_project(
         .fetch_all(pool)
         .await?;
     Ok(rows)
+}
+
+/// Lightweight project feature id lookup for endpoints (such as
+/// `GET /api/features/activity`) that only need matching ids without joining
+/// sessions, links, or user-message timestamps.
+pub async fn list_ids_by_project(
+    pool: &SqlitePool,
+    project_id: i64,
+    include_archived: bool,
+) -> Result<Vec<i64>, AppError> {
+    let sql = if include_archived {
+        "SELECT id FROM features WHERE project_id = ?"
+    } else {
+        "SELECT id FROM features WHERE project_id = ? AND status = 'active'"
+    };
+    let ids = sqlx::query_scalar::<_, i64>(sql)
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(ids)
 }
 
 /// Every pinned conversation across all projects, for the global sidebar
@@ -786,5 +818,128 @@ mod tests {
             .unwrap();
 
         assert!(!is_empty(&pool, 1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn list_ids_by_project_filters_project_and_archive_status() {
+        let pool = setup_pool().await;
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, type) VALUES \
+             (1, 1, 'p1-active', 'active', 'ws-session'), \
+             (2, 1, 'p1-archived', 'archived', 'ws-session'), \
+             (3, 2, 'p2-active', 'active', 'ws-session')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let active_ids = list_ids_by_project(&pool, 1, false).await.unwrap();
+        assert_eq!(active_ids, vec![1]);
+
+        let mut all_p1_ids = list_ids_by_project(&pool, 1, true).await.unwrap();
+        all_p1_ids.sort_unstable();
+        assert_eq!(all_p1_ids, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn by_activity_uses_covering_indexes_without_full_message_scan() {
+        use crate::shared::test_query_plan::{assert_no_full_scan, migrated_pool, plan_details};
+        let pool = migrated_pool().await;
+
+        for (filter, bind_project) in [
+            ("f.project_id = ? AND f.status = 'active'", true),
+            ("f.project_id = ?", true),
+            ("f.is_pinned != 0 AND f.status = 'active'", false),
+            ("f.status = 'active'", false),
+        ] {
+            let sql = format!("EXPLAIN QUERY PLAN {}", by_activity_sql(filter));
+            let mut query = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(sql));
+            if bind_project {
+                query = query.bind(1_i64);
+            }
+            let joined = plan_details(&query.fetch_all(&pool).await.unwrap());
+
+            assert!(
+                joined.contains("idx_agent_sessions_feature_id"),
+                "expected per-feature session lookups to use idx_agent_sessions_feature_id:\n{joined}"
+            );
+            assert!(
+                joined.contains("idx_agent_messages_session_role_created"),
+                "expected user message lookup to use idx_agent_messages_session_role_created:\n{joined}"
+            );
+            assert!(
+                !joined.contains("USE TEMP B-TREE FOR GROUP BY"),
+                "must not build a global GROUP BY:\n{joined}"
+            );
+            assert_eq!(
+                joined.matches("idx_agent_messages_session_role_created").count(),
+                1,
+                "the activity subquery must run once per feature, not again for ORDER BY:\n{joined}"
+            );
+            assert_no_full_scan(&joined, &["activity"]);
+        }
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(format!(
+            "EXPLAIN QUERY PLAN {}",
+            by_activity_sql("f.project_id = ? AND f.status = 'active'")
+        )))
+        .bind(1_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(
+            plan_details(&plan).contains("idx_features_project_status"),
+            "expected features lookup to use idx_features_project_status"
+        );
+
+        // Functional ordering check across multiple projects, multiple sessions, and archived rows.
+        sqlx::query(
+            "INSERT INTO projects (id, name, path) VALUES (1, 'p1', '/tmp/p1'), (2, 'p2', '/tmp/p2')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, type, created_at) VALUES \
+             (1, 1, 'f1', 'active', 'ws-session', '2026-01-01T00:00:00Z'), \
+             (2, 1, 'f2', 'active', 'ws-session', '2026-01-05T00:00:00Z'), \
+             (3, 1, 'f3-archived', 'archived', 'ws-session', '2026-01-06T00:00:00Z'), \
+             (4, 2, 'f4-other-project', 'active', 'ws-session', '2026-01-07T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_sessions (id, feature_id, agent_type, status) VALUES \
+             (10, 1, 'session', 'paused'), \
+             (11, 1, 'session', 'paused'), \
+             (20, 2, 'session', 'paused'), \
+             (30, 3, 'session', 'paused')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_messages (session_id, role, content, message_type, created_at) VALUES \
+             (10, 'user', 'early', 'user_message', '2026-02-01T00:00:00Z'), \
+             (11, 'user', 'latest on f1 second session', 'user_message', '2026-04-01T00:00:00Z'), \
+             (20, 'user', 'mid on f2', 'user_message', '2026-03-01T00:00:00Z'), \
+             (20, 'assistant', 'ignored assistant', 'text', '2026-05-01T00:00:00Z'), \
+             (30, 'user', 'archived newest', 'user_message', '2026-06-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let active = list_by_project(&pool, 1, false).await.unwrap();
+        let active_ids: Vec<i64> = active.iter().map(|f| f.id).collect();
+        assert_eq!(active_ids, vec![1, 2]);
+        assert_eq!(
+            active[0].last_activity_at.as_deref(),
+            Some("2026-04-01T00:00:00Z")
+        );
+
+        let with_archived = list_by_project(&pool, 1, true).await.unwrap();
+        let with_archived_ids: Vec<i64> = with_archived.iter().map(|f| f.id).collect();
+        assert_eq!(with_archived_ids, vec![3, 1, 2]);
     }
 }

@@ -6,7 +6,6 @@ use super::super::prompt_receipt::confirm_prompt_delivery;
 use super::super::user_shell_context::PendingUserShellContext;
 use super::{delivery_lifecycle, reported_failure, runtime_registration, PendingPromptContext};
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
-use crate::domain::ws_session::runtime::helpers::send_warning;
 use tracing::{error, info};
 
 pub(in crate::domain::ws_session) async fn spawn_runtime(
@@ -28,8 +27,12 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
     let prompt_text = match user_shell_context.append_to_prompt(prompt_text) {
         Ok(prompt) => prompt,
         Err(error) => {
-            let _ = user_shell_context
-                .release(&context.app_state.write_pool)
+            user_shell_context
+                .release_or_warn(
+                    &context.app_state.write_pool,
+                    &context.sender,
+                    &context.envelope_id,
+                )
                 .await;
             delivery_lifecycle::fail_pending_receipt(
                 &context,
@@ -55,24 +58,29 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
     let content_value =
         build_content_value_for_provider(&context.provider_id, &prompt_text, &attachments);
     let options = std::mem::take(&mut context.options);
+    let selection = context.remember_selection.then(|| {
+        super::super::user_selection::PromptedSelection::pending(&context.provider_id, &options)
+    });
     match adapter.spawn(content_value, options).await {
         Ok(runtime_session) => {
-            if let Err(error) = user_shell_context
-                .mark_delivered(&context.app_state.write_pool)
-                .await
-            {
-                error!(context.db_session_id, %error, "failed to mark user shell context delivered");
-                send_warning(
+            if let Some(selection) = selection {
+                selection
+                    .delivered(&*runtime_session)
+                    .await
+                    .remember(&context.sender, &context.envelope_id)
+                    .await;
+            }
+            user_shell_context
+                .mark_delivered_or_warn(
+                    &context.app_state.write_pool,
                     &context.sender,
                     &context.envelope_id,
-                    "USER_SHELL_CONTEXT_STATE_ERROR",
-                    &error,
-                );
-            }
+                )
+                .await;
             delivery_lifecycle::mark_pending_dispatch_succeeded(&context, dispatch_claim.as_ref())
                 .await;
             if let Some(message_uuid) = receipt_message_uuid.as_deref() {
-                let _ = confirm_prompt_delivery(
+                confirm_prompt_delivery(
                     &context.app_state.write_pool,
                     &context.app_state.ws_feature_senders,
                     &context.sender,
@@ -88,12 +96,13 @@ pub(in crate::domain::ws_session) async fn spawn_runtime(
         }
         Err(error) => {
             let message = error.to_string();
-            if let Err(release_error) = user_shell_context
-                .release(&context.app_state.write_pool)
-                .await
-            {
-                error!(context.db_session_id, error = %release_error, "failed to release user shell context claim");
-            }
+            user_shell_context
+                .release_or_warn(
+                    &context.app_state.write_pool,
+                    &context.sender,
+                    &context.envelope_id,
+                )
+                .await;
             let wait_for_delivery = context.wait_for_delivery;
             delivery_lifecycle::fail_pending_receipt(
                 &context,

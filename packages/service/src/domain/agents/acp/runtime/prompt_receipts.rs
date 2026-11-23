@@ -16,6 +16,7 @@ struct PendingPromptReceipt {
     client_message_id: String,
     expected_text: String,
     enqueue_agent_message_generation: u64,
+    infer_from_agent_message: bool,
 }
 
 #[derive(Debug, Default)]
@@ -31,7 +32,17 @@ pub struct PendingPromptReceipts {
 }
 
 impl PendingPromptReceipts {
-    pub fn enqueue(&self, client_message_id: String, prompt: &[Value]) {
+    #[cfg(test)]
+    fn enqueue(&self, client_message_id: String, prompt: &[Value]) {
+        self.enqueue_prompt(client_message_id, prompt, true);
+    }
+
+    pub(super) fn enqueue_prompt(
+        &self,
+        client_message_id: String,
+        prompt: &[Value],
+        infer_from_agent_message: bool,
+    ) {
         let expected_text = normalize_text(&prompt_text(prompt));
         let mut pending = self.pending.lock().expect("PendingPromptReceipts poisoned");
         if pending
@@ -46,6 +57,7 @@ impl PendingPromptReceipts {
             client_message_id,
             expected_text,
             enqueue_agent_message_generation,
+            infer_from_agent_message,
         });
     }
 
@@ -95,6 +107,15 @@ impl PendingPromptReceipts {
         }
     }
 
+    pub(super) fn is_pending(&self, client_message_id: &str) -> bool {
+        self.pending
+            .lock()
+            .expect("PendingPromptReceipts poisoned")
+            .receipts
+            .iter()
+            .any(|receipt| receipt.client_message_id == client_message_id)
+    }
+
     fn acknowledge_from_agent_message_id(&self, message_id: Option<&str>) -> Option<RuntimeEvent> {
         let message_id = message_id?;
         let mut pending = self.pending.lock().expect("PendingPromptReceipts poisoned");
@@ -105,7 +126,8 @@ impl PendingPromptReceipts {
             pending.agent_message_generation += 1;
         }
         let idx = pending.receipts.iter().position(|receipt| {
-            receipt.enqueue_agent_message_generation > 0
+            receipt.infer_from_agent_message
+                && receipt.enqueue_agent_message_generation > 0
                 && pending.agent_message_generation > receipt.enqueue_agent_message_generation
         });
         let receipt = pending.receipts.remove(idx?)?;
@@ -283,6 +305,26 @@ mod tests {
         receipts.discard_client_message_id("client-1");
 
         assert!(receipts.acknowledge_client_message_id("client-1").is_none());
+    }
+
+    #[test]
+    fn concurrent_prompt_does_not_acknowledge_an_unattributed_assistant_message() {
+        let receipts = PendingPromptReceipts::default();
+        let assistant =
+            |id| json!({"update":{"sessionUpdate":"agent_message_chunk","messageId":id}});
+        assert!(receipts
+            .acknowledge_from_session_update(&assistant("before"))
+            .is_none());
+        receipts.enqueue_prompt(
+            "steer".into(),
+            &[json!({"type":"text","text":"steer"})],
+            false,
+        );
+        assert!(receipts
+            .acknowledge_from_session_update(&assistant("after"))
+            .is_none());
+        let confirmed = receipts.acknowledge_client_message_id("steer").unwrap();
+        assert_eq!(confirmed.prompt_received_client_message_id(), Some("steer"));
     }
 
     #[test]

@@ -148,6 +148,8 @@ Workspace discovery and history tools are read-only. `workspace_send_session_mes
 
 For a result to return automatically, use `reply: "on_turn_end"`. The default `delivery: "steer_current_turn"` steers active work; `next_turn` queues explicitly, and `reject_if_active` refuses a busy target. Read the target's project/session provenance before sending.
 
+A `next_turn` message waits in the target conversation's queue, above its composer and after the person's own queued prompts, labelled with the sending conversation. The person can send it right away, remove it or edit it; an edited message is still delivered as sent by your agent. Resending with the same `message_uuid` after an edit is refused, and the error carries the queued version.
+
 An `@@` composer reference can point an agent to prior history through Workspace MCP. Reusing that conversation's worktree is a separate prompt-time choice; a history reference alone does not create or attach a checkout.
 
 ### Change settings

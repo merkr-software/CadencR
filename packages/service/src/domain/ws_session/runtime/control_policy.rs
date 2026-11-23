@@ -1,6 +1,7 @@
 use super::state::{QueryState, SdkHandle, SdkSessions};
 use super::turns::ActiveTurnRegistry;
 use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimePermissionMode};
+use crate::error::AppError;
 
 /// Point a handle at `overrides`: its next spawn, and a respawn of its live
 /// runtime on the next prompt, run with them.
@@ -28,31 +29,33 @@ pub(crate) fn adopt_runtime_overrides(handle: &mut SdkHandle, overrides: &Runtim
 pub(in crate::domain::ws_session) async fn arm_bypass_for_respawn(
     handle: &mut SdkHandle,
     pool: &sqlx::SqlitePool,
-) {
+) -> Result<(), AppError> {
     let Some(mode) = handle.desired_permission_mode.clone() else {
-        return;
+        return Ok(());
     };
-    if should_rearm_bypass(handle, &mode, pool).await {
+    if should_rearm_bypass(handle, &mode, pool).await? {
         handle.config.allow_bypass_permissions = true;
     }
+    Ok(())
 }
 
 pub(in crate::domain::ws_session) async fn should_rearm_bypass(
     handle: &SdkHandle,
     new_mode: &RuntimePermissionMode,
     pool: &sqlx::SqlitePool,
-) -> bool {
-    *new_mode == RuntimePermissionMode::BypassPermissions
-        && !handle.config.allow_bypass_permissions
-        && match crate::domain::agents::runtime_adapter(&handle.runtime_provider) {
-            Some(adapter) => {
-                adapter
-                    .bypass_permission_opt_in(pool, handle.feature_id, None)
-                    .await
-                    == Some(true)
-            }
-            None => false,
-        }
+) -> Result<bool, AppError> {
+    if *new_mode != RuntimePermissionMode::BypassPermissions
+        || handle.config.allow_bypass_permissions
+    {
+        return Ok(false);
+    }
+    let Some(adapter) = crate::domain::agents::runtime_adapter(&handle.runtime_provider) else {
+        return Ok(false);
+    };
+    let opt_in = adapter
+        .bypass_permission_opt_in(pool, handle.feature_id, None)
+        .await?;
+    Ok(opt_in == Some(true))
 }
 
 /// Whether the registry-owned session cell holds a live runtime. The lock is

@@ -51,37 +51,24 @@ pub async fn resolve_commands_for_profile(
     provider: &str,
     profile: Option<&str>,
 ) -> ResolvedCommands {
-    let mut commands = Vec::new();
-    let mut seen = HashSet::new();
-
-    merge_commands(&mut commands, &mut seen, builtin_commands(provider));
-
     let Some(adapter) = runtime_adapter(provider) else {
-        return ResolvedCommands {
-            commands,
-            error: None,
-        };
+        return ResolvedCommands::default();
     };
 
-    // Cadencr's virtual orchestration skills are provider-neutral and only
-    // meaningful inside a real session, so they're added once an adapter is
-    // resolved (an unknown provider gets none).
-    merge_commands(&mut commands, &mut seen, orchestration_skill_commands());
-
     const COMMANDS_TIMEOUT: Duration = Duration::from_secs(15);
-    let error = match tokio::time::timeout(
+    let (native, error) = match tokio::time::timeout(
         COMMANDS_TIMEOUT,
         adapter.runtime_slash_commands_for_profile(cwd, profile),
     )
     .await
     {
-        Ok(Ok(native_commands)) => {
-            merge_commands(&mut commands, &mut seen, to_slash_commands(native_commands));
-            None
-        }
+        Ok(Ok(commands)) => (commands, None),
         Ok(Err(error)) => {
             warn!(cwd, provider, error = %error, "failed to load commands from runtime provider");
-            Some(format!("Provider commands could not be loaded: {error}"))
+            (
+                Vec::new(),
+                Some(format!("Provider commands could not be loaded: {error}")),
+            )
         }
         Err(_) => {
             warn!(
@@ -90,13 +77,33 @@ pub async fn resolve_commands_for_profile(
                 timeout_secs = COMMANDS_TIMEOUT.as_secs(),
                 "slash-command probe timed out"
             );
-            Some(format!(
-                "Provider commands could not be loaded: discovery timed out after {} seconds",
-                COMMANDS_TIMEOUT.as_secs()
-            ))
+            (
+                Vec::new(),
+                Some(format!(
+                    "Provider commands could not be loaded: discovery timed out after {} seconds",
+                    COMMANDS_TIMEOUT.as_secs()
+                )),
+            )
         }
     };
-    ResolvedCommands { commands, error }
+    ResolvedCommands {
+        commands: with_host_commands(provider, native),
+        error,
+    }
+}
+
+/// A live ACP list replaces the native portion of the menu. Host-owned
+/// entries have the same precedence as in the initial command listing.
+pub(crate) fn with_host_commands(
+    provider: &str,
+    native: Vec<RuntimeSlashCommand>,
+) -> Vec<SlashCommand> {
+    let mut commands = Vec::new();
+    let mut seen = HashSet::new();
+    merge_commands(&mut commands, &mut seen, builtin_commands(provider));
+    merge_commands(&mut commands, &mut seen, orchestration_skill_commands());
+    merge_commands(&mut commands, &mut seen, to_slash_commands(native));
+    commands
 }
 
 /// Provider-specific built-in slash commands that aren't discovered through
@@ -302,6 +309,25 @@ mod tests {
         assert!(commands
             .iter()
             .any(|c| c.name == "cadencr:status" && matches!(c.kind, SlashCommandKind::Cadencr)));
+    }
+
+    #[test]
+    fn native_replacement_keeps_host_commands_and_their_kind() {
+        use crate::domain::agents::adapter::{RuntimeSlashCommand, RuntimeSlashCommandKind};
+        let provider = crate::domain::agents::opencode::PROVIDER_ID;
+        let native = ["cadencr:review", "compact", "live"].map(|name| RuntimeSlashCommand {
+            name: name.into(),
+            description: None,
+            kind: RuntimeSlashCommandKind::Command,
+        });
+        let menu = super::with_host_commands(provider, native.to_vec());
+        let host = super::with_host_commands(provider, Vec::new());
+        assert_eq!(menu.len(), host.len() + 1);
+        assert!(menu.starts_with(&host));
+        assert_eq!(menu.last().unwrap().name, "live");
+        assert!(host
+            .iter()
+            .any(|c| c.name == "cadencr:review" && c.kind == SlashCommandKind::Cadencr));
     }
 
     #[test]

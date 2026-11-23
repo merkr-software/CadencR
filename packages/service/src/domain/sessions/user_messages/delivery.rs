@@ -1,4 +1,6 @@
-/// A terminal state replaces only a pending (or untracked) one. A receipt may
+/// A terminal state replaces a pending or untracked one. A failed dispatch
+/// also resolves delivery made unknown by a turn ending ahead of the failure.
+/// A receipt may
 /// also confirm a message that read as unknown or failed, except one whose
 /// last dispatch failed: a Stop withdrew it, and until a retry dispatches it
 /// again no agent can have received it.
@@ -12,6 +14,9 @@ pub async fn update_delivery_state(
         "UPDATE agent_messages SET delivery_state = ?
          WHERE session_id = ? AND message_uuid = ?
            AND (delivery_state IS NULL OR delivery_state = 'pending_agent'
+                OR (? = 'delivery_failed' AND delivery_state = 'delivery_unknown' AND EXISTS (
+                    SELECT 1 FROM agent_message_dispatches d
+                    WHERE d.message_id = agent_messages.id AND d.status = 'error'))
                 OR (? = 'received_agent'
                     AND NOT (delivery_state = 'delivery_failed' AND EXISTS (
                         SELECT 1 FROM agent_message_dispatches d
@@ -20,6 +25,7 @@ pub async fn update_delivery_state(
     .bind(state)
     .bind(session_id)
     .bind(message_uuid)
+    .bind(state)
     .bind(state)
     .execute(pool)
     .await?;

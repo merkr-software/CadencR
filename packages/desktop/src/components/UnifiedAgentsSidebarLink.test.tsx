@@ -4,7 +4,12 @@ import { UnifiedAgentsSidebarLink } from "./UnifiedAgentsSidebarLink";
 import { useSessionStatusStore, type SessionStatusEntry } from "@/stores/session-status-store";
 
 vi.mock("@tanstack/react-router", () => ({
-  useRouterState: () => ({ location: { pathname: "/" } }),
+  useRouterState: (options?: {
+    select?: (state: { location: { pathname: string } }) => unknown;
+  }) => {
+    const state = { location: { pathname: "/" } };
+    return options?.select ? options.select(state) : state;
+  },
   Link: ({ children }: { children: unknown }) => {
     const React = require("react");
     return React.createElement("a", {}, children);

@@ -8,10 +8,11 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use super::installation::LocalExecutable;
-use super::managed::process_policy::{capture_managed_command, ManagedCommandOutput};
+use super::managed::process_policy::{capture_managed_command_with_spawn, ManagedCommandOutput};
 use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 use crate::domain::agents::acp::AcpProcessTreePolicy;
-use crate::shared::bounded_command::{capture_bounded, BoundedCommandError};
+use crate::domain::ports::provider_processes::{ProviderProcess, ProviderProcessScope};
+use crate::shared::bounded_command::{capture_bounded_with_spawn, BoundedCommandError};
 
 /// Failure fragment; callers prefix it with the command they ran, e.g.
 /// "provider model discovery " + "timed out after 10 seconds".
@@ -45,12 +46,13 @@ pub(super) async fn capture_provider_command(
     is_managed: bool,
     timeout: Duration,
 ) -> Result<ManagedCommandOutput, CommandCaptureError> {
+    let register = |pid| ProviderProcess::register(pid, ProviderProcessScope::CommandTree);
     if is_managed {
-        return capture_managed_command(command, timeout)
+        return capture_managed_command_with_spawn(command, timeout, register)
             .await
             .map_err(|error| CommandCaptureError::new(format!("failed: {error}")));
     }
-    let output = capture_bounded(command, timeout).await?;
+    let output = capture_bounded_with_spawn(command, timeout, register).await?;
     Ok(ManagedCommandOutput {
         status: output.status,
         stdout: output.stdout,

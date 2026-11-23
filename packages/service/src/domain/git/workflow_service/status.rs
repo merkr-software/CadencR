@@ -2,6 +2,7 @@
 //! `enrich_snapshot` helper shared with the file-watcher.
 //! Target-branch persistence lives in [`super::target_branch`].
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::app_state::AppState;
@@ -71,8 +72,6 @@ async fn enrich_with_sharing(
             }
         };
 
-    let canonical_self = canonicalize_str(worktree_path);
-
     let lookup = match repository::get_worktree_feature_lookup(&state.read_pool, project_id).await {
         Ok(rows) => rows,
         Err(err) => {
@@ -85,17 +84,50 @@ async fn enrich_with_sharing(
         }
     };
 
-    snapshot.shared_with = lookup
-        .into_iter()
-        .filter(|row| {
-            row.feature_id != snapshot.feature_id
-                && canonicalize_str(&row.worktree_path) == canonical_self
-        })
-        .map(|row| SharedFeatureRef {
-            feature_id: row.feature_id,
-            title: row.feature_title,
-        })
-        .collect();
+    let feature_id = snapshot.feature_id;
+    let self_path = worktree_path.to_string();
+    match tokio::task::spawn_blocking(move || find_shared_features(feature_id, &self_path, lookup))
+        .await
+    {
+        Ok(shared) => snapshot.shared_with = shared,
+        Err(err) => {
+            tracing::warn!(
+                feature_id,
+                error = %err,
+                "git status: skipping shared-worktree enrichment (canonicalize task failed)"
+            );
+        }
+    }
+}
+
+fn find_shared_features(
+    feature_id: i64,
+    worktree_path: &str,
+    lookup: Vec<repository::WorktreeFeatureLookup>,
+) -> Vec<SharedFeatureRef> {
+    let canonical_self = canonicalize_str(worktree_path);
+    let mut canonical_by_raw = HashMap::<&str, String>::new();
+    let mut shared = Vec::new();
+    for row in &lookup {
+        if row.feature_id == feature_id {
+            continue;
+        }
+        let matches = if row.worktree_path == worktree_path {
+            true
+        } else {
+            let canonical = canonical_by_raw
+                .entry(row.worktree_path.as_str())
+                .or_insert_with(|| canonicalize_str(&row.worktree_path));
+            *canonical == canonical_self
+        };
+        if matches {
+            shared.push(SharedFeatureRef {
+                feature_id: row.feature_id,
+                title: row.feature_title.clone(),
+            });
+        }
+    }
+    shared
 }
 
 /// Canonicalize a path for symlink-safe equality. Falls back to the input

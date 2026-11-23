@@ -3,7 +3,9 @@ use tracing::info;
 use crate::domain::agents::adapter::{RuntimeSessionWeakHandle, RuntimeSpawnConfig};
 
 use super::super::session_init_resume::persistable_resume_session_id_for_provider;
-use super::super::{QueryState, SdkHandle, SdkSessions};
+use super::super::{QueryState, SdkHandle};
+use super::mcp_servers::mcp_servers_message_from_servers;
+use super::stream_reader_task::StreamReaderTask;
 
 pub(super) async fn runtime_allows_resume_persistence(
     runtime: Option<&RuntimeSessionWeakHandle>,
@@ -19,52 +21,58 @@ pub(super) async fn runtime_allows_resume_persistence(
     session.allows_resume_persistence()
 }
 
-pub(super) async fn transition_active_to_pending_on_stream_end(
-    sdk_sessions: &SdkSessions,
-    db_session_id: i64,
-    ended_runtime: Option<&RuntimeSessionWeakHandle>,
-    cleanup_session_on_end: bool,
-) {
-    let mut sessions = sdk_sessions.lock().await;
-    let Some(handle) = sessions.get_mut(&db_session_id) else {
-        return;
-    };
-    let QueryState::Active { ref query, .. } = handle.state else {
-        return;
-    };
-    // A stop can be followed immediately by a new message that spawns a
-    // replacement runtime before this older reader finishes. Never transition
-    // or clean up that newer runtime from the stale task.
-    if ended_runtime.is_some_and(|ended_runtime| {
-        !std::sync::Weak::ptr_eq(&std::sync::Arc::downgrade(query), ended_runtime)
-    }) {
+impl StreamReaderTask {
+    pub(super) async fn transition_active_to_pending_on_stream_end(&self) {
+        let db_session_id = self.db_session_id;
+        let mut sessions = self.sdk_sessions.lock().await;
+        let Some(handle) = sessions.get_mut(&db_session_id) else {
+            return;
+        };
+        let QueryState::Active { ref query, .. } = handle.state else {
+            return;
+        };
+        // A stop can be followed immediately by a new message that spawns a
+        // replacement runtime before this older reader finishes.
+        let ended_runtime = self.runtime_session_handle.as_ref();
+        if ended_runtime.is_some_and(|runtime| {
+            !std::sync::Weak::ptr_eq(&std::sync::Arc::downgrade(query), runtime)
+        }) {
+            info!(
+                db_session_id,
+                "ended stream belongs to a superseded runtime; keeping current Active handle"
+            );
+            return;
+        }
+        let q = query.read().await;
+        if ended_runtime.is_some() {
+            if let Some(servers) = q.ended_mcp_servers().await {
+                // Serialize this last update against registration of a replacement.
+                self.publish(mcp_servers_message_from_servers(db_session_id, servers))
+                    .await;
+            }
+        }
+        if self.cleanup_session_on_end {
+            drop(q);
+            sessions.remove(&db_session_id);
+            return;
+        }
+        let runtime_session_id = q.session_id().await;
+        let resume_session_id = persistable_resume_session_id_for_provider(
+            &handle.runtime_provider,
+            runtime_session_id.as_deref(),
+            q.allows_resume_persistence(),
+        );
+        handle.runtime_control_endpoint = q.runtime_control_endpoint();
+        drop(q);
+
+        let options = pending_options(handle, resume_session_id);
+
         info!(
             db_session_id,
-            "ended stream belongs to a superseded runtime; keeping current Active handle"
+            "stream ended, transitioning Active -> Pending for resume"
         );
-        return;
+        handle.state = QueryState::Pending(options);
     }
-    if cleanup_session_on_end {
-        sessions.remove(&db_session_id);
-        return;
-    }
-    let q = query.read().await;
-    let runtime_session_id = q.session_id().await;
-    let resume_session_id = persistable_resume_session_id_for_provider(
-        &handle.runtime_provider,
-        runtime_session_id.as_deref(),
-        q.allows_resume_persistence(),
-    );
-    handle.runtime_control_endpoint = q.runtime_control_endpoint();
-    drop(q);
-
-    let options = pending_options(handle, resume_session_id);
-
-    info!(
-        db_session_id,
-        "stream ended, transitioning Active -> Pending for resume"
-    );
-    handle.state = QueryState::Pending(options);
 }
 
 pub(super) fn pending_options(

@@ -36,6 +36,10 @@ pub(super) fn spawn_local_forwarder(mut local_rx: LocalRx, tx: StreamTx) {
 
 pub(super) fn error_receiver(message: &'static str) -> RuntimeMessageRx {
     let (tx, rx) = mpsc::channel(1);
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "a fresh capacity-1 channel always has room, and its receiver is returned below"
+    )]
     let _ = tx.try_send(Err(RuntimeError::new(message)));
     rx
 }

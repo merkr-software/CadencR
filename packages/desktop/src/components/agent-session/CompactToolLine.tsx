@@ -1,6 +1,5 @@
 import { memo, useMemo, type ReactNode } from "react";
 import {
-  BotIcon,
   BrainIcon,
   PencilIcon,
   TerminalIcon,
@@ -8,6 +7,7 @@ import {
   FilePlusIcon,
   type LucideIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { cn } from "@/lib/utils";
 import { shouldGateFullContent } from "@/lib/agent-block-content";
 import type { AgentBlockData } from "@/types/agent-block";
@@ -198,7 +198,7 @@ function GenericToolLine({
   const subagent = isSubagentToolName(toolName);
   return (
     <BaseLine
-      icon={subagent ? BotIcon : WrenchIcon}
+      icon={subagent ? AgentIcon : WrenchIcon}
       accent={presentation.mcp ? "mcp" : "tool"}
       label={presentation.label}
       detail={presentation.detail}

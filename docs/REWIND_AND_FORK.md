@@ -36,6 +36,10 @@ A cut before the first prompt keeps no previous context and starts fresh. If no
 provider runtime ID was ever produced, there is likewise no provider history to
 retain. For a nonempty native history, unsupported or failed branching aborts;
 there is no successful-looking fallback that resumes the full uncut context.
+A provider that no longer has the source conversation (Codex answers a thread
+it has no rollout of) aborts with `PROVIDER_CONVERSATION_MISSING` rather than
+`BRANCH_SURGERY_FAILED`; the desktop toast then names the provider from the
+catalog ("Codex no longer has this conversation, so it can't be forked.").
 
 ## Checkpoints and restore ordering
 

@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from "react";
-import { CodeIcon } from "lucide-react";
+import { CodeIcon, Maximize2Icon } from "lucide-react";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
 import { CopyButton } from "@/components/CopyButton";
 import { highlightCode } from "@/components/markdown/highlight-cache";
 import { isLargeCodeBlock, LargeCodeBlock } from "@/components/markdown/LargeCodeBlock";
 import { Button } from "@/components/ui/button";
 import { SourceToggle } from "@/components/visuals/SourceToggle";
+import { VISUAL_BLOCK_MARGIN } from "@/components/visuals/VisualStatus";
+import { cn } from "@/lib/utils";
 
 interface VisualFenceInfo {
   /** What the rendered view is called: "Chart", "Visual". */
@@ -56,7 +58,11 @@ export function VisualSourceBlock({
  * frame: its source and copy actions float over its corner on hover (always
  * shown on touch), and "Source" swaps it for the fence as a code block.
  */
-export function VisualChrome({ children, ...fence }: VisualFenceInfo & { children: ReactNode }) {
+export function VisualChrome({
+  children,
+  onExpand,
+  ...fence
+}: VisualFenceInfo & { children: ReactNode; onExpand?: () => void }) {
   const [showSource, setShowSource] = useState(false);
 
   if (showSource) {
@@ -75,7 +81,7 @@ export function VisualChrome({ children, ...fence }: VisualFenceInfo & { childre
   }
 
   return (
-    <div data-visual className="group/visual relative my-2">
+    <div data-visual className={cn("group/visual relative", VISUAL_BLOCK_MARGIN)}>
       <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background/80 p-0.5 opacity-0 backdrop-blur-sm transition-opacity group-hover/visual:opacity-100 focus-within:opacity-100">
         <Button
           variant="ghost"
@@ -91,6 +97,17 @@ export function VisualChrome({ children, ...fence }: VisualFenceInfo & { childre
           label="Copy source"
           className="flex size-6 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
         />
+        {onExpand && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onExpand}
+            title="Full screen"
+            aria-label="Full screen"
+          >
+            <Maximize2Icon />
+          </Button>
+        )}
       </div>
       {children}
     </div>

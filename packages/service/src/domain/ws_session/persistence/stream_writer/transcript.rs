@@ -130,6 +130,17 @@ impl TranscriptDurability {
         self.expected.retain(|(row_scope, _), _| row_scope != scope);
     }
 
+    pub(super) fn record_mergeable_failure(&mut self, scope: &RuntimeStreamScope) {
+        if self.recovery_limited {
+            self.unrecoverable = true;
+        }
+        if self.damaged.contains(scope) || self.damaged.len() < MAX_DAMAGED_SCOPES {
+            self.damaged.insert(scope.clone());
+        } else {
+            self.unrecoverable = true;
+        }
+    }
+
     fn record_failure(&mut self, event: &RuntimeEvent) {
         let repairable = matches!(
             event.stream_event(),
@@ -144,12 +155,8 @@ impl TranscriptDurability {
             )
         ) || event.assistant_message().is_some();
         let scope = RuntimeStreamScope::for_event(event);
-        if self.recovery_limited {
-            self.unrecoverable = true;
-        }
-        if repairable && (self.damaged.contains(&scope) || self.damaged.len() < MAX_DAMAGED_SCOPES)
-        {
-            self.damaged.insert(scope);
+        if repairable {
+            self.record_mergeable_failure(&scope);
         } else {
             self.unrecoverable = true;
         }
@@ -301,11 +308,13 @@ mod tests {
     async fn healthy_stream_only_turn_releases_recovery_metadata() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool, 1, Some(1));
-        p.persist_runtime_event(&text_start("root", 0, "saved"))
+        p.persist_event_then_flush_due(&text_start("root", 0, "saved"))
             .await
             .unwrap();
         assert_eq!(p.writer.transcript.expected.len(), 1);
-        p.persist_runtime_event(&result("root")).await.unwrap();
+        p.persist_event_then_flush_due(&result("root"))
+            .await
+            .unwrap();
         assert_eq!(p.take_transcript_status_change(true), None);
         assert!(p.writer.transcript.expected.is_empty());
         assert!(p.writer.transcript.rows.is_empty());
@@ -317,12 +326,12 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         fail_statement(&pool, "INSERT").await;
         assert!(p
-            .persist_runtime_event(&text_start("root", 0, "missing"))
+            .persist_event_then_flush_due(&text_start("root", 0, "missing"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             "root",
             None,
             RuntimeStreamEvent::MessageStart {
@@ -332,7 +341,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        p.persist_runtime_event(&complete("root", vec![text("next message")]))
+        p.persist_event_then_flush_due(&complete("root", vec![text("next message")]))
             .await
             .unwrap();
         assert_eq!(
@@ -351,7 +360,7 @@ mod tests {
                 .observe_start(&old_scope, index, MergeableMessageType::Text, "old")
                 .unwrap();
         }
-        p.persist_runtime_event(&text_start("new", 0, "saved"))
+        p.persist_event_then_flush_due(&text_start("new", 0, "saved"))
             .await
             .unwrap();
         assert_eq!(contents(&pool).await[0].1, "saved");
@@ -359,7 +368,7 @@ mod tests {
         assert_eq!(p.take_transcript_status_change(false), None);
         fail_statement(&pool, "UPDATE").await;
         assert!(p
-            .persist_runtime_event(&text_delta("new", " missing"))
+            .persist_event_then_flush_due(&text_delta("new", " missing"))
             .await
             .is_err());
         assert_eq!(
@@ -368,7 +377,7 @@ mod tests {
         );
         recover_database(&pool).await;
         assert!(matches!(
-            p.persist_runtime_event(&complete("new", vec![text("saved missing")]))
+            p.persist_event_then_flush_due(&complete("new", vec![text("saved missing")]))
                 .await,
             Err(TranscriptPersistenceError::RecoveryLimit)
         ));

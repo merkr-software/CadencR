@@ -205,6 +205,11 @@ never descriptor fields.
 
 ## Host conventions for input-collecting gates
 
+For an `AskUserQuestion` with a closed set of choices, set
+`allowCustomAnswer: false` on each applicable question and supply the allowed
+options. The conversation drawer and the sidebar then accept those choices
+only. Omit the field to keep the additional free-text answer.
+
 Cadencr's question drawer and plan gate are driven purely by tool name, so an
 installed provider reaches them through standard ACP
 `session/request_permission` — no extension methods and no descriptor fields.
@@ -273,8 +278,12 @@ At runtime:
    live session exposes a `select` option with `"category": "mode"`, it sends
    `session/set_config_option { configId: <that option id>, value }` and
    replaces its configuration snapshot with the response; otherwise it falls
-   back to `session/set_mode` with the same value. A refusal fails the spawn or
-   the mode change visibly.
+   back to `session/set_mode` with the same value. When setting a select
+   option, the host requires the response to confirm the requested value.
+   An unavailable value, a refusal, or an unconfirmed selection fails the
+   spawn or the mode change visibly. When the live mode choices include host
+   permission-mode mappings, the composer shows the intersection of the
+   declared and live mapped modes.
 2. **Following the agent.** A `current_mode_update`, or a
    `config_option_update` whose mode option changed, that lands on a mapped
    value updates the session's permission mode: it is persisted and every
@@ -317,12 +326,24 @@ per conversation directory before any session exists, plus the last
 entries the package did not list are appended). A package without the command
 therefore shows the live snapshot after its first session in that directory;
 one with it shows its list from the first keystroke. A live
-`available_commands_update` still replaces the menu during the session and
+`available_commands_update` replaces the provider entries, retains the host’s
+built-ins and virtual skills, and
 drops the cached listing for that directory. A failed or rejected listing is
 returned as `error` on `GET /api/prompt-commands` and on the WebSocket
 `commands.list` reply, and shown in the `/` menu; the host's own commands stay
 usable. `_meta.cadencr.kind: "skill"` on a live `availableCommands` entry
 groups it with skills. Nothing here branches on a provider id.
+
+## Attached MCP server status
+
+On macOS and Linux, the host observes its own browser, project and workspace
+MCP servers per runtime. Session info shows `configured` before tool discovery,
+`connected` after the agent requests the server's catalog, and `disconnected`
+when the last connection closes. A new connection restores `connected`.
+Viewers that attach to a running conversation receive its current status.
+When the runtime exits, its attached servers show `disconnected`.
+Other configured stdio servers keep the status available from the provider.
+Connection reporting grants no tool permissions.
 
 ## Background sub-agents
 
@@ -343,9 +364,13 @@ declares one:
   finishes it (`cancelled` becomes `stopped` / `interrupted`; `summary` is the
   result summary, and the failure reason for `failed`). It produces no second
   transcript block.
+- After dispatch, an update may report `resolvedModel` (the model observed on the
+  child) and `totalTokens` (a cumulative unsigned count for that child). Either
+  field may arrive independently or together with terminal status. CadencR
+  persists the latest values on the originating sub-agent run.
 - A background sub-agent that is never finished is stopped
-  (`runtime_ended`) when its runtime ends. The session itself is not held
-  "working" for it, because an agent may never report the outcome.
+  (`runtime_ended`) when its runtime ends. Connectors that track outstanding
+  work can also keep the conversation working across turns.
 
 Other keys in the object are ignored.
 
@@ -478,3 +503,64 @@ prompt-free conformance, sanitized environments, process-tree termination,
 platform resource controls, redacted quarantine, and a cached signed blocklist.
 They still do not claim filesystem/network sandboxing; that release gate remains
 explicit in `BOUNDARIES.md` Phase 8.
+
+## Steering a running prompt
+
+A connector whose ACP server accepts a second `session/prompt` for the same
+session while another prompt is active can announce this in the `initialize`
+result at `agentCapabilities._meta.cadencr.promptSteering`. Set the Boolean
+to `true` and include the same metadata on the primary model selector in
+`models` discovery so the composer can offer immediate follow-ups before the
+runtime starts. Once connected, the composer uses the capability negotiated
+by that session, including after reconnecting.
+
+Use independent request IDs, accept the new prompt without a preceding
+`session/cancel`, and respond to every accepted prompt. Each response
+acknowledges its prompt on success and accounts for its own reported usage.
+A rejected follow-up has its own failed delivery receipt. Earlier accepted
+work can finish and report its result. A cooperative Stop preserves the delivery
+of the turn's first submitted prompt and any follow-up the agent already
+acknowledged. An unacknowledged concurrent input can still fail delivery.
+The transcript shows
+each submitted prompt in its original position while its receipt is pending,
+so its response can stream directly below it. CadencR completes the visible
+turn when the last outstanding prompt has returned and any advertised
+background work has finished. Connectors without live opt-in use serial prompts.
+
+## Detached replies
+
+A connector that receives an unsolicited reply after a successful
+`session/prompt` can mark its last `session/update` usage notification with
+`update._meta.cadencr.detachedReplyEnded: true`. Send the marker after
+forwarding the reply's text or thought chunks and any tool steps, with the
+same `sessionId` and while no prompt is in flight. If the agent reports
+usage after each model step, forward those updates normally. Once the reply
+ends, the connector can send a separate `usage_update` with the marker and
+the last reported context-budget values. To acknowledge `session/cancel`
+before the reply reports a context budget, send a `session_info_update` with
+the same marker.
+
+Cadencr accepts the marker only after seeing a successful prompt result and
+subsequent streamed reply content for that session outside a host prompt.
+It closes the reply's streaming blocks and completes the visible activity.
+The usage notification keeps its normal context-budget meaning. The marker
+adds no token accounting and does not complete an outstanding
+`session/prompt` request. Notifications without the marker keep their usual
+ACP behavior.
+
+## Keeping a conversation working across turns
+
+When a successful `session/prompt` ends with tracked work still running, set
+`result._meta.cadencr.backgroundWorkPending` to `true`. On a detached reply
+that ends while work continues, set the same field on the `usage_update`
+carrying `detachedReplyEnded`. Each prompt retains its response and accounting.
+CadencR keeps the conversation working between replies.
+
+Track each task by its native ID. Keep the hold while a completed task is
+expected to wake the model. If work settles during a reply, send its completion
+boundary with `backgroundWorkPending: false`. When work settles between
+replies, send a `session_info_update` for that session with
+`_meta.cadencr.backgroundWorkPending: false`. A release that reaches CadencR
+during a streamed reply leaves the reply open until its own completion marker.
+An omitted field preserves the last reported state. Providers that only expose
+a launch acknowledgement can continue to use sub-agent metadata on its own.

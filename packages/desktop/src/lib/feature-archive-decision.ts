@@ -1,6 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
-  getFeatureArchivePreview,
-  isFeatureEmpty,
+  getGetFeatureArchivePreviewQueryOptions,
+  getIsFeatureEmptyQueryOptions,
   type ArchivePreview,
   type Feature,
   type IsEmptyResponse,
@@ -52,11 +53,22 @@ export function deleteFeatureDialogTitle(feature: Feature | undefined): string {
   return feature?.status === "archived" ? "Delete archived session?" : "Delete session?";
 }
 
-export async function resolveFeatureArchiveAction(feature: Feature): Promise<FeatureArchiveAction> {
+export async function resolveFeatureArchiveAction(
+  feature: Feature,
+  queryClient: QueryClient,
+): Promise<FeatureArchiveAction> {
   if (feature.status === "archived") return "delete";
   const [preview, emptyResponse] = await Promise.all([
-    getFeatureArchivePreview(feature.id),
-    isFeatureEmpty(feature.id),
+    queryClient.fetchQuery(
+      getGetFeatureArchivePreviewQueryOptions(feature.id, {
+        query: { retry: false, staleTime: 0 },
+      }),
+    ),
+    queryClient.fetchQuery(
+      getIsFeatureEmptyQueryOptions(feature.id, {
+        query: { retry: false, staleTime: 0 },
+      }),
+    ),
   ]);
   return getFeatureArchiveAction(feature, emptyResponse.empty, preview.has_relations);
 }

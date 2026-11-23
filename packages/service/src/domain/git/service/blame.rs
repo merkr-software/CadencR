@@ -26,39 +26,62 @@ pub async fn get_blame(
         .map_err(|_| AppError::BadRequest("file outside project root".into()))?
         .to_string_lossy()
         .into_owned();
+    blame_file(&project_root, &relative).await
+}
+
+/// Blame `relative` inside `project_root`, which contains it.
+async fn blame_file(project_root: &Path, relative: &str) -> Result<BlameResponse, AppError> {
     // Files outside the index (node_modules, build artefacts, dotfiles in a
     // non-git directory) have no blame to report. Running `git blame` on them
     // fails with "no such path in HEAD" and spams the user with toast errors
     // on every editor open. Cheaper to ask up front.
-    if !crate::shared::git_context::has_git_metadata(&project_root).await?
-        || !is_path_tracked(&project_root, &relative).await
+    if !crate::shared::git_context::has_git_metadata(project_root).await?
+        || !is_path_tracked(project_root, relative).await?
     {
         return Ok(BlameResponse { lines: vec![] });
     }
-    let output = crate::shared::git_cli::run_git_safe_background(
-        &["blame"],
-        &["--porcelain"],
-        &[&relative],
-        &project_root,
-    )
-    .await?;
+    let output = match blame_porcelain(project_root, relative).await {
+        Ok(output) => output,
+        // A file staged on a branch with no commit yet is tracked but has no
+        // history to blame: an empty blame, not "no such ref: HEAD".
+        Err(error) => {
+            return match crate::shared::git_cli::head_is_unborn(project_root).await {
+                Ok(true) => Ok(BlameResponse { lines: vec![] }),
+                // Git's own message says best why blame failed.
+                Ok(false) | Err(_) => Err(error),
+            };
+        }
+    };
     let lines = parse_blame_porcelain(&output);
     Ok(BlameResponse { lines })
+}
+
+/// `git blame --porcelain` of `relative`. No deadline: blaming an old file of
+/// a long history legitimately takes minutes, and a killed blame is lost work
+/// the next editor open would redo. The request owns the read: it dies with it.
+async fn blame_porcelain(project_root: &Path, relative: &str) -> Result<String, AppError> {
+    crate::shared::git_cli::run_git_safe_background_within(
+        &["blame"],
+        &["--porcelain"],
+        &[relative],
+        project_root,
+        crate::shared::git_cli::GitReadDeadline::Unbounded,
+    )
+    .await
 }
 
 /// `true` iff `relative` is tracked by the git repo rooted at `cwd`.
 ///
 /// Uses `git ls-files -- <relative>`: when the path is tracked git prints
 /// it on stdout; for untracked files (including paths outside any repo)
-/// stdout is empty and the exit code is 0. Any spawn / non-repo failure is
-/// treated as "not tracked" — we'd rather skip blame than surface a noisy
-/// error to the user.
-async fn is_path_tracked(cwd: &Path, relative: &str) -> bool {
+/// stdout is empty and the exit code is 0. The caller has already checked
+/// that `cwd` is a repository, so a failure here is a real error, not an
+/// untracked file.
+async fn is_path_tracked(cwd: &Path, relative: &str) -> Result<bool, AppError> {
     let out =
         crate::shared::git_cli::run_git_safe_background(&["ls-files", "-z"], &[], &[relative], cwd)
-            .await
-            .unwrap_or_default();
-    !out.trim().is_empty()
+            .await?;
+    Ok(!out.trim().is_empty())
 }
 
 #[derive(Default)]
@@ -169,7 +192,32 @@ mod tests {
                 .unwrap();
             assert!(s.success());
         }
-        assert!(is_path_tracked(&repo, "a.txt").await);
+        assert!(is_path_tracked(&repo, "a.txt").await.unwrap());
+    }
+
+    /// Blaming an old file of a long history takes as long as it takes: no
+    /// deadline may cut it short. A `textconv` driver stands in for the slow
+    /// history walk; the paused clock makes any deadline fire at once.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_blame_is_never_cut_short() {
+        let (_dir, repo) = init_test_repo("repo").await;
+        std::fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(repo.join(".gitattributes"), "*.txt diff=slow\n").unwrap();
+        for args in [
+            vec!["add", "."],
+            vec!["commit", "-q", "-m", "a"],
+            vec!["config", "diff.slow.textconv", "sleep 1; cat"],
+        ] {
+            let status = Command::new("git")
+                .args(&args)
+                .current_dir(&repo)
+                .status()
+                .await
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        }
+        let blame = blame_porcelain(&repo, "a.txt").await.unwrap();
+        assert_eq!(parse_blame_porcelain(&blame).len(), 2);
     }
 
     #[tokio::test]
@@ -178,17 +226,17 @@ mod tests {
         std::fs::write(repo.join("ignored.txt"), "hi").unwrap();
         // Untracked on disk but never `git add`ed — this is the node_modules
         // case in production.
-        assert!(!is_path_tracked(&repo, "ignored.txt").await);
+        assert!(!is_path_tracked(&repo, "ignored.txt").await.unwrap());
     }
 
     #[tokio::test]
-    async fn is_path_tracked_returns_false_outside_repo() {
+    async fn is_path_tracked_fails_outside_repo() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = std::fs::canonicalize(dir.path()).unwrap();
-        // No `git init`. `git ls-files` errors out; we map that to "not
-        // tracked" so the renderer just gets an empty blame instead of a
-        // toast.
-        assert!(!is_path_tracked(&cwd, "whatever.txt").await);
+        // No `git init`. `get_blame` answers an empty blame for a folder
+        // without Git metadata before asking; past that check, `ls-files`
+        // failing is a real error, not an untracked file.
+        assert!(is_path_tracked(&cwd, "whatever.txt").await.is_err());
     }
 
     #[test]
@@ -301,5 +349,25 @@ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 3 3
         assert_eq!(lines[2].summary, "first commit");
         assert_eq!(lines[2].line, 3);
         assert_eq!(lines[2].date, lines[0].date);
+    }
+
+    /// A file staged on a branch with no commit yet is tracked but has no
+    /// history: an empty blame, where `git blame` says "no such ref: HEAD".
+    #[tokio::test]
+    async fn a_file_staged_before_the_first_commit_blames_to_nothing() {
+        let (_dir, repo) = init_test_repo("repo").await;
+        std::fs::write(repo.join("draft.txt"), "hi").unwrap();
+        let status = Command::new("git")
+            .args(["add", "draft.txt"])
+            .current_dir(&repo)
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success());
+        assert!(blame_file(&repo, "draft.txt")
+            .await
+            .unwrap()
+            .lines
+            .is_empty());
     }
 }

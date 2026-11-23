@@ -11,11 +11,11 @@ use std::path::Path;
 
 use crate::domain::git::models::CommitGraphEntry;
 use crate::error::AppError;
-use crate::shared::git_cli::guard_positionals;
+use crate::shared::git_cli::{guard_positionals, run_git_background};
 
 use super::graph_refs::parse_refs;
 use super::log::get_unpushed_shas;
-use super::util::{run_git_quiet, FIRST_PARENT_MERGES};
+use super::util::{revs_after_failed_walk, FIRST_PARENT_MERGES};
 use crate::shared::git_cli::version::{self, GitFeature};
 
 /// Record separator emitted before every commit; field separator between the
@@ -116,21 +116,31 @@ pub async fn get_commit_graph(
     if version::supports(GitFeature::DiffMerges) {
         args.push(FIRST_PARENT_MERGES);
     }
-    let tip_refs: Vec<&str> = tips.iter().map(String::as_str).collect();
+    let mut tip_refs: Vec<&str> = tips.iter().map(String::as_str).collect();
     guard_positionals(&tip_refs)?;
-    args.extend(tip_refs.iter().copied());
-    let stdout = run_git_quiet(&args, repo_path).await;
+    // `--`: a branch named like a tracked folder (`main/`) is otherwise
+    // ambiguous between a revision and a path, and Git refuses.
+    let walk = [args.as_slice(), &tip_refs, &["--"]].concat();
+    let stdout = match run_git_background(&walk, repo_path).await {
+        Ok(stdout) => stdout,
+        Err(error) => {
+            // The `HEAD` of an unborn branch names no commit yet: it draws
+            // nothing rather than failing the whole graph.
+            tip_refs = revs_after_failed_walk(repo_path, &tip_refs, error).await?;
+            if tip_refs.is_empty() {
+                return Ok(Vec::new());
+            }
+            run_git_background(&[args.as_slice(), &tip_refs, &["--"]].concat(), repo_path).await?
+        }
+    };
     let mut commits = parse_graph_log(&stdout);
 
     // Painted over every tip drawn, not just the feature's own: the graph shows
     // the target branch too, and a commit sitting unpushed on `main` must not
     // read as pushed merely because it isn't on this feature's branch.
-    let unpushed = get_unpushed_shas(repo_path, &tip_refs).await;
+    let unpushed = get_unpushed_shas(repo_path, &tip_refs).await?;
     for c in commits.iter_mut() {
-        c.is_pushed = match &unpushed {
-            None => false,
-            Some(set) => !set.contains(&c.sha),
-        };
+        c.is_pushed = !unpushed.contains(&c.sha);
     }
     Ok(commits)
 }
@@ -324,11 +334,63 @@ mod tests {
         assert_eq!(merge.additions, 2);
     }
 
+    /// An unborn branch draws an empty graph; a repository git cannot read
+    /// fails instead of drawing that same empty graph.
+    #[tokio::test]
+    async fn get_commit_graph_tells_an_unborn_branch_from_a_git_failure() {
+        use crate::shared::git_cli::run_git;
+
+        let dir = tempfile::tempdir().unwrap();
+        run_git(&["init", "-q"], dir.path()).await.unwrap();
+        let tips = ["HEAD".to_string()];
+        assert!(get_commit_graph(dir.path(), &tips, 0, 50)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // A ref store Git cannot parse, inside a repository it still finds.
+        std::fs::write(dir.path().join(".git/packed-refs"), "garbage\n").unwrap();
+        assert!(get_commit_graph(dir.path(), &tips, 0, 50).await.is_err());
+    }
+
     #[tokio::test]
     async fn get_commit_graph_rejects_flag_prefixed_tips() {
         let error = get_commit_graph(Path::new("."), &["--all".to_string()], 0, 50)
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)));
+    }
+
+    /// `git log HEAD main` refuses when `main/` is also a tracked folder.
+    #[tokio::test]
+    async fn a_branch_named_like_a_folder_draws_its_graph() {
+        use crate::shared::git_cli::run_git;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        run_git(&["init", "-q"], path).await.unwrap();
+        run_git(&["symbolic-ref", "HEAD", "refs/heads/main"], path)
+            .await
+            .unwrap();
+        std::fs::create_dir(path.join("main")).unwrap();
+        std::fs::write(path.join("main/f.txt"), "x").unwrap();
+        run_git(&["add", "-A"], path).await.unwrap();
+        run_git(
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "i",
+            ],
+            path,
+        )
+        .await
+        .unwrap();
+        let tips = ["HEAD".to_string(), "main".to_string()];
+        assert_eq!(get_commit_graph(path, &tips, 0, 50).await.unwrap().len(), 1);
     }
 }

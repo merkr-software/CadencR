@@ -324,7 +324,9 @@ exec /bin/sh -c "$script"
             tx,
         )
         .await;
-        let step = super::super::db::get_setting(&pool, 1, "worktree_setup_step").await;
+        let step = super::super::db::get_setting(&pool, 1, "worktree_setup_step")
+            .await
+            .unwrap();
         assert_eq!(step.as_deref(), Some("ready"));
         assert_eq!(
             std::fs::read_to_string(worktree.join("setup.out")).expect("setup output"),
@@ -368,9 +370,13 @@ exec /bin/sh -c "$script"
         cancel_setups(&registry, &[1]).await;
 
         assert!(!registry.is_owned(1));
-        let step = super::super::db::get_setting(&pool, 1, "worktree_setup_step").await;
+        let step = super::super::db::get_setting(&pool, 1, "worktree_setup_step")
+            .await
+            .unwrap();
         assert_eq!(step.as_deref(), Some("setup_error"));
-        let error = super::super::db::get_setting(&pool, 1, "worktree_setup_error").await;
+        let error = super::super::db::get_setting(&pool, 1, "worktree_setup_error")
+            .await
+            .unwrap();
         assert_eq!(error.as_deref(), Some(SETUP_CANCELLED));
         run.await.expect("setup task");
         let mut alive = true;
@@ -412,6 +418,7 @@ exec /bin/sh -c "$script"
         assert_eq!(
             super::super::db::get_setting(&pool, 1, "worktree_setup_step")
                 .await
+                .unwrap()
                 .as_deref(),
             Some("ready")
         );

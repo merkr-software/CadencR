@@ -16,6 +16,10 @@ use sha2::{Digest, Sha256};
 fn ensure_crypto_provider() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "installing the process-wide crypto provider fails only when one is already installed"
+        )]
         let _ = rustls::crypto::ring::default_provider().install_default();
     });
 }

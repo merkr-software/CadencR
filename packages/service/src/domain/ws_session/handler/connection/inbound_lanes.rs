@@ -19,11 +19,12 @@
 //!   between the compaction and the Stop, and that record would otherwise
 //!   wait behind the compaction and keep the Stop waiting with it.
 
+use crate::shared::discard::IgnoreClosed;
 use std::future::Future;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, watch, Notify};
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, watch, Notify, Semaphore};
+use tokio::task::{JoinHandle, JoinSet};
 use tracing::error;
 
 use crate::domain::ws_session::protocol::{
@@ -32,6 +33,8 @@ use crate::domain::ws_session::protocol::{
 
 /// Commands queued on a lane before reading the socket waits for room again.
 const LANE_CAPACITY: usize = 64;
+/// Maximum concurrent stateless read-only requests (`commands.*`) per socket.
+const CONCURRENT_READ_LIMIT: usize = 4;
 
 tokio::task_local! {
     /// The command the ordered lane is running, so it can let controls through.
@@ -44,6 +47,10 @@ tokio::task_local! {
 /// runtime spawn.
 pub(crate) fn let_controls_through() {
     // Off a socket's ordered lane (HTTP, MCP, schedules), no control waits.
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "only commands run inside the RUNNING_COMMAND scope have a lane to settle"
+    )]
     let _ = RUNNING_COMMAND.try_with(RunningCommand::settle);
 }
 
@@ -96,6 +103,7 @@ impl Drop for LaneEndGuard {
 pub(super) struct InboundLanes {
     ordered: Option<mpsc::Sender<OrderedCommand>>,
     control: Option<mpsc::Sender<ControlCommand>>,
+    concurrent: Option<mpsc::Sender<WsEnvelope>>,
     controls_received: u64,
     commands_received: u64,
     /// Position of the last received command that can change a turn.
@@ -105,7 +113,8 @@ pub(super) struct InboundLanes {
 }
 
 impl InboundLanes {
-    /// Start both lanes; each runs `dispatch` on its commands.
+    /// Start the ordered, control, and bounded concurrent-read lanes; each
+    /// runs `dispatch` on its commands.
     pub(super) fn spawn<D, F>(dispatch: D) -> Self
     where
         D: Fn(WsEnvelope) -> F + Send + Sync + 'static,
@@ -115,6 +124,7 @@ impl InboundLanes {
         let ended = Arc::new(Notify::new());
         let (control_tx, mut control_rx) = mpsc::channel::<ControlCommand>(LANE_CAPACITY);
         let (ordered_tx, mut ordered_rx) = mpsc::channel::<OrderedCommand>(LANE_CAPACITY);
+        let (concurrent_tx, concurrent_rx) = mpsc::channel::<WsEnvelope>(LANE_CAPACITY);
         let (handled_tx, mut handled_rx) = watch::channel(0u64);
         let (settled_tx, mut settled_rx) = watch::channel(0u64);
         let settled_tx = Arc::new(settled_tx);
@@ -124,39 +134,45 @@ impl InboundLanes {
             let _end = control_end;
             while let Some(control) = control_rx.recv().await {
                 // Errs only once the ordered lane ended: nothing is left to wait for.
-                let _ = settled_rx
+                settled_rx
                     .wait_for(|settled| *settled >= control.commands_before)
-                    .await;
+                    .await
+                    .ignore_closed();
                 control_dispatch(control.envelope).await;
                 handled_tx.send_modify(|handled| *handled += 1);
             }
         });
+        let ordered_dispatch = Arc::clone(&dispatch);
         let ordered_end = LaneEndGuard(Arc::clone(&ended));
         let ordered = tokio::spawn(async move {
             let _end = ordered_end;
             while let Some(command) = ordered_rx.recv().await {
                 // Errs only once the control lane ended: nothing is left to wait for.
-                let _ = handled_rx
+                handled_rx
                     .wait_for(|handled| *handled >= command.controls_before)
-                    .await;
+                    .await
+                    .ignore_closed();
                 let running = RunningCommand {
                     position: command.position,
                     settled: Arc::clone(&settled_tx),
                 };
                 RUNNING_COMMAND
-                    .scope(running.clone(), dispatch(command.envelope))
+                    .scope(running.clone(), ordered_dispatch(command.envelope))
                     .await;
                 running.settle();
             }
         });
+        let concurrent =
+            spawn_concurrent_lane(concurrent_rx, dispatch, LaneEndGuard(Arc::clone(&ended)));
         Self {
             ordered: Some(ordered_tx),
             control: Some(control_tx),
+            concurrent: Some(concurrent_tx),
             controls_received: 0,
             commands_received: 0,
             last_turn_command: 0,
             ended,
-            workers: vec![control, ordered],
+            workers: vec![control, ordered, concurrent],
         }
     }
 
@@ -176,6 +192,9 @@ impl InboundLanes {
             };
             lane.send(control).await.map_err(|_| LaneClosed)?;
             self.controls_received += 1;
+        } else if is_concurrent_read(&envelope) {
+            let lane = self.concurrent.as_ref().ok_or(LaneClosed)?;
+            lane.send(envelope).await.map_err(|_| LaneClosed)?;
         } else {
             let lane = self.ordered.as_ref().ok_or(LaneClosed)?;
             let position = self.commands_received + 1;
@@ -194,17 +213,78 @@ impl InboundLanes {
         Ok(())
     }
 
-    /// Let both lanes run what was already received, as a connection that
+    /// Let every lane run what was already received, as a connection that
     /// handled its commands inline did before reading the close.
     pub(super) async fn finish(mut self) {
         self.ordered = None;
         self.control = None;
+        self.concurrent = None;
         for worker in std::mem::take(&mut self.workers) {
             if let Err(join_error) = worker.await {
                 error!(%join_error, "WebSocket command lane ended abnormally");
             }
         }
     }
+}
+
+fn spawn_concurrent_lane<D, F>(
+    mut rx: mpsc::Receiver<WsEnvelope>,
+    dispatch: Arc<D>,
+    end_guard: LaneEndGuard,
+) -> JoinHandle<()>
+where
+    D: Fn(WsEnvelope) -> F + Send + Sync + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let _end = end_guard;
+        let semaphore = Arc::new(Semaphore::new(CONCURRENT_READ_LIMIT));
+        let mut tasks = JoinSet::new();
+        loop {
+            let permit = tokio::select! {
+                result = Arc::clone(&semaphore).acquire_owned() => match result {
+                    Ok(permit) => permit,
+                    Err(_) => break,
+                },
+                Some(joined) = tasks.join_next(), if !tasks.is_empty() => {
+                    reap_concurrent_task(joined);
+                    continue;
+                }
+            };
+            tokio::select! {
+                maybe_envelope = rx.recv() => {
+                    let Some(envelope) = maybe_envelope else { break; };
+                    let dispatch = Arc::clone(&dispatch);
+                    tasks.spawn(async move {
+                        let _permit = permit;
+                        dispatch(envelope).await;
+                    });
+                }
+                Some(joined) = tasks.join_next(), if !tasks.is_empty() => {
+                    drop(permit);
+                    reap_concurrent_task(joined);
+                }
+            }
+        }
+        while let Some(joined) = tasks.join_next().await {
+            reap_concurrent_task(joined);
+        }
+    })
+}
+
+fn reap_concurrent_task(joined: Result<(), tokio::task::JoinError>) {
+    if let Err(err) = joined {
+        if err.is_panic() {
+            std::panic::resume_unwind(err.into_panic());
+        }
+    }
+}
+
+/// Stateless read-only requests that never mutate session state or depend on
+/// earlier ordered commands (so they run off the ordered lane with bounded
+/// concurrency).
+fn is_concurrent_read(envelope: &WsEnvelope) -> bool {
+    envelope.domain == "commands"
 }
 
 impl Drop for InboundLanes {
@@ -218,11 +298,11 @@ impl Drop for InboundLanes {
 }
 
 /// Commands that only read or record beside the conversation (prompt history,
-/// drafts, config reads, app and command-list requests): they never start,
-/// steer or end a turn, so a control has nothing to wait for in them.
+/// drafts, config reads, app requests): they never start, steer or end a turn,
+/// so a control has nothing to wait for in them.
 fn is_neutral(envelope: &WsEnvelope) -> bool {
     match envelope.domain.as_str() {
-        "app" | "commands" => true,
+        "app" => true,
         "session" => matches!(
             canonical_session_command_action(&envelope.action),
             Some(
@@ -505,5 +585,54 @@ mod tests {
         .await
         .unwrap();
         assert!(log.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn commands_get_runs_off_the_ordered_lane_with_bounded_concurrency() {
+        let (mut lanes, log, release) = recording_lanes();
+        lanes.route(envelope("init", "blocked")).await.unwrap();
+        let mut cmd = envelope("get", "commands-1");
+        cmd.domain = "commands".to_string();
+        lanes.route(cmd).await.unwrap();
+
+        assert_eq!(wait_for_log(&log, 1).await, vec!["commands-1"]);
+
+        release.send(()).unwrap();
+        assert_eq!(wait_for_log(&log, 2).await, vec!["commands-1", "blocked"]);
+        lanes.finish().await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_read_lane_caps_in_flight_tasks() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let active_ref = Arc::clone(&active);
+        let peak_ref = Arc::clone(&peak);
+        let mut lanes = InboundLanes::spawn(move |_envelope| {
+            let active = Arc::clone(&active_ref);
+            let peak = Arc::clone(&peak_ref);
+            async move {
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+            }
+        });
+        for i in 0..(CONCURRENT_READ_LIMIT * 2) {
+            let mut cmd = envelope("get", &format!("cmd-{i}"));
+            cmd.domain = "commands".to_string();
+            lanes.route(cmd).await.unwrap();
+        }
+        lanes.finish().await;
+        let observed_peak = peak.load(Ordering::SeqCst);
+        assert!(
+            observed_peak >= 2,
+            "expected concurrent execution, peak={observed_peak}"
+        );
+        assert!(
+            observed_peak <= CONCURRENT_READ_LIMIT,
+            "expected peak <= {CONCURRENT_READ_LIMIT}, got {observed_peak}"
+        );
     }
 }

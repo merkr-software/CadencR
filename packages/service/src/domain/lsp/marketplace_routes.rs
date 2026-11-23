@@ -3,6 +3,7 @@ use super::{
     managed::{self, InstallLspRequest, LspCatalogResponse, RemoveLspRequest},
     routes::ListServersResponse,
 };
+use crate::shared::discard::IgnoreClosed;
 use crate::{app_state::AppState, error::AppError};
 use axum::{
     extract::{Query, State},
@@ -68,7 +69,9 @@ fn changed(
     events: &tokio::sync::broadcast::Sender<crate::domain::settings_store::SettingsChangeEvent>,
 ) {
     // No receivers is expected while the renderer is disconnected.
-    let _ = events.send(crate::domain::settings_store::SettingsChangeEvent {
-        file: "lsp-marketplace".into(),
-    });
+    events
+        .send(crate::domain::settings_store::SettingsChangeEvent {
+            file: "lsp-marketplace".into(),
+        })
+        .ignore_closed();
 }

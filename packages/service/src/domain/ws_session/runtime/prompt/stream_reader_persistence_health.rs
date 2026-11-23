@@ -1,9 +1,46 @@
-use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::persistence::{TranscriptPersistenceError, WsSessionPersistence};
 use crate::domain::ws_session::protocol::SessionPersistenceStatusPayload;
+use tracing::error;
 
 use super::stream_reader_task::StreamReaderTask;
 
 impl StreamReaderTask {
+    pub(in crate::domain::ws_session) async fn flush_due_deltas(
+        &self,
+        persistence: &mut WsSessionPersistence,
+    ) {
+        self.handle_delta_flush_result(persistence.flush_due_deltas().await, persistence, false)
+            .await;
+    }
+
+    pub(in crate::domain::ws_session) async fn flush_all_pending_deltas(
+        &self,
+        persistence: &mut WsSessionPersistence,
+        terminal: bool,
+    ) {
+        self.handle_delta_flush_result(
+            persistence.flush_all_pending_deltas().await,
+            persistence,
+            terminal,
+        )
+        .await;
+    }
+
+    async fn handle_delta_flush_result(
+        &self,
+        result: Result<(), TranscriptPersistenceError>,
+        persistence: &mut WsSessionPersistence,
+        terminal: bool,
+    ) {
+        match result {
+            Ok(()) | Err(TranscriptPersistenceError::AwaitingReconciliation) => {}
+            Err(error) => {
+                error!(self.db_session_id, error = %error, "transcript delta flush degraded");
+                self.publish_transcript_status(persistence, terminal).await;
+            }
+        }
+    }
+
     pub(in crate::domain::ws_session) async fn publish_transcript_status(
         &self,
         persistence: &mut WsSessionPersistence,

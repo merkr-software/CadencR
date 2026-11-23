@@ -39,7 +39,7 @@ pub fn sanitize_stem(name: &str) -> String {
 }
 
 /// Look up a single project's name.
-async fn project_name(pool: &SqlitePool, project_id: i64) -> Result<String, AppError> {
+pub(super) async fn project_name(pool: &SqlitePool, project_id: i64) -> Result<String, AppError> {
     sqlx::query_as::<_, (String,)>("SELECT name FROM projects WHERE id = ?")
         .bind(project_id)
         .fetch_optional(pool)
@@ -76,7 +76,16 @@ pub fn project_file_for_name(dir: &Path, name: &str) -> PathBuf {
 /// `project_id` — i.e. resolves to the same sanitized name. Deletion uses this
 /// to avoid removing a file a surviving same-named project still relies on.
 pub async fn name_is_shared(pool: &SqlitePool, project_id: i64) -> Result<bool, AppError> {
-    let target = sanitize_stem(&project_name(pool, project_id).await?);
+    let name = project_name(pool, project_id).await?;
+    name_is_shared_for(pool, project_id, &name).await
+}
+
+pub(super) async fn name_is_shared_for(
+    pool: &SqlitePool,
+    project_id: i64,
+    name: &str,
+) -> Result<bool, AppError> {
+    let target = sanitize_stem(name);
     let others = sqlx::query_as::<_, (String,)>("SELECT name FROM projects WHERE id != ?")
         .bind(project_id)
         .fetch_all(pool)

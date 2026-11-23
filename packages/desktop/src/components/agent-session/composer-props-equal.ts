@@ -9,6 +9,7 @@ const TRANSCRIPT_KEYS: ReadonlySet<string> = new Set([
   "rootBlocks",
   "toolResultMap",
   "historyPrependDisplayOffset",
+  "historyGaps",
   "lifecycle",
   "turnClock",
 ]);

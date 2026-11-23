@@ -41,9 +41,9 @@ describe("AppCloseDialog", () => {
     expect(screen.getByText("waiting on you")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Quit and resume on next launch" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: true });
+    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: true, resumeBackgroundWork: true });
     await userEvent.click(screen.getByRole("button", { name: "Stop agents and quit" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false });
+    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false, resumeBackgroundWork: false });
   });
 
   it("only stops the agents when resuming is turned off", async () => {
@@ -54,7 +54,7 @@ describe("AppCloseDialog", () => {
     expect(screen.queryByRole("button", { name: "Quit and resume on next launch" })).toBeNull();
     expect(screen.getByText(/resuming agents after a restart is turned off/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Stop agents and quit" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false });
+    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false, resumeBackgroundWork: false });
   });
 
   it("closes only the window when the app keeps running", async () => {
@@ -64,7 +64,7 @@ describe("AppCloseDialog", () => {
     expect(screen.getByText("Close the window?")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop agents and quit" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Close window" }));
-    expect(close.close).toHaveBeenCalledWith({ resumeAgents: true });
+    expect(close.close).toHaveBeenCalledWith({ resumeAgents: true, resumeBackgroundWork: true });
   });
 
   it("renders nothing without a pending close", () => {

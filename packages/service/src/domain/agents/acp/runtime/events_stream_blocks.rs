@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use super::detached_replies::DetachedReply;
 use super::stream_events;
 use super::stream_events::message_start_event;
 use super::terminal_io::{TerminalOutput, DEFAULT_TERMINAL_OUTPUT_LIMIT};
@@ -58,6 +59,8 @@ pub struct EventIndexer {
     /// next prompt, so the replies of this one keep it unless the agent itself
     /// reports a different model.
     turn_model: Option<String>,
+    pub(super) background_work: super::background_work::BackgroundWork,
+    pub(super) detached_reply: DetachedReply,
     /// Carriers declared background by `_meta.cadencr.subagent`; `true` once
     /// the launching call completed and the sub-agent runs detached.
     /// Survives turn ends: the finishing update can arrive in a later turn.

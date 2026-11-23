@@ -1,11 +1,15 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
 use axum::extract::ws::Message;
 use tokio::sync::mpsc;
 
-use super::debouncer::{self, now_ms};
+#[cfg(test)]
+use super::debouncer;
+use super::debouncer::now_ms;
 use super::handle::RecomputePing;
+use super::recompute;
 use super::registry::GitWatcherRegistry;
 use super::subscription::broadcast_envelope;
 use crate::app_state::AppState;
@@ -55,7 +59,7 @@ impl GitWatcherRegistry {
     async fn recompute_now(&self, worktree_path: &Path, state: &AppState) {
         let canonical =
             std::fs::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
-        debouncer::recompute_for_path(&self.inner, &canonical, state, None).await;
+        recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
 
     /// Stamp the self-write dedupe window and supersede queued fs work without
@@ -71,10 +75,11 @@ impl GitWatcherRegistry {
     /// Suppress self-induced fs events and synchronously confirm one fresh
     /// status (or status-error) snapshot for a user-initiated write.
     pub async fn confirm_after_write(&self, worktree_path: &Path, state: &AppState) {
-        let canonical =
-            std::fs::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
+        let canonical = tokio::fs::canonicalize(worktree_path)
+            .await
+            .unwrap_or_else(|_| worktree_path.to_path_buf());
         self.nudge(&canonical).await;
-        debouncer::recompute_for_path(&self.inner, &canonical, state, None).await;
+        recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
 
     /// Drop every handle and abort their compute tasks.
@@ -84,7 +89,7 @@ impl GitWatcherRegistry {
         let drained: Vec<_> = inner.handles.drain().collect();
         drop(inner);
         for (_, mut handle) in drained {
-            let _ = handle.ping_tx.send(RecomputePing::Shutdown);
+            handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
             handle.compute_task.abort();
         }
@@ -155,10 +160,9 @@ mod tests {
             .unwrap();
         assert!(commit_status.success(), "fixture commit should succeed");
         let canonical = std::fs::canonicalize(dir.path()).unwrap();
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .connect(":memory:")
-            .await
-            .unwrap();
+        // The schema a refresh reads the target branch from: resolving it is
+        // part of every snapshot, and its failure is reported, not guessed.
+        let pool = crate::domain::git::service::test_support::setup_diff_refs_schema().await;
         let state = AppState::with_pool(pool);
         let registry = GitWatcherRegistry::new();
         let mut handle = spawn_handle(registry.inner.clone(), canonical.clone(), state.clone())
@@ -260,6 +264,28 @@ mod tests {
             panic!("expected text envelope, got {msg:?}");
         };
         assert!(text.contains("\"action\":\"status\""), "got: {text}");
+
+        fixture.registry.shutdown().await;
+    }
+
+    /// A target branch that cannot be resolved fails the refresh visibly. It
+    /// used to fall back to "main" and publish a snapshot compared against a
+    /// branch nobody picked.
+    #[tokio::test]
+    async fn an_unresolvable_target_branch_is_reported_not_guessed() {
+        let mut fixture = subscribed_fixture().await;
+        sqlx::query("DROP TABLE feature_settings")
+            .execute(&fixture.state.read_pool)
+            .await
+            .unwrap();
+        fixture
+            .registry
+            .recompute_now(&fixture.canonical, &fixture.state)
+            .await;
+        let Ok(Message::Text(text)) = fixture.rx.try_recv() else {
+            panic!("recompute_now must broadcast synchronously");
+        };
+        assert!(text.contains("\"action\":\"status_error\""), "got: {text}");
 
         fixture.registry.shutdown().await;
     }

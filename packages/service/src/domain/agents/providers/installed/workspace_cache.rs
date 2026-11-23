@@ -1,12 +1,14 @@
-//! Short-lived per-workspace cache of provider subprocess output (`models`,
-//! `slash-commands`): at most [`MAX_CACHED_WORKSPACES`] entries (the oldest
-//! goes first), one refresh per key at a time, and a refresh that raced an
-//! invalidation returns its value without storing it.
+//! Short-lived per-workspace cache of provider `slash-commands` subprocess
+//! output: at most [`MAX_CACHED_WORKSPACES`] entries (the oldest goes first),
+//! one refresh per key at a time, and a refresh that raced an invalidation
+//! returns its value without storing it.
 
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
@@ -28,6 +30,8 @@ pub(super) struct WorkspaceCache<K, V> {
     refreshes: KeyedLocks<K>,
     generation: AtomicU64,
     stores: AtomicU64,
+    /// Keys with a background stale-while-revalidate refresh in flight.
+    revalidating: std::sync::Mutex<HashSet<K>>,
 }
 
 impl<K, V> Default for WorkspaceCache<K, V> {
@@ -37,7 +41,16 @@ impl<K, V> Default for WorkspaceCache<K, V> {
             refreshes: KeyedLocks::default(),
             generation: AtomicU64::new(0),
             stores: AtomicU64::new(0),
+            revalidating: std::sync::Mutex::new(HashSet::new()),
         }
+    }
+}
+
+impl<K, V> WorkspaceCache<K, V> {
+    fn revalidating_keys(&self) -> std::sync::MutexGuard<'_, HashSet<K>> {
+        self.revalidating
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -45,6 +58,7 @@ impl<K: Eq + Hash + Clone, V: Clone> WorkspaceCache<K, V> {
     /// The fresh value for `key`, else the result of `refresh`. An `Ok`
     /// result is kept for the duration it returns; an `Err` is not kept.
     /// Callers waiting on the same key reuse the first caller's value.
+    #[cfg(test)]
     pub(super) async fn get_or_refresh<E, F, Fut>(&self, key: &K, refresh: F) -> Result<V, E>
     where
         F: FnOnce() -> Fut,
@@ -53,6 +67,14 @@ impl<K: Eq + Hash + Clone, V: Clone> WorkspaceCache<K, V> {
         if let Some(value) = self.fresh(key).await {
             return Ok(value);
         }
+        self.refresh_locked(key, refresh).await
+    }
+
+    async fn refresh_locked<E, F, Fut>(&self, key: &K, refresh: F) -> Result<V, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(V, Duration), E>>,
+    {
         let lock = self.refreshes.lock_for(key).await;
         let _refresh = lock.lock().await;
         if let Some(value) = self.fresh(key).await {
@@ -64,13 +86,44 @@ impl<K: Eq + Hash + Clone, V: Clone> WorkspaceCache<K, V> {
         Ok(value)
     }
 
-    pub(super) async fn fresh(&self, key: &K) -> Option<V> {
+    pub(super) async fn fresh<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.entries
             .read()
             .await
             .get(key)
             .filter(|entry| entry.stored_at.elapsed() < entry.ttl)
             .map(|entry| entry.value.clone())
+    }
+
+    #[cfg(test)]
+    pub(super) async fn force_expire_for_test(&self, key: &K) {
+        if let Some(entry) = self.entries.write().await.get_mut(key) {
+            entry.stored_at = Instant::now() - entry.ttl - Duration::from_secs(1);
+        }
+    }
+
+    async fn lookup(
+        &self,
+        key: &K,
+        max_stale: Duration,
+        is_servable: impl FnOnce(&V) -> bool,
+    ) -> Lookup<V> {
+        let entries = self.entries.read().await;
+        let Some(entry) = entries.get(key) else {
+            return Lookup::Miss;
+        };
+        let age = entry.stored_at.elapsed();
+        if age < entry.ttl {
+            Lookup::Fresh(entry.value.clone())
+        } else if age < entry.ttl + max_stale && is_servable(&entry.value) {
+            Lookup::Stale(entry.value.clone())
+        } else {
+            Lookup::Miss
+        }
     }
 
     /// Forget `key`; a refresh already running for any key won't store.
@@ -112,6 +165,66 @@ impl<K: Eq + Hash + Clone, V: Clone> WorkspaceCache<K, V> {
                 value,
             },
         );
+    }
+}
+
+enum Lookup<V> {
+    Fresh(V),
+    Stale(V),
+    Miss,
+}
+
+impl<K, V> WorkspaceCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    /// Stale-while-revalidate read for an `Arc`-owned cache. Serves a fresh
+    /// entry at once, serves an expired entry passing `is_servable` within
+    /// `max_stale` while starting at most one background refresh, and waits on
+    /// `refresh` otherwise.
+    pub(super) async fn get_or_revalidate<E, F, Fut>(
+        self: &Arc<Self>,
+        key: &K,
+        max_stale: Duration,
+        is_servable: impl FnOnce(&V) -> bool,
+        refresh: F,
+    ) -> Result<V, E>
+    where
+        E: std::fmt::Display + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(V, Duration), E>> + Send + 'static,
+    {
+        match self.lookup(key, max_stale, is_servable).await {
+            Lookup::Fresh(value) => Ok(value),
+            Lookup::Stale(stale) => {
+                if self.revalidating_keys().insert(key.clone()) {
+                    let guard = RevalidationGuard {
+                        cache: Arc::clone(self),
+                        key: key.clone(),
+                    };
+                    tokio::spawn(async move {
+                        if let Err(error) = guard.cache.refresh_locked(&guard.key, refresh).await {
+                            tracing::debug!(%error, "background workspace cache revalidation failed");
+                        }
+                        drop(guard);
+                    });
+                }
+                Ok(stale)
+            }
+            Lookup::Miss => self.refresh_locked(key, refresh).await,
+        }
+    }
+}
+
+struct RevalidationGuard<K: Eq + Hash + Clone, V> {
+    cache: Arc<WorkspaceCache<K, V>>,
+    key: K,
+}
+
+impl<K: Eq + Hash + Clone, V> Drop for RevalidationGuard<K, V> {
+    fn drop(&mut self) {
+        self.cache.revalidating_keys().remove(&self.key);
     }
 }
 
@@ -197,5 +310,60 @@ mod tests {
         assert_eq!(cache.fresh(&1).await, Some(1));
         cache.clear().await;
         assert_eq!(cache.fresh(&1).await, None);
+    }
+
+    #[tokio::test]
+    async fn get_or_revalidate_serves_stale_immediately_and_refreshes_once_in_background() {
+        let cache = Arc::new(WorkspaceCache::<u32, u32>::default());
+        assert_eq!(get(&cache, 1, 10).await, 10);
+        cache.force_expire_for_test(&1).await;
+
+        let runs = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let first = cache
+            .get_or_revalidate(&1, Duration::from_secs(60), |_| true, {
+                let runs = Arc::clone(&runs);
+                move || async move {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    let _ = started_tx.send(());
+                    let _ = release_rx.await;
+                    Ok::<_, Infallible>((20, TTL))
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            first, 10,
+            "expired entry must return stale value immediately"
+        );
+        started_rx.await.unwrap();
+
+        // Second caller while revalidation is in flight also gets stale without spawning another refresh.
+        let second = cache
+            .get_or_revalidate(&1, Duration::from_secs(60), |_| true, {
+                let runs = Arc::clone(&runs);
+                move || async move {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, Infallible>((30, TTL))
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(second, 10);
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+
+        let _ = release_tx.send(());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if cache.fresh(&1).await == Some(20) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("background refresh should populate the fresh value");
     }
 }

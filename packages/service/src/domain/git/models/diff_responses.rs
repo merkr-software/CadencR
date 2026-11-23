@@ -54,7 +54,9 @@ pub struct FileContent {
     pub old_size: u64,
     /// Byte size of the file at the new ref / working tree (0 if absent).
     pub new_size: u64,
-    /// True if either side appears to be a binary blob.
+    /// True if either side holds a NUL byte in its first 8 KB or is not valid
+    /// UTF-8 — the same verdict `GET /api/git/file-content` reaches. A side
+    /// over 16 MiB, which that endpoint refuses, is judged on its first 8 KB.
     pub is_binary: bool,
     /// True if the file is too large to render automatically. When true the
     /// frontend shows a placeholder and the content fields may be `None` in

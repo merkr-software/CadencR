@@ -1,5 +1,6 @@
 import type { AgentBlockData } from "@/types/agent-block";
 import type { DisplayItem } from "@/types/agent-stream";
+import { displayItemBlocks } from "@/lib/agent-stream-display";
 import { DEFAULT_BASH_LINES } from "@/components/BashBlock";
 import { extractBashCommand, extractBashOutput, extractBashResultOutput } from "@/lib/tool-adapter";
 
@@ -80,8 +81,8 @@ export function blockSearchableText(
   }
 }
 
-function blocksOf(item: DisplayItem): AgentBlockData[] {
-  return item.kind === "flow" ? item.blocks : [item.block];
+function blocksOf(item: DisplayItem): readonly AgentBlockData[] {
+  return displayItemBlocks(item);
 }
 
 export function normalizeConversationQuery(query: string): string {

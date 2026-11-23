@@ -49,14 +49,9 @@ pub fn map_tool_call_start(
         indexer.record_tool_input(tool_call_id, input.clone());
     }
     let parent = parent_tool_use_id(body);
-    if let Some(event) = hooks.tool_call_start_override(
-        tool_call_id,
-        &tool_name,
-        &input,
-        &metadata,
-        parent.as_deref(),
-        indexer,
-    ) {
+    if let Some(event) =
+        hooks.tool_call_start_override(tool_call_id, &tool_name, &input, &metadata, parent, indexer)
+    {
         return MappedUpdate {
             events: vec![event],
         };
@@ -74,7 +69,7 @@ pub fn map_tool_call_start(
         metadata.session_id.as_deref().unwrap_or(""),
         index,
         block,
-        parent.as_deref(),
+        parent,
     );
     MappedUpdate {
         events: vec![event],

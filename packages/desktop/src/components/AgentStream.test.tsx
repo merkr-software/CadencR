@@ -8,10 +8,6 @@ const virtuosoState = vi.hoisted(() => ({
   firstItemIndex: undefined as number | undefined,
   customScrollParent: undefined as HTMLElement | undefined,
   hasScrollerRef: false,
-  startReached: undefined as (() => void) | undefined,
-  rangeChanged: undefined as
-    | ((range: { startIndex: number; endIndex: number }) => void)
-    | undefined,
 }));
 
 // Mock Virtuoso so JSDOM tests render all items synchronously instead of
@@ -25,8 +21,6 @@ vi.mock("react-virtuoso", () => ({
     computeItemKey,
     customScrollParent,
     scrollerRef,
-    startReached,
-    rangeChanged,
     components,
     context,
   }: {
@@ -36,16 +30,12 @@ vi.mock("react-virtuoso", () => ({
     computeItemKey?: (index: number, block: AgentBlockData) => string;
     customScrollParent?: HTMLElement;
     scrollerRef?: (ref: HTMLElement | null) => void;
-    startReached?: () => void;
-    rangeChanged?: (range: { startIndex: number; endIndex: number }) => void;
     components?: { Footer?: (props: { context?: unknown }) => ReactNode };
     context?: unknown;
   }) => {
     virtuosoState.firstItemIndex = firstItemIndex;
     virtuosoState.customScrollParent = customScrollParent;
     virtuosoState.hasScrollerRef = typeof scrollerRef === "function";
-    virtuosoState.startReached = startReached;
-    virtuosoState.rangeChanged = rangeChanged;
     return (
       <div data-testid="virtuoso-mock">
         {data?.map((item, i) => (
@@ -100,8 +90,6 @@ describe("AgentStream", () => {
     virtuosoState.firstItemIndex = undefined;
     virtuosoState.customScrollParent = undefined;
     virtuosoState.hasScrollerRef = false;
-    virtuosoState.startReached = undefined;
-    virtuosoState.rangeChanged = undefined;
   });
 
   it("renders blocks", () => {
@@ -280,9 +268,45 @@ describe("AgentStream", () => {
     expect(screen.getByTestId("block-2")).toBeInTheDocument();
   });
 
-  it("renders the loading-older spinner above the list when isLoadingOlder is true", () => {
-    const { container } = render(<AgentStream blocks={[makeBlock("1", "Hello")]} isLoadingOlder />);
-    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+  it("renders unloaded history as a row between the rows on either side of it", () => {
+    const trackRow = vi.fn(() => () => {});
+    const { container } = render(
+      <AgentStream
+        blocks={[makeBlock("msg-10", "First"), makeBlock("msg-500", "Latest")]}
+        historyGaps={[{ id: "g1", afterId: 10, beforeId: 500 }]}
+        historyGapStatus={{ fillingGapId: "g1", failures: new Map(), retry: vi.fn(), trackRow }}
+      />,
+    );
+
+    const rows = [...container.querySelectorAll("[data-testid^='block-'], [data-history-gap-id]")];
+    expect(rows.map((row) => row.getAttribute("data-testid") ?? "gap")).toEqual([
+      "block-msg-10",
+      "gap",
+      "block-msg-500",
+    ]);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading messages…");
+    // The row registers itself with the filler, which loads it as it nears the view.
+    expect(trackRow).toHaveBeenCalledWith(container.querySelector("[data-history-gap-id]"));
+  });
+
+  it("says why a gap failed to load and offers a retry", () => {
+    const retry = vi.fn();
+    render(
+      <AgentStream
+        blocks={[makeBlock("msg-500", "Latest")]}
+        historyGaps={[{ id: "g1", afterId: null, beforeId: 500 }]}
+        historyGapStatus={{
+          fillingGapId: null,
+          failures: new Map([["g1", "Service unavailable"]]),
+          retry,
+          trackRow: vi.fn(() => () => {}),
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Service unavailable");
+    screen.getByRole("button", { name: "Retry" }).click();
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("decrements Virtuoso firstItemIndex by the prepended display-row offset", () => {
@@ -296,27 +320,11 @@ describe("AgentStream", () => {
     expect(virtuosoState.firstItemIndex).toBe(999_963);
   });
 
-  it("lets Virtuoso own the scroller and uses startReached for top pagination", () => {
-    const onStartReached = vi.fn();
-
-    render(<AgentStream blocks={[makeBlock("1", "Hello")]} onStartReached={onStartReached} />);
+  it("lets Virtuoso own the scroller", () => {
+    render(<AgentStream blocks={[makeBlock("1", "Hello")]} />);
 
     expect(virtuosoState.customScrollParent).toBeUndefined();
     expect(virtuosoState.hasScrollerRef).toBe(true);
-    virtuosoState.startReached?.();
-    expect(onStartReached).toHaveBeenCalledTimes(1);
-  });
-
-  it("prefetches older history before the viewport reaches the exact first row", () => {
-    const onStartReached = vi.fn();
-
-    render(<AgentStream blocks={[makeBlock("1", "Hello")]} onStartReached={onStartReached} />);
-
-    virtuosoState.rangeChanged?.({ startIndex: 1_000_015, endIndex: 1_000_020 });
-    expect(onStartReached).not.toHaveBeenCalled();
-
-    virtuosoState.rangeChanged?.({ startIndex: 1_000_012, endIndex: 1_000_017 });
-    expect(onStartReached).toHaveBeenCalledTimes(1);
   });
 
   it("does not re-render unchanged AgentStreamItem blocks during streaming", () => {
@@ -326,6 +334,7 @@ describe("AgentStream", () => {
 
     const { rerender } = render(<AgentStream blocks={[block1, block2, block3]} isStreaming />);
 
+    // No tail preview here (`openingPreview` is off): each row renders once.
     expect(blockRenderCounts.get("1")).toBe(1);
     expect(blockRenderCounts.get("2")).toBe(1);
     expect(blockRenderCounts.get("3")).toBe(1);

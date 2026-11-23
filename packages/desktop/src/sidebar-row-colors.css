@@ -57,14 +57,16 @@
   & [data-feature-activity="download"] > * {
     color: var(--row-tone-download);
   }
-  /* Counts (todos, shells, tabs, downloads) shed their box: the hue already
-   * says which is which, so a glyph and a semibold number are enough. Boxes
-   * stay for what carries a state or opens something: the label, the pull
+  /* Counts (sub-agents, todos, shells, tabs, downloads) shed their box: the hue
+   * already says which is which, so a glyph and a semibold number are enough.
+   * Boxes stay for what carries a state or opens something: the label, the pull
    * request, the ports; and for a todo count that couldn't load. */
   & [data-feature-activity-indicators] {
     gap: 0.5rem;
   }
-  & :is([data-feature-todos], [data-feature-activity]) > :not(.text-destructive) {
+  &
+    :is([data-feature-todos], [data-feature-subagents], [data-feature-activity])
+    > :not(.text-destructive) {
     gap: 0.1875rem;
     border-color: transparent;
     background: none;

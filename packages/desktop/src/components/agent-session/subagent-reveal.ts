@@ -78,8 +78,9 @@ export function useSubagentCardsStream(
         const scroller = scrollerRef.current;
         const row = findSubagentRow(itemsRef.current, toolUseId);
         if (!scroller || !row) return false;
-        cancelRef.current = startJump(() =>
+        cancelRef.current = startJump((settled) =>
           jumpToRow({
+            onSettled: settled,
             scroller,
             virtuoso: virtuosoRef.current,
             blockId: row.blockId,

@@ -176,6 +176,7 @@ mod tests {
             permission_tx: None,
             internal_replay: false,
             wait_for_delivery: false,
+            remember_selection: false,
             spawn_claim: None,
             handle_identity,
         };

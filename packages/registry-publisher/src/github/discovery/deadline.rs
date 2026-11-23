@@ -127,33 +127,18 @@ mod tests {
     fn deadline_covers_response_body_not_just_headers() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
+        // The body stays unfinished until the client gave up (or 10 s): a
+        // deadline that covered only the headers would wait that long.
+        let (release, held) = std::sync::mpsc::channel::<()>();
         let server = std::thread::spawn(move || {
             listener.set_nonblocking(true).unwrap();
-            let accept_deadline = Instant::now() + Duration::from_secs(3);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                            && Instant::now() < accept_deadline =>
-                    {
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(error) => panic!("fixture accept failed: {error}"),
-                }
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
+            let mut stream = crate::github::fixture::accept_bounded(&listener);
             let mut request = [0; 4096];
             assert!(stream.read(&mut request).unwrap() > 0);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n")
                 .unwrap();
-            std::thread::sleep(Duration::from_millis(800));
+            let _ = held.recv_timeout(Duration::from_secs(10));
             // Sending nothing else makes success impossible and bounds fixture lifetime.
         });
         let client = client(api);
@@ -161,7 +146,10 @@ mod tests {
         assert!(client
             .get_discovery_before("catalog", start + Duration::from_millis(250))
             .is_err());
-        assert!(start.elapsed() < Duration::from_millis(600));
+        // Measured over 720 runs, 12 in parallel, at load averages 15 and 42:
+        // p99 258 ms, max 260 ms. 1 s still flags a request that outlives it.
+        assert!(start.elapsed() < Duration::from_secs(1));
+        let _ = release.send(());
         server.join().unwrap();
     }
 
@@ -203,6 +191,8 @@ mod tests {
                         Err(error) => panic!("fixture accept failed: {error}"),
                     }
                 };
+                // Accepted sockets inherit non-blocking mode on macOS (EAGAIN).
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();

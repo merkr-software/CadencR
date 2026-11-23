@@ -30,6 +30,7 @@ impl fmt::Debug for Origin {
 
 /// An internal failure message and the source line that created it.
 /// Reads as the message itself; the origin only feeds telemetry.
+#[derive(Clone)]
 pub struct Detail {
     message: String,
     origin: Origin,

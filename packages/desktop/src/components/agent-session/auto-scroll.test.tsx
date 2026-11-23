@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
 import type { AgentBlockData } from "@/types/agent-block";
-import { toast } from "sonner";
+import { useWsSessionStore } from "@/stores/ws-session-store";
+import { createSessionEntry } from "@/stores/ws-session-types";
 
 // PromptEditor renders a contenteditable surface backed by CodeMirror, which
 // jsdom can't drive. Swap in a real <textarea> so the send-flow test can
@@ -68,10 +69,6 @@ vi.mock("../prompt-editor/PromptEditor", () => {
 
 vi.mock("@tanstack/react-hotkeys", () => ({
   useHotkeys: vi.fn(),
-}));
-
-vi.mock("sonner", () => ({
-  toast: { error: vi.fn() },
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
@@ -177,14 +174,19 @@ function fireTotalHeightChange(height: number): void {
   });
 }
 
-/** Simulate a real wheel-up: wheel listener disengages stick synchronously. */
-
-function fireStartReached(): void {
-  act(() => {
-    getScroller().dispatchEvent(new Event("virtuoso-start-reached", { bubbles: true }));
-  });
+/** Give the scroller a viewport box, which picking the gap row to fill measures. */
+function stubViewport(el: HTMLElement, height: number): void {
+  el.getBoundingClientRect = () =>
+    ({ left: 0, right: 100, top: 0, bottom: height, width: 100, height }) as DOMRect;
 }
 
+/** The first prompt, a gap of unloaded history, then the latest page. */
+const GAP_BLOCKS = [makeBlock("msg-10", "First prompt"), makeBlock("msg-500", "Latest")];
+const GAPS = [{ id: "g1", afterId: 10, beforeId: 500 }];
+/** Nothing older than the loaded rows is loaded. */
+const OPEN_TOP = [{ id: "g0", afterId: null, beforeId: 1 }];
+
+/** Simulate a real wheel-up: wheel listener disengages stick synchronously. */
 function userWheelUp(el: HTMLElement, scrollTop: number): void {
   act(() => {
     el.dispatchEvent(new WheelEvent("wheel", { deltaY: -50, bubbles: true }));
@@ -658,127 +660,147 @@ describe("AgentSession auto-scroll", () => {
     expect(scroller.scrollTop).toBe(50);
   });
 
-  it("does not auto-load older history from an initial top signal", () => {
-    const onLoadOlder = vi.fn(async () => 0);
+  it("fills a gap row once the reader scrolls near it", async () => {
+    const onFillHistoryGap = vi.fn(async () => {});
     render(
       <AgentSession
         agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
+        blocks={GAP_BLOCKS}
         status="agent"
         onSend={vi.fn()}
         onStop={vi.fn()}
-        hasMore
-        onLoadOlder={onLoadOlder}
-      />,
-    );
-
-    stubGeometry(getScroller(), 1000, 400);
-    fireStartReached();
-
-    expect(onLoadOlder).not.toHaveBeenCalled();
-  });
-
-  it("loads older history after the user scrolls upward to the first item", async () => {
-    const onLoadOlder = vi.fn(async () => 0);
-    render(
-      <AgentSession
-        agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
-        status="agent"
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-        hasMore
-        onLoadOlder={onLoadOlder}
+        historyGaps={GAPS}
+        onFillHistoryGap={onFillHistoryGap}
       />,
     );
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
+    stubViewport(scroller, 400);
     userWheelUp(scroller, 100);
-    fireStartReached();
 
-    await waitFor(() => expect(onLoadOlder).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(onFillHistoryGap).toHaveBeenCalledWith("g1", "older", {
+        displayMode: { summaryMode: false, compactMode: true },
+        shouldContinue: expect.any(Function),
+      }),
+    );
   });
 
-  it("does not call onLoadOlder when there is no more history", () => {
-    const onLoadOlder = vi.fn(async () => 0);
+  it("loads nothing when no history is missing", async () => {
+    const onFillHistoryGap = vi.fn(async () => {});
     render(
       <AgentSession
         agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
+        blocks={GAP_BLOCKS}
         status="agent"
         onSend={vi.fn()}
         onStop={vi.fn()}
-        hasMore={false}
-        onLoadOlder={onLoadOlder}
+        historyGaps={[]}
+        onFillHistoryGap={onFillHistoryGap}
       />,
     );
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
+    stubViewport(scroller, 400);
     userWheelUp(scroller, 100);
-    fireStartReached();
-    expect(onLoadOlder).not.toHaveBeenCalled();
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(onFillHistoryGap).not.toHaveBeenCalled();
+    expect(screen.queryByText("Messages not loaded yet")).not.toBeInTheDocument();
   });
 
-  it("shows the loading-older spinner while a fetch is in flight", async () => {
+  it("shows the gap row loading while its fill is in flight", async () => {
     let resolveLoad: () => void = () => {};
-    const onLoadOlder = vi.fn(
+    const onFillHistoryGap = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           resolveLoad = resolve;
         }),
     );
-
-    const { container } = render(
-      <AgentSession
-        agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
-        status="agent"
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-        hasMore
-        onLoadOlder={onLoadOlder}
-      />,
-    );
+    const props = {
+      agentType: "session" as const,
+      status: "agent" as const,
+      onSend: vi.fn(),
+      onStop: vi.fn(),
+      onFillHistoryGap,
+    };
+    const { rerender } = render(<AgentSession {...props} blocks={GAP_BLOCKS} historyGaps={GAPS} />);
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
+    stubViewport(scroller, 400);
+    expect(screen.getByText("Messages not loaded yet")).toBeInTheDocument();
     userWheelUp(scroller, 100);
-    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument();
+    expect(await screen.findByText("Loading messages…")).toBeInTheDocument();
 
-    fireStartReached();
-    await waitFor(() => {
-      expect(container.querySelector(".animate-spin")).toBeInTheDocument();
-    });
-
+    // The page closes the gap: its row goes with it.
+    rerender(
+      <AgentSession
+        {...props}
+        blocks={[GAP_BLOCKS[0], makeBlock("msg-200", "Middle"), GAP_BLOCKS[1]]}
+        historyGaps={[]}
+      />,
+    );
     act(() => resolveLoad());
-    await waitFor(() => {
-      expect(container.querySelector(".animate-spin")).not.toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(onFillHistoryGap).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a toast when loading older history fails", async () => {
+  // A conversation whose history failed to load reads as empty, but is not a
+  // new one: its composer must not offer (nor send with) first-prompt setup.
+  it("does not treat a conversation whose history failed to load as a new one", () => {
+    const session = createSessionEntry();
+    session.persistedLoaded = true;
+    session.historyLoadFailure = { message: "database is locked", retrying: false };
+    useWsSessionStore.setState({ sessions: { "s-failed": session } });
+
     render(
       <AgentSession
         agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
+        blocks={[]}
+        status="idle"
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        wsSessionId="s-failed"
+      />,
+    );
+
+    expect(screen.getByRole("textbox").getAttribute("placeholder")).toMatch(/^Message the agent/);
+    useWsSessionStore.setState({ sessions: {} });
+  });
+
+  it("says in the transcript why a gap failed to load and retries it", async () => {
+    const onFillHistoryGap = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("database is locked"))
+      .mockResolvedValue(undefined);
+    render(
+      <AgentSession
+        agentType="session"
+        blocks={GAP_BLOCKS}
         status="agent"
         onSend={vi.fn()}
         onStop={vi.fn()}
-        hasMore
-        onLoadOlder={vi.fn(async () => {
-          throw new Error("boom");
-        })}
+        historyGaps={GAPS}
+        onFillHistoryGap={onFillHistoryGap}
       />,
     );
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
+    stubViewport(scroller, 400);
     userWheelUp(scroller, 100);
-    fireStartReached();
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Failed to load older messages"));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load these messages");
+    expect(alert).toHaveTextContent("database is locked");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(onFillHistoryGap).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
   // Regression ("jumps when scrolling up"): replaying the offset captured when
@@ -797,16 +819,17 @@ describe("AgentSession auto-scroll", () => {
       status: "agent" as const,
       onSend: vi.fn(),
       onStop: vi.fn(),
-      hasMore: true,
-      onLoadOlder,
+      onFillHistoryGap: onLoadOlder,
     };
-    const { rerender } = render(<AgentSession {...baseProps} blocks={[makeBlock("1", "Old")]} />);
+    const { rerender } = render(
+      <AgentSession {...baseProps} blocks={[makeBlock("msg-1", "Old")]} historyGaps={OPEN_TOP} />,
+    );
     const scroller = getScroller();
     // Reading 80px from the top of a 600px-tall list; the wheel disengages stick.
     stubGeometry(scroller, 600, 200);
+    stubViewport(scroller, 200);
     userWheelUp(scroller, 80);
-    fireStartReached();
-    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onLoadOlder).toHaveBeenCalledTimes(1));
     // The reader keeps scrolling while the page loads.
     userWheelUp(scroller, 20);
 
@@ -815,7 +838,8 @@ describe("AgentSession auto-scroll", () => {
     rerender(
       <AgentSession
         {...baseProps}
-        blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("1", "Old")]}
+        blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("msg-1", "Old")]}
+        historyGaps={[]}
       />,
     );
     fireTotalHeightChange(1000);
@@ -886,9 +910,9 @@ describe("AgentSession auto-scroll", () => {
     expect(getAutoScrollButton()).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("collapses concurrent intersection fires while a load is in flight", async () => {
+  it("runs one gap fill at a time however often the reader scrolls", async () => {
     let resolveLoad: () => void = () => {};
-    const onLoadOlder = vi.fn(
+    const onFillHistoryGap = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           resolveLoad = resolve;
@@ -898,23 +922,27 @@ describe("AgentSession auto-scroll", () => {
     render(
       <AgentSession
         agentType="session"
-        blocks={[makeBlock("1", "Hello")]}
+        blocks={GAP_BLOCKS}
         status="agent"
         onSend={vi.fn()}
         onStop={vi.fn()}
-        hasMore
-        onLoadOlder={onLoadOlder}
+        historyGaps={GAPS}
+        onFillHistoryGap={onFillHistoryGap}
       />,
     );
 
     const scroller = getScroller();
     stubGeometry(scroller, 1000, 400);
+    stubViewport(scroller, 400);
     userWheelUp(scroller, 100);
-    fireStartReached();
-    fireStartReached();
-    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onFillHistoryGap).toHaveBeenCalledTimes(1));
+    userWheelUp(scroller, 80);
+    userWheelUp(scroller, 60);
+    await act(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    expect(onFillHistoryGap).toHaveBeenCalledTimes(1);
 
     act(() => resolveLoad());
-    await waitFor(() => expect(onLoadOlder).toHaveBeenCalledTimes(1));
   });
 });

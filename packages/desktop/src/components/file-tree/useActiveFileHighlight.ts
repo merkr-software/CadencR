@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { FileTree as FileTreeModel } from "@pierre/trees";
 import { useFileTreeShadowStylesheet } from "@/components/file-tree/useFileTreeShadowStylesheet";
+import { toPierrePath } from "./cadencrFileTreeModel";
 
 /**
  * Paint the editor-active file row in the file tree so the user can
@@ -36,7 +37,9 @@ export function useActiveFileHighlight(model: FileTreeModel, activeFilePath: str
 
 function buildActiveFileCSS(activeFilePath: string | null): string {
   if (!activeFilePath) return "";
-  const selector = `[data-item-path="${CSS.escape(activeFilePath)}"]`;
+  // Rows carry their Pierre path, escaped when a name holds a control character.
+  const rowPath = toPierrePath({ path: activeFilePath, is_dir: false });
+  const selector = `[data-item-path="${CSS.escape(rowPath)}"]`;
   const tint = "color-mix(in oklch, var(--primary) 28%, transparent)";
   return `${selector},\n${selector}:hover {\n  background-color: ${tint};\n}`;
 }

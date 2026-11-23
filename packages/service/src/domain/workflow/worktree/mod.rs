@@ -27,20 +27,23 @@ mod setup_events;
 mod setup_finish;
 mod setup_output;
 mod setup_state;
+mod unfinished;
 
 pub use crate::domain::features::run_registry::FeatureRunRegistry as WorktreeSetupRegistry;
 pub use db::{
-    get_project_directory, get_project_id_for_feature, get_setting, resolve_feature_cwd,
-    resolve_live_worktree, set_setting,
+    get_project_directory, get_project_id_for_feature, get_setting, read_worktree_mode,
+    resolve_feature_cwd, resolve_live_worktree, set_setting,
 };
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
 pub use setup::{cancel_setups, run_setup_commands};
+pub use unfinished::{finish_provisioning, provisioning_unfinished};
 
 use std::path::PathBuf;
 
 use sqlx::SqlitePool;
 
+use crate::domain::features::repository::upsert_feature_setting;
 use crate::domain::git::{
     commands,
     worktree_context::{build_worktree_context, resolve_source_git_root, WorktreeContext},
@@ -71,7 +74,9 @@ pub async fn ensure_worktree(
     project_id: i64,
     ws_sender: &WsSender,
 ) -> Result<PathBuf, String> {
-    let mode = read_worktree_mode(read_pool, feature_id).await;
+    let mode = read_worktree_mode(read_pool, feature_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if matches!(mode, WorktreeMode::Skip) {
         return ensure_skip(read_pool, feature_id, project_id, ws_sender).await;
@@ -144,30 +149,6 @@ pub async fn create_project_branch(
     Ok(branch)
 }
 
-/// Read the user-selected worktree mode from feature settings, falling back
-/// to legacy `skip_worktree=true` for older rows.
-pub async fn read_worktree_mode(read_pool: &SqlitePool, feature_id: i64) -> WorktreeMode {
-    if get_setting(read_pool, feature_id, "skip_worktree")
-        .await
-        .as_deref()
-        == Some("true")
-    {
-        return WorktreeMode::Skip;
-    }
-    let mode = get_setting(read_pool, feature_id, "worktree_mode").await;
-    match mode.as_deref() {
-        Some("skip") => WorktreeMode::Skip,
-        Some("reuse") => match get_setting(read_pool, feature_id, "worktree_reuse_branch").await {
-            Some(b) if !b.trim().is_empty() => WorktreeMode::Reuse(b),
-            // Misconfigured reuse without a branch — fall back to New so we
-            // don't hang the feature on a NotFound. The handler validates
-            // this at create time; this is just defense in depth.
-            _ => WorktreeMode::New,
-        },
-        _ => WorktreeMode::New,
-    }
-}
-
 /// `worktree_mode == "skip"` path: return the project dir as the worktree.
 async fn ensure_skip(
     read_pool: &SqlitePool,
@@ -200,7 +181,9 @@ async fn ensure_new(
     let branch =
         new_branch::ensure_new_branch_name(read_pool, write_pool, feature_id, project_id).await?;
     let path_str = compute_worktree_path(&project_name, &branch).await?;
-    let base_branch = read_base_branch(read_pool, feature_id).await;
+    let base_branch = read_base_branch(read_pool, feature_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     send_envelope(
         ws_sender,
@@ -221,9 +204,9 @@ async fn ensure_new(
             .map_err(|error| error.to_string())?
             .filter(|branch| branch != "HEAD"),
     };
-    let source_root_str = source_root.to_string_lossy();
-    new_branch::add_new_worktree(&source_root_str, &branch, &path_str, base_branch.as_deref())
-        .await?;
+    let path_str =
+        new_branch::add_or_adopt_worktree(&source_root, &branch, path_str, base_branch.as_deref())
+            .await?;
     let context = build_worktree_context(
         &source_root,
         std::path::Path::new(&project_dir),
@@ -237,6 +220,7 @@ async fn ensure_new(
         &session_cwd_str,
         &branch,
         target_branch.as_deref(),
+        InitialSetupStep::Created,
         ws_sender,
     )
     .await?;
@@ -277,20 +261,26 @@ async fn ensure_reuse(
     )?;
     let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
 
+    // Shared worktree: the donor feature already ran its setup commands, so
+    // this one starts ready. Recorded with the path, never after it: a path
+    // saved without `ready` would rerun setup in the donor's worktree.
+    let step = if attached.was_already_attached {
+        InitialSetupStep::Ready
+    } else {
+        InitialSetupStep::Created
+    };
     persist_and_announce(
         write_pool,
         feature_id,
         &session_cwd_str,
         &attached.branch,
         None,
+        step,
         ws_sender,
     )
     .await?;
 
     if attached.was_already_attached {
-        // Shared worktree — the donor feature already ran its setup
-        // commands. Skip ours and jump straight to ready.
-        let _ = set_setting(write_pool, feature_id, "worktree_setup_step", "ready").await;
         send_envelope(
             ws_sender,
             "workflow",
@@ -319,20 +309,49 @@ async fn notify_provider_worktree_created(context: &WorktreeContext) -> Result<(
 /// `worktree.created` + `feature.updated` envelopes. New branches also record
 /// their fork point as the compare/merge target; reused branches preserve the
 /// target resolver's existing upstream/default behavior.
+/// The setup step a newly recorded worktree starts at.
+#[derive(Clone, Copy)]
+enum InitialSetupStep {
+    /// Its own worktree: the setup commands run next.
+    Created,
+    /// A worktree shared with the feature that set it up.
+    Ready,
+}
+
+/// Record the worktree and tell the client. Step, path and branch are saved
+/// together or not at all: a recorded path is replayed as is on the next
+/// prompt, so it must never exist without the step it starts at.
 async fn persist_and_announce(
     write_pool: &SqlitePool,
     feature_id: i64,
     path_str: &str,
     branch: &str,
     target_branch: Option<&str>,
+    step: InitialSetupStep,
     ws_sender: &WsSender,
 ) -> Result<(), String> {
-    set_setting(write_pool, feature_id, "worktree_path", path_str).await?;
-    set_setting(write_pool, feature_id, "worktree_branch", branch).await?;
-    if let Some(target) = target_branch {
-        set_setting(write_pool, feature_id, "target_branch", target).await?;
+    let step = match step {
+        InitialSetupStep::Created => "created",
+        InitialSetupStep::Ready => "ready",
+    };
+    let settings = [
+        ("worktree_setup_step", step),
+        ("worktree_path", path_str),
+        ("worktree_branch", branch),
+    ];
+    let target = target_branch.map(|target| ("target_branch", target));
+    let mut tx = write_pool
+        .begin()
+        .await
+        .map_err(|e| format!("DB error recording the worktree: {e}"))?;
+    for (key, value) in settings.into_iter().chain(target) {
+        upsert_feature_setting(&mut *tx, feature_id, key, value)
+            .await
+            .map_err(|e| format!("DB error setting {key}: {e}"))?;
     }
-    set_setting(write_pool, feature_id, "worktree_setup_step", "created").await?;
+    tx.commit()
+        .await
+        .map_err(|e| format!("DB error recording the worktree: {e}"))?;
 
     send_envelope(
         ws_sender,
@@ -376,10 +395,44 @@ mod tests {
         pool
     }
 
+    /// The path used to be saved before the step: with the `ready` write of a
+    /// shared worktree refused, the next prompt replayed the path and reran
+    /// setup in the donor feature's worktree. Now nothing is recorded.
+    #[tokio::test]
+    async fn a_worktree_path_is_never_saved_without_its_setup_step() {
+        let pool = make_pool().await;
+        sqlx::query(
+            "CREATE TRIGGER refuse_step BEFORE INSERT ON feature_settings \
+             WHEN NEW.key = 'worktree_setup_step' \
+             BEGIN SELECT RAISE(FAIL, 'refused'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let saved = persist_and_announce(
+            &pool,
+            1,
+            "/worktrees/shared",
+            "feat/a",
+            None,
+            InitialSetupStep::Ready,
+            &sender,
+        )
+        .await;
+
+        assert!(saved.is_err());
+        assert_eq!(get_setting(&pool, 1, "worktree_path").await.unwrap(), None);
+    }
+
     #[tokio::test]
     async fn read_worktree_mode_defaults_to_new() {
         let pool = make_pool().await;
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::New);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::New
+        );
     }
 
     #[tokio::test]
@@ -388,7 +441,10 @@ mod tests {
         set_setting(&pool, 1, "skip_worktree", "true")
             .await
             .unwrap();
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::Skip);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::Skip
+        );
     }
 
     #[tokio::test]
@@ -397,7 +453,10 @@ mod tests {
         set_setting(&pool, 1, "worktree_mode", "skip")
             .await
             .unwrap();
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::Skip);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::Skip
+        );
     }
 
     #[tokio::test]
@@ -407,14 +466,29 @@ mod tests {
             .await
             .unwrap();
         // No reuse_branch → falls back to New (defense in depth).
-        assert_eq!(read_worktree_mode(&pool, 1).await, WorktreeMode::New);
+        assert_eq!(
+            read_worktree_mode(&pool, 1).await.unwrap(),
+            WorktreeMode::New
+        );
 
         set_setting(&pool, 1, "worktree_reuse_branch", "feat/x")
             .await
             .unwrap();
         assert_eq!(
-            read_worktree_mode(&pool, 1).await,
+            read_worktree_mode(&pool, 1).await.unwrap(),
             WorktreeMode::Reuse("feat/x".into())
         );
+    }
+
+    /// An unreadable mode used to read as unset, i.e. `New`: a feature that
+    /// chose to skip the worktree would have had one provisioned.
+    #[tokio::test]
+    async fn read_worktree_mode_fails_when_settings_are_unreadable() {
+        let pool = make_pool().await;
+        sqlx::query("DROP TABLE feature_settings")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(read_worktree_mode(&pool, 1).await.is_err());
     }
 }

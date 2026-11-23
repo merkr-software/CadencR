@@ -8,8 +8,6 @@
 import { useEffect, useMemo } from "react";
 import type { AgentBlockData } from "@/types/agent-block";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
-import { useGetFeatureAgentState } from "@/api/generated";
-import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import {
   useWsSessionStore,
   type PermissionMode,
@@ -20,22 +18,20 @@ import type { PendingPermission } from "@/types/agent-permission";
 import type { PermissionDecisionValue } from "@/types/agent-permission";
 import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { GateCloseReason, PromptDispatchOptions, SessionConfig } from "@/lib/ws-envelope";
-import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
+import type { ContextUsageState } from "@/types/agent";
 import type { LiveAgentStatus } from "@/types/agent";
-import {
-  type TurnLifecycle,
-  createIdleTurnLifecycle,
-  persistedSessionToLifecycle,
-} from "@/stores/ws-turn-lifecycle";
+import { type TurnLifecycle, createIdleTurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
 import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
-import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
-import type { DisplayRowMode } from "@/types/agent-stream";
-import { parseAccessMode, type AccessMode } from "@/types/access-mode";
-import { parsePermissionMode } from "@/types/permission-mode";
+import type { DisplayRowMode, HistoryGap } from "@/types/agent-stream";
+import { NO_HISTORY_GAPS, type HistoryGapFillDirection } from "@/stores/ws-history-gaps";
+import type { FillHistoryGapOptions } from "@/stores/ws-session-history-fill";
+import type { AccessMode } from "@/types/access-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
 import { retainWsSession } from "@/hooks/ws-session-retention";
+import { usePersistedSessionLoader } from "@/hooks/usePersistedSessionLoader";
+import { useWorkspaceSession } from "@/hooks/useWorkspaceSession";
 
 export interface UseWebSocketSessionReturn {
   blocks: AgentBlockData[];
@@ -56,6 +52,7 @@ export interface UseWebSocketSessionReturn {
    *  Manual compaction is driven by `compact.started`; runtime/auto compaction
    *  is driven by `session.compacting`. Drives the "Compacting…" indicator. */
   isCompacting: boolean;
+  supportsPromptReceipts?: boolean;
   isConnected: boolean;
   sessionId: string;
   sessionDbId: number | null;
@@ -69,10 +66,15 @@ export interface UseWebSocketSessionReturn {
   isSubmittingPermission: boolean;
   pendingQuestions: AgentQuestion[];
   respondToQuestion: (response: AgentQuestionAnswers) => void;
-  hasMore: boolean;
-  /** Resolves with the number of older blocks that were prepended. `displayMode`
-   *  sizes the prepend to the rows actually rendered under summary/compact. */
-  loadOlderMessages: (displayMode?: DisplayRowMode) => Promise<number>;
+  /** Saved history not loaded yet: each gap is a row of the transcript. */
+  historyGaps: HistoryGap[];
+  /** Loads a gap's messages from the reader's side. `displayMode` sizes the
+   *  rows they add to what summary/compact actually render. */
+  fillHistoryGap: (
+    gapId: string,
+    direction: HistoryGapFillDirection,
+    options?: FillHistoryGapOptions,
+  ) => Promise<void>;
   /** Loads one unloaded prompt and the start of its turn (message navigator). */
   loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode) => Promise<boolean>;
 
@@ -105,6 +107,7 @@ export interface UseWebSocketSessionReturn {
   requestSessionConfig: () => Promise<void>;
   setSessionConfigOption: (configId: string, value: RuntimeSessionConfigValue) => Promise<void>;
   mcpServers: McpServerStatus[] | null;
+  mcpServersError: string | null;
   hasFileChanges: boolean;
   setModel: (modelId: string, providerId: string) => void;
   setThinkingEffort: (thinkingEffort?: string) => void;
@@ -130,13 +133,13 @@ export interface UseWebSocketSessionReturn {
   initSession: (config: SessionConfig) => void;
 }
 
-interface UseWebSocketSessionOptions {
+export interface UseWebSocketSessionOptions {
   loadPersisted?: boolean;
 }
 
 type SessionActions = Pick<
   UseWebSocketSessionReturn,
-  | "loadOlderMessages"
+  | "fillHistoryGap"
   | "loadPromptTurn"
   | "sendPrompt"
   | "deliverPrompt"
@@ -172,8 +175,8 @@ export function useWebSocketSession(
   options?: UseWebSocketSessionOptions,
 ): UseWebSocketSessionReturn {
   // Subscribe to this session's slice only — chunks on other sessions don't
-  // re-render the hook.
-  const session = useWsSessionStore((s) => s.sessions[sessionId]);
+  // re-render the hook. A workspace kept mounted but hidden samples it slowly.
+  const session = useWorkspaceSession(sessionId);
 
   // Backend-driven status (the single source of truth — see
   // `domain::session_status` on the Rust side and `session-status-store`
@@ -193,93 +196,19 @@ export function useWebSocketSession(
   return useSessionSnapshot(session, sessionId, actions, liveEntry);
 }
 
-function usePersistedSessionLoader(
-  session: SessionEntry | undefined,
-  sessionId: string,
-  featureId: number | undefined,
-  options: UseWebSocketSessionOptions | undefined,
-): void {
-  const loadPersisted = options?.loadPersisted ?? true;
-  const persistedLoaded = session?.persistedLoaded ?? false;
-  const persistedStateParams = useMemo(() => ({ limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT }), []);
-  const agentStateQuery = useGetFeatureAgentState(featureId ?? 0, persistedStateParams, {
-    query: {
-      enabled: loadPersisted && !!featureId && !persistedLoaded,
-      gcTime: 0,
-    },
-  });
-
-  useEffect(() => {
-    if (persistedLoaded || !featureId) return;
-    const store = useWsSessionStore.getState();
-    // Settle the gate even when the snapshot fetch fails so a transient REST
-    // error can't permanently block `session.init` (the auto-init effect now
-    // waits on `persistedLoaded`).
-    if (agentStateQuery.isError) {
-      store.markPersistedLoaded(sessionId);
-      return;
-    }
-    if (!agentStateQuery.data) return;
-    const sessions = agentStateQuery.data.sessions;
-    if (sessions.length === 0) {
-      store.markPersistedLoaded(sessionId);
-      return;
-    }
-
-    const lastSession = sessions[sessions.length - 1];
-    const restoredBlocks = serverBlocksToAgentBlocks(lastSession.blocks);
-
-    const restoredLifecycle = persistedSessionToLifecycle(lastSession);
-
-    const persistedContextUsage: ContextUsageState | null =
-      lastSession.inputTokens > 0 ||
-      lastSession.outputTokens > 0 ||
-      normalizeContextWindow(lastSession.contextWindow) != null
-        ? {
-            inputTokens: lastSession.inputTokens ?? 0,
-            outputTokens: lastSession.outputTokens ?? 0,
-            contextWindow: normalizeContextWindow(lastSession.contextWindow),
-            wasCompacted: lastSession.wasCompacted ?? false,
-          }
-        : null;
-    store.setPersistedState(sessionId, {
-      blocks: restoredBlocks,
-      lifecycle: restoredLifecycle,
-      hasMore: lastSession.hasMore,
-      oldestMessageId: lastSession.oldestMessageId,
-      maxMessageId: lastSession.maxMessageId,
-      maxContentRevision: lastSession.maxContentRevision,
-      featureId,
-      sessionDbId: lastSession.sessionDbId,
-      currentSelection:
-        lastSession.runtimeProvider && lastSession.model
-          ? {
-              providerId: lastSession.runtimeProvider,
-              modelId: lastSession.model,
-            }
-          : undefined,
-      currentProfile: lastSession.profile ?? undefined,
-      permissionMode: parsePermissionMode(lastSession.permissionMode) ?? undefined,
-      accessMode: parseAccessMode(lastSession.accessMode),
-      runtimeSessionId: lastSession.runtimeSessionId ?? undefined,
-      pendingPermission: lastSession.pendingPermission,
-      pendingQuestions: lastSession.pendingQuestions,
-      contextUsage: persistedContextUsage,
-      hasFileChanges: lastSession.hasFileChanges,
-    });
-  }, [featureId, agentStateQuery.data, agentStateQuery.isError, persistedLoaded, sessionId]);
-}
-
 function useSessionActions(sessionId: string): SessionActions {
   return useMemo<SessionActions>(() => {
     const s = useWsSessionStore.getState();
     return {
-      // The caller passes the active display mode so the older-history prepend
-      // is sized to the rows actually rendered (summary/compact collapse fewer
-      // rows than the raw block count), keeping Virtuoso's `firstItemIndex`
-      // aligned and the scroll from jumping.
-      loadOlderMessages: (displayMode?: DisplayRowMode): Promise<number> =>
-        s.loadOlderMessages(sessionId, displayMode),
+      // The caller passes the active display mode so a page landing above the
+      // reader is sized to the rows actually rendered (summary/compact collapse
+      // fewer rows than the raw block count), keeping Virtuoso's
+      // `firstItemIndex` aligned and the scroll from jumping.
+      fillHistoryGap: (
+        gapId: string,
+        direction: HistoryGapFillDirection,
+        options?: FillHistoryGapOptions,
+      ): Promise<void> => s.fillHistoryGap(sessionId, gapId, direction, options),
       loadPromptTurn: (messageDbId: number, displayMode?: DisplayRowMode): Promise<boolean> =>
         s.loadPromptTurn(sessionId, messageDbId, displayMode),
       sendPrompt: (text: string, options?: PromptDispatchOptions): void =>
@@ -343,10 +272,11 @@ function useSessionSnapshot(
       // Compaction is backend status: every device reads the same flag, and
       // a turn going idle clears it even for one that missed its end.
       isCompacting: (session?.pendingManualCompact ?? false) || (liveEntry?.compacting ?? false),
+      supportsPromptReceipts: session?.serverSessionId ? session.supportsPromptReceipts : undefined,
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,
-      hasMore: session?.hasMore ?? false,
+      historyGaps: session?.historyGaps ?? NO_HISTORY_GAPS,
       pendingPermission: session?.pendingPermission ?? null,
       pendingRequestId: session?.pendingRequestId ?? "",
       // Scope the boolean to the currently visible request so a stale clear
@@ -373,6 +303,7 @@ function useSessionSnapshot(
       sessionConfigError: session?.sessionConfigError ?? null,
       pendingSessionConfigId: session?.pendingSessionConfigId ?? null,
       mcpServers: session?.mcpServers ?? null,
+      mcpServersError: session?.mcpServersError ?? null,
       hasFileChanges: session?.hasFileChanges ?? false,
       ...actions,
     };

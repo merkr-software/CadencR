@@ -7,9 +7,11 @@
 //! live entirely behind the `SessionBranching` capability; nothing here branches
 //! on provider identity.
 
+use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::runtime::detached_closes::DetachedCloseLease;
 use crate::domain::ws_session::runtime::detached_runtime::DetachedRuntime;
-use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
+use crate::domain::ws_session::runtime::helpers::{broadcast_session_error, report_if_unsaved};
+use crate::domain::ws_session::stream_readers;
 mod fork;
 mod fork_db;
 mod rewind;
@@ -60,6 +62,8 @@ pub(super) enum BranchAbort {
     /// abort *before* mutating code or the conversation so nothing is left half
     /// rewound.
     Surgery(String),
+    /// The provider no longer has the conversation to branch from.
+    ConversationMissing(String),
     Db(String),
 }
 
@@ -71,6 +75,7 @@ impl BranchAbort {
             BranchAbort::NoWorktree => "NO_WORKTREE",
             BranchAbort::Unsupported(_) => "UNSUPPORTED_BRANCHING",
             BranchAbort::Surgery(_) => "BRANCH_SURGERY_FAILED",
+            BranchAbort::ConversationMissing(_) => "PROVIDER_CONVERSATION_MISSING",
             BranchAbort::Db(_) => "DB_ERROR",
         }
     }
@@ -81,7 +86,9 @@ impl BranchAbort {
                 "Rewind/Fork can only target a user message".to_string()
             }
             BranchAbort::NoWorktree => "This session has no worktree yet".to_string(),
-            BranchAbort::Unsupported(msg) | BranchAbort::Surgery(msg) => msg.clone(),
+            BranchAbort::Unsupported(msg)
+            | BranchAbort::Surgery(msg)
+            | BranchAbort::ConversationMissing(msg) => msg.clone(),
             BranchAbort::Db(msg) => msg.clone(),
         }
     }
@@ -267,7 +274,10 @@ fn surgery_abort(inputs: &BranchInputs, error: BranchError) -> BranchAbort {
         error = %error,
         "transcript surgery failed; aborting branch before any mutation"
     );
-    BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}"))
+    match error {
+        BranchError::ConversationMissing(message) => BranchAbort::ConversationMissing(message),
+        error => BranchAbort::Surgery(format!("The conversation couldn't be branched: {error}")),
+    }
 }
 
 /// Interrupt and close any live turn for this session, then reset the handle to
@@ -294,6 +304,9 @@ pub(super) async fn stop_live_turn(
     let Some(query) = handle.state.active_query() else {
         return branching;
     };
+    // Weak: holding the runtime alive past its close could keep its reader's
+    // stream open.
+    let reader_runtime = std::sync::Arc::downgrade(&query);
     let (retired, feature_id, completed) = {
         // Flip status off `running` BEFORE closing so the per-turn reader reads
         // the close as benign (mirrors handle_clear / handle_destroy).
@@ -324,6 +337,29 @@ pub(super) async fn stop_live_turn(
     let what = "that the agent stopped";
     report_if_unsaved(senders, feature_id, db_session_id, what, completed).await;
     retired.close_in(app_state).await;
+    // The reader flushes the text it buffered once the close ends its stream.
+    // A rewind deleting rows before that flush would make it miss its row and
+    // report history it could not save; a fork would copy a truncated row.
+    let timeout = stream_readers::TRANSCRIPT_SETTLE_TIMEOUT;
+    if !stream_readers::wait_for_settled_transcript(&reader_runtime, timeout).await {
+        warn!(
+            db_session_id,
+            "the stopped turn's reader was still writing when the branch went ahead"
+        );
+        let message = "The stopped turn was still saving its last text when the conversation was \
+                       branched, so its end may be missing."
+            .to_string();
+        broadcast_session_error(senders, feature_id, "BRANCH_TRANSCRIPT_UNSETTLED", message).await;
+    }
+    // The stopped turn is over: end it in the status book and write its
+    // closing line now. Ended later (a rewind announces idle once its DELETE
+    // ran), the line would land below the cut as an orphan summary row.
+    let statuses = &app_state.session_status_tx;
+    statuses.broadcast(db_session_id, feature_id, AgentStatus::Idle, None);
+    statuses
+        .journal()
+        .flush(&app_state.write_pool, &app_state.ws_feature_senders)
+        .await;
     branching
 }
 
@@ -375,6 +411,20 @@ mod tests {
         );
         // The carried message is surfaced verbatim to the user.
         assert_eq!(BranchAbort::Surgery("boom".into()).message(), "boom");
+    }
+
+    #[test]
+    fn a_conversation_the_provider_lost_has_its_own_code() {
+        let inputs = first_message_of(None);
+        let abort = surgery_abort(
+            &inputs,
+            BranchError::ConversationMissing("Codex no longer has this conversation.".into()),
+        );
+        assert_eq!(abort.code(), "PROVIDER_CONVERSATION_MISSING");
+        assert_eq!(abort.message(), "Codex no longer has this conversation.");
+
+        let failed = surgery_abort(&inputs, BranchError::Surgery("boom".into()));
+        assert_eq!(failed.code(), "BRANCH_SURGERY_FAILED");
     }
 
     fn first_message_of(profile: Option<&str>) -> BranchInputs {

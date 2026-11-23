@@ -55,6 +55,7 @@ pub struct AgentSessionRow {
 pub struct ConversationReferenceCandidate {
     pub feature_id: i64,
     pub feature_title: String,
+    pub project_id: i64,
     pub project_name: String,
     pub feature_status: FeatureStatus,
 }
@@ -76,7 +77,7 @@ pub struct AgentMessageRow {
     pub origin: Option<AgentMessageOrigin>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessageOrigin {
     pub origin_kind: String,
@@ -130,6 +131,11 @@ pub struct AgentBlock {
     /// bounded preview of it, so the client can say what loading it costs.
     #[serde(rename = "fullContentBytes", skip_serializing_if = "Option::is_none")]
     pub full_content_bytes: Option<u64>,
+    /// The greatest message id joined into this block (consecutive text or
+    /// thinking rows become one block), when it holds more than its own row.
+    /// Server-side only: a page cut by size resumes past it.
+    #[serde(skip)]
+    pub last_message_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentMessageOrigin>,
 }
@@ -155,6 +161,7 @@ impl AgentBlock {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         }
     }
@@ -364,6 +371,9 @@ pub struct SessionStatusSnapshotEntry {
     /// The provider is compacting the conversation's context.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub compacting: bool,
+    /// Sub-agents currently running in this session. Omitted when zero.
+    #[serde(skip_serializing_if = "crate::domain::session_status::is_zero_u32")]
+    pub running_subagents: u32,
 }
 
 #[cfg(test)]
@@ -389,6 +399,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -424,6 +435,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -452,6 +464,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let parent = AgentBlock {
@@ -471,6 +484,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&parent).unwrap();

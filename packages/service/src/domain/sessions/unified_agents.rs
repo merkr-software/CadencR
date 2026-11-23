@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use sqlx::{AssertSqlSafe, FromRow, SqlitePool};
 
 use super::limits::MAX_AGENT_MESSAGE_LIMIT;
@@ -43,23 +41,12 @@ pub async fn list_unified_agents(
         return Ok(UnifiedAgentsResponse { agents: Vec::new() });
     }
 
-    let feature_ids: HashSet<i64> = candidates.iter().map(|c| c.feature_id).collect();
-    let candidate_session_ids: HashSet<i64> = candidates.iter().map(|c| c.session_id).collect();
-    let mut states_by_session = HashMap::new();
+    let candidate_session_ids: Vec<i64> = candidates.iter().map(|c| c.session_id).collect();
     let limit = query.message_limit.clamp(1, MAX_AGENT_MESSAGE_LIMIT);
+    let mut states_by_session =
+        repository::get_sessions_agent_state_batch(pool, &candidate_session_ids, limit).await?;
 
-    for feature_id in feature_ids {
-        let state =
-            repository::get_feature_agent_state(pool, feature_id, None, None, Some(limit), None)
-                .await?;
-        for session in state.sessions {
-            if candidate_session_ids.contains(&session.session_db_id) {
-                states_by_session.insert(session.session_db_id, session);
-            }
-        }
-    }
-
-    let mut agents = Vec::new();
+    let mut agents = Vec::with_capacity(candidates.len());
     for candidate in candidates {
         let Some(session) = states_by_session.remove(&candidate.session_id) else {
             continue;
@@ -87,51 +74,78 @@ pub async fn list_unified_agents(
     Ok(UnifiedAgentsResponse { agents })
 }
 
+fn load_candidates_sql(query: &UnifiedAgentsQuery) -> String {
+    let mut sql = String::from(
+        r#"WITH candidates AS MATERIALIZED (
+               SELECT
+                   p.id AS project_id,
+                   p.name AS project_name,
+                   p.path AS project_path,
+                   f.id AS feature_id,
+                   f.title AS feature_title,
+                   f.type AS feature_type,
+                   f.label AS feature_label,
+                   f.created_at AS feature_created_at,
+                   s.id AS session_id,
+                   s.status AS session_status,
+                   s.pending_questions AS pending_questions,
+                   s.pending_permission AS pending_permission,
+                   COALESCE(s.started_at, f.created_at) AS created_raw,
+                   COALESCE(
+                       (SELECT m.created_at
+                        FROM agent_messages m
+                        WHERE m.session_id = s.id
+                        ORDER BY m.created_at DESC
+                        LIMIT 1),
+                       s.started_at,
+                       f.created_at
+                   ) AS activity_raw,
+                   f.is_pinned != 0 AS is_pinned
+               FROM agent_sessions s
+               INNER JOIN features f ON f.id = s.feature_id
+               INNER JOIN projects p ON p.id = f.project_id
+               WHERE f.status = 'active'
+                 AND (f.is_pinned != 0 OR (1 = 1"#,
+    );
+    if query.project_id.is_some() {
+        sql.push_str(" AND p.id = ?");
+    }
+    sql.push_str(
+        r#"))
+           )
+           SELECT
+               project_id,
+               project_name,
+               project_path,
+               feature_id,
+               feature_title,
+               feature_type,
+               feature_label,
+               feature_created_at,
+               session_id,
+               strftime('%Y-%m-%dT%H:%M:%SZ', created_raw) AS agent_created_at,
+               strftime('%Y-%m-%dT%H:%M:%SZ', activity_raw) AS last_activity_at,
+               is_pinned
+           FROM candidates"#,
+    );
+    if matches!(query.mode, UnifiedAgentsMode::Recent) {
+        sql.push_str(
+            r#" WHERE is_pinned != 0
+                 OR session_status = 'running'
+                 OR pending_questions IS NOT NULL
+                 OR pending_permission IS NOT NULL
+                 OR datetime(activity_raw) >= datetime('now', ?)"#,
+        );
+    }
+    sql.push_str(" ORDER BY agent_created_at DESC, session_id DESC");
+    sql
+}
+
 async fn load_candidates(
     pool: &SqlitePool,
     query: &UnifiedAgentsQuery,
 ) -> Result<Vec<UnifiedAgentCandidate>, AppError> {
-    let mut sql = String::from(
-        r#"SELECT
-               p.id AS project_id,
-               p.name AS project_name,
-               p.path AS project_path,
-               f.id AS feature_id,
-               f.title AS feature_title,
-               f.type AS feature_type,
-               f.label AS feature_label,
-               f.created_at AS feature_created_at,
-               s.id AS session_id,
-               strftime('%Y-%m-%dT%H:%M:%SZ', COALESCE(s.started_at, f.created_at)) AS agent_created_at,
-               strftime(
-                   '%Y-%m-%dT%H:%M:%SZ',
-                   COALESCE(MAX(am.created_at), s.started_at, f.created_at)
-               ) AS last_activity_at,
-               f.is_pinned != 0 AS is_pinned
-           FROM agent_sessions s
-           INNER JOIN features f ON f.id = s.feature_id
-           INNER JOIN projects p ON p.id = f.project_id
-           LEFT JOIN agent_messages am ON am.session_id = s.id
-           WHERE f.status = 'active'"#,
-    );
-
-    sql.push_str(" AND (f.is_pinned != 0 OR (1 = 1");
-    if query.project_id.is_some() {
-        sql.push_str(" AND p.id = ?");
-    }
-
-    sql.push_str(")) GROUP BY s.id");
-    if matches!(query.mode, UnifiedAgentsMode::Recent) {
-        sql.push_str(
-            r#" HAVING f.is_pinned != 0
-                OR s.status = 'running'
-                OR s.pending_questions IS NOT NULL
-                OR s.pending_permission IS NOT NULL
-                OR datetime(COALESCE(MAX(am.created_at), s.started_at, f.created_at)) >= datetime('now', ?)"#,
-        );
-    }
-    sql.push_str(" ORDER BY agent_created_at DESC, s.id DESC");
-
+    let sql = load_candidates_sql(query);
     let mut q = sqlx::query_as::<_, UnifiedAgentCandidate>(AssertSqlSafe(sql));
     if let Some(project_id) = query.project_id {
         q = q.bind(project_id);
@@ -146,84 +160,10 @@ async fn load_candidates(
 mod tests {
     use super::*;
 
+    /// The real migrated schema: hydration reads origins and names the todo
+    /// index, so a hand-written subset would drift from production.
     async fn setup_pool() -> SqlitePool {
-        let pool = SqlitePool::connect(":memory:").await.unwrap();
-        sqlx::query(
-            r#"CREATE TABLE projects (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                kind TEXT NOT NULL DEFAULT 'user'
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE features (
-                id INTEGER PRIMARY KEY,
-                project_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active',
-                label TEXT,
-                created_at TEXT NOT NULL,
-                type TEXT NOT NULL,
-                is_pinned INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE agent_sessions (
-                id INTEGER PRIMARY KEY,
-                feature_id INTEGER NOT NULL,
-                agent_type TEXT NOT NULL,
-                runtime_provider TEXT,
-                runtime_session_id TEXT,
-                status TEXT NOT NULL,
-                started_at TEXT,
-                ended_at TEXT,
-                subprocess_id TEXT,
-                model TEXT,
-                profile TEXT,
-                pending_questions TEXT,
-                has_file_changes INTEGER DEFAULT 0,
-                permission_mode TEXT,
-                codex_permission_mode TEXT DEFAULT 'default',
-                pending_permission TEXT,
-                input_tokens INTEGER,
-                output_tokens INTEGER,
-                context_window INTEGER,
-                was_compacted INTEGER DEFAULT 0,
-                draft_prompt TEXT,
-                message_revision INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r#"CREATE TABLE agent_messages (
-                id INTEGER PRIMARY KEY,
-                session_id INTEGER NOT NULL,
-                message_uuid TEXT,
-                delivery_state TEXT,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                message_type TEXT NOT NULL,
-                tool_name TEXT,
-                tool_use_id TEXT,
-                parent_tool_use_id TEXT,
-                created_at TEXT,
-                model TEXT,
-                content_revision INTEGER NOT NULL DEFAULT 0
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        pool
+        crate::shared::test_query_plan::migrated_pool().await
     }
 
     #[tokio::test]
@@ -387,5 +327,155 @@ mod tests {
         assert_eq!(result.agents.len(), 1);
         assert_eq!(result.agents[0].session.session_db_id, 2);
         assert!(result.agents[0].is_pinned);
+    }
+
+    #[tokio::test]
+    async fn load_candidates_uses_session_created_index_on_migrated_db() {
+        use crate::shared::test_query_plan::{assert_no_full_scan, migrated_pool, plan_details};
+        let pool = migrated_pool().await;
+
+        for (mode, project_id) in [
+            (UnifiedAgentsMode::All, None),
+            (UnifiedAgentsMode::Recent, None),
+            (UnifiedAgentsMode::Recent, Some(1)),
+        ] {
+            let query = UnifiedAgentsQuery {
+                mode,
+                fresh_minutes: 30,
+                project_id,
+                message_limit: 10,
+            };
+            let explain_sql = format!("EXPLAIN QUERY PLAN {}", load_candidates_sql(&query));
+            let mut q = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql));
+            if let Some(project_id) = project_id {
+                q = q.bind(project_id);
+            }
+            if matches!(query.mode, UnifiedAgentsMode::Recent) {
+                q = q.bind("-30 minutes");
+            }
+            let details = plan_details(&q.fetch_all(&pool).await.unwrap());
+            assert!(
+                details.contains("idx_agent_messages_session_created"),
+                "expected idx_agent_messages_session_created seek:\n{details}"
+            );
+            assert!(
+                details.contains("idx_agent_sessions_feature_id"),
+                "expected sessions to be reached per feature through idx_agent_sessions_feature_id:\n{details}"
+            );
+            assert_no_full_scan(&details, &["candidates"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn batched_unified_agents_matches_feature_agent_state_parity() {
+        let pool = setup_pool().await;
+
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'p1', '/p1')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, created_at, type) VALUES \
+             (1, 1, 'f1', 'active', datetime('now', '-2 hours'), 'ws-session'), \
+             (2, 1, 'f2', 'active', datetime('now', '-1 hour'), 'ws-session')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_sessions (id, feature_id, agent_type, status, started_at) VALUES \
+             (10, 1, 'session', 'completed', datetime('now', '-2 hours')), \
+             (20, 2, 'session', 'running', datetime('now', '-1 hour'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Session 10: initial user message + origin + 4 messages (so limit=2 triggers has_more + anchor) + TodoWrite.
+        let user_msg_id: (i64,) = sqlx::query_as(
+            "INSERT INTO agent_messages (session_id, role, content, message_type, created_at) \
+             VALUES (10, 'user', 'initial prompt', 'user_message', datetime('now', '-90 minutes')) RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_message_origins (message_id, origin_kind, source_session_id, note) \
+             VALUES (?, 'session_generated', 20, 'delegated')",
+        )
+        .bind(user_msg_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_messages (session_id, role, content, message_type, tool_name, tool_use_id, created_at) VALUES \
+             (10, 'assistant', '{\"todos\":[{\"content\":\"ship\",\"status\":\"completed\",\"activeForm\":\"shipping\"}]}', 'tool_call', 'TodoWrite', 'tw-1', datetime('now', '-80 minutes')), \
+             (10, 'assistant', '{\"cmd\":\"ls\"}', 'tool_call', 'Bash', 'b-1', datetime('now', '-70 minutes')), \
+             (10, 'assistant', 'output', 'tool_result', NULL, 'b-1', datetime('now', '-60 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Session 20: simple text message, no has_more.
+        sqlx::query(
+            "INSERT INTO agent_messages (session_id, role, content, message_type, created_at) \
+             VALUES (20, 'assistant', 'working', 'text', datetime('now', '-5 minutes'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let unified = list_unified_agents(
+            &pool,
+            UnifiedAgentsQuery {
+                mode: UnifiedAgentsMode::All,
+                fresh_minutes: 30,
+                project_id: None,
+                message_limit: 2,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(unified.agents.len(), 2);
+
+        for entry in &unified.agents {
+            let expected = repository::get_feature_agent_state(
+                &pool,
+                entry.feature.id,
+                None,
+                None,
+                Some(2),
+                None,
+            )
+            .await
+            .unwrap();
+            let expected_session = expected
+                .sessions
+                .into_iter()
+                .find(|s| s.session_db_id == entry.session.session_db_id)
+                .unwrap();
+            assert_eq!(
+                serde_json::to_value(&entry.session).unwrap(),
+                serde_json::to_value(&expected_session).unwrap(),
+                "session {} diverged from get_feature_agent_state",
+                entry.session.session_db_id
+            );
+        }
+
+        let s10 = unified
+            .agents
+            .iter()
+            .find(|a| a.session.session_db_id == 10)
+            .unwrap();
+        assert!(s10.session.has_more);
+        assert!(s10.session.todos.as_ref().is_some_and(|t| t.len() == 1));
+        assert_eq!(
+            s10.session.blocks[0]
+                .origin
+                .as_ref()
+                .map(|o| o.origin_kind.as_str()),
+            Some("session_generated")
+        );
     }
 }

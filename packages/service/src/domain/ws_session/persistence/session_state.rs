@@ -4,6 +4,13 @@ use super::WsSessionPersistence;
 use sqlx::SqlitePool;
 
 impl WsSessionPersistence {
+    /// Bind a client to an existing session row, applying the permission mode
+    /// it asked for.
+    ///
+    /// The status is left alone: it records how the last turn ended, and the
+    /// desktop shows a `paused` session as a turn the user paused. Opening a
+    /// `completed` conversation used to turn it `paused` that way. A runtime
+    /// that starts a turn marks it `running` itself.
     pub async fn reopen_session(
         &self,
         id: i64,
@@ -11,8 +18,7 @@ impl WsSessionPersistence {
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             "UPDATE agent_sessions
-             SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
-                 permission_mode = COALESCE(?, permission_mode)
+             SET permission_mode = COALESCE(?, permission_mode)
              WHERE id = ?",
         )
         .bind(permission_mode)
@@ -71,15 +77,14 @@ impl WsSessionPersistence {
         session_id: i64,
         input_tokens: u64,
         output_tokens: u64,
-    ) {
-        let _ = sqlx::query(
-            "UPDATE agent_sessions SET input_tokens = ?, output_tokens = ? WHERE id = ?",
-        )
-        .bind(input_tokens as i64)
-        .bind(output_tokens as i64)
-        .bind(session_id)
-        .execute(pool)
-        .await;
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET input_tokens = ?, output_tokens = ? WHERE id = ?")
+            .bind(input_tokens as i64)
+            .bind(output_tokens as i64)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// Write `context_window` to the session row. Pass `None` to clear the
@@ -89,13 +94,14 @@ impl WsSessionPersistence {
         pool: &SqlitePool,
         session_id: i64,
         context_window: Option<u64>,
-    ) {
+    ) -> Result<(), sqlx::Error> {
         let bound = context_window.and_then(|cw| i64::try_from(cw).ok());
-        let _ = sqlx::query("UPDATE agent_sessions SET context_window = ? WHERE id = ?")
+        sqlx::query("UPDATE agent_sessions SET context_window = ? WHERE id = ?")
             .bind(bound)
             .bind(session_id)
             .execute(pool)
-            .await;
+            .await?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -127,6 +133,7 @@ pub(super) mod session_state_tests {
                 agent_type TEXT NOT NULL DEFAULT 'session',
                 status TEXT NOT NULL DEFAULT 'idle',
                 runtime_provider TEXT,
+                runtime_overrides TEXT,
                 runtime_session_id TEXT,
 
                 model TEXT,
@@ -238,13 +245,53 @@ pub(super) mod session_state_tests {
         assert_eq!(row.0, "completed");
     }
 
+    /// Opening a conversation reopens its row; a `completed` one used to come
+    /// back `paused`, which the desktop shows as a turn the user paused.
+    #[tokio::test]
+    async fn reopening_keeps_the_status_the_last_turn_left() {
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::new(pool.clone(), 1);
+        let id = p.find_or_create_session(None, None).await.unwrap();
+
+        for status in ["completed", "paused", "running", "error"] {
+            sqlx::query("UPDATE agent_sessions SET status = ? WHERE id = ?")
+                .bind(status)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            p.reopen_session(id, Some("plan")).await.unwrap();
+
+            let row: (String, Option<String>) =
+                sqlx::query_as("SELECT status, permission_mode FROM agent_sessions WHERE id = ?")
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(row, (status.to_string(), Some("plan".to_string())));
+        }
+    }
+
+    #[tokio::test]
+    async fn reopening_a_missing_session_is_an_error() {
+        let pool = setup_test_db().await;
+        let p = WsSessionPersistence::new(pool, 1);
+        assert!(matches!(
+            p.reopen_session(42, None).await,
+            Err(sqlx::Error::RowNotFound)
+        ));
+    }
+
     #[tokio::test]
     async fn test_update_token_usage() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_token_usage(&pool, id, 1500, 300).await;
+        WsSessionPersistence::update_token_usage(&pool, id, 1500, 300)
+            .await
+            .unwrap();
 
         let row: (i64, i64) =
             sqlx::query_as("SELECT input_tokens, output_tokens FROM agent_sessions WHERE id = ?")
@@ -256,11 +303,30 @@ pub(super) mod session_state_tests {
         assert_eq!(row.1, 300);
     }
 
+    /// A failed usage write used to vanish; callers must now see it.
+    #[tokio::test]
+    async fn usage_writes_report_database_failures() {
+        let pool = setup_test_db().await;
+        sqlx::query("DROP TABLE agent_sessions")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(WsSessionPersistence::update_token_usage(&pool, 1, 10, 2)
+            .await
+            .is_err());
+        assert!(
+            WsSessionPersistence::update_context_window(&pool, 1, Some(5))
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test]
     async fn test_mark_completed_instance_delegates_to_static() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        p.find_or_create_session(None, None).await;
+        p.find_or_create_session(None, None).await.unwrap();
 
         p.mark_completed().await;
 
@@ -278,7 +344,9 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_context_window(&pool, id, Some(1_000_000)).await;
+        WsSessionPersistence::update_context_window(&pool, id, Some(1_000_000))
+            .await
+            .unwrap();
 
         let row: (Option<i64>,) =
             sqlx::query_as("SELECT context_window FROM agent_sessions WHERE id = ?")
@@ -295,8 +363,12 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::update_context_window(&pool, id, Some(200_000)).await;
-        WsSessionPersistence::update_context_window(&pool, id, None).await;
+        WsSessionPersistence::update_context_window(&pool, id, Some(200_000))
+            .await
+            .unwrap();
+        WsSessionPersistence::update_context_window(&pool, id, None)
+            .await
+            .unwrap();
 
         let row: (Option<i64>,) =
             sqlx::query_as("SELECT context_window FROM agent_sessions WHERE id = ?")

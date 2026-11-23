@@ -10,9 +10,17 @@ describe("parseVisualFrameMessage", () => {
       type: "cadencr-visual:size",
       height: 240,
     });
-    expect(parseVisualFrameMessage({ type: "cadencr-visual:error", message: "boom" })).toEqual({
+    expect(
+      parseVisualFrameMessage({
+        type: "cadencr-visual:error",
+        message: "boom",
+      }),
+    ).toEqual({
       type: "cadencr-visual:error",
       message: "boom",
+    });
+    expect(parseVisualFrameMessage({ type: "cadencr-visual:escape" })).toEqual({
+      type: "cadencr-visual:escape",
     });
   });
 

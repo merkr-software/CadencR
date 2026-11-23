@@ -8,21 +8,18 @@
 //! gate closes, and the agent receives the decision as its next prompt. The
 //! client only sends the decision, like for a live gate.
 
-use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimePermissionResponseKind;
-use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::protocol::PermissionRespondPayload;
-use crate::domain::ws_session::runtime::helpers::broadcast_session_error;
 use crate::domain::ws_session::runtime::output::{CommandError, CommandOutput};
 use crate::domain::ws_session::runtime::post_plan_mode::{
     should_transition_after_plan_approval, transition_session_to_post_plan_mode,
 };
 use crate::domain::ws_session::runtime::state::SdkSessions;
 
-use super::control_dispatch::dispatch_control_prompt_with_message_uuid;
+use super::gate_clear_ahead::{clear_answered_gate_ahead, restore_after_refusal};
 use super::permission::PermissionResponseOutcome;
 use super::permission_context::PermissionContext;
-use super::permission_pending::clear_answered_gate_preserving_replacement;
+use super::restored_gate::{close_and_follow_up, FollowUp, RestoredGate};
 
 const APPROVED_PROMPT: &str = "The user approved your plan. Exit plan mode and carry it out.";
 const REJECTED_PROMPT: &str = "The user did not approve your plan. Revise it.";
@@ -71,9 +68,8 @@ pub(super) async fn respond_claimed_plan(
     }
 }
 
-/// Answer the claimed plan gate `payload` names, whose runtime cannot.
-/// Acknowledged once the gate is closed; the follow-up turn starts after, and
-/// a failure to deliver it reaches every viewer as a session error.
+/// Answer the claimed plan gate `payload` names, whose runtime cannot: leave
+/// plan mode on an approval, then close the gate and tell the agent.
 async fn answer_restored_plan(
     context: &PermissionContext<'_>,
     sdk_sessions: &SdkSessions,
@@ -84,11 +80,6 @@ async fn answer_restored_plan(
     let Some(app_state) = context.app_state else {
         return Err(CommandError::new("INVALID_STATE", "Session not yet active"));
     };
-    // Already validated by `respond_permission`.
-    let message_uuid = payload
-        .message_uuid
-        .as_deref()
-        .and_then(|value| uuid::Uuid::parse_str(value).ok());
     let feature_id = sdk_sessions
         .lock()
         .await
@@ -102,11 +93,15 @@ async fn answer_restored_plan(
             .to_runtime_decision(payload.option_id.as_deref()),
     );
     if approved {
-        transition_session_to_post_plan_mode(
+        // Saved before the runtime changes mode: see `gate_clear_ahead`.
+        let cleared =
+            clear_answered_gate_ahead(context.write_pool, session_id, &payload.request_id).await?;
+        let transitioned = transition_session_to_post_plan_mode(
             sdk_sessions,
             session_id,
             context.write_pool,
             &output.recipient,
+            context.feature_senders,
         )
         .await
         .map_err(|error| {
@@ -114,66 +109,21 @@ async fn answer_restored_plan(
                 "SDK_ERROR",
                 format!("Failed to apply post-plan permission mode: {error}"),
             )
-        })?;
+        });
+        restore_after_refusal(context.write_pool, cleared, transitioned).await?;
     }
-    let has_replacement = clear_answered_gate_preserving_replacement(
-        context.write_pool,
+    let follow_up = FollowUp {
+        text: follow_up_prompt(approved, payload.feedback.as_deref()),
+        not_delivered_code: "PLAN_ANSWER_NOT_DELIVERED",
+        not_delivered: "The plan answer",
+    };
+    let gate = RestoredGate {
         session_id,
-        &payload.request_id,
-    )
-    .await
-    .map_err(|error| CommandError::new("DB_ERROR", format!("Failed to close the plan: {error}")))?;
-    output.permission_accepted();
-    if !has_replacement {
-        context.session_status.broadcast_gate_resolved(
-            session_id,
-            feature_id,
-            &payload.request_id,
-            AgentStatus::Idle,
-        );
-    }
-
-    let state = app_state.clone();
-    let text = follow_up_prompt(approved, payload.feedback.as_deref());
-    tokio::spawn(async move {
-        deliver_follow_up(&state, feature_id, session_id, &text, message_uuid).await;
-    });
-    Ok(PermissionResponseOutcome {
-        warnings: Vec::new(),
-    })
-}
-
-async fn deliver_follow_up(
-    state: &AppState,
-    feature_id: i64,
-    session_id: i64,
-    text: &str,
-    message_uuid: Option<uuid::Uuid>,
-) {
-    let dispatched = dispatch_control_prompt_with_message_uuid(
-        state,
         feature_id,
-        session_id,
-        text,
-        false,
-        message_uuid,
-    )
-    .await;
-    match dispatched {
-        Ok(outcome) => outcome.delivery_confirmed(),
-        Err(error) => {
-            tracing::error!(session_id, %error, "the restored plan's answer was not delivered");
-            broadcast_session_error(
-                &state.ws_feature_senders,
-                feature_id,
-                "PLAN_ANSWER_NOT_DELIVERED",
-                format!(
-                    "The plan answer did not reach the agent: {error}. Send it again as a message."
-                ),
-            )
-            .await;
-        }
-    }
+        payload: &payload,
+        name: "plan",
+    };
+    close_and_follow_up(context, app_state, output, gate, Some(follow_up)).await
 }
 
 #[cfg(test)]

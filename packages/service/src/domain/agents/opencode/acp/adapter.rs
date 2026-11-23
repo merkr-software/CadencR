@@ -1,8 +1,8 @@
-use super::adapter_normalize::normalize_edit_input;
+use super::adapter_normalize::{normalize_edit_input, normalize_tool_name, opencode_mode};
 use super::browser_trust::opencode_browser_trust;
 use super::events_subagent_synthesis::{extract_subagent_body, synthesize_subagent_text_event};
 use super::events_tool_call_question::{question_start_event, question_update_event};
-use super::mcp_status::merge_configured_mcp_servers;
+use super::mcp_status::opencode_mcp_statuses;
 use super::permission_reply::route_subagent_permission_reply;
 use super::prompt_usage::prompt_response_usage;
 use super::question_sidecar::QuestionSidecar;
@@ -23,9 +23,6 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::mcp_tool_names::McpToolNameResolver;
 use crate::domain::agents::opencode::questions::extract_question_answers;
-use crate::domain::agents::opencode::tool_names::{
-    canonical_acp_tool_name, canonical_cadencr_tool_name,
-};
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 use async_trait::async_trait;
 use opencode_sdk_rs::OpenCodeClient;
@@ -81,10 +78,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     }
 
     fn normalize_tool_name(&self, raw: &str) -> String {
-        let canonical = canonical_cadencr_tool_name(&canonical_acp_tool_name(raw));
-        self.mcp_tool_names
-            .canonical_name(&canonical)
-            .unwrap_or(canonical)
+        normalize_tool_name(&self.mcp_tool_names, raw)
     }
     fn normalize_tool_input(&self, tool_name: &str, input: Value) -> Value {
         normalize_edit_input(tool_name, input)
@@ -93,11 +87,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         flatten_tool_result_content(blocks)
     }
     fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<String> {
-        Some(match mode {
-            RuntimePermissionMode::Plan => "plan".to_string(),
-            RuntimePermissionMode::OpenCodeAgent(name) => name,
-            _ => "build".to_string(),
-        })
+        Some(opencode_mode(mode))
     }
     fn model_config_id(&self) -> Option<&str> {
         Some("model")
@@ -125,25 +115,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
             Ok(servers) => Ok(servers.as_ref().clone()),
             Err(_) => opencode_sdk_rs::list_mcp_servers_without_resolved_config(Some(cwd)).await,
         };
-        let servers = match listed {
-            Ok(servers) if !servers.is_empty() => merge_configured_mcp_servers(
-                servers
-                    .into_iter()
-                    .map(|server| RuntimeMcpServerStatus {
-                        name: server.name,
-                        status: server.status,
-                    })
-                    .collect(),
-                configured,
-            ),
-            Ok(_) => configured,
-            Err(error) => {
-                tracing::warn!(%error, "failed to read OpenCode MCP server statuses");
-                configured
-            }
-        };
-        self.mcp_tool_names.remember(&servers);
-        servers
+        opencode_mcp_statuses(listed.as_ref(), configured, &self.mcp_tool_names)
     }
     fn supports_durable_resume(&self) -> bool {
         true

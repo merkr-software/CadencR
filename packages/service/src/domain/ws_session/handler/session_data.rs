@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::super::protocol::*;
@@ -26,7 +27,9 @@ pub(super) async fn handle_history_get(
                 &WsSessionEvent::HistoryResult(HistoryResultPayload { entries }),
             )
             .expect("session event payload should serialize");
-            let _ = sender.send(Message::Text(String::from(reply).into()));
+            sender
+                .send(Message::Text(String::from(reply).into()))
+                .ignore_closed();
         }
         Err(e) => {
             send_error(sender, &envelope.id, "DB_ERROR", &e.to_string());
@@ -60,7 +63,9 @@ pub(super) async fn handle_history_add(
                 &WsSessionEvent::HistoryAdded(HistoryAddedPayload { added }),
             )
             .expect("session event payload should serialize");
-            let _ = sender.send(Message::Text(String::from(reply).into()));
+            sender
+                .send(Message::Text(String::from(reply).into()))
+                .ignore_closed();
         }
         Err(e) => {
             send_error(sender, &envelope.id, "DB_ERROR", &e.to_string());
@@ -88,7 +93,9 @@ pub(super) async fn handle_draft_get(
                 &WsSessionEvent::DraftResult(DraftResultPayload { draft }),
             )
             .expect("session event payload should serialize");
-            let _ = sender.send(Message::Text(String::from(reply).into()));
+            sender
+                .send(Message::Text(String::from(reply).into()))
+                .ignore_closed();
         }
         Err(e) => {
             send_error(sender, &envelope.id, "DB_ERROR", &e.to_string());
@@ -122,7 +129,9 @@ pub(super) async fn handle_draft_save(
                 &WsSessionEvent::DraftSaved(DraftSavedPayload { success: true }),
             )
             .expect("session event payload should serialize");
-            let _ = sender.send(Message::Text(String::from(reply).into()));
+            sender
+                .send(Message::Text(String::from(reply).into()))
+                .ignore_closed();
         }
         Err(e) => {
             send_error(sender, &envelope.id, "DB_ERROR", &e.to_string());

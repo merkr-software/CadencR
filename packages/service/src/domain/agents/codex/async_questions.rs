@@ -109,6 +109,17 @@ pub(super) fn restored_question_input(
         })
 }
 
+/// The prompt answering a question no runtime holds, from the form the client
+/// sent back; a dismissal tells the agent nothing (it never waited).
+pub(super) fn unheld_answer_prompt(
+    response: &RuntimePermissionResponse,
+) -> Result<Option<String>, RuntimeError> {
+    if response.decision == RuntimePermissionDecision::Deny {
+        return Ok(None);
+    }
+    answer_prompt(&restored_question_input(response)?, response).map(Some)
+}
+
 pub(super) fn answer_prompt(
     input: &Value,
     response: &RuntimePermissionResponse,

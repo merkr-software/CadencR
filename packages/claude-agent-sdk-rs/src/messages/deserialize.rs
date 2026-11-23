@@ -82,7 +82,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    use crate::messages::TaskLifecycleKind;
+    use crate::messages::{SystemMessage, TaskLifecycleKind};
 
     #[test]
     fn known_type_list_matches_the_typed_schema() {
@@ -113,6 +113,33 @@ mod tests {
             .err()
             .expect("unknown tag fails");
         assert!(error.to_string().contains("unknown variant"), "{error}");
+    }
+
+    #[test]
+    fn thinking_tokens_frames_are_typed() {
+        // Shape emitted by Claude Code 2.1.327 for every streamed thinking chunk.
+        let msg = SdkMessage::from_raw(json!({
+            "type": "system",
+            "subtype": "thinking_tokens",
+            "estimated_tokens": 120,
+            "estimated_tokens_delta": 40,
+            "user_message_uuid": "client-uuid",
+            "uuid": "u1",
+            "session_id": "s"
+        }));
+        let SdkMessage::System(SystemMessage::ThinkingTokens {
+            estimated_tokens,
+            estimated_tokens_delta,
+            user_message_uuid,
+            ..
+        }) = &msg
+        else {
+            panic!("expected a typed thinking_tokens frame, got {msg:?}");
+        };
+        assert_eq!(*estimated_tokens, Some(120));
+        assert_eq!(*estimated_tokens_delta, Some(40));
+        assert_eq!(user_message_uuid.as_deref(), Some("client-uuid"));
+        assert_eq!(msg.session_id(), Some("s"));
     }
 
     #[test]

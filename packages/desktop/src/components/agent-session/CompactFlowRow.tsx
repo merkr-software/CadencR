@@ -23,6 +23,8 @@ interface CompactFlowRowProps {
   streamingBlockId?: string;
   /** The run may still take steps: its head keeps one line (see `CompactFlowHead`). */
   live?: boolean;
+  /** Padding under the row, from the transcript's rhythm (`spaceRows`). */
+  spaceBelow?: number;
 }
 
 function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowProps): boolean {
@@ -31,6 +33,7 @@ function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowP
     previous.revealBlockId !== next.revealBlockId ||
     previous.streamingBlockId !== next.streamingBlockId ||
     previous.live !== next.live ||
+    previous.spaceBelow !== next.spaceBelow ||
     previous.blocks.length !== next.blocks.length
   ) {
     return false;
@@ -57,6 +60,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   toolResultMap,
   streamingBlockId,
   live = false,
+  spaceBelow,
 }: CompactFlowRowProps) {
   const newestFirst = useMemo(() => blocks.filter(hasCompactLine).reverse(), [blocks]);
   const [newest, ...older] = newestFirst;
@@ -86,7 +90,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   // `-mx-1` cancels the line's own padding: icons sit on the prose's left
   // edge while the hover wash still breathes around the content.
   return (
-    <div className="-mx-1 my-1 text-xs">
+    <div className="-mx-1 text-xs" style={{ paddingBottom: spaceBelow }}>
       {older.length === 0 ? (
         <div className={HEAD_CLASS}>{head}</div>
       ) : (

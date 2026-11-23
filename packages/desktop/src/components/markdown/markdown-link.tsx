@@ -1,5 +1,6 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowUpRightIcon, Loader2Icon } from "lucide-react";
+import { ProjectBadge } from "@/components/ProjectBadge";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { useLinkRouting, type LinkRouting } from "@/components/links/LinkRoutingContext";
 import { parseConversationReferenceHref } from "@/components/prompt-editor/conversation-reference";
@@ -7,7 +8,18 @@ import {
   parseAgentFileHref,
   parseFileReferenceHref,
 } from "@/components/prompt-editor/file-reference";
+import { useFeatureProjectId } from "@/hooks/useFeatureProjectId";
 import { isUserOpenableUrl } from "@/lib/safe-url";
+
+/**
+ * True while rendering inside a Markdown `<a>`. Prevents child image renderers
+ * from nesting a `<button>` inside the anchor (e.g. linked status badges).
+ */
+const InsideMarkdownLinkContext = createContext(false);
+
+export function useInsideMarkdownLink(): boolean {
+  return useContext(InsideMarkdownLinkContext);
+}
 
 const LINK_CLASS =
   "text-[var(--acc-cyan)] underline underline-offset-2 hover:text-[var(--acc-purple)]";
@@ -17,6 +29,7 @@ export function MarkdownLink({
   href,
   children,
   wrapsImage = false,
+  containsImage = wrapsImage,
 }: {
   href?: string;
   children: ReactNode;
@@ -25,9 +38,16 @@ export function MarkdownLink({
    * `data-image-link` lets a prose scale space badge rows apart.
    */
   wrapsImage?: boolean;
+  /** True when any descendant is an image; avoids a context fiber on text links. */
+  containsImage?: boolean;
 }): ReactElement {
   const routing = useLinkRouting();
   const openInEditor = useOpenDiffInEditor();
+  const linkContent = containsImage ? (
+    <InsideMarkdownLinkContext.Provider value={true}>{children}</InsideMarkdownLinkContext.Provider>
+  ) : (
+    children
+  );
   // `@file` mentions carry their own scheme; agents write plain path links.
   // Those only become file links where an Editor can open them.
   const fileReference = href
@@ -36,7 +56,7 @@ export function MarkdownLink({
   if (href && fileReference !== null) {
     return (
       <FileReferenceLink reference={fileReference} openInEditor={openInEditor}>
-        {children}
+        {linkContent}
       </FileReferenceLink>
     );
   }
@@ -44,12 +64,12 @@ export function MarkdownLink({
   if (href && conversationFeatureId !== null) {
     return (
       <ConversationReferenceLink featureId={conversationFeatureId} href={href} routing={routing}>
-        {children}
+        {linkContent}
       </ConversationReferenceLink>
     );
   }
   if (!href) {
-    return <a className={LINK_CLASS}>{children}</a>;
+    return <a className={LINK_CLASS}>{linkContent}</a>;
   }
   // Markdown labels hide the URL (`[docs](https://…)`): name the destination
   // on hover and mark links that leave the conversation. A native `title`
@@ -76,7 +96,7 @@ export function MarkdownLink({
         data-image-link={wrapsImage || undefined}
         className={LINK_CLASS}
       >
-        {children}
+        {linkContent}
         {externalMark}
       </a>
     );
@@ -99,7 +119,7 @@ export function MarkdownLink({
       onMouseEnter={() => routing.setHoverLink(href)}
       onMouseLeave={() => routing.setHoverLink(null)}
     >
-      {children}
+      {linkContent}
       {externalMark}
     </a>
   );
@@ -131,25 +151,50 @@ function ConversationReferenceLink({
 }): ReactElement {
   const [isOpening, setIsOpening] = useState(false);
   return (
-    <a
-      href={href}
-      aria-busy={isOpening}
-      className="rounded-sm font-semibold text-[var(--chip-fuchsia-fg)] underline decoration-[var(--chip-fuchsia-fg)]/50 underline-offset-2 hover:bg-[var(--chip-fuchsia-bg)]/15 hover:decoration-[var(--chip-fuchsia-fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-      onClick={(event) => {
-        event.preventDefault();
-        if (!routing || isOpening) return;
-        setIsOpening(true);
-        void routing.activateConversation(featureId).finally(() => setIsOpening(false));
-      }}
-    >
-      {children}
-      {isOpening && (
-        <Loader2Icon
-          className="ml-1 inline size-3 animate-spin"
-          aria-label="Opening conversation"
-        />
-      )}
-    </a>
+    <>
+      <ConversationProjectBadge featureId={featureId} />
+      <a
+        href={href}
+        aria-busy={isOpening}
+        className="rounded-sm font-semibold text-[var(--chip-fuchsia-fg)] underline decoration-[var(--chip-fuchsia-fg)]/50 underline-offset-2 hover:bg-[var(--chip-fuchsia-bg)]/15 hover:decoration-[var(--chip-fuchsia-fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+        onClick={(event) => {
+          event.preventDefault();
+          if (!routing || isOpening) return;
+          setIsOpening(true);
+          void routing.activateConversation(featureId).finally(() => setIsOpening(false));
+        }}
+      >
+        {children}
+        {isOpening && (
+          <Loader2Icon
+            className="ml-1 inline size-3 animate-spin"
+            aria-label="Opening conversation"
+          />
+        )}
+      </a>
+    </>
+  );
+}
+
+/**
+ * The referenced conversation's project, so a link to another project reads
+ * at a glance. It sits before the link, not inside it: copying a selection as
+ * Markdown walks the link's children, and the label must still start with `@@`
+ * for the copy to parse back into a reference. The word joiner keeps the badge
+ * on the label's first line.
+ */
+function ConversationProjectBadge({ featureId }: { featureId: number }): ReactElement | null {
+  const projectId = useFeatureProjectId(featureId);
+  if (projectId === null) return null;
+  return (
+    <span aria-hidden className="select-none">
+      <ProjectBadge
+        projectId={projectId}
+        size="xs"
+        className="mr-1 inline-block align-[-0.1em] [&:not(img)]:align-[0.05em]"
+      />
+      {"\u2060"}
+    </span>
   );
 }
 

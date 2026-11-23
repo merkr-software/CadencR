@@ -1,12 +1,6 @@
-import {
-  ArrowRight,
-  BotIcon,
-  CodeIcon,
-  GitCompareArrowsIcon,
-  GlobeIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { ArrowRight, CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { Button } from "@/components/ui/button";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import type { OnboardingStepProps } from "../OnboardingOverlay";
@@ -45,7 +39,7 @@ export function FirstPromptStep({ isPersisting, onAdvance, onBack }: OnboardingS
       </div>
 
       <div className="grid w-full max-w-xl grid-cols-5 gap-3">
-        <QuickTip icon={<BotIcon className="size-4" />} label="Agent" />
+        <QuickTip icon={<AgentIcon className="size-4" />} label="Agent" />
         <QuickTip icon={<TerminalIcon className="size-4" />} label="Terminal" />
         <QuickTip icon={<GitCompareArrowsIcon className="size-4" />} label="Git" />
         <QuickTip icon={<CodeIcon className="size-4" />} label="Editor" />

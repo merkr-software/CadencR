@@ -5,8 +5,10 @@
 //! through the [`provider_hooks::AcpProviderHooks`] trait.
 
 mod apply_model_config;
+mod background_work;
 pub mod capability_probe;
 pub mod config_options;
+mod detached_replies;
 pub mod event_loop_state;
 pub mod events;
 pub mod events_config_option;
@@ -33,7 +35,9 @@ mod permissions_dispatch;
 mod permissions_refresh;
 pub mod permissions_typed;
 pub mod prompt_receipts;
+mod prompt_settlement;
 pub mod prompt_turn;
+mod prompt_turn_lock;
 pub mod provider_hooks;
 pub mod schema_bridge;
 #[cfg(test)]

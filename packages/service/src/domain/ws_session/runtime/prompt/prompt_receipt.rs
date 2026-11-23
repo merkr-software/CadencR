@@ -1,4 +1,5 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::domain::ws_session::runtime::helpers::report_session_write_failure;
 use crate::domain::ws_session::runtime::output::OutputTarget;
 use axum::extract::ws::Message;
 
@@ -36,7 +37,14 @@ pub(in crate::domain::ws_session) async fn clear_pending_prompt_receipt(
     {
         Ok(transitioned) => transitioned,
         Err(error) => {
-            tracing::error!(session_id, error = %error, "failed to persist prompt delivery failure");
+            report_session_write_failure(
+                feature_senders,
+                feature_id,
+                session_id,
+                "that your message did not reach the agent",
+                &error,
+            )
+            .await;
             return false;
         }
     };
@@ -74,7 +82,14 @@ pub(in crate::domain::ws_session) async fn confirm_prompt_delivery(
     {
         Ok(transitioned) => transitioned,
         Err(error) => {
-            tracing::error!(session_id, error = %error, "failed to persist prompt delivery success");
+            report_session_write_failure(
+                feature_senders,
+                feature_id,
+                session_id,
+                "that the agent received your message",
+                &error,
+            )
+            .await;
             return false;
         }
     };

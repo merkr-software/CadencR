@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Virtuoso, type ItemContent, type VirtuosoHandle } from "react-virtuoso";
 import type { AgentBlockData } from "@/types/agent-block";
+import { toolResultOf, type ToolResults } from "@/lib/tool-results";
 import { SubagentActionRow } from "@/components/SubagentActionRow";
 import { isNestedSubagentBlock } from "@/components/subagent-actions";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
@@ -25,6 +26,7 @@ export type NestedSubagentRenderer = (block: AgentBlockData, depth: number) => R
 
 export interface SubagentTimelineProps {
   actions: AgentBlockData[];
+  toolResults: ToolResults;
   basePath?: string;
   depth: number;
   description: string;
@@ -41,6 +43,7 @@ export const SubagentTimeline = memo(function SubagentTimeline(props: SubagentTi
 
 function InlineSubagentTimeline({
   actions,
+  toolResults,
   basePath,
   depth,
   isRunning,
@@ -55,6 +58,8 @@ function InlineSubagentTimeline({
           <SubagentTimelineRow
             key={child.id}
             block={child}
+            result={toolResultOf(toolResults, child)}
+            agentRunning={isRunning}
             basePath={basePath}
             depth={depth}
             isStreaming={isRunning && child.id === lastId}
@@ -68,6 +73,7 @@ function InlineSubagentTimeline({
 
 interface VirtualizedSubagentContext {
   basePath?: string;
+  toolResults: ToolResults;
   depth: number;
   isRunning: boolean;
   lastIndex: number;
@@ -83,6 +89,8 @@ const renderVirtualizedSubagentAction: ItemContent<AgentBlockData, VirtualizedSu
 ) => (
   <SubagentTimelineRow
     block={child}
+    result={toolResultOf(context.toolResults, child)}
+    agentRunning={context.isRunning}
     basePath={context.basePath}
     depth={context.depth}
     isStreaming={context.isRunning && index === context.lastIndex}
@@ -92,6 +100,7 @@ const renderVirtualizedSubagentAction: ItemContent<AgentBlockData, VirtualizedSu
 
 function VirtualizedSubagentTimeline({
   actions,
+  toolResults,
   basePath,
   depth,
   description,
@@ -146,8 +155,15 @@ function VirtualizedSubagentTimeline({
     followsTailRef.current = false;
   }, []);
   const context = useMemo<VirtualizedSubagentContext>(
-    () => ({ basePath, depth, isRunning, lastIndex: actions.length - 1, renderNested }),
-    [actions.length, basePath, depth, isRunning, renderNested],
+    () => ({
+      basePath,
+      toolResults,
+      depth,
+      isRunning,
+      lastIndex: actions.length - 1,
+      renderNested,
+    }),
+    [actions.length, basePath, toolResults, depth, isRunning, renderNested],
   );
 
   return (
@@ -177,12 +193,16 @@ function VirtualizedSubagentTimeline({
 
 const SubagentTimelineRow = memo(function SubagentTimelineRow({
   block,
+  result,
+  agentRunning,
   basePath,
   depth,
   isStreaming,
   renderNested,
 }: {
   block: AgentBlockData;
+  result?: AgentBlockData;
+  agentRunning: boolean;
   basePath?: string;
   depth: number;
   isStreaming: boolean;
@@ -193,7 +213,14 @@ const SubagentTimelineRow = memo(function SubagentTimelineRow({
       {isNestedSubagentBlock(block) && depth < MAX_SUBAGENT_DEPTH ? (
         renderNested(block, depth + 1)
       ) : (
-        <SubagentActionRow block={block} basePath={basePath} expanded isStreaming={isStreaming} />
+        <SubagentActionRow
+          block={block}
+          result={result}
+          agentRunning={agentRunning}
+          basePath={basePath}
+          expanded
+          isStreaming={isStreaming}
+        />
       )}
     </div>
   );

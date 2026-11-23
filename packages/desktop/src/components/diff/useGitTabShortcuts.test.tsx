@@ -172,4 +172,33 @@ describe("useGitTabShortcuts", () => {
     expect(callbacks.sendDrafts).not.toHaveBeenCalled();
     expect(callbacks.sendReviewThreads).not.toHaveBeenCalled();
   });
+
+  it("is not blocked by a panel left open in a hidden workspace", () => {
+    render(
+      <FeatureLayoutProvider featureId={FEATURE_ID}>
+        <Harness />
+        {/* A conversation kept mounted but hidden: its go-to-line panel is still open. */}
+        <div inert>
+          <div role="dialog">Go to line</div>
+        </div>
+      </FeatureLayoutProvider>,
+    );
+
+    dispatchMod("e", "KeyE");
+
+    expect(callbacks.toggleFileList).toHaveBeenCalledOnce();
+  });
+
+  it("is still blocked by the same panel open in the workspace on screen", () => {
+    render(
+      <FeatureLayoutProvider featureId={FEATURE_ID}>
+        <Harness />
+        <div role="dialog">Go to line</div>
+      </FeatureLayoutProvider>,
+    );
+
+    dispatchMod("e", "KeyE");
+
+    expect(callbacks.toggleFileList).not.toHaveBeenCalled();
+  });
 });

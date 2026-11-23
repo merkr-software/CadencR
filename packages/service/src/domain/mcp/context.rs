@@ -19,6 +19,9 @@ const NO_CONTROL_CHANNEL: &str =
 /// one writer and broadcasts each change to connected clients.
 #[derive(bon::Builder)]
 pub struct McpContext {
+    #[cfg(unix)]
+    #[builder(setters(vis = "pub(crate)"))]
+    pub(super) connection_reporter: Option<super::connection::Reporter>,
     pub read_pool: SqlitePool,
     pub feature_id: i64,
     pub source_session_id: Option<i64>,

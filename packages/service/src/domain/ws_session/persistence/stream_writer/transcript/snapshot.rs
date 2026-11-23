@@ -82,7 +82,7 @@ mod tests {
     async fn partial_snapshot_never_overwrites_other_block_types_or_claims_recovery() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-        p.persist_runtime_event(&stream_event(
+        p.persist_event_then_flush_due(&stream_event(
             "root",
             None,
             RuntimeStreamEvent::ContentBlockStart {
@@ -96,13 +96,13 @@ mod tests {
         .unwrap();
         fail_statement(&pool, "INSERT").await;
         assert!(p
-            .persist_runtime_event(&text_start("root", 1, "Hello"))
+            .persist_event_then_flush_due(&text_start("root", 1, "Hello"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
         assert!(p
-            .persist_runtime_event(&complete("root", vec![text("Hello world")]))
+            .persist_event_then_flush_due(&complete("root", vec![text("Hello world")]))
             .await
             .is_err());
         assert_eq!(contents(&pool).await[0].1, "Thinking");
@@ -110,7 +110,7 @@ mod tests {
             p.take_transcript_status_change(true),
             Some(TranscriptPersistenceStatus::Failed)
         );
-        p.persist_runtime_event(&complete(
+        p.persist_event_then_flush_due(&complete(
             "root",
             vec![
                 RuntimeContentBlock::Thinking {
@@ -131,27 +131,30 @@ mod tests {
     async fn partial_same_type_snapshot_cannot_drop_saved_or_failed_deltas() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-        p.persist_runtime_event(&text_start("root", 0, "saved prefix"))
+        p.persist_event_then_flush_due(&text_start("root", 0, "saved prefix"))
             .await
             .unwrap();
         fail_statement(&pool, "UPDATE").await;
         assert!(p
-            .persist_runtime_event(&text_delta("root", " missing suffix"))
+            .persist_event_then_flush_due(&text_delta("root", " missing suffix"))
             .await
             .is_err());
         p.take_transcript_status_change(false);
         recover_database(&pool).await;
         for candidate in ["saved", "saved prefix", "saved prefix wrong suffix"] {
             assert!(p
-                .persist_runtime_event(&complete("root", vec![text(candidate)]))
+                .persist_event_then_flush_due(&complete("root", vec![text(candidate)]))
                 .await
                 .is_err());
             assert_eq!(contents(&pool).await[0].1, "saved prefix");
             assert_eq!(p.take_transcript_status_change(false), None);
         }
-        p.persist_runtime_event(&complete("root", vec![text("saved prefix missing suffix")]))
-            .await
-            .unwrap();
+        p.persist_event_then_flush_due(&complete(
+            "root",
+            vec![text("saved prefix missing suffix")],
+        ))
+        .await
+        .unwrap();
         assert_eq!(
             p.take_transcript_status_change(false),
             Some(TranscriptPersistenceStatus::Recovered)
@@ -163,18 +166,18 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         let full = complete("root", vec![text("complete unstreamed answer")]);
         fail_statement(&pool, "INSERT").await;
-        assert!(p.persist_runtime_event(&full).await.is_err());
+        assert!(p.persist_event_then_flush_due(&full).await.is_err());
         assert_eq!(
             p.take_transcript_status_change(false),
             Some(TranscriptPersistenceStatus::Degraded)
         );
         recover_database(&pool).await;
         assert!(p
-            .persist_runtime_event(&complete("root", vec![text("complete")]))
+            .persist_event_then_flush_due(&complete("root", vec![text("complete")]))
             .await
             .is_err());
         assert!(contents(&pool).await.is_empty());
-        p.persist_runtime_event(&full).await.unwrap();
+        p.persist_event_then_flush_due(&full).await.unwrap();
         assert_eq!(contents(&pool).await[0].1, "complete unstreamed answer");
         assert_eq!(
             p.take_transcript_status_change(false),

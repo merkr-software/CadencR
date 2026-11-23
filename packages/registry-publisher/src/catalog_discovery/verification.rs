@@ -101,6 +101,7 @@ fn verify_download(
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::rc::Rc;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -110,6 +111,8 @@ mod tests {
         bytes: &'a [u8],
         calls: Cell<usize>,
         delay: Duration,
+        /// Virtual time: reading for `delay` advances it instead of sleeping.
+        elapsed: Rc<Cell<Duration>>,
         replace_directory: bool,
     }
     impl DiscoveryReader for Reader<'_> {
@@ -123,7 +126,7 @@ mod tests {
             self.calls.set(self.calls.get() + 1);
             assert!(!remaining.is_zero());
             assert!(remaining <= Duration::from_secs(1));
-            std::thread::sleep(self.delay);
+            self.elapsed.set(self.elapsed.get() + self.delay);
             if self.replace_directory {
                 let parent = request.output.parent().unwrap();
                 std::fs::rename(parent, parent.with_extension("displaced")).unwrap();
@@ -147,6 +150,10 @@ mod tests {
         let (value, _) = super::super::fixture::setup_baseline();
         let previous = std::fs::read(value.directory.join("previous.json")).unwrap();
         for mode in ["zero", "body", "guard", "persistent", "cleanup"] {
+            // A virtual clock: only the reader, the guard and the pauses move
+            // it, so a loaded machine cannot make the first read eat the
+            // budget the guard mode needs, nor a fast one hide a missed deadline.
+            let elapsed = Rc::new(Cell::new(Duration::ZERO));
             let reader = Reader {
                 bytes: if mode == "body" {
                     value.snapshot.canonical_envelope()
@@ -159,13 +166,14 @@ mod tests {
                 } else {
                     Duration::ZERO
                 },
+                elapsed: Rc::clone(&elapsed),
                 replace_directory: mode == "cleanup",
             };
             let guards = Cell::new(0);
             let guard = |_deadline: Instant| {
                 guards.set(guards.get() + 1);
                 if mode == "guard" {
-                    std::thread::sleep(Duration::from_millis(400));
+                    elapsed.set(elapsed.get() + Duration::from_millis(400));
                 }
                 Ok(())
             };
@@ -183,10 +191,15 @@ mod tests {
                     300
                 }))
                 .attempts(24)
-                .clock(Instant::now)
-                .wait(|_| {})
+                .clock({
+                    let (base, elapsed) = (Instant::now(), Rc::clone(&elapsed));
+                    move || base + elapsed.get()
+                })
+                .wait({
+                    let elapsed = Rc::clone(&elapsed);
+                    move |pause| elapsed.set(elapsed.get() + pause)
+                })
                 .build();
-            let started = Instant::now();
             let result = verify_raw()
                 .snapshot(&value.snapshot)
                 .branch("main")
@@ -206,7 +219,9 @@ mod tests {
             }
             assert_eq!(reader.calls.get(), usize::from(mode != "zero"), "{mode}");
             assert_eq!(guards.get(), usize::from(mode == "guard"), "{mode}");
-            assert!(started.elapsed() < Duration::from_secs(2));
+            // Nothing waits past the deadline: at most the one step that
+            // overran it (a 400 ms read or guard) on top of the budget.
+            assert!(elapsed.get() <= Duration::from_millis(650), "{mode}");
             if mode != "cleanup" {
                 assert!(!std::fs::read_dir(&value.directory)
                     .unwrap()

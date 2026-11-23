@@ -13,7 +13,7 @@ interface UseAgentQuestionShortcutsParams {
   /** 0-based index for the "Other" highlight */
   otherShortcutIndex: number;
   handleOptionToggle: (option: string) => void;
-  handleOtherToggle: () => void;
+  handleOtherToggle?: () => void;
   handleNext: () => void;
   handleBack: () => void;
   handleForward: () => void;
@@ -51,13 +51,13 @@ function useQuestionChoiceShortcuts({
   useScopedShortcut(
     "q-other",
     (event) => {
-      if (!open || !currentQuestion?.options) return;
+      if (!open || !currentQuestion?.options || !handleOtherToggle) return;
       event.preventDefault();
       handleOtherToggle();
       flashHighlight(otherShortcutIndex);
     },
     "agent",
-    { enabled: open && !disableShortcuts },
+    { enabled: open && !disableShortcuts && !!handleOtherToggle },
     [
       open,
       disableShortcuts,

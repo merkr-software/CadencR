@@ -104,7 +104,7 @@ fn ensure_id_available(
     // runtime descriptor was retired. State, not the projection, owns the id.
     let managed = super::managed::installer::ManagedStorage::production();
     let provider_key = provider_identifier_key(provider_id);
-    for reserved in managed.provider_ids() {
+    for reserved in managed.provider_ids()? {
         if provider_identifier_key(&reserved) == provider_key
             && super::managed::history::read_state(&managed.state_path(&reserved)?, &reserved)?
                 .active

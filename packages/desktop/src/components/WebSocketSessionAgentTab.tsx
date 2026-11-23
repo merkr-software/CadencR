@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BotIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { AgentSession } from "@/components/agent-session";
-import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
+import { SessionInfoMcpServersProvider } from "@/components/agent-session/McpServersRow";
+import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -55,7 +56,8 @@ function useStableSessionCallbacks(controls: SessionControls) {
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
         applyThinkingEffort(latest.current, effort),
-      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+      onFastModeChange: (enabled: boolean): Promise<void> =>
+        changeFastMode(latest.current, enabled),
     }),
     [latest],
   );
@@ -104,7 +106,10 @@ function AgentTabContent({
   const sessionConfigControls = useSessionConfigControls(controls);
   const callbacks = useStableSessionCallbacks(controls);
   return (
-    <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
+    <SessionInfoMcpServersProvider
+      mcpServers={controls.ws.mcpServers}
+      error={controls.ws.mcpServersError}
+    >
       <AgentSession
         ref={refs.agent}
         agentType="session"
@@ -167,8 +172,8 @@ function AgentTabContent({
         disableShortcuts={!hotkeysEnabled}
         agentTabActive={agentVisible && hotkeysEnabled}
         claudeProfileSelection={controls.claudeProfile}
-        hasMore={controls.ws.hasMore}
-        onLoadOlder={controls.ws.loadOlderMessages}
+        historyGaps={controls.ws.historyGaps}
+        onFillHistoryGap={controls.ws.fillHistoryGap}
         onLoadPromptTurn={controls.ws.loadPromptTurn}
         worktreeMode={controls.worktreeMode}
         onWorktreeModeChange={controls.setWorktreeMode}
@@ -177,15 +182,21 @@ function AgentTabContent({
         worktreeProjectPath={data.projectPath}
         worktreeSelectedBranch={controls.selectedBranch}
         onWorktreeBranchChange={controls.setSelectedBranch}
+        openingPreview={args.openingPreview}
         className="h-full"
       />
     </SessionInfoMcpServersProvider>
   );
 }
 
-function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
+/**
+ * Fast mode, through the session command queue like the model and effort:
+ * a runtime override for providers that take one, `fast_mode.set` otherwise.
+ */
+export function changeFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
-    return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
+    controls.ws.queueRuntimeOverride({ fast_mode: enabled });
+    return Promise.resolve();
   }
   return controls.ws.setFastMode(enabled);
 }
@@ -198,7 +209,7 @@ export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
   return useMemo(
     () => ({
       label: "Agent",
-      Icon: BotIcon,
+      Icon: AgentIcon,
       shortcutId: "pane-agent",
       content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
     }),
@@ -246,7 +257,10 @@ function useAgentSendHandler(args: {
         controls.ws.compactSession();
         return;
       }
-      const isFirstPrompt = (data.session?.blocks?.length ?? 0) === 0;
+      const isFirstPrompt = isNewConversation(
+        data.session?.blocks?.length ?? 0,
+        data.session?.historyLoadFailure != null,
+      );
       const choice = resolveWorktreeChoice({
         mode: controls.worktreeMode,
         selectedBranch: controls.selectedBranch,

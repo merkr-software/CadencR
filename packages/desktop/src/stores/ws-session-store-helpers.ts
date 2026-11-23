@@ -64,10 +64,8 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
   if (!session.serverSessionId) return [];
 
   const envelopes: WsEnvelope[] = [];
-  // `session.init` already carries the FE-selected mode. Only a mode picked
-  // while it was in flight (no `serverSessionId` yet, so `setPermissionMode`
-  // held it as `pendingInitPermissionMode`) has to follow, before any queued
-  // `prompt.send` so the spawn picks it up. The current mode itself is never
+  // Replay an explicit choice the init reply has not acknowledged before any
+  // queued `prompt.send` so the spawn picks it up. The current mode is never
   // replayed: on a reconnect it is the confirmed value from before the
   // outage, and a setting changed meanwhile waits in the outbound queue —
   // replaying the old mode after it would silently undo the user's choice.

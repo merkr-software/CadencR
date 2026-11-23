@@ -11,6 +11,7 @@
 pub mod attribution;
 pub mod cache;
 pub mod models;
+pub(crate) mod provider_processes;
 pub mod repository;
 pub mod routes;
 pub mod scan;

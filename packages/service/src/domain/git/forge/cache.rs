@@ -1,23 +1,39 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use tokio::sync::RwLock;
 
-use super::provider::PrStatusSnapshot;
+use super::provider::{CiRollup, CiState, PrStatusSnapshot};
+use crate::error::AppError;
+use crate::shared::singleflight::Singleflight;
+
+mod publish_order;
+
+pub(super) use publish_order::PublishOrder;
 
 #[derive(Default)]
 pub struct ForgeStatusCache {
     by_feature: RwLock<HashMap<i64, PrStatusSnapshot>>,
     /// The branch each published snapshot's top-level proposal belongs to.
     current_branches: RwLock<HashMap<i64, String>>,
-    /// Serializes polls. Holds the ticket of the newest target resolution a
-    /// poll published, so a periodic poll that resolved its branches before
-    /// it does not republish an older view.
-    pub(super) refresh_lock: tokio::sync::Mutex<u64>,
+    /// Serializes full polls, network calls included, so concurrent sweeps
+    /// (periodic, forced, HTTP) never query the forges twice at once.
+    pub(super) sweep_lock: tokio::sync::Mutex<()>,
+    /// Held only to publish, by full and per-feature polls alike. Remembers
+    /// which target resolution each publication came from, so a poll that
+    /// resolved its branches earlier never republishes an older view.
+    pub(super) publish_order: tokio::sync::Mutex<PublishOrder>,
     /// Numbers target resolutions in the order they start.
     pub(super) resolve_tickets: AtomicU64,
+    /// Bumped by forced/on-demand refreshes so the background poller drops its
+    /// cached `next_due_at` (e.g., when auth changed or CI entered `Running`).
+    schedule_generation: AtomicU64,
     pub(super) forced: ForcedRefreshQueue,
+    /// Coalesces concurrent HTTP full-refresh callers onto one in-flight sweep.
+    pub(super) full_refresh: Singleflight<(), Result<(), AppError>>,
+    /// Coalesces concurrent HTTP single-feature callers onto one in-flight refresh.
+    pub(super) feature_refreshes: Singleflight<i64, Result<(), AppError>>,
 }
 
 /// Forced refreshes asked for with `request_refresh`. One worker runs them;
@@ -79,6 +95,54 @@ impl ForgeStatusCache {
         self.by_feature.read().await.get(&feature_id).cloned()
     }
 
+    /// Whether a snapshot was published for `feature_id`, without cloning it.
+    pub(super) async fn contains(&self, feature_id: i64) -> bool {
+        self.by_feature.read().await.contains_key(&feature_id)
+    }
+
+    /// Whether any proposal in `feature_id`'s published snapshot has checks
+    /// still running, without cloning the snapshot.
+    pub(super) async fn has_running_ci(&self, feature_id: i64) -> bool {
+        let running = |ci: Option<&CiRollup>| ci.is_some_and(|ci| ci.state == CiState::Running);
+        self.by_feature
+            .read()
+            .await
+            .get(&feature_id)
+            .is_some_and(|snapshot| {
+                running(snapshot.ci.as_ref())
+                    || snapshot
+                        .other_prs
+                        .iter()
+                        .any(|other| running(other.ci.as_ref()))
+            })
+    }
+
+    pub async fn is_fresh(&self, feature_id: i64, stale_ms: i64) -> bool {
+        self.by_feature
+            .read()
+            .await
+            .get(&feature_id)
+            .is_some_and(|status| {
+                chrono::Utc::now()
+                    .timestamp_millis()
+                    .saturating_sub(status.fetched_at)
+                    < stale_ms
+            })
+    }
+
+    pub async fn matches_feature_ids(&self, feature_ids: &HashSet<i64>) -> bool {
+        let cache = self.by_feature.read().await;
+        cache.len() == feature_ids.len() && feature_ids.iter().all(|id| cache.contains_key(id))
+    }
+
+    pub(super) fn bump_schedule_generation(&self) {
+        self.schedule_generation.fetch_add(1, Ordering::Release);
+    }
+
+    pub(super) fn schedule_generation(&self) -> u64 {
+        self.schedule_generation.load(Ordering::Acquire)
+    }
+
     /// Store a snapshot and report whether a semantically-visible field changed.
     /// `fetched_at` alone never emits a WebSocket event.
     pub async fn upsert(&self, snapshot: PrStatusSnapshot) -> bool {
@@ -138,6 +202,9 @@ impl ForgeStatusCache {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     use super::*;
 
     #[test]
@@ -170,5 +237,47 @@ mod tests {
         assert!(cache.note_current_branch(1, "fix/b").await);
         assert!(!cache.note_current_branch(1, "fix/b").await);
         assert!(cache.note_current_branch(1, "feature/a").await);
+    }
+
+    #[tokio::test]
+    async fn singleflight_coalesces_concurrent_http_refreshes_and_preserves_error_variants() {
+        let sf = Arc::new(Singleflight::<i64, Result<(), AppError>>::new());
+        let runs = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+
+        let mut tasks = Vec::new();
+        for _ in 0..4 {
+            let sf = Arc::clone(&sf);
+            let runs = Arc::clone(&runs);
+            let started = Arc::clone(&started);
+            let release = Arc::clone(&release);
+            tasks.push(tokio::spawn(async move {
+                sf.run(7, || {
+                    let runs = Arc::clone(&runs);
+                    let started = Arc::clone(&started);
+                    let release = Arc::clone(&release);
+                    async move {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        started.notify_one();
+                        release.notified().await;
+                        Err(AppError::database_busy("db locked"))
+                    }
+                })
+                .await
+            }));
+        }
+
+        started.notified().await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        release.notify_waiters();
+        for task in tasks {
+            let err = task.await.unwrap().unwrap_err();
+            assert!(
+                matches!(err, AppError::DatabaseBusy(_)),
+                "waiter must preserve structured AppError variant, got {err:?}"
+            );
+        }
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
     }
 }

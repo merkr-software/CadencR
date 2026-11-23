@@ -11,6 +11,19 @@ export interface FileDiffSection {
   hunks: string[];
 }
 
+const BINARY_HEADER_INSPECT_BYTES = 4096;
+const BINARY_FILES_DIFFER_RE = /(?:^|\n)Binary files .* differ(?:\n|$)/;
+const GIT_BINARY_PATCH_RE = /(?:^|\n)GIT binary patch(?:\n|$)/;
+
+/**
+ * Detects git binary diff markers within the first 4 KB header region so
+ * multi-megabyte text diffs never pay for a full-string regex scan.
+ */
+export function isBinaryPatch(patch: string): boolean {
+  const head = patch.slice(0, BINARY_HEADER_INSPECT_BYTES);
+  return BINARY_FILES_DIFFER_RE.test(head) || GIT_BINARY_PATCH_RE.test(head);
+}
+
 export function hasTextHunks(section: FileDiffSection): boolean {
   return section.hunks.some((hunk) => hunk.includes("\n@@"));
 }

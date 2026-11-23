@@ -243,10 +243,15 @@ describe("useWebSocketSession", () => {
     );
   });
 
-  it("settles persistedLoaded when the snapshot fetch fails so init is never blocked", async () => {
+  it("settles persistedLoaded with a visible failure when the snapshot fetch fails", async () => {
     const { useGetFeatureAgentState } = await import("@/api/generated");
     const mockedQuery = useGetFeatureAgentState as ReturnType<typeof vi.fn>;
-    mockedQuery.mockReturnValue({ data: undefined, isError: true });
+    mockedQuery.mockReturnValue({
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      error: new Error("database is locked"),
+    });
 
     renderHook(() => useWebSocketSession("snapshot-error", 42));
     await act(async () => {
@@ -255,10 +260,58 @@ describe("useWebSocketSession", () => {
     });
 
     // The auto-init effect gates on `persistedLoaded`; a failed snapshot must
-    // still settle the gate or `session.init` would hang forever.
-    expect(useWsSessionStore.getState().sessions["snapshot-error"]?.persistedLoaded).toBe(true);
+    // still settle the gate or `session.init` would hang forever, and the
+    // conversation must say its history is missing instead of reading empty.
+    const session = useWsSessionStore.getState().sessions["snapshot-error"];
+    expect(session?.persistedLoaded).toBe(true);
+    expect(session?.historyLoadFailure).toEqual({
+      message: "database is locked",
+      retrying: false,
+    });
 
-    // Restore the default mock return so later tests aren't affected.
+    mockedQuery.mockReturnValue({ data: undefined, isLoading: false });
+  });
+
+  it("retries a failed snapshot and clears the failure once it loads", async () => {
+    const { useGetFeatureAgentState } = await import("@/api/generated");
+    const mockedQuery = useGetFeatureAgentState as ReturnType<typeof vi.fn>;
+    const failed = {
+      data: undefined,
+      isError: true,
+      isFetching: false,
+      error: new Error("database is locked"),
+    };
+    mockedQuery.mockReturnValue(failed);
+    const { rerender } = renderHook(() => useWebSocketSession("snapshot-retry", 42));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // While the refetch is in flight the query still reports its old error:
+    // that stale error must not settle the gate again.
+    mockedQuery.mockReturnValue({ ...failed, isFetching: true });
+    act(() => useWsSessionStore.getState().retryPersistedLoad("snapshot-retry"));
+    rerender();
+    let session = useWsSessionStore.getState().sessions["snapshot-retry"];
+    expect(session?.persistedLoaded).toBe(false);
+    expect(session?.historyLoadFailure).toEqual({
+      message: "database is locked",
+      retrying: true,
+    });
+
+    mockedQuery.mockReturnValue({
+      data: { sessions: [] },
+      isError: false,
+      isFetching: false,
+    });
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    session = useWsSessionStore.getState().sessions["snapshot-retry"];
+    expect(session?.persistedLoaded).toBe(true);
+    expect(session?.historyLoadFailure).toBeNull();
+
     mockedQuery.mockReturnValue({ data: undefined, isLoading: false });
   });
 
@@ -2914,7 +2967,7 @@ describe("useWebSocketSession", () => {
       interrupt: result.current.interrupt,
       setPermissionMode: result.current.setPermissionMode,
       approvePlan: result.current.approvePlan,
-      loadOlderMessages: result.current.loadOlderMessages,
+      fillHistoryGap: result.current.fillHistoryGap,
     };
 
     // Streaming a chunk mutates this session's slice, which would otherwise
@@ -2952,7 +3005,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.interrupt).toBe(before.interrupt);
     expect(result.current.setPermissionMode).toBe(before.setPermissionMode);
     expect(result.current.approvePlan).toBe(before.approvePlan);
-    expect(result.current.loadOlderMessages).toBe(before.loadOlderMessages);
+    expect(result.current.fillHistoryGap).toBe(before.fillHistoryGap);
   });
 });
 

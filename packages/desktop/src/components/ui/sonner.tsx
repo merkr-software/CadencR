@@ -1,3 +1,4 @@
+import { memo, type CSSProperties } from "react";
 import { CircleAlert, CircleCheck, Info, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { useToastAnchorStore, type ToastAnchor } from "@/stores/toast-anchor-store";
@@ -29,8 +30,12 @@ const TOAST_ICONS: ToasterProps["icons"] = {
  * variant is carried by a tinted icon well (and a tinted rim for errors and
  * warnings). All chrome lives in `toast.css`. Per-call styling overrides at
  * the call site are forbidden — extend the styles there instead.
+ *
+ * Memoized: Sonner reads the document direction with `getComputedStyle` on
+ * every render, a forced style recalculation, so it renders only when the
+ * anchor moves, never because the overlays around it did.
  */
-function Toaster(props: ToasterProps) {
+const Toaster = memo(function Toaster(props: ToasterProps) {
   const anchor = useToastAnchorStore((s) => s.anchor);
   return (
     <Sonner
@@ -47,11 +52,11 @@ function Toaster(props: ToasterProps) {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-        } as React.CSSProperties
+        } as CSSProperties
       }
       {...props}
     />
   );
-}
+});
 
 export { Toaster };

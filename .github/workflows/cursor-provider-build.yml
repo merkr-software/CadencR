@@ -1,17 +1,26 @@
-name: Build and qualify Cursor release artifacts
+name: Build and qualify native provider release artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      provider:
+        description: Native provider to build and qualify
+        type: choice
+        default: cursor
+        options: [cursor, antigravity]
   push:
-    branches: ["release/cursor-*"]
-    tags: ["plugins/provider-cursor/v*"]
+    branches: ["release/cursor-*", "release/antigravity-*"]
+    tags: ["plugins/provider-cursor/v*", "plugins/provider-antigravity/v*"]
 
 permissions:
   contents: read
 
+env:
+  PROVIDER: ${{ inputs.provider || ((startsWith(github.ref, 'refs/heads/release/antigravity-') || startsWith(github.ref, 'refs/tags/plugins/provider-antigravity/')) && 'antigravity') || 'cursor' }}
+
 jobs:
   native:
-    name: Native Cursor connector (${{ matrix.target }})
+    name: Native provider connector (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -22,10 +31,11 @@ jobs:
             runner: macos-26
           - target: darwin-x86_64
             runner: macos-15-intel
+          # Match the glibc baseline of the Linux desktop release.
           - target: linux-aarch64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
           - target: linux-x86_64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
     env:
       pnpm_config_verify_deps_before_run: "false"
     steps:
@@ -42,24 +52,24 @@ jobs:
           corepack enable
           rustup toolchain install
       - name: Test native connector
-        run: pnpm rust -- test --locked -p cadencr-plugin-provider-cursor
+        run: pnpm rust -- test --locked -p "cadencr-plugin-provider-$PROVIDER"
       - name: Build distribution payload
-        run: node plugins/providers/cursor/scripts/package.mjs --directory "$RUNNER_TEMP/cursor-payload"
-      - name: Exercise exact distribution executable with scripted Cursor CLI
+        run: node "plugins/providers/$PROVIDER/scripts/package.mjs" --directory "$RUNNER_TEMP/provider-payload"
+      - name: Exercise exact distribution executable with scripted upstream CLI
         env:
           TARGET: ${{ matrix.target }}
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
-          python3 plugins/providers/cursor/scripts/qualify.py \
-            --binary "$RUNNER_TEMP/cursor-payload/bin/provider" \
+          python3 "plugins/providers/$PROVIDER/scripts/qualify.py" \
+            --binary "$RUNNER_TEMP/provider-payload/bin/provider" \
             --target "$TARGET" --source-commit "$SOURCE_COMMIT" \
-            --output "$RUNNER_TEMP/cursor-payload/qualification.json"
+            --output "$RUNNER_TEMP/provider-payload/qualification.json"
       # No credentials, environment, signing or publication in this workflow.
       # The protected author workflow binds each artifact to this exact run/SHA.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cursor-native-${{ matrix.target }}-${{ github.sha }}
-          path: ${{ runner.temp }}/cursor-payload/
+          name: ${{ env.PROVIDER }}-native-${{ matrix.target }}-${{ github.sha }}
+          path: ${{ runner.temp }}/provider-payload/
           if-no-files-found: error
           retention-days: 30
 
@@ -75,21 +85,23 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: cursor-native-*-${{ github.sha }}
-          path: ${{ runner.temp }}/cursor-native
+          pattern: ${{ env.PROVIDER }}-native-*-${{ github.sha }}
+          path: ${{ runner.temp }}/provider-native
       - name: Package and validate using the reviewed released CLI
         env:
           SOURCE_COMMIT: ${{ github.sha }}
         run: |
           sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
-            scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
-          python3 scripts/cursor_release_prepare.py \
-            --input "$RUNNER_TEMP/cursor-native" --output "$RUNNER_TEMP/cursor-candidate" \
+            scripts/official-plugin-author-cli.env "$RUNNER_TEMP/provider-cli" > /dev/null
+          python3 scripts/native_provider_release_prepare.py --provider "$PROVIDER" \
+            --input "$RUNNER_TEMP/provider-native" --output "$RUNNER_TEMP/provider-candidate" \
             --source-repo "$GITHUB_WORKSPACE" --source-commit "$SOURCE_COMMIT" \
-            --cli "$RUNNER_TEMP/cursor-cli/cadencr"
+            --cli "$RUNNER_TEMP/provider-cli/cadencr"
+          "$RUNNER_TEMP/provider-cli/cadencr" plugin inspect-release \
+            --request "$RUNNER_TEMP/provider-candidate/request.json" --directory "$RUNNER_TEMP/provider-candidate" > /dev/null
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cursor-release-candidate-${{ github.sha }}
-          path: ${{ runner.temp }}/cursor-candidate/
+          name: ${{ env.PROVIDER }}-release-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/provider-candidate/
           if-no-files-found: error
           retention-days: 30

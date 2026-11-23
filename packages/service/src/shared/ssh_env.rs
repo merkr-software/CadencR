@@ -1,3 +1,4 @@
+use crate::shared::discard::cleanup;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -103,12 +104,15 @@ async fn launchctl_ssh_auth_sock() -> Option<PathBuf> {
     let raw = match timeout(Duration::from_millis(500), read).await {
         Ok(Some(raw)) => raw,
         _ => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            cleanup(child.kill().await, "kill the timed-out launchctl probe");
+            cleanup(child.wait().await, "reap the timed-out launchctl probe");
             return None;
         }
     };
-    let _ = timeout(Duration::from_millis(100), child.wait()).await;
+    cleanup(
+        timeout(Duration::from_millis(100), child.wait()).await,
+        "reap the launchctl probe",
+    );
     let path = PathBuf::from(raw);
     is_launchd_listeners_socket(&path).then_some(path)
 }

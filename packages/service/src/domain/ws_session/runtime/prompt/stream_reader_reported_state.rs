@@ -92,8 +92,7 @@ impl StreamReaderTask {
         .await
         {
             Ok(Some(block)) => {
-                let _ = self
-                    .send_and_mirror(transcript_block_message(self.db_session_id, block))
+                self.publish(transcript_block_message(self.db_session_id, block))
                     .await;
             }
             Ok(None) => {}

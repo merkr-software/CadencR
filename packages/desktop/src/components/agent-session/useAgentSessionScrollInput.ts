@@ -6,8 +6,8 @@ import {
   canScrollStream,
   findStreamItemList,
   isVerticalScrollbarPointer,
-  HISTORY_SCROLL_TOP_PX,
   type ScrollRef,
+  USER_SCROLL_EVENTS,
 } from "./agent-session-scroll-utils";
 import type { ScrollAnchorGuard } from "./stream-scroll-anchor";
 import type { StreamScrollWriter } from "./stream-scroll-writer";
@@ -20,13 +20,14 @@ interface ScrollInputParams {
   writer: StreamScrollWriter;
   /** Attached to the scroller alongside the height-pin observer. */
   anchorGuard: Pick<ScrollAnchorGuard, "attach" | "detach">;
-  historyLoadArmedRef: React.MutableRefObject<boolean>;
   lastScrollTopRef: React.MutableRefObject<number>;
   userScrollIntentRef: React.MutableRefObject<boolean>;
   suppressScrollIntentRef: React.MutableRefObject<boolean>;
-  armUserScrollIntent: () => void;
   setAutoScrollEnabled: (enabled: boolean) => void;
-  requestOlderHistory: () => void;
+  /** Any scroll of the transcript: a history gap may have come near the view. */
+  onScrollActivity: () => void;
+  /** The reader's own input (wheel, touch, pointer, key) reached the transcript. */
+  onUserInput: () => void;
 }
 
 interface Disconnectable {
@@ -40,6 +41,7 @@ interface ScrollContainerRefParams {
   anchorGuard: ScrollInputParams["anchorGuard"];
   lastScrollTopRef: ScrollInputParams["lastScrollTopRef"];
   growthObserverRef: React.MutableRefObject<Disconnectable | null>;
+  onUserInput: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
   onPointerDown: (event: PointerEvent) => void;
   onWheel: (event: WheelEvent) => void;
@@ -61,6 +63,7 @@ function useScrollContainerRef({
   anchorGuard,
   lastScrollTopRef,
   growthObserverRef,
+  onUserInput,
   onKeyDown,
   onPointerDown,
   onWheel,
@@ -79,6 +82,7 @@ function useScrollContainerRef({
         previous.removeEventListener("scroll", onScroll);
         previous.removeEventListener("touchstart", onTouchStart);
         previous.removeEventListener("touchmove", onTouchMove);
+        for (const type of USER_SCROLL_EVENTS) previous.removeEventListener(type, onUserInput);
       }
       growthObserverRef.current?.disconnect();
       growthObserverRef.current = null;
@@ -93,6 +97,9 @@ function useScrollContainerRef({
         element.addEventListener("scroll", onScroll, { passive: true });
         element.addEventListener("touchstart", onTouchStart, { passive: true });
         element.addEventListener("touchmove", onTouchMove, { passive: true });
+        for (const type of USER_SCROLL_EVENTS) {
+          element.addEventListener(type, onUserInput, { passive: true });
+        }
         writer.attach(element);
         growthObserverRef.current = observeListGrowth(element, stickRef, writer);
         anchorGuard.attach(element, writer);
@@ -107,6 +114,7 @@ function useScrollContainerRef({
       onScroll,
       onTouchMove,
       onTouchStart,
+      onUserInput,
       onWheel,
       scrollerElRef,
       stickRef,
@@ -116,8 +124,8 @@ function useScrollContainerRef({
 }
 
 /**
- * Owns the raw DOM input listeners that disengage bottom-stick and arm
- * history loading. Split out of `useAgentSessionScroll` to keep that file
+ * Owns the raw DOM input listeners that disengage bottom-stick and wake the
+ * history gap filler. Split out of `useAgentSessionScroll` to keep that file
  * under the 400-line cap. Synchronous `wheel`/`touchmove`-up disengage fires
  * before the browser repaints, so a streaming-token re-anchor in the same
  * commit can't undo the user's scroll. We only disengage when the viewport
@@ -129,16 +137,18 @@ export function useAgentSessionScrollInput({
   stickRef,
   writer,
   anchorGuard,
-  historyLoadArmedRef,
   lastScrollTopRef,
   userScrollIntentRef,
   suppressScrollIntentRef,
-  armUserScrollIntent,
   setAutoScrollEnabled,
-  requestOlderHistory,
+  onScrollActivity,
+  onUserInput,
 }: ScrollInputParams): ScrollRef {
   const touchStartYRef = useRef(0);
   const growthObserverRef = useRef<Disconnectable | null>(null);
+  const armUserScrollIntent = useCallback((): void => {
+    userScrollIntentRef.current = true;
+  }, [userScrollIntentRef]);
 
   const onWheel = useCallback(
     (e: WheelEvent): void => {
@@ -146,19 +156,17 @@ export function useAgentSessionScrollInput({
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el)) return;
       armUserScrollIntent();
-      historyLoadArmedRef.current = true;
       setAutoScrollEnabled(false);
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent, setAutoScrollEnabled],
+    [scrollerElRef, armUserScrollIntent, setAutoScrollEnabled],
   );
   const onPointerDown = useCallback(
     (e: PointerEvent): void => {
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el) || !isVerticalScrollbarPointer(el, e)) return;
-      historyLoadArmedRef.current = true;
       armUserScrollIntent();
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent],
+    [scrollerElRef, armUserScrollIntent],
   );
   const onKeyDown = useCallback(
     (e: KeyboardEvent): void => {
@@ -177,14 +185,14 @@ export function useAgentSessionScrollInput({
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el)) return;
       armUserScrollIntent();
-      historyLoadArmedRef.current = true;
       setAutoScrollEnabled(false);
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent, setAutoScrollEnabled],
+    [scrollerElRef, armUserScrollIntent, setAutoScrollEnabled],
   );
   const onScroll = useCallback((): void => {
     const el = scrollerElRef.current;
     if (!el) return;
+    onScrollActivity();
     const currentScrollTop = el.scrollTop;
     const previousScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = currentScrollTop;
@@ -192,18 +200,13 @@ export function useAgentSessionScrollInput({
     if (suppressScrollIntentRef.current || !canScrollStream(el)) return;
     if (!userScrollIntentRef.current) return;
     const isScrollingUp = currentScrollTop < previousScrollTop - 1;
-    if (!isScrollingUp) return;
-
-    historyLoadArmedRef.current = true;
-    setAutoScrollEnabled(false);
-    if (currentScrollTop <= HISTORY_SCROLL_TOP_PX) requestOlderHistory();
+    if (isScrollingUp) setAutoScrollEnabled(false);
   }, [
     scrollerElRef,
     lastScrollTopRef,
+    onScrollActivity,
     suppressScrollIntentRef,
     userScrollIntentRef,
-    historyLoadArmedRef,
-    requestOlderHistory,
     setAutoScrollEnabled,
   ]);
 
@@ -214,6 +217,7 @@ export function useAgentSessionScrollInput({
     anchorGuard,
     lastScrollTopRef,
     growthObserverRef,
+    onUserInput,
     onKeyDown,
     onPointerDown,
     onWheel,

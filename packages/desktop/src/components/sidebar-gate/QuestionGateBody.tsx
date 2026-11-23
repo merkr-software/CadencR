@@ -26,7 +26,7 @@ interface QuestionGateBodyProps {
 function pressDigit(form: AgentQuestionForm, digit: number): boolean {
   const question = form.currentQuestion;
   const options = question?.options ?? [];
-  if (digit === options.length + 1) {
+  if (form.handleOtherToggle && digit === options.length + 1) {
     form.handleOtherToggle();
     form.flashHighlight(form.otherShortcutIndex);
     return true;
@@ -152,7 +152,7 @@ export function QuestionGateBody({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const question = form.currentQuestion;
-  const typing = form.showOther || !form.hasOptions;
+  const typing = form.showFreeText;
   const mounted = useRef(false);
 
   useInitialFocus(rootRef, "[data-gate-options] button", autoFocus && !typing, form.currentIndex);

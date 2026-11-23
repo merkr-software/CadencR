@@ -2,7 +2,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { PROVIDER_IDS } from "@/lib/providers";
-import { SessionInfoChip, SessionInfoMcpServersProvider } from "./SessionInfoChip";
+import { SessionInfoChip } from "./SessionInfoChip";
+import { SessionInfoMcpServersProvider } from "./McpServersRow";
 
 beforeAll(() => {
   Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -66,6 +67,56 @@ describe("SessionInfoChip", () => {
     await user.click(screen.getByRole("button", { name: /session info/i }));
 
     expect(screen.getByText("MCPs not reported yet")).toBeInTheDocument();
+  });
+
+  it("says the MCP servers could not be read instead of reporting none", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SessionInfoMcpServersProvider
+        mcpServers={[]}
+        error="The agent's MCP servers could not be read: timed out"
+      >
+        <SessionInfoChip
+          runtimeProvider={PROVIDER_IDS.CODEX_CLI}
+          runtimeSessionId="thread-123"
+          projectPath="/tmp/project"
+          isRunning={false}
+          onPause={vi.fn()}
+          chipClass="chip"
+        />
+      </SessionInfoMcpServersProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /session info/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The agent's MCP servers could not be read: timed out",
+    );
+    expect(screen.queryByText("No MCP servers reported")).not.toBeInTheDocument();
+  });
+
+  it("shows an MCP read failure before the runtime has an id", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SessionInfoMcpServersProvider
+        mcpServers={[]}
+        error="The agent's MCP servers could not be read"
+      >
+        <SessionInfoChip
+          runtimeProvider={PROVIDER_IDS.CODEX_CLI}
+          projectPath="/tmp/project"
+          isRunning={false}
+          onPause={vi.fn()}
+          chipClass="chip"
+        />
+      </SessionInfoMcpServersProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /session info/i }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("could not be read");
   });
 
   it("bounds the popover and virtualizes a long MCP server list", async () => {

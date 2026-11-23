@@ -45,36 +45,36 @@ export function canonicalUserMessageBlock(message: CanonicalUserMessage): AgentB
 export function upsertCanonicalUserMessage(
   blocks: AgentBlockData[],
   message: CanonicalUserMessage,
+  atSubmission = false,
 ): AgentBlockData[] {
   const incoming = canonicalUserMessageBlock(message);
   const existingIndex = blocks.findIndex((block) => sameMessageIdentity(block, incoming));
   if (existingIndex === -1) {
-    return movePendingPromptBlocksToTail(insertByDatabaseOrder(blocks, incoming));
+    return orderPendingPrompts(insertByDatabaseOrder(blocks, incoming), atSubmission);
   }
 
   const existing = blocks[existingIndex];
   const merged = mergeCanonicalUserBlock(existing, incoming);
-  if (canonicalBlocksEqual(existing, merged)) return movePendingPromptBlocksToTail(blocks);
+  if (canonicalBlocksEqual(existing, merged)) return orderPendingPrompts(blocks, atSubmission);
   const next = [...blocks];
   next[existingIndex] = merged;
-  return movePendingPromptBlocksToTail(next);
+  return orderPendingPrompts(next, atSubmission);
 }
 
 /** Merge REST/reconnect/pagination blocks into live state without duplicate rows. */
 export function mergeCanonicalBlocks(
   existing: AgentBlockData[],
   incoming: AgentBlockData[],
+  atSubmission = false,
 ): AgentBlockData[] {
   if (incoming.length === 0) return existing;
   existing = recoverToolMessageIds(existing, incoming);
   const indexes = buildIdentityIndexes(existing);
   let working = existing;
-  let changed = false;
   for (const block of incoming) {
     const matchIndex = findIdentityIndex(indexes, working, block);
     if (matchIndex === -1) {
-      if (!changed) working = [...existing];
-      changed = true;
+      if (working === existing) working = [...existing];
       const index = working.length;
       working.push(block);
       registerIdentity(indexes, block, index);
@@ -85,29 +85,51 @@ export function mergeCanonicalBlocks(
       const held = enrichFileChangeCall(original, block);
       if (!block.childBlocks?.length && held === original) continue;
       const mergedChildren = block.childBlocks?.length
-        ? mergeCanonicalBlocks(held.childBlocks ?? [], block.childBlocks)
+        ? mergeCanonicalBlocks(held.childBlocks ?? [], block.childBlocks, atSubmission)
         : held.childBlocks;
       if (mergedChildren === held.childBlocks && held === original) continue;
-      if (!changed) working = [...existing];
-      changed = true;
+      if (working === existing) working = [...existing];
       working[matchIndex] =
         mergedChildren === held.childBlocks ? held : { ...held, childBlocks: mergedChildren };
       continue;
     }
     const nextBlock = mergeCanonicalUserBlock(working[matchIndex], block);
     if (canonicalBlocksEqual(working[matchIndex], nextBlock)) continue;
-    if (!changed) working = [...existing];
-    changed = true;
+    if (working === existing) working = [...existing];
     working[matchIndex] = nextBlock;
     registerIdentity(indexes, nextBlock, matchIndex);
   }
-  if (!changed) return movePendingPromptBlocksToTail(existing);
-  const additions = working.slice(existing.length);
+  // New rows are inserted in database order. Only providers that pin pending
+  // prompts to the tail need a second placement pass after a page merge.
   const merged =
-    additions.length === 0
+    working.length === existing.length
       ? working
-      : mergeAdditionsByDatabaseOrder(working.slice(0, existing.length), additions);
-  return movePendingPromptBlocksToTail(merged);
+      : mergeAdditionsByDatabaseOrder(
+          working.slice(0, existing.length),
+          working.slice(existing.length),
+        );
+  return atSubmission ? merged : movePendingPromptBlocksToTail(merged);
+}
+
+export function orderPendingPrompts(
+  blocks: AgentBlockData[],
+  atSubmission = false,
+): AgentBlockData[] {
+  if (!atSubmission) return movePendingPromptBlocksToTail(blocks);
+  // A REST snapshot can arrive before session.initialized reveals the receipt
+  // policy. Restore any pending rows already pinned past a later database row.
+  let greatestId = 0;
+  for (const block of blocks) {
+    const id = blockMessageDbId(block);
+    if (id === null) continue;
+    if (id < greatestId && block.promptDeliveryState === "pending_agent") {
+      const pending = blocks.filter((row) => row.promptDeliveryState === "pending_agent");
+      const other = blocks.filter((row) => row.promptDeliveryState !== "pending_agent");
+      return mergeAdditionsByDatabaseOrder(other, pending);
+    }
+    greatestId = Math.max(greatestId, id);
+  }
+  return blocks;
 }
 
 function enrichFileChangeCall(held: AgentBlockData, incoming: AgentBlockData): AgentBlockData {

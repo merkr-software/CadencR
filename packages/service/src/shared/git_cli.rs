@@ -3,16 +3,32 @@ use std::path::Path;
 use crate::error::AppError;
 
 mod background;
+mod batch_check;
 mod read_only;
+mod redact;
 mod spawn;
 pub mod version;
 
 pub use background::{
-    git_ref_resolves_background, run_git_background, run_git_safe_background,
-    run_git_safe_refs_background,
+    git_ref_resolves_background, head_commit_exists, head_is_unborn, ref_exists_exactly,
+    run_git_background, run_git_background_bounded, run_git_background_head_bytes,
+    run_git_background_stream, run_git_background_with_stdin, run_git_background_within,
+    run_git_output_background, run_git_probe_background, run_git_safe_background,
+    run_git_safe_background_bounded, run_git_safe_background_within, run_git_safe_refs_background,
+    run_git_safe_refs_background_bounded, BoundedGitOutput, GitReadDeadline,
 };
+pub(crate) use batch_check::{parse_batch_check_line, BatchCheckEntry};
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
+use redact::redact_paths;
 pub use spawn::{git_command, git_std_command};
+
+/// Convert owned UTF-8 bytes into a `String` without copying in the common
+/// valid-UTF-8 case, falling back to lossy replacement only when invalid bytes
+/// are present. Avoids doubling peak memory on multi-MB diffs and outputs.
+pub(crate) fn bytes_to_string_lossy(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+}
 
 /// Run a git command with the given arguments in the specified working directory.
 ///
@@ -90,7 +106,7 @@ pub async fn run_git_with_env(
         return Err(git_failure(args, &String::from_utf8_lossy(&output.stderr)));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(bytes_to_string_lossy(output.stdout))
 }
 
 /// Make `dir` a repository whose first commit holds everything in it, as
@@ -238,30 +254,11 @@ pub fn guard_positionals(positionals: &[&str]) -> Result<(), AppError> {
 /// mutation for `.git/index.lock`.
 async fn run_raw(args: &[&str], cwd: &Path) -> Result<String, AppError> {
     let stdout = run_raw_bytes(args, cwd).await?;
-    Ok(String::from_utf8_lossy(&stdout).to_string())
+    Ok(bytes_to_string_lossy(stdout))
 }
 
 async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
-    run_raw_bytes_with(git_command(), args, cwd).await
-}
-
-/// [`run_raw`] for observational reads: the Git child dies with the future,
-/// so a cancelled refresh (an unsubscribe, a disconnect, a shutdown) leaves no
-/// Git process behind to contend with the next one. Never for mutations,
-/// which must run to completion.
-async fn run_raw_observer(args: &[&str], cwd: &Path) -> Result<String, AppError> {
-    let mut command = git_command();
-    command.kill_on_drop(true);
-    let stdout = run_raw_bytes_with(command, args, cwd).await?;
-    Ok(String::from_utf8_lossy(&stdout).to_string())
-}
-
-async fn run_raw_bytes_with(
-    mut command: tokio::process::Command,
-    args: &[&str],
-    cwd: &Path,
-) -> Result<Vec<u8>, AppError> {
-    let output = command
+    let output = git_command()
         .args(args)
         .current_dir(cwd)
         .output()
@@ -309,7 +306,7 @@ pub async fn run_git_capture(
         return Err(AppError::git_rejected(scrubbed));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(bytes_to_string_lossy(output.stdout))
 }
 
 /// Replace the user's home directory with `~` so we don't leak the real
@@ -323,14 +320,6 @@ fn scrub_home_prefix(s: &str) -> String {
         return s.to_string();
     }
     s.replace(home_str.as_ref(), "~")
-}
-
-/// Replace absolute paths with `<path>`.
-fn redact_paths(text: &str) -> String {
-    use regex_lite::Regex;
-    static PATH_RE: std::sync::LazyLock<Regex> =
-        std::sync::LazyLock::new(|| Regex::new(r"(/[a-zA-Z0-9_.~\-]+){2,}").unwrap());
-    PATH_RE.replace_all(text, "<path>").into_owned()
 }
 
 const GIT_STDERR_MAX_CHARS: usize = 200;

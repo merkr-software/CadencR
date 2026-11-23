@@ -98,7 +98,7 @@ export function SidebarLensList(props: SidebarLensListProps): ReactElement {
           <div role="listitem">
             <PinnedConversationRow
               feature={entry.feature}
-              activeFeatureId={activeFeatureId}
+              isActive={entry.feature.id === activeFeatureId}
               {...crossProjectRowData(activity, portsByFeatureId, entry.feature.id)}
               onNavigate={navigate}
             />

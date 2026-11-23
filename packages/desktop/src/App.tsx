@@ -9,11 +9,13 @@ import { AmbientBackground } from "./components/AmbientBackground";
 import { AnimationsProvider } from "./lib/animations/AnimationsProvider";
 import { MonoFontProvider } from "@/lib/fonts/MonoFontProvider";
 import { useLinkMenuListener } from "./components/links/useLinkMenuListener";
+import { useConversationPreloadIntent } from "./hooks/useConversationPreloadIntent";
 
 const PERSIST_MAX_AGE_MS = 1000 * 60 * 60 * 24; // 24h
 
 export default function App() {
   useLinkMenuListener();
+  useConversationPreloadIntent();
   return (
     <PersistQueryClientProvider
       client={queryClient}

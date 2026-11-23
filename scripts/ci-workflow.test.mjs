@@ -26,13 +26,19 @@ test("PR runs cancel superseded runs; branch pushes never do", () => {
   assert.equal(ci.concurrency["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}");
 });
 
-test("every Node setup uses the repo's pinned Node version", () => {
+test("Node setup follows the repo pin and preserves the LSP runtime qualification baseline", () => {
   for (const name of readdirSync(workflowsDir).filter((file) => file.endsWith(".yml"))) {
     for (const [jobId, job] of Object.entries(read(name).jobs)) {
-      for (const step of job.steps ?? []) {
-        if (!step.uses?.startsWith("actions/setup-node@")) continue;
-        assert.equal(step.with?.["node-version"], undefined, `${name}#${jobId} pins node-version`);
-        assert.equal(step.with?.["node-version-file"], ".nvmrc", `${name}#${jobId}`);
+      const steps = (job.steps ?? []).filter((step) => step.uses?.startsWith("actions/setup-node@"));
+      const qualifiesLspRuntime = name === "lsp-catalog-qualification.yml" && jobId === "runtime";
+      if (qualifiesLspRuntime) assert.equal(steps.length, 1, "setup Node for LSP qualification");
+      const expected = qualifiesLspRuntime
+        ? { "node-version": "22.19.0" }
+        : { "node-version-file": ".nvmrc" };
+      for (const step of steps) {
+        for (const key of ["node-version", "node-version-file"]) {
+          assert.equal(step.with?.[key], expected[key], `${name}#${jobId} ${key}`);
+        }
       }
     }
   }

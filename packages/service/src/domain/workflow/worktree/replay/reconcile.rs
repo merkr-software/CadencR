@@ -20,9 +20,7 @@ pub(super) async fn replay_or_reconcile_setup(
     sender: &WsSender,
 ) -> Result<(), String> {
     loop {
-        let log = get_setting(read_pool, feature_id, "worktree_setup_log")
-            .await
-            .unwrap_or_default();
+        let log = super::setup_log(read_pool, feature_id).await?;
         if setup_runs
             .if_active(feature_id, || {
                 send_running(feature_id, sender);
@@ -50,21 +48,19 @@ async fn reconcile_claimed_setup(
 ) -> Result<(), String> {
     let refreshed_step = get_setting(read_pool, feature_id, "worktree_setup_step")
         .await
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "created".to_string());
     if refreshed_step == "ready" {
-        let log = get_setting(read_pool, feature_id, "worktree_setup_log")
-            .await
-            .unwrap_or_default();
+        let log = super::setup_log(read_pool, feature_id).await?;
         permit.finish(|| send_ready(feature_id, sender, &log));
         return Ok(());
     }
     if refreshed_step == "setup_error" {
         let error = get_setting(read_pool, feature_id, "worktree_setup_error")
             .await
+            .map_err(|e| e.to_string())?
             .unwrap_or_default();
-        let log = get_setting(read_pool, feature_id, "worktree_setup_log")
-            .await
-            .unwrap_or_default();
+        let log = super::setup_log(read_pool, feature_id).await?;
         permit.finish(|| send_error(feature_id, sender, &error, &log));
         return Ok(());
     }
@@ -72,9 +68,7 @@ async fn reconcile_claimed_setup(
         return Ok(());
     }
 
-    let log = get_setting(read_pool, feature_id, "worktree_setup_log")
-        .await
-        .unwrap_or_default();
+    let log = super::setup_log(read_pool, feature_id).await?;
     match resolve_setup_commands(read_pool, feature_id).await {
         Ok(None) => finish_ready(write_pool, feature_id, sender, permit, &log, None).await,
         Ok(Some(_)) => {
@@ -143,6 +137,7 @@ mod tests {
         assert_eq!(
             get_setting(&pool, 1, "worktree_setup_step")
                 .await
+                .unwrap()
                 .as_deref(),
             Some("ready")
         );
@@ -166,6 +161,7 @@ mod tests {
         assert_eq!(
             get_setting(&pool, 1, "worktree_setup_step")
                 .await
+                .unwrap()
                 .as_deref(),
             Some("setup_error")
         );

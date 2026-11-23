@@ -52,6 +52,23 @@ describe("TranscriptMarker", () => {
     expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
   });
 
+  it("names background work a restart stopped after the turn ended", () => {
+    const context = renderLatest({
+      id: "msg-12",
+      type: "turn_interrupted",
+      content: "restart_background",
+    });
+
+    const marker = screen.getByRole("note");
+    expect(marker).toHaveAttribute("data-turn-interrupted", "background");
+    expect(marker).toHaveTextContent("Background tasks stopped by a Cadencr restart");
+    screen.getByRole("button", { name: "Resume" }).click();
+    // Not the bare "continue": the agent's turn had ended normally.
+    expect(context.sendPrompt).toHaveBeenCalledWith(
+      expect.stringContaining("stopped the background work"),
+    );
+  });
+
   it("still offers Continue on an error that ended the turn", () => {
     renderLatest({ id: "msg-9", type: "error", content: "boom", errorCode: "SDK_ERROR" });
 

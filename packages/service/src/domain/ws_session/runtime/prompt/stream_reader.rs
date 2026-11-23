@@ -25,6 +25,7 @@ pub(crate) fn spawn_stream_reader(
     cleanup_session_on_end: bool,
 ) {
     let shutdown_runtime = runtime_session_handle.clone();
+    let signals = crate::domain::ws_session::stream_readers::ReaderSignals::default();
     let task = StreamReaderTask {
         db_session_id,
         feature_id,
@@ -40,8 +41,15 @@ pub(crate) fn spawn_stream_reader(
         provider_context_window,
         app_state,
         cleanup_session_on_end,
+        row_read_failed: Default::default(),
+        signals: signals.clone(),
     };
-    crate::domain::ws_session::stream_readers::spawn(db_session_id, shutdown_runtime, async move {
-        task.run().await;
-    });
+    crate::domain::ws_session::stream_readers::spawn(
+        db_session_id,
+        shutdown_runtime,
+        signals,
+        async move {
+            task.run().await;
+        },
+    );
 }

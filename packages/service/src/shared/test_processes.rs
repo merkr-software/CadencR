@@ -4,7 +4,16 @@
 //! already have ended it, so the guard never signals the test runner's own
 //! process or process group, whatever a reused id now points at.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
+
+/// A child that stays alive while a test exercises process cleanup.
+pub(crate) fn sleeping_child_command() -> tokio::process::Command {
+    let mut command = tokio::process::Command::new("sleep");
+    command.arg("30").stdin(Stdio::null()).kill_on_drop(true);
+    command
+}
 
 /// SIGKILLs, once dropped, the processes and process groups it was given,
 /// so a test that fails before its own cleanup does not leave a `sleep`
@@ -63,9 +72,81 @@ impl Drop for KillOnDrop {
     }
 }
 
+/// Publish `pid` at `path` in one step: written next to it, then renamed
+/// over it. A test polling the file sees either nothing or the whole pid,
+/// never the empty file a plain `fs::write` creates before writing.
+pub fn publish_pid(path: &Path, pid: u32) -> std::io::Result<()> {
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    std::fs::write(&partial, pid.to_string())?;
+    std::fs::rename(&partial, path)
+}
+
+/// The pid a helper process publishes at `path` with [`publish_pid`], or
+/// `None` if it did not within `budget`. Returns as soon as the file appears:
+/// the budget only bounds a helper that never gets there.
+pub async fn wait_for_published_pid(path: &Path, budget: Duration) -> Option<libc::pid_t> {
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            if let Ok(pid) = contents.trim().parse() {
+                return Some(pid);
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Whether `pid` is gone within `budget` (an orphan is reaped by init
+/// asynchronously). Returns as soon as it is.
+pub async fn wait_until_gone(pid: libc::pid_t, budget: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + budget;
+    // SAFETY: kill(2) with signal 0 only probes the pid.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_published_pid_is_read_whole_and_a_missing_one_times_out() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("helper.pid");
+        assert_eq!(
+            wait_for_published_pid(&path, Duration::from_millis(50)).await,
+            None
+        );
+        // What a reader polling a plain `fs::write` can observe: the file
+        // exists but is still empty. That is "not yet", not a parse failure.
+        std::fs::write(&path, "").unwrap();
+        let writer = tokio::spawn({
+            let path = path.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                publish_pid(&path, 4242).unwrap();
+            }
+        });
+        assert_eq!(
+            wait_for_published_pid(&path, Duration::from_secs(5)).await,
+            Some(4242)
+        );
+        writer.await.unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(leftovers, ["helper.pid"], "no partial file left behind");
+    }
 
     #[test]
     fn kills_processes_and_groups_it_holds() {

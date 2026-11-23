@@ -7,6 +7,7 @@ use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::protocol::{
     RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope,
 };
+use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 use crate::error::AppError;
 use serde_json::Value;
 
@@ -59,6 +60,10 @@ pub(crate) async fn handle_runtime_overrides_set(
     if let Err(error) = apply_patch(&mut overrides, patch) {
         return send_error(sender, &envelope.id, "INVALID_OVERRIDES", &error);
     }
+    // Model validation and profile effective-config resolution can run slow
+    // CLI probes without starting a turn; never hold up subsequent controls.
+    crate::domain::ws_session::handler::let_controls_through();
+
     if let Some(requested) = switched_model(patch, &previous_overrides) {
         if let Err((code, message)) = resolve_switched_model(
             app_state,
@@ -170,8 +175,9 @@ async fn resolve_switched_model(
     )
     .await
     .map_err(|error| ("INVALID_OVERRIDES", error.to_string()))?;
-    overrides.thinking_effort =
-        target_thinking_effort(&app_state.read_pool, provider, &entry).await;
+    overrides.thinking_effort = target_thinking_effort(&app_state.read_pool, provider, &entry)
+        .await
+        .map_err(|error| (SETTINGS_READ_FAILED, error.to_string()))?;
     overrides.model = Some(model);
     Ok(())
 }

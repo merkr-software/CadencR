@@ -1,6 +1,6 @@
 [package]
 name = "cadencr-service"
-version = "0.16.2"
+version = "0.16.3"
 edition = "2021"
 license.workspace = true
 
@@ -126,3 +126,7 @@ tower = { version = "0.5", features = ["util"] }
 # native-tls.
 reqwest = { version = "0.12", features = ["rustls-tls"] }
 tokio-tungstenite = "0.30"
+# Paused-clock tests (`start_paused`, `time::advance`) for timer-driven code
+# such as the streaming delta flush window and background git read deadlines.
+# Dev-only, like the feature above.
+tokio = { version = "1", features = ["full", "test-util"] }

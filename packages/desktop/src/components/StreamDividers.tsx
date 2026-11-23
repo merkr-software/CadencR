@@ -55,7 +55,8 @@ function StreamDivider({
   const line = tone === "yellow" ? "bg-yellow-500/30" : "bg-cyan-500/30";
   const text = tone === "yellow" ? "text-yellow-500" : "text-cyan-500";
   return (
-    <div className="flex flex-col items-center gap-1 py-3">
+    // No padding of its own: the stream's rhythm spaces it (`stream-rhythm.ts`).
+    <div className="flex flex-col items-center gap-1">
       {detail && <span className="text-[10px] text-muted-foreground/50 font-mono">{detail}</span>}
       <div className="flex w-full items-center gap-3">
         <div className={cn("h-px flex-1", line)} />
@@ -75,9 +76,6 @@ export function CompactDivider({ metadata }: { metadata?: string }) {
 export function ClearDivider({ previousSessionId }: { previousSessionId?: string }) {
   return <StreamDivider label="Cleared" tone="cyan" detail={previousSessionId || undefined} />;
 }
-
-/** Gaps around a turn's closing line. */
-export const TURN_CLOSING_SPACING = "pt-2 pb-0.5";
 
 function WorkedLine({ summary }: { summary: TurnSummary }) {
   const { models, total, waiting, agent } = workedParts(summary);
@@ -124,7 +122,7 @@ export function ModelSwitchDivider({ content }: { content: string }) {
     <div
       role="note"
       data-model-switch
-      className="flex items-center gap-3 pt-2 pb-1 text-xs text-muted-foreground"
+      className="flex items-center gap-3 text-xs text-muted-foreground"
     >
       <span className="h-px flex-1 bg-border/70" aria-hidden />
       <span className="flex min-w-0 items-center gap-1.5">

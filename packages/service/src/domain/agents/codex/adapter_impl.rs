@@ -69,6 +69,15 @@ impl AgentRuntimeAdapter for CodexAdapter {
         permissions::parse_permission_request(raw)
     }
 
+    /// Codex never waits on its questions: an answer to one asked before
+    /// this runtime existed is ordinary input, rebuilt from the echoed form.
+    fn unheld_question_prompt(
+        &self,
+        response: &super::adapter::RuntimePermissionResponse,
+    ) -> Option<Result<Option<String>, RuntimeError>> {
+        Some(async_questions::unheld_answer_prompt(response))
+    }
+
     fn catalog_entry(&self) -> ProviderCatalogEntry {
         unavailable_catalog("Codex availability has not been checked yet")
     }
@@ -159,18 +168,19 @@ impl AgentRuntimeAdapter for CodexAdapter {
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
         let client =
-            CodexAppServerClient::spawn_with_options(profile_runtime::app_server_spawn_options(
+            CodexAppServerClient::spawn_with_options(spawn_options::app_server_spawn_options(
                 config.env.clone(),
                 config.env_unset.clone(),
                 Some(config.cwd.clone()),
             ))
             .await?;
+        let secrets = app_server_failure::secrets(config.env.as_ref());
         let startup = async {
             client.initialize().await?;
             let effective_config = client
                 .config_read(&config.cwd)
                 .await
-                .map_err(|_| RuntimeError::new("Codex rejected the effective configuration"))?;
+                .map_err(|error| app_server_failure::config_unreadable(error, &secrets))?;
             let models = client.model_list().await?;
             Ok::<_, RuntimeError>((effective_config, models))
         }
@@ -179,7 +189,6 @@ impl AgentRuntimeAdapter for CodexAdapter {
             Ok(started) => started,
             Err(error) => {
                 client.shutdown().await;
-                let secrets = app_server_failure::secrets(config.env.as_ref());
                 return Err(app_server_failure::explain(&client, error, &secrets));
             }
         };
@@ -218,6 +227,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 effective_model,
                 effective_effort,
                 summary,
+                native_fast_mode: native_effective.fast_mode.unwrap_or(false),
                 fast_mode: config.overrides.fast_mode,
                 permission_mode: config.permission_mode,
                 access_mode: config.access_mode,

@@ -61,11 +61,12 @@ pub(super) enum Decision {
 
 /// What the conversation did since its turn was captured, from its status
 /// read right before the pass touches the transcript: either way the turn is
-/// no longer one to mark or resume.
-pub(super) fn live_skip(session_status: &str) -> Option<SkipReason> {
+/// no longer one to mark or resume. Background work is captured after its
+/// turn completed, so `completed` says nothing new about it.
+pub(super) fn live_skip(session_status: &str, background_work: bool) -> Option<SkipReason> {
     match session_status {
         "running" => Some(SkipReason::AlreadyRunning),
-        "completed" => Some(SkipReason::Finished),
+        "completed" if !background_work => Some(SkipReason::Finished),
         _ => None,
     }
 }
@@ -164,8 +165,19 @@ mod tests {
 
     #[test]
     fn a_turn_that_moved_on_since_its_capture_is_left_alone() {
-        assert_eq!(live_skip("running"), Some(SkipReason::AlreadyRunning));
-        assert_eq!(live_skip("completed"), Some(SkipReason::Finished));
-        assert_eq!(live_skip("paused"), None);
+        assert_eq!(
+            live_skip("running", false),
+            Some(SkipReason::AlreadyRunning)
+        );
+        assert_eq!(live_skip("completed", false), Some(SkipReason::Finished));
+        assert_eq!(live_skip("paused", false), None);
+    }
+
+    /// Its turn had completed before the restart; the work it left running
+    /// is what was lost, unless a new turn already started.
+    #[test]
+    fn stopped_background_work_is_resumed_from_a_completed_conversation() {
+        assert_eq!(live_skip("completed", true), None);
+        assert_eq!(live_skip("running", true), Some(SkipReason::AlreadyRunning));
     }
 }

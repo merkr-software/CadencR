@@ -1,6 +1,7 @@
 import { memo, useMemo, type ReactElement } from "react";
 import { ArrowUpRight, CircleAlert, Loader2, MessagesSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AgentImageScope } from "@/components/AgentMarkdownImage";
 import { AgentStreamItem } from "@/components/agent-session/AgentStreamItem";
 import { CompactFlowRow } from "@/components/agent-session/CompactFlowRow";
 import { flowStreamingBlockId, liveDisplayItemKey } from "@/lib/agent-stream-display";
@@ -149,27 +150,31 @@ function SideAnswer({
       className="max-h-[min(40vh,22rem)] min-h-0 overflow-y-auto rounded-md bg-background/60 px-2.5 py-1"
     >
       <div ref={contentRef}>
-        {displayItems.map((item) =>
-          item.kind === "flow" ? (
-            <CompactFlowRow
-              key={item.key}
-              blocks={item.blocks}
-              basePath={cwd}
-              toolResultMap={ws.toolResultMap}
-              streamingBlockId={flowStreamingBlockId(item.blocks, streamingBlockId)}
-              live={item.key === liveKey}
-            />
-          ) : (
-            <AgentStreamItem
-              key={item.key}
-              block={item.block}
-              isStreaming={streamingBlockId === item.block.id}
-              basePath={cwd}
-              toolResultMap={ws.toolResultMap}
-              verbosityMode="compact"
-            />
-          ),
-        )}
+        <AgentImageScope featureId={featureId}>
+          {displayItems.map((item) =>
+            item.kind === "gap" ? null : item.kind === "flow" ? (
+              <CompactFlowRow
+                key={item.key}
+                blocks={item.blocks}
+                basePath={cwd}
+                toolResultMap={ws.toolResultMap}
+                streamingBlockId={flowStreamingBlockId(item.blocks, streamingBlockId)}
+                live={item.key === liveKey}
+                spaceBelow={item.spaceBelow}
+              />
+            ) : (
+              <AgentStreamItem
+                key={item.key}
+                block={item.block}
+                isStreaming={streamingBlockId === item.block.id}
+                basePath={cwd}
+                toolResultMap={ws.toolResultMap}
+                verbosityMode="compact"
+                spaceBelow={item.spaceBelow}
+              />
+            ),
+          )}
+        </AgentImageScope>
         <SideAnswerStatus
           status={status}
           loaded={persistedLoaded}

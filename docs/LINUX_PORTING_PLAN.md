@@ -64,7 +64,10 @@ Four layers; each catches what the previous cannot.
    executes `cfg(target_os = "linux")` code that macOS cannot compile.
 2. **Linux container on a developer machine — before pushing Linux-sensitive changes.**
    `scripts/linux-container.sh` builds a Debian 12 image and runs, on the host's arch
-   (arm64 natively on Apple Silicon):
+   (arm64 natively on Apple Silicon). Each checkout syncs into its own Docker volume
+   (tree, `node_modules`, Cargo target; `volume` prints it, `clean` removes it), so
+   worktrees never overwrite each other's build. `prune --dry-run` lists the
+   repository's volumes of worktrees git no longer knows; `prune` removes them:
    - `rust-test`, `clippy`, `vitest` — the same suites as CI, on Linux;
    - `package` — release sidecar + AppImage/DEB/RPM;
    - `smoke` — `scripts/smoke-linux-packages.sh`: AppImage payload, real DEB installs

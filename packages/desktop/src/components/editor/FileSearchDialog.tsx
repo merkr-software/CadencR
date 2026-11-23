@@ -13,6 +13,7 @@ import { useFileSearch, type FileMatchResult } from "@/api/generated";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useOpenFileInNeovim } from "./neovim/useOpenFileInNeovim";
 import { FileSymbolIcon } from "./file-icons";
+import { displayGitPath, displayGitTreePath } from "@/lib/git-display-path";
 
 interface FileSearchDialogProps {
   projectId: number;
@@ -101,13 +102,21 @@ function FileResultItem({ file, onSelect }: FileResultItemProps) {
   const lastSlash = filePath.lastIndexOf("/");
   const fileName = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
   const fileNameOffset = lastSlash >= 0 ? lastSlash + 1 : 0;
+  // HTML folds a newline in a name into a space: such a path is shown escaped
+  // the way git prints it, without highlights, whose positions index the raw one.
+  const shownPath = displayGitTreePath(filePath);
+  const escaped = shownPath !== filePath;
   return (
     <CommandItem value={filePath} onSelect={() => onSelect(filePath)}>
       <FileSymbolIcon fileName={fileName} className="mr-2 shrink-0 flex items-center" />
       <div className="flex flex-col min-w-0">
-        <span className="truncate">{highlightMatches(fileName, positions, fileNameOffset)}</span>
+        <span className="truncate">
+          {escaped
+            ? displayGitPath(fileName)
+            : highlightMatches(fileName, positions, fileNameOffset)}
+        </span>
         <span className="text-xs text-muted-foreground truncate">
-          {highlightMatches(filePath, positions, 0)}
+          {escaped ? shownPath : highlightMatches(filePath, positions, 0)}
         </span>
       </div>
     </CommandItem>

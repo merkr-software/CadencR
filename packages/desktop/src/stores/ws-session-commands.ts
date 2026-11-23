@@ -25,6 +25,8 @@ import type { WsEnvelope } from "@/lib/ws-envelope";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { handleCommandError } from "./ws-envelope-error-handler";
 import { parseErrorPayload } from "./ws-envelope-payload";
+import { asRecord } from "./ws-envelope-payload-primitives";
+import { buildClearedGatePatch } from "./ws-gate-state";
 import { WS_REPLY_TIMEOUT_MS, type PendingSessionCommand } from "./ws-session-transport";
 import { updateSession } from "./ws-session-types";
 import { SESSION_ACTION } from "./ws-session-action-names";
@@ -38,6 +40,20 @@ export interface SessionCommandSpec {
   ackWindowMs?: number;
   /** Error codes meaning the command's goal already holds: settled, no toast. */
   satisfiedBy?: ReadonlySet<string>;
+  /** Brings local state in line when a `satisfiedBy` code answers the command. */
+  onSatisfied?: (ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope) => void;
+}
+
+/**
+ * The backend has no open gate under the id this close named: it was answered
+ * or closed elsewhere. A renderer still showing that gate drops it.
+ */
+function dropClosedGate(ctx: StoreAccessors, sessionId: string, envelope: WsEnvelope): void {
+  const requestId = asRecord(envelope.payload)?.request_id;
+  const session = ctx.getSession(sessionId);
+  if (typeof requestId !== "string" || session.pendingRequestId !== requestId) return;
+  const patch = buildClearedGatePatch(session);
+  if (patch) ctx.set(updateSession(ctx.get(), sessionId, patch));
 }
 
 /**
@@ -66,17 +82,29 @@ export const SESSION_COMMANDS = {
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
   },
   clear: { failure: "Couldn't clear the conversation", replay: false },
-  gateClose: { failure: "Couldn't dismiss the request", replay: false },
+  gateClose: {
+    failure: "Couldn't dismiss the request",
+    replay: false,
+    satisfiedBy: new Set(["STALE_GATE"]),
+    onSatisfied: dropClosedGate,
+  },
   provider: { failure: "Couldn't switch provider", replay: true },
   model: { failure: "Couldn't switch model", replay: true },
   effort: { failure: "Couldn't change thinking effort", replay: true },
   profile: { failure: "Couldn't switch profile", replay: true },
   mode: { failure: "Couldn't change permission mode", replay: true },
   accessMode: { failure: "Couldn't change access mode", replay: true },
+  fastMode: { failure: "Couldn't change fast mode", replay: true },
   // Providers whose model and effort are runtime overrides (Codex).
   runtimeModel: { failure: "Couldn't switch model", replay: true },
   runtimeEffort: { failure: "Couldn't change thinking effort", replay: true },
 } as const satisfies Record<string, SessionCommandSpec>;
+
+/** The command kinds (`commandKind`) that change fast mode, one per provider path. */
+export const FAST_MODE_COMMAND_KINDS: readonly string[] = [
+  "fast_mode.set",
+  "runtime_overrides.set:fast_mode",
+];
 
 const NOT_CONNECTED = "Not connected to the backend. Try again once it reconnects.";
 
@@ -93,7 +121,10 @@ function setPendingActions(ctx: StoreAccessors, sessionId: string): void {
   const commands = [...(ctx.transport.get(sessionId)?.pendingCommands.values() ?? [])];
   ctx.set(
     updateSession(ctx.get(), sessionId, {
-      pendingCommandActions: commands.map((c) => c.envelope.action),
+      pendingCommandActions: sameOr(
+        session.pendingCommandActions,
+        commands.map((c) => commandKind(c.envelope)),
+      ),
       queuedCommandActions: sameOr(
         session.queuedCommandActions,
         commands.filter((c) => c.queued).map((c) => commandKind(c.envelope)),
@@ -256,7 +287,10 @@ export function settleCommandReply(
   if (!command) return false;
   if (envelope.domain !== "session" || envelope.action !== SESSION_ACTION.error) return false;
   const code = parseErrorPayload(envelope.payload)?.code;
-  if (code && command.spec.satisfiedBy?.has(code)) return true;
+  if (code && command.spec.satisfiedBy?.has(code)) {
+    command.spec.onSatisfied?.(ctx, sessionId, command.envelope);
+    return true;
+  }
   handleCommandError(ctx, sessionId, command.spec.failure, envelope.payload);
   return true;
 }

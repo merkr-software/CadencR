@@ -28,7 +28,7 @@
 //! `shared::app_paths`; the `cadencr` CLI uses it to start the same service
 //! headless against the same database and settings.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 const APP_DIRNAME: &str = "cadencr";
@@ -57,6 +57,16 @@ impl Roots {
         })
     }
 
+    /// Every root inside one directory, in the macOS layout: data at the root,
+    /// `config/` and `cache/` beneath it.
+    fn under(root: &Path) -> Self {
+        Self {
+            data: root.to_path_buf(),
+            config: root.join("config"),
+            cache: root.join("cache"),
+        }
+    }
+
     fn get(&self, kind: Kind) -> PathBuf {
         match kind {
             Kind::Data => self.data.clone(),
@@ -73,8 +83,17 @@ static PINNED_ROOTS: OnceLock<Roots> = OnceLock::new();
 /// values the desktop session lacks: Electron picked the database from the
 /// launch env, so worktrees, credentials and plugins must resolve from it too.
 /// Spawned agents still get the shell's `XDG_*` for their own config.
-pub fn pin_roots() -> Result<(), String> {
-    let roots = Roots::resolve()?;
+///
+/// `data_root` (the service's `--data-dir`) replaces every root with one
+/// directory instead, without touching `HOME`: a QA or test service then keeps
+/// worktrees, LSP servers, forge and remote credentials out of the user's real
+/// data while agent CLIs still find their own login under the real `HOME`.
+pub fn pin_roots(data_root: Option<&Path>) -> Result<(), String> {
+    let roots = match data_root {
+        Some(root) if root.is_absolute() => Roots::under(root),
+        Some(root) => return Err(format!("data dir must be absolute: {}", root.display())),
+        None => Roots::resolve()?,
+    };
     let _ = PINNED_ROOTS.set(roots);
     Ok(())
 }
@@ -154,16 +173,11 @@ fn resolve_from_env(kind: Kind) -> Result<PathBuf, String> {
     if cfg!(target_os = "macos") {
         let home =
             dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
-        let legacy = home.join(MACOS_LEGACY_DIRNAME);
-        return Ok(match kind {
-            // Data stays at the legacy root — moving it would orphan every
-            // existing macOS user's database and worktrees.
-            Kind::Data => legacy,
-            // Config/cache live under dedicated subroots so they can never
-            // collide with each other or with `data/`.
-            Kind::Config => legacy.join("config"),
-            Kind::Cache => legacy.join("cache"),
-        });
+        // Data stays at the legacy root — moving it would orphan every existing
+        // macOS user's database and worktrees. Config/cache live under
+        // dedicated subroots so they can never collide with each other or with
+        // `data/`.
+        return Ok(Roots::under(&home.join(MACOS_LEGACY_DIRNAME)).get(kind));
     }
     let (root, label) = match kind {
         Kind::Data => (dirs::data_dir(), "data"),
@@ -281,6 +295,26 @@ mod tests {
             resolve_pinned(Some(&roots), Kind::Cache).unwrap(),
             PathBuf::from("/k")
         );
+    }
+
+    #[test]
+    fn a_data_root_holds_every_kind_in_the_macos_layout() {
+        let roots = Roots::under(Path::new("/qa/run/data"));
+        assert_eq!(roots.data, PathBuf::from("/qa/run/data"));
+        assert_eq!(roots.config, PathBuf::from("/qa/run/data/config"));
+        assert_eq!(roots.cache, PathBuf::from("/qa/run/data/cache"));
+        assert_eq!(
+            resolve_pinned(Some(&roots), Kind::Data)
+                .unwrap()
+                .join("lsp-marketplace"),
+            PathBuf::from("/qa/run/data/lsp-marketplace")
+        );
+    }
+
+    #[test]
+    fn a_relative_data_root_is_refused() {
+        // Refused before anything is pinned, so no other test sees it.
+        assert!(pin_roots(Some(Path::new("relative/data"))).is_err());
     }
 
     #[cfg(target_os = "linux")]

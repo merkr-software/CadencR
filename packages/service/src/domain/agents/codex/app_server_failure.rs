@@ -21,6 +21,17 @@ pub(super) fn secrets(env: Option<&HashMap<String, String>>) -> Vec<String> {
     }))
 }
 
+/// A `config/read` that failed while the app-server kept running. Codex's own
+/// reason names the key it refused (or the timeout), which is what the user
+/// has to fix, so it is kept with the profile's secrets and the config
+/// values it quotes masked.
+pub(super) fn config_unreadable(error: impl std::fmt::Display, secrets: &[String]) -> RuntimeError {
+    RuntimeError::new(format!(
+        "Codex could not read the effective configuration: {}",
+        cli_stderr::mask_config_values(&cli_stderr::mask(&error.to_string(), secrets))
+    ))
+}
+
 /// `error`, or why `client`'s app-server died when it exited on its own.
 /// Call it once `shutdown` has returned: the exit and the stderr are complete
 /// only then.
@@ -40,12 +51,17 @@ pub(super) fn exit_reason(client: &CodexAppServerClient, secrets: &[String]) -> 
         .map(|exit| describe(exit, &client.stderr_tail(), secrets))
 }
 
+/// Codex logs a config it refuses on stderr in the same words, values quoted.
 fn describe(exit: AppServerExit, stderr_tail: &[String], secrets: &[String]) -> String {
+    let stderr_tail: Vec<String> = stderr_tail
+        .iter()
+        .map(|line| cli_stderr::mask_config_values(line))
+        .collect();
     cli_stderr::exit_message(
         "Codex app-server",
         exit.code,
         exit.signal,
-        stderr_tail,
+        &stderr_tail,
         secrets,
     )
 }
@@ -53,6 +69,43 @@ fn describe(exit: AppServerExit, stderr_tail: &[String], secrets: &[String]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A profile whose `http_headers` had the wrong type was shown back whole
+    /// in the PROFILE_ERROR, credential included.
+    #[test]
+    fn a_refused_config_value_is_masked_in_every_message() {
+        let codex = "invalid configuration: invalid type: string \"Bearer SYNTH-MARKER-7f3a\", \
+                     expected a map\nin `model_providers.synth.http_headers`";
+        let message = config_unreadable(codex, &[]).to_string();
+        assert!(!message.contains("SYNTH-MARKER"), "{message}");
+        assert!(
+            message.contains("`model_providers.synth.http_headers`"),
+            "{message}"
+        );
+
+        let exit = describe(
+            AppServerExit {
+                code: Some(1),
+                signal: None,
+            },
+            &[format!("ERROR codex_app_server: {codex}")],
+            &[],
+        );
+        assert!(!exit.contains("SYNTH-MARKER"), "{exit}");
+    }
+
+    /// The reason used to be replaced by a fixed sentence.
+    #[test]
+    fn a_config_read_failure_keeps_its_reason_with_secrets_masked() {
+        let env = HashMap::from([("OPENAI_API_KEY".to_string(), "sk-secret-value".to_string())]);
+        let error = config_unreadable(
+            "invalid value for `model_provider` near sk-secret-value",
+            &secrets(Some(&env)),
+        );
+        let message = error.to_string();
+        assert!(message.contains("`model_provider`"), "{message}");
+        assert!(!message.contains("sk-secret-value"), "{message}");
+    }
 
     #[test]
     fn names_the_exit_and_the_reason_with_secrets_masked() {

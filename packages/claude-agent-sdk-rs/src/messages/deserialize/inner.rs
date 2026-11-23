@@ -36,7 +36,8 @@ pub(super) const KNOWN_TYPES: [&str; 20] = [
 
 /// `subtype` tags [`SystemMessage`] models; any other `system` subtype is a
 /// message kind the SDK has never seen.
-pub(super) const KNOWN_SYSTEM_SUBTYPES: [&str; 3] = ["init", "compact_boundary", "status"];
+pub(super) const KNOWN_SYSTEM_SUBTYPES: [&str; 4] =
+    ["init", "compact_boundary", "status", "thinking_tokens"];
 
 /// Internal mirror of `SdkMessage` used by the derived deserializer.
 /// We keep this private and convert into the public enum, adding the

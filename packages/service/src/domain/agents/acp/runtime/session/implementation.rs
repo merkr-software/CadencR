@@ -49,10 +49,7 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) current_mode: Arc<RwLock<String>>,
     pub(in crate::domain::agents::acp::runtime) session_config: AcpSessionConfigState,
     pub(in crate::domain::agents::acp::runtime) supports_session_close: bool,
-    /// Tracks whether the agent supports `session/set_config_option`.
-    /// Defaults to `true`; flipped to `false` on the first `MethodNotFound`
-    /// response so we stop wasting round trips and let the legacy
-    /// "ride-along on the next prompt" fallback handle model/effort changes.
+    /// A method-not-found response lets subsequent prompts carry model and effort.
     pub(in crate::domain::agents::acp::runtime) supports_set_config_option: Arc<AtomicBool>,
     /// Tracks whether the agent supports `session/set_mode`.
     pub(in crate::domain::agents::acp::runtime) supports_set_mode: Arc<AtomicBool>,
@@ -66,6 +63,9 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) pid: Option<u32>,
     pub(in crate::domain::agents::acp::runtime) cwd: PathBuf,
     pub(in crate::domain::agents::acp::runtime) context_window: Option<u64>,
+    #[cfg(unix)]
+    pub(in crate::domain::agents::acp::runtime) mcp_connections:
+        crate::domain::mcp::connection::Connections,
     pub(in crate::domain::agents::acp::runtime) configured_mcp_servers: Vec<RuntimeMcpServerStatus>,
     pub(in crate::domain::agents::acp::runtime) mcp_servers:
         Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
@@ -91,9 +91,8 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) replay_suppression: Arc<AtomicBool>,
     /// Client prompt ids waiting for provider-side receipt confirmation.
     pub(in crate::domain::agents::acp::runtime) pending_prompt_receipts: Arc<PendingPromptReceipts>,
-    /// Serialises prompt turns so a second `stream_input` waits for the
-    /// in-flight turn (request + post-response drain) to finish before
-    /// sending its own `session/prompt` (W4).
+    /// Orders prompt admission and keeps compaction and detached activity
+    /// outside the native prompt requests.
     pub(in crate::domain::agents::acp::runtime) prompt_turn_lock: PromptTurnLock,
     pub(in crate::domain::agents::acp::runtime) prompt_cancel: PromptCancel,
 }
@@ -105,14 +104,17 @@ impl AcpRuntimeSession {
             .expect("ACP runtime sender unavailable after close")
     }
 
-    pub async fn current_session_id(&self) -> Option<String> {
-        self.session_id.read().await.clone()
-    }
-
-    pub(super) async fn require_session_id(&self) -> Result<String, RuntimeError> {
-        self.current_session_id()
-            .await
-            .ok_or_else(|| RuntimeError::new("ACP session id not yet known"))
+    fn with_mcp_connection_statuses(
+        &self,
+        servers: Vec<RuntimeMcpServerStatus>,
+    ) -> Vec<RuntimeMcpServerStatus> {
+        #[cfg(unix)]
+        let servers = {
+            let mut servers = servers;
+            self.mcp_connections.apply(&mut servers);
+            servers
+        };
+        servers
     }
 }
 
@@ -122,6 +124,12 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         self.message_rx
             .take()
             .expect("AcpRuntimeSession message_rx already taken")
+    }
+
+    fn negotiated_prompt_steering(&self) -> Option<bool> {
+        self.hooks
+            .uses_negotiated_prompt_receipts()
+            .then(|| self.prompt_turn_lock.supports_steering())
     }
 
     fn context_window(&self) -> Option<u64> {
@@ -137,7 +145,8 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     async fn available_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
-        Ok(self.mcp_servers.read().await.clone())
+        let servers = self.mcp_servers.read().await.clone();
+        Ok(self.with_mcp_connection_statuses(servers))
     }
 
     async fn refresh_mcp_servers(&self) -> Result<Vec<RuntimeMcpServerStatus>, RuntimeError> {
@@ -146,7 +155,30 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             .available_mcp_servers(&self.cwd, self.configured_mcp_servers.clone())
             .await;
         *self.mcp_servers.write().await = servers.clone();
-        Ok(servers)
+        Ok(self.with_mcp_connection_statuses(servers))
+    }
+
+    #[cfg(unix)]
+    async fn cached_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        if self.closing.load(Ordering::SeqCst)
+            || self.loop_task.as_ref().is_none_or(JoinHandle::is_finished)
+            || self.mcp_connections.is_empty()
+        {
+            return None;
+        }
+        let servers = self.mcp_servers.read().await.clone();
+        Some(self.with_mcp_connection_statuses(servers))
+    }
+
+    #[cfg(unix)]
+    async fn ended_mcp_servers(&self) -> Option<Vec<RuntimeMcpServerStatus>> {
+        if self.mcp_connections.is_empty() {
+            return None;
+        }
+        let mut servers = self.mcp_servers.read().await.clone();
+        self.mcp_connections
+            .apply_disconnected(&mut servers)
+            .then_some(servers)
     }
 
     async fn stream_input(&self, content: Value) -> Result<(), RuntimeError> {
@@ -159,20 +191,17 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        // ACP v1 has no portable steering request. A second `session/prompt`
-        // while the first is active is agent-defined: Pi queues it, while other
-        // agents may reject or merge it. Serialise turns at the host boundary so
-        // every accepted user message gets one authoritative turn result and the
-        // frontend cannot remain stuck in `agent` after a queued follow-up.
-        let cancels = self.prompt_cancel.cancels();
-        let _guard = self.prompt_turn_lock.lock().await;
-        // It waited for a turn a Stop then ended: it must not start its own.
-        if self.prompt_cancel.cancelled_since(cancels) {
-            return Err(RuntimeError::input_withdrawn(
-                "the turn was stopped before this follow-up reached the agent",
-            ));
-        }
-        self.prompt_input(content, client_message_id, true).await
+        self.prompt_input(content, client_message_id, &mut None)
+            .await
+    }
+
+    async fn stream_input_with_delivery_order(
+        &self,
+        content: Value,
+        client_message_id: Option<String>,
+        order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+    ) -> Result<(), RuntimeError> {
+        self.prompt_input(content, client_message_id, order).await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {
@@ -186,12 +215,13 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     async fn interrupt(&self) -> Result<(), RuntimeError> {
         let session_id = self.require_session_id().await?;
         reject_all_pending(&self.client, &self.pending_permissions).await;
-        let result = self
-            .client
-            .send_notification_typed(CancelNotification::new(session_id))
-            .await;
+        let _admission = self.prompt_turn_lock.lock_admission().await;
+        // The agent may report the interruption as soon as it sees the notification.
         self.prompt_cancel.cancel_current_turn();
-        result.map_err(|e| RuntimeError::new(format!("session/cancel failed: {e}")))
+        self.client
+            .send_notification_typed(CancelNotification::new(session_id))
+            .await
+            .map_err(|e| RuntimeError::new(format!("session/cancel failed: {e}")))
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {
@@ -230,6 +260,8 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // The stream receiver is owned outside the runtime. Drop our last
         // steady-state sender after stopping producer tasks so it observes EOF
         // even while the closed runtime remains registered for resume metadata.
+        #[cfg(unix)]
+        self.mcp_connections.stop().await;
         self.local_tx.take();
         self.client.shutdown().await;
         Ok(())

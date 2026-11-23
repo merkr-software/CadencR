@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseUnifiedDiff, langFromPath, hasTextHunks } from "./parse-unified-diff";
+import { parseUnifiedDiff, langFromPath, hasTextHunks, isBinaryPatch } from "./parse-unified-diff";
 
 const SINGLE_FILE_DIFF = `diff --git a/src/foo.ts b/src/foo.ts
 index abc123..def456 100644
@@ -144,5 +144,24 @@ describe("langFromPath", () => {
 
   it("is case-insensitive for extensions", () => {
     expect(langFromPath("foo.TS")).toBe("typescript");
+  });
+});
+
+describe("isBinaryPatch", () => {
+  it("detects standard binary file diff markers in the header", () => {
+    expect(
+      isBinaryPatch(
+        "diff --git a/image.png b/image.png\nBinary files a/image.png and b/image.png differ\n",
+      ),
+    ).toBe(true);
+    expect(isBinaryPatch("diff --git a/blob.bin b/blob.bin\nGIT binary patch\nliteral 4\n")).toBe(
+      true,
+    );
+  });
+
+  it("returns false for normal text diffs and ignores markers past the 4 KB header window", () => {
+    expect(isBinaryPatch(SINGLE_FILE_DIFF)).toBe(false);
+    const bodyPastHeader = `${SINGLE_FILE_DIFF}\n+${"x".repeat(5000)}\nGIT binary patch\n`;
+    expect(isBinaryPatch(bodyPastHeader)).toBe(false);
   });
 });

@@ -122,21 +122,28 @@ pub struct CliRunner {
 }
 
 impl CliRunner {
-    /// The binary agent sessions would spawn. `None`: not installed here.
+    /// The binary agent sessions would spawn. `Ok(None)`: not installed
+    /// here; `Err`: the search for it could not finish.
     pub async fn resolve(
         read_pool: &SqlitePool,
         discovery: &ProviderDiscoveryMetadata,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, ExtensionError> {
         let override_path = read_override_setting(read_pool, discovery.setting_key()).await;
-        best_cli(discovery, override_path.as_deref())
+        let candidate = best_cli(discovery, override_path.as_deref())
             .await
-            .map(|candidate| Self {
-                binary: candidate.path,
-                version: candidate.version_text,
-                env: Vec::new(),
-                env_unset: Vec::new(),
-                config_home: None,
-            })
+            .map_err(|error| {
+                ExtensionError::failed(format!(
+                    "Could not look for the {} CLI: {error}",
+                    discovery.spec().bin_name
+                ))
+            })?;
+        Ok(candidate.map(|candidate| Self {
+            binary: candidate.path,
+            version: candidate.version_text,
+            env: Vec::new(),
+            env_unset: Vec::new(),
+            config_home: None,
+        }))
     }
 
     #[cfg(test)]

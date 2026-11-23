@@ -26,6 +26,30 @@ pub(super) fn is_plan_approval_request_id(request_id: &str) -> bool {
     request_id.starts_with(PLAN_APPROVAL_REQUEST_PREFIX)
 }
 
+/// How closing `request_id` unanswered (Escape, a rejected plan) reaches
+/// Codex. Neither a plan approval nor an async question blocks a turn: the
+/// plan arrives once its turn is done, and any answer to it becomes the next
+/// prompt, so a close must drop it rather than send a revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UnansweredClose {
+    /// Nothing to tell Codex: the plan is dropped.
+    DropPlan,
+    /// The async question is withdrawn from Codex.
+    WithdrawQuestion,
+    /// Codex waits on it: the caller denies it and stops the turn.
+    Blocking,
+}
+
+pub(super) fn unanswered_close(request_id: &str) -> UnansweredClose {
+    if is_plan_approval_request_id(request_id) {
+        UnansweredClose::DropPlan
+    } else if super::async_questions::is_async_question(request_id) {
+        UnansweredClose::WithdrawQuestion
+    } else {
+        UnansweredClose::Blocking
+    }
+}
+
 pub(super) fn permission_kind_for_request_id(request_id: &str) -> RuntimePermissionResponseKind {
     if is_plan_approval_request_id(request_id) {
         RuntimePermissionResponseKind::PlanApproval
@@ -61,7 +85,7 @@ mod tests {
 
     use super::{
         is_plan_approval_request_id, permission_kind_for_request_id, plan_approval_prompt,
-        take_pending,
+        take_pending, unanswered_close, UnansweredClose,
     };
     use crate::domain::agents::adapter::{
         RuntimePermissionDecision, RuntimePermissionResponseKind,
@@ -73,6 +97,17 @@ mod tests {
     fn identifies_synthetic_plan_approval_requests() {
         assert!(is_plan_approval_request_id("codex_plan_approval_plan_1"));
         assert!(!is_plan_approval_request_id("approval_1"));
+    }
+
+    /// Closing a plan used to deny it, which Codex reads as "revise the plan":
+    /// it started a new turn instead of stopping.
+    #[test]
+    fn closing_a_plan_drops_it_without_a_revision_prompt() {
+        assert_eq!(
+            unanswered_close("codex_plan_approval_plan_1"),
+            UnansweredClose::DropPlan
+        );
+        assert_eq!(unanswered_close("approval_1"), UnansweredClose::Blocking);
     }
 
     #[test]

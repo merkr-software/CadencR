@@ -48,6 +48,9 @@ pub enum BranchError {
     Unsupported(String),
     /// The transcript surgery itself failed (parse error, format drift, I/O).
     Surgery(String),
+    /// The provider no longer has the source conversation (its history was
+    /// deleted, or never saved), so there is nothing left to branch from.
+    ConversationMissing(String),
 }
 
 impl std::fmt::Display for BranchError {
@@ -55,6 +58,7 @@ impl std::fmt::Display for BranchError {
         match self {
             BranchError::Unsupported(msg) => write!(f, "branching unsupported: {msg}"),
             BranchError::Surgery(msg) => write!(f, "transcript surgery failed: {msg}"),
+            BranchError::ConversationMissing(msg) => write!(f, "{msg}"),
         }
     }
 }

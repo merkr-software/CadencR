@@ -9,9 +9,21 @@ use crate::domain::sessions::repository::truncation::{
     is_bash_tool_name, truncate_bash_output, BASH_OUTPUT_MAX_LINES,
 };
 
+use tokio::task::JoinError;
+
 pub(super) struct CompactedSnapshot {
     pub original: String,
     pub replacement: String,
+}
+
+/// Why compacting a feature stopped: its rows could not be read or written,
+/// or the off-runtime compaction of one message panicked.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum CompactionError {
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
+    #[error("compaction task failed: {0}")]
+    Task(#[source] JoinError),
 }
 
 /// Return the read-path representation when it is shorter, otherwise `None`.
@@ -27,22 +39,27 @@ pub fn compact_content(content: &str, tool_name: Option<&str>) -> Option<String>
 /// Keep large JSON/string work off the async runtime while preserving the exact
 /// snapshot that produced the compacted value. The retention writer uses that
 /// snapshot for a compare-and-set update, so a live shell cannot be overwritten
-/// by work computed from older output.
-pub(super) async fn compact_bash_content_async(content: String) -> Option<CompactedSnapshot> {
-    match tokio::task::spawn_blocking(move || {
+/// by work computed from older output. `Ok(None)`: nothing to compact.
+pub(super) async fn compact_bash_content_async(
+    content: String,
+) -> Result<Option<CompactedSnapshot>, CompactionError> {
+    off_runtime(move || {
         compact_content(&content, Some("Bash")).map(|replacement| CompactedSnapshot {
             original: content,
             replacement,
         })
     })
     .await
-    {
-        Ok(compacted) => compacted,
-        Err(error) => {
-            tracing::warn!("retention compaction task failed: {error}");
-            None
-        }
-    }
+}
+
+/// A panic in `work` fails the feature's compaction instead of reading as
+/// "nothing to compact".
+async fn off_runtime<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, CompactionError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(CompactionError::Task)
 }
 
 #[cfg(test)]
@@ -54,6 +71,34 @@ mod tests {
             .map(|line| format!("line {line} of a very long build log"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[tokio::test]
+    async fn a_panicking_compaction_is_an_error_not_a_skipped_message() {
+        let result =
+            off_runtime(|| -> Option<CompactedSnapshot> { panic!("transform exploded") }).await;
+        let error = result
+            .err()
+            .expect("a panic must not read as nothing to compact");
+        assert!(matches!(error, CompactionError::Task(_)), "{error:?}");
+        assert!(
+            error.to_string().starts_with("compaction task failed: "),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compacts_a_long_bash_output_off_the_runtime() {
+        let snapshot = compact_bash_content_async(huge_log())
+            .await
+            .unwrap()
+            .expect("a long bash log is compacted");
+        assert_eq!(snapshot.original, huge_log());
+        assert!(snapshot.replacement.len() < snapshot.original.len());
+        assert!(compact_bash_content_async("short".into())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[test]

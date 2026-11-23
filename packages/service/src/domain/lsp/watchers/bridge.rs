@@ -1,4 +1,5 @@
 //! One stdin owner serializes renderer traffic, registration replies and actual FS events.
+use crate::shared::discard::IgnoreClosed;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -68,7 +69,7 @@ impl StdinBridge {
                 }
             };
             if let Some(payload) = payload {
-                let _ = self.activity.send(Instant::now());
+                self.activity.send(Instant::now()).ignore_closed();
                 if self
                     .stdin
                     .write_all(&encode_frame(payload.as_bytes()))
@@ -84,7 +85,9 @@ impl StdinBridge {
     fn report(&self, message: &str) {
         tracing::warn!("{message}");
         let value = json!({"jsonrpc":"2.0","method":"window/showMessage","params":{"type":1,"message":message}});
-        let _ = self.out.send(Message::Text(value.to_string().into()));
+        self.out
+            .send(Message::Text(value.to_string().into()))
+            .ignore_closed();
     }
 }
 

@@ -1,6 +1,5 @@
 import { memo, type CSSProperties } from "react";
 import {
-  BotIcon,
   CheckIcon,
   FileTextIcon,
   GlobeIcon,
@@ -14,6 +13,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import type { NotchActionKind, NotchAgent } from "@/shared/notch";
 
 const ACTION_ICONS: Record<NotchActionKind, LucideIcon> = {
@@ -75,7 +75,7 @@ export const NotchTile = memo(function NotchTile({
       ) : src ? (
         <img className="tile-img" src={src} alt="" />
       ) : (
-        <BotIcon className="tile-img" strokeWidth={1.8} aria-hidden="true" />
+        <AgentIcon className="tile-img" strokeWidth={1.8} aria-hidden="true" />
       )}
       {hasBadge(agent) ? (
         <span className="tile-badge">

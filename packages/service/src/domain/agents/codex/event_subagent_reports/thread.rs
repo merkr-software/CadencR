@@ -59,9 +59,14 @@ pub(super) fn change(method: &str, params: &Value) -> Option<ChildChange> {
             stop_reason::CLOSED,
             Strength::Inferred,
         ))),
-        "thread/tokenUsage/updated" => params["tokenUsage"]["total"]["totalTokens"]
-            .as_u64()
-            .map(ChildChange::Tokens),
+        "thread/tokenUsage/updated" => {
+            let total = &params["tokenUsage"]["total"];
+            // The card counts uncached input plus output across all child responses.
+            // Codex includes cache reads in totalTokens and reasoning in output.
+            let tokens = total["totalTokens"].as_u64()?;
+            let cached = total["cachedInputTokens"].as_u64().unwrap_or(0);
+            Some(ChildChange::Tokens(tokens.saturating_sub(cached)))
+        }
         _ => None,
     }
 }
@@ -253,17 +258,17 @@ mod tests {
     }
 
     #[test]
-    fn token_usage_reads_the_cumulative_total() {
+    fn token_usage_excludes_cached_input_from_the_cumulative_total() {
         // v2/ThreadTokenUsage.ts.
         let params = json!({"threadId": "c", "turnId": "t", "tokenUsage": {
-            "total": {"totalTokens": 12_345, "inputTokens": 10_000, "cachedInputTokens": 0,
-                "cacheWriteInputTokens": 0, "outputTokens": 2_345, "reasoningOutputTokens": 0},
+            "total": {"totalTokens": 2_193_905, "inputTokens": 2_185_841, "cachedInputTokens": 2_102_528,
+                "cacheWriteInputTokens": 0, "outputTokens": 8_064, "reasoningOutputTokens": 2_893},
             "last": {"totalTokens": 345, "inputTokens": 300, "cachedInputTokens": 0,
                 "cacheWriteInputTokens": 0, "outputTokens": 45, "reasoningOutputTokens": 0},
             "modelContextWindow": 400_000}});
         assert!(matches!(
             change("thread/tokenUsage/updated", &params),
-            Some(ChildChange::Tokens(12_345))
+            Some(ChildChange::Tokens(91_377))
         ));
         assert!(change("turn/plan/updated", &params).is_none());
     }

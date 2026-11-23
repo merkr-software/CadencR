@@ -55,6 +55,8 @@ async fn codex_permission_mode_migration_adds_session_column() {
     seed_applied_migrations_before(&pool).await;
 
     crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, CODEX_PERMISSION_MODE_VERSION)
+        .await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

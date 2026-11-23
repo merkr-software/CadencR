@@ -11,7 +11,10 @@ pub(in crate::domain::ws_session) async fn refresh_resume_session_id_from_db(
     provider_id: &str,
 ) -> Result<Option<String>, String> {
     let previous_resume_session_id = options.resume_session_id.clone();
-    let Some(row) = WsSessionPersistence::get_session_row(read_pool, db_session_id).await else {
+    let Some(row) = WsSessionPersistence::get_session_row(read_pool, db_session_id)
+        .await
+        .map_err(|error| format!("Failed to read the session to resume it: {error}"))?
+    else {
         return Ok(None);
     };
     let resolved_resume_session_id = match crate::domain::agents::runtime_adapter(provider_id) {

@@ -1,6 +1,8 @@
 import type { AgentBlockData } from "@/types/agent-block";
 import type { PromptDeliveryState } from "@/types/agent";
 
+import { blockMessageDbId } from "./ws-message-identity";
+
 export interface TailPromptTurnBoundary {
   blocks: AgentBlockData[];
   shouldTrim: boolean;
@@ -31,6 +33,20 @@ export function pendingPromptTailStartIndex(blocks: AgentBlockData[]): number {
     index -= 1;
   }
   return index;
+}
+
+/** Re-fetch pending receipts whose saved rows precede the reconnect cursor. */
+export function pendingPromptFetchCursor(
+  blocks: AgentBlockData[],
+  confirmedCursor: number,
+): number {
+  let cursor = confirmedCursor;
+  for (const block of blocks) {
+    if (block.type !== "user_message" || block.promptDeliveryState !== "pending_agent") continue;
+    const messageId = blockMessageDbId(block);
+    if (messageId != null) cursor = Math.min(cursor, messageId - 1);
+  }
+  return Math.max(0, cursor);
 }
 
 export function markPromptReceived(

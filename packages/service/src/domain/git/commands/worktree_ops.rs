@@ -6,9 +6,7 @@ use std::path::Path;
 use crate::domain::git::models::WorktreeInfo;
 use crate::error::AppError;
 use crate::shared::git_cli::version::{self, GitFeature};
-use crate::shared::git_cli::{
-    git_ref_resolves_background, run_git, run_git_background, run_git_safe_refs,
-};
+use crate::shared::git_cli::{ref_exists_exactly, run_git, run_git_background, run_git_safe_refs};
 use crate::shared::worktree_paths::compute_worktree_path;
 
 /// List all worktrees for a repository.
@@ -26,7 +24,7 @@ async fn worktree_porcelain(repo: &Path) -> Result<String, AppError> {
     } else {
         &["worktree", "list", "--porcelain"]
     };
-    run_git(args, repo).await
+    run_git_background(args, repo).await
 }
 
 /// The records of either `worktree list --porcelain` form; an empty record
@@ -173,14 +171,16 @@ pub async fn create_worktree(
 
 /// Attach an existing branch, otherwise create it. Decided from the ref
 /// itself: Git's "already exists" message is translated with the user's
-/// locale and also names unrelated collisions.
+/// locale and also names unrelated collisions. The name compares exactly: on
+/// a case-insensitive filesystem a loose `feature/abc` would otherwise answer
+/// for `Feature/ABC` and the worktree would attach that other branch.
 async fn add_worktree_for_branch(
     repo_path: &Path,
     worktree_path: &str,
     branch_name: &str,
 ) -> Result<(), AppError> {
     let branch_ref = format!("refs/heads/{branch_name}");
-    if git_ref_resolves_background(&branch_ref, repo_path).await? {
+    if ref_exists_exactly(&branch_ref, repo_path).await? {
         run_git_safe_refs(
             &["worktree", "add"],
             &[],
@@ -405,6 +405,32 @@ mod tests {
         let branches = list_worktree_branches(repo.path()).await.unwrap();
         assert!(branches.contains_key("fresh-branch"), "{branches:?}");
         assert!(branches.contains_key("existing"), "{branches:?}");
+
+        // A name that differs only by case is another branch: it is created
+        // (case-sensitive filesystem) or refused (a loose ref collides on a
+        // case-insensitive one), never attached as `existing`.
+        let case_only = worktrees
+            .path()
+            .join("case-only")
+            .to_string_lossy()
+            .into_owned();
+        let added = add_worktree_for_branch(repo.path(), &case_only, "Existing").await;
+        let branches = list_worktree_branches(repo.path()).await.unwrap();
+        assert_eq!(
+            branches
+                .get("existing")
+                .map(|path| path.ends_with("attached")),
+            Some(true),
+            "{branches:?}"
+        );
+        // Attached, it must be a branch of its own under exactly that name:
+        // the old lookup attached a phantom `Existing` that only resolved
+        // through the loose `existing` file.
+        if added.is_ok() {
+            assert!(ref_exists_exactly("refs/heads/Existing", repo.path())
+                .await
+                .unwrap());
+        }
     }
 
     #[test]

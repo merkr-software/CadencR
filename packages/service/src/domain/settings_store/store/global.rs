@@ -7,15 +7,26 @@ use std::path::{Path, PathBuf};
 use crate::domain::workspace::models::Setting;
 use crate::error::AppError;
 
+use super::super::cache::{self, CachedEntry};
 use super::super::{dir, file, lock, paths, Scope, SettingWarning};
-use super::{load, load_document_for_write, read_for_edit, set_value, set_values, write_content};
+use super::{
+    load, load_document_for_write, load_key, read, read_for_edit, read_key, set_value, set_values,
+    write_content, write_serialized_under_lock,
+};
 
 fn global_path() -> PathBuf {
     paths::global_file(&dir::global_dir())
 }
 
 pub fn global_get(key: &str) -> Option<String> {
-    load(&global_path(), Scope::Workspace).0.remove(key)
+    load_key(&global_path(), Scope::Workspace, key)
+}
+
+/// Like [`global_get`], but a settings file that exists and cannot be read is
+/// an error (`SETTINGS_READ_FAILED`) instead of "unset". A missing file is
+/// still a workspace with no overrides.
+pub fn global_read(key: &str) -> Result<Option<String>, AppError> {
+    read_key(&global_path(), Scope::Workspace, key)
 }
 
 /// Like `global_get` but treats empty/whitespace-only as unset.
@@ -31,22 +42,27 @@ pub fn global_get_nonempty(key: &str) -> Option<String> {
 /// left by a hand-edit must not silently re-enable a destructive pass the user
 /// turned off. A missing file is healthy — that's a workspace with no overrides.
 pub fn global_snapshot() -> Option<BTreeMap<String, String>> {
-    match file::read_file(&global_path()) {
-        Ok(Some(text)) => file::parse_object(&text).ok().map(|(values, _)| values),
-        Ok(None) => Some(BTreeMap::new()),
-        Err(_) => None,
+    match cache::get_or_load(&global_path()).as_ref() {
+        CachedEntry::Present(doc) => doc
+            .parsed_scalars
+            .as_ref()
+            .ok()
+            .map(|(values, _)| values.clone()),
+        CachedEntry::Missing => Some(BTreeMap::new()),
+        CachedEntry::Unreadable(_) => None,
     }
 }
 
-pub fn global_list() -> Vec<Setting> {
-    load(&global_path(), Scope::Workspace)
+/// Every global scalar setting, failing like [`global_read`].
+pub fn global_list() -> Result<Vec<Setting>, AppError> {
+    Ok(read(&global_path(), Scope::Workspace)?
         .0
         .into_iter()
         .map(|(key, value)| Setting {
             key,
             value: Some(value),
         })
-        .collect()
+        .collect())
 }
 
 pub async fn global_set(key: &str, value: &str) -> Result<(), AppError> {
@@ -67,8 +83,10 @@ pub fn global_map() -> (PathBuf, BTreeMap<String, String>, Vec<SettingWarning>) 
 pub async fn global_set_many(
     entries: &BTreeMap<String, Option<String>>,
 ) -> Result<BTreeMap<String, Option<String>>, AppError> {
-    let previous = set_values(&global_path(), entries).await?;
-    super::super::generation::bump_global();
+    let (previous, changed) = set_values(&global_path(), entries).await?;
+    if changed {
+        super::super::generation::bump_global();
+    }
     Ok(previous)
 }
 
@@ -89,26 +107,34 @@ pub fn global_read_for_edit() -> (PathBuf, String, Vec<SettingWarning>) {
 
 /// Read a nested object section (e.g. `profiles`) from the global file. Returns
 /// an empty map when the key is absent or its value isn't an object. A present
-/// but unparseable file also degrades to empty, but logs a warning first: that
+/// but unreadable or unparseable file also degrades to empty, but logs a
+/// warning first: that
 /// is the root cause behind otherwise-confusing "section missing" symptoms (a
 /// corrupt `settings.json` silently dropping an active Bedrock/Vertex profile).
 pub fn global_get_object(key: &str) -> serde_json::Map<String, serde_json::Value> {
     let path = global_path();
-    let Ok(Some(text)) = file::read_file(&path) else {
-        return serde_json::Map::new();
-    };
-    let doc = match file::parse_document(&text) {
-        Ok(doc) => doc,
-        Err(message) => {
+    match cache::get_or_load(&path).as_ref() {
+        CachedEntry::Missing => serde_json::Map::new(),
+        CachedEntry::Unreadable(error) => {
             tracing::warn!(
                 file = %path.display(),
-                error = %message,
-                "settings file is not valid JSON; ignoring its '{key}' section"
+                %error,
+                "settings file is unreadable; ignoring its '{key}' section"
             );
-            return serde_json::Map::new();
+            serde_json::Map::new()
         }
-    };
-    file::object_section(&doc, key)
+        CachedEntry::Present(entry) => match &entry.parsed_doc {
+            Ok(doc) => file::object_section(doc, key),
+            Err(message) => {
+                tracing::warn!(
+                    file = %path.display(),
+                    error = %message,
+                    "settings file is not valid JSON; ignoring its '{key}' section"
+                );
+                serde_json::Map::new()
+            }
+        },
+    }
 }
 
 /// Atomically read-modify-write a nested object section under `key` in the global
@@ -130,8 +156,11 @@ pub(crate) async fn modify_object_at<F>(path: &Path, key: &str, f: F) -> Result<
 where
     F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), AppError>,
 {
-    let _guard = lock::write_lock().lock().await;
-    let mut doc = load_document_for_write(path)?;
+    let guard = lock::write_lock().lock().await;
+    let read_path = path.to_path_buf();
+    let mut doc = tokio::task::spawn_blocking(move || load_document_for_write(&read_path))
+        .await
+        .map_err(|error| AppError::internal(format!("settings read task failed: {error}")))??;
     let mut section = file::object_section(&doc, key);
     f(&mut section)?;
     if section.is_empty() {
@@ -139,8 +168,8 @@ where
     } else {
         doc.insert(key.to_string(), serde_json::Value::Object(section));
     }
-    file::write_atomic(path, &file::serialize_document(&doc))?;
-    Ok(())
+    let serialized = file::serialize_document(&doc);
+    write_serialized_under_lock(guard, path, serialized, "settings write").await
 }
 
 #[cfg(test)]

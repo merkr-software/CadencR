@@ -37,6 +37,7 @@ pub(super) use provider::{read_persisted_selection, restore_persisted_selection}
 pub(super) use runtime_overrides::handle_runtime_overrides_set;
 pub(super) use session_config::{handle_session_config_get, handle_session_config_set};
 
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 
 use super::types::WsSender;
@@ -77,7 +78,9 @@ pub(super) async fn reply_and_broadcast(
 ) {
     let reply = WsEnvelope::session_reply(envelope_id, event)
         .expect("session control reply payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
     broadcast_control_change(app_state, sender, feature_id, event).await;
 }
 

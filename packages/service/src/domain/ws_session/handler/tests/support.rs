@@ -245,6 +245,15 @@ pub(crate) async fn make_test_app_state() -> AppState {
             env!("CARGO_MANIFEST_DIR"),
             "/migrations/20261026210000_prompt_queue_message_identity.sql"
         )),
+        // The queue it merges, empty, so the merge itself can run.
+        "CREATE TABLE agent_session_message_queue (id INTEGER PRIMARY KEY, target_session_id INTEGER, content TEXT,
+             status TEXT, error TEXT, created_at TEXT, message_uuid TEXT,
+             source_session_id INTEGER, attempt_count INTEGER, claim_token TEXT,
+             claimed_at TEXT);",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/migrations/20261122010000_unified_session_queue.sql"
+        )),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }
@@ -322,6 +331,20 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
+    // Native usage reports keep a durable, provider-scoped replay identity.
+    sqlx::query(
+        "CREATE TABLE provider_usage_events (
+            session_id INTEGER NOT NULL,
+            provider_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            PRIMARY KEY (session_id, provider_id, event_id),
+            FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query(
         r#"CREATE TABLE session_runtime_ids (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -329,6 +352,15 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 runtime_session_id TEXT NOT NULL,
                 created_at TEXT
             )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Written by a reader whose runtime owes a resume, and by a user Stop.
+    sqlx::raw_sql(
+        "CREATE TABLE agent_background_work (session_id INTEGER PRIMARY KEY, since TEXT NOT NULL);
+         CREATE TABLE agent_user_stops (session_id INTEGER PRIMARY KEY, stopped_at TEXT NOT NULL);",
     )
     .execute(&pool)
     .await
@@ -594,6 +626,23 @@ pub(crate) async fn add_claude_custom_model(
     .unwrap();
 }
 
+pub(super) fn message_start(model: &str) -> RuntimeEvent {
+    RuntimeEvent::new(
+        crate::domain::agents::adapter::RuntimeEventMetadata {
+            session_id: Some("cli".into()),
+            raw: serde_json::json!({ "type": "stream_event" }),
+            ..Default::default()
+        },
+        RuntimeEventKind::StreamEvent {
+            event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
+                model: Some(model.into()),
+                input_tokens: None,
+            },
+            parent_tool_use_id: None,
+        },
+    )
+}
+
 /// A provider `Result` event: the turn ended.
 pub(crate) fn result_event() -> RuntimeEvent {
     RuntimeEvent::new(
@@ -657,4 +706,24 @@ impl AgentRuntimeSession for RecordingRuntime {
     fn pid(&self) -> Option<u32> {
         None
     }
+}
+
+/// Under `start_paused`, tokio jumps the clock to the next timer whenever
+/// the runtime idles — including while sqlx waits on its SQLite worker
+/// thread, which then trips the pool's acquire timeout. A task that keeps
+/// yielding keeps the runtime busy, so only `time::advance` moves the clock.
+pub(crate) struct FrozenClock(tokio::task::JoinHandle<()>);
+
+impl Drop for FrozenClock {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+pub(crate) fn freeze_paused_clock() -> FrozenClock {
+    FrozenClock(tokio::spawn(async {
+        loop {
+            tokio::task::yield_now().await;
+        }
+    }))
 }

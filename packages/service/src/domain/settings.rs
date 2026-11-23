@@ -3,6 +3,7 @@ use std::path::Path;
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use crate::domain::settings_store::{self, paths, store, Scope};
+use crate::error::AppError;
 
 mod thinking;
 
@@ -22,7 +23,7 @@ pub async fn thinking_effort_model_default(
     pool: &SqlitePool,
     provider_id: &str,
     model_id: &str,
-) -> Option<String> {
+) -> Result<Option<String>, AppError> {
     resolve_setting(
         pool,
         &thinking_effort_model_key(provider_id, model_id),
@@ -46,76 +47,78 @@ pub enum SettingOrigin {
     Global,
 }
 
-async fn resolve_table_kv_setting(
+async fn resolve_feature_kv_setting(
     pool: &SqlitePool,
-    table: &str,
-    row_id: i64,
+    feature_id: i64,
     key: &str,
-) -> Option<String> {
-    let (scope_id, kv_table) = match table {
-        "features" => ("feature_id", "feature_settings"),
-        "projects" => ("project_id", "project_settings"),
-        _ => return None,
-    };
-
-    let sql = format!("SELECT value FROM {kv_table} WHERE {scope_id} = ? AND key = ? LIMIT 1");
-    sqlx::query_scalar::<_, Option<String>>(AssertSqlSafe(sql))
-        .bind(row_id)
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .flatten()
-        .filter(|value| !value.is_empty())
+) -> Result<Option<String>, AppError> {
+    let value = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT value FROM feature_settings WHERE feature_id = ? AND key = ? LIMIT 1",
+    )
+    .bind(feature_id)
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(value.flatten().filter(|value| !value.is_empty()))
 }
 
-async fn table_has_column(pool: &SqlitePool, table: &str, key: &str) -> bool {
+async fn table_has_column(pool: &SqlitePool, table: &str, key: &str) -> Result<bool, AppError> {
     let sql = format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ? LIMIT 1");
-    sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
+    let found = sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
         .bind(key)
         .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
+        .await?;
+    Ok(found.is_some())
 }
 
-pub(crate) async fn resolve_table_column_setting(
+async fn resolve_table_column_setting(
     pool: &SqlitePool,
     table: &str,
     row_id: i64,
     key: &str,
-) -> Option<String> {
-    if !table_has_column(pool, table, key).await {
-        return None;
+) -> Result<Option<String>, AppError> {
+    if !table_has_column(pool, table, key).await? {
+        return Ok(None);
     }
 
     let sql = format!(r#"SELECT "{key}" as v FROM {table} WHERE id = ?"#);
-    if let Ok(Some((Some(v),))) = sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
+    let row = sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
         .bind(row_id)
         .fetch_optional(pool)
-        .await
-    {
-        if !v.is_empty() {
-            return Some(v);
+        .await?;
+    Ok(row
+        .and_then(|(value,)| value)
+        .filter(|value| !value.is_empty()))
+}
+
+pub(crate) async fn feature_setting(
+    pool: &SqlitePool,
+    feature_id: i64,
+    key: &str,
+) -> Result<Option<String>, AppError> {
+    if SHARED_COLUMNS.contains(&key) {
+        if let Some(value) = resolve_table_column_setting(pool, "features", feature_id, key).await?
+        {
+            return Ok(Some(value));
         }
     }
-
-    None
+    resolve_feature_kv_setting(pool, feature_id, key).await
 }
 
 /// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →
 /// global (JSON) → default. Only empty strings are treated as unset and fall
 /// through. Global and project settings live in JSON files now; feature
 /// settings remain SQLite-backed.
+///
+/// A level that cannot be read fails the whole lookup: falling through to the
+/// next level would silently run with a value the user did not choose.
 pub async fn resolve_setting(
     pool: &SqlitePool,
     key: &str,
     feature_id: Option<i64>,
     project_id: Option<i64>,
     default_value: Option<&str>,
-) -> Option<String> {
+) -> Result<Option<String>, AppError> {
     resolve_in(
         &settings_store::global_dir(),
         pool,
@@ -135,40 +138,33 @@ pub(crate) async fn resolve_in_with_origin(
     key: &str,
     feature_id: Option<i64>,
     project_id: Option<i64>,
-) -> Option<(String, SettingOrigin)> {
+) -> Result<Option<(String, SettingOrigin)>, AppError> {
     // 1. Feature-level (SQLite: real column then EAV).
     if let Some(fid) = feature_id {
-        if SHARED_COLUMNS.contains(&key) {
-            if let Some(v) = resolve_table_column_setting(pool, "features", fid, key).await {
-                return Some((v, SettingOrigin::Feature));
-            }
-        }
-        if let Some(v) = resolve_table_kv_setting(pool, "features", fid, key).await {
-            return Some((v, SettingOrigin::Feature));
+        if let Some(value) = feature_setting(pool, fid, key).await? {
+            return Ok(Some((value, SettingOrigin::Feature)));
         }
     }
 
     // 2. Project-level (JSON file).
     if let Some(pid) = project_id {
-        if let Ok(path) = paths::project_file(dir, pool, pid).await {
-            let (map, _warnings) = store::load(&path, Scope::Project);
-            if let Some(v) = map.get(key) {
-                if !v.is_empty() {
-                    return Some((v.clone(), SettingOrigin::Project));
-                }
-            }
+        let path = paths::project_file(dir, pool, pid).await?;
+        if let Some(v) = read_level(&path, Scope::Project, key)? {
+            return Ok(Some((v, SettingOrigin::Project)));
         }
     }
 
     // 3. Global (JSON file).
-    let (global, _warnings) = store::load(&paths::global_file(dir), Scope::Workspace);
-    if let Some(v) = global.get(key) {
-        if !v.is_empty() {
-            return Some((v.clone(), SettingOrigin::Global));
-        }
-    }
+    Ok(read_level(&paths::global_file(dir), Scope::Workspace, key)?
+        .map(|v| (v, SettingOrigin::Global)))
+}
 
-    None
+/// One JSON level's non-empty value for `key`. A file that cannot be read is an
+/// error; one that was read but holds invalid JSON or values keeps degrading to
+/// "unset" — the settings page reports those as warnings.
+fn read_level(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
+    let (map, _warnings) = store::read(path, scope)?;
+    Ok(map.get(key).filter(|value| !value.is_empty()).cloned())
 }
 
 /// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →
@@ -181,7 +177,7 @@ pub async fn resolve_setting_with_origin(
     key: &str,
     feature_id: Option<i64>,
     project_id: Option<i64>,
-) -> Option<(String, SettingOrigin)> {
+) -> Result<Option<(String, SettingOrigin)>, AppError> {
     resolve_in_with_origin(
         &settings_store::global_dir(),
         pool,
@@ -201,11 +197,13 @@ pub(crate) async fn resolve_in(
     feature_id: Option<i64>,
     project_id: Option<i64>,
     default_value: Option<&str>,
-) -> Option<String> {
-    match resolve_in_with_origin(dir, pool, key, feature_id, project_id).await {
-        Some((value, _origin)) => Some(value),
-        None => default_value.map(|s| s.to_string()),
-    }
+) -> Result<Option<String>, AppError> {
+    Ok(
+        match resolve_in_with_origin(dir, pool, key, feature_id, project_id).await? {
+            Some((value, _origin)) => Some(value),
+            None => default_value.map(|s| s.to_string()),
+        },
+    )
 }
 
 #[cfg(test)]
@@ -301,7 +299,8 @@ mod tests {
             Some(1),
             Some("default-model"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("feature-model".to_string()));
     }
 
@@ -324,7 +323,8 @@ mod tests {
             Some(1),
             Some("default-model"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("project-model".to_string()));
     }
 
@@ -347,7 +347,8 @@ mod tests {
             Some(1),
             Some("default-model"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("global-model".to_string()));
     }
 
@@ -366,7 +367,8 @@ mod tests {
             Some(1),
             Some("default-model"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("default-model".to_string()));
     }
 
@@ -383,7 +385,9 @@ mod tests {
             &[("custom_kv_key", "medium")],
         );
 
-        let result = resolve_in(dir.path(), &pool, "custom_kv_key", Some(1), Some(1), None).await;
+        let result = resolve_in(dir.path(), &pool, "custom_kv_key", Some(1), Some(1), None)
+            .await
+            .unwrap();
         assert_eq!(result, Some("high".to_string()));
     }
 
@@ -403,7 +407,8 @@ mod tests {
             Some(1),
             Some("default-model"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("default".to_string()));
     }
 
@@ -417,7 +422,9 @@ mod tests {
             &[("branch_prefix", "feature/")],
         );
 
-        let result = resolve_in(dir.path(), &pool, "branch_prefix", None, Some(1), None).await;
+        let result = resolve_in(dir.path(), &pool, "branch_prefix", None, Some(1), None)
+            .await
+            .unwrap();
         assert_eq!(result, Some("feature/".to_string()));
     }
 
@@ -451,7 +458,8 @@ mod tests {
             Some(1),
             Some("claude_code"),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(result, Some("claude_code".to_string()));
     }
 
@@ -466,8 +474,9 @@ mod tests {
         insert_project(&pool, 1, "proj").await;
         insert_feature(&pool, 7, 1, Some("opus"), None).await;
 
-        let resolved =
-            resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1)).await;
+        let resolved = resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1))
+            .await
+            .unwrap();
 
         assert_eq!(resolved, Some(("opus".to_string(), SettingOrigin::Feature)));
     }
@@ -480,8 +489,9 @@ mod tests {
         insert_feature(&pool, 7, 1, None, None).await;
         write_global(dir.path(), "model_session", "sonnet");
 
-        let resolved =
-            resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1)).await;
+        let resolved = resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1))
+            .await
+            .unwrap();
 
         assert_eq!(
             resolved,
@@ -494,8 +504,53 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
 
-        let resolved = resolve_in_with_origin(dir.path(), &pool, "model_session", None, None).await;
+        let resolved = resolve_in_with_origin(dir.path(), &pool, "model_session", None, None)
+            .await
+            .unwrap();
 
         assert_eq!(resolved, None);
+    }
+
+    /// A feature level that cannot be read fails the lookup: falling through
+    /// would silently run with the project's value instead of the feature's.
+    #[tokio::test]
+    async fn an_unreadable_feature_level_fails_instead_of_falling_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = feature_pool().await;
+        insert_project(&pool, 1, "p").await;
+        insert_feature(&pool, 1, 1, None, None).await;
+        write_json(
+            &project_file(dir.path(), &pool, 1).await,
+            &[("custom_kv_key", "project-value")],
+        );
+        sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = resolve_in(dir.path(), &pool, "custom_kv_key", Some(1), Some(1), None).await;
+
+        assert!(result.is_err(), "{result:?}");
+    }
+
+    /// A settings file that exists but cannot be read is an error, not an
+    /// empty level that hands the decision to the caller's default.
+    #[tokio::test]
+    async fn an_unreadable_global_file_fails_instead_of_using_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = feature_pool().await;
+        std::fs::create_dir_all(paths::global_file(dir.path())).unwrap();
+
+        let result = resolve_in(
+            dir.path(),
+            &pool,
+            "model_session",
+            None,
+            None,
+            Some("default-model"),
+        )
+        .await;
+
+        assert!(result.is_err(), "{result:?}");
     }
 }

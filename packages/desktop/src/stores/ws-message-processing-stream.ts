@@ -39,6 +39,15 @@ export function processStreamEvent(
     stream.model = msg.model;
   }
   const parentToolUseId = (msg.parent_tool_use_id as string) ?? null;
+  // A catch-up is not a context switch: it restates blocks of any scope.
+  if (event.type === "content_block_snapshot") {
+    return processContentBlockSnapshot(
+      event,
+      stream,
+      parentToolUseId,
+      blockIdFromAgentMessage(msg),
+    );
+  }
   // Mark the previous subagent complete when a new message/block context opens
   // under a different parent — a real context switch for a *foreground* subagent
   // (subagent → subagent, or subagent → main-agent resume). A switch begins with
@@ -181,6 +190,56 @@ function processContentBlockStart(
     default:
       return [];
   }
+}
+
+/**
+ * The backend's catch-up for a viewer that attached mid-stream
+ * (`stream_reader_catch_up.rs`): a text/thinking block's whole text so far,
+ * sent in stream order, so the deltas that follow continue it. Our copy is
+ * normally shorter — a history snapshot read before this socket joined the
+ * stream, without the deltas published in between or still buffered on the
+ * server — and the duplicate-append merge keeps the longer text either way.
+ * The row's own model and creation time are restated, never invented, so the
+ * merge cannot relabel or re-date the block.
+ *
+ * Only a block deltas may still extend (`streaming`) claims its index, and
+ * never over a mapping live deltas already made: indexes are shared by every
+ * scope of a runtime session.
+ */
+function processContentBlockSnapshot(
+  event: Record<string, unknown>,
+  stream: StreamContext,
+  parentToolUseId: string | null,
+  persistedBlockId: string | null,
+): BlockMutation[] {
+  const block = event.content_block as Record<string, unknown> | undefined;
+  const type = block?.type;
+  const content = type === "thinking" ? block?.thinking : block?.text;
+  if (
+    persistedBlockId === null ||
+    (type !== "text" && type !== "thinking") ||
+    typeof content !== "string"
+  ) {
+    console.warn("[agent-stream] dropping malformed content_block_snapshot", event);
+    return [];
+  }
+  const index = event.index as number;
+  if (event.streaming === true && !stream.contentBlockIds.has(index)) {
+    stream.contentBlockIds.set(index, persistedBlockId);
+  }
+  return [
+    {
+      action: "append",
+      block: {
+        id: persistedBlockId,
+        type,
+        content,
+        parentToolUseId,
+        ...(typeof block?.model === "string" ? { model: block.model } : {}),
+        ...(typeof block?.created_at === "string" ? { createdAt: block.created_at } : {}),
+      },
+    },
+  ];
 }
 
 function isRenderableContentBlockType(type: unknown): boolean {

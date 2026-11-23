@@ -1,5 +1,6 @@
 import { memo, type ReactElement, type ReactNode } from "react";
-import { AlertTriangleIcon, BotIcon, SearchXIcon } from "lucide-react";
+import { AlertTriangleIcon, SearchXIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { EmptyState } from "@/components/FeaturePrViewParts";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ export const UnifiedAgentsNoAgents = memo(function UnifiedAgentsNoAgents(): Reac
   const keys = useShortcutKeys("agents-new-feature");
   return (
     <GridEmptyState
-      icon={<BotIcon className="size-5" aria-hidden />}
+      icon={<AgentIcon className="size-5" aria-hidden />}
       title="No agents yet"
       description="Every conversation you start in a project appears here, with the ones that need you first."
       action={

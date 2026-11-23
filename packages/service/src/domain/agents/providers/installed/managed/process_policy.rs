@@ -5,6 +5,7 @@
 //! prepares bounded stdio for the caller. Filesystem and network isolation are
 //! a separate release gate.
 
+use crate::shared::discard::cleanup;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt;
@@ -164,8 +165,18 @@ fn direct_command(
 
 /// Execute a prepared one-shot command with bounded time and output.
 pub async fn capture_managed_command(
+    command: Command,
+    timeout: Duration,
+) -> Result<ManagedCommandOutput, ManagedProcessPolicyError> {
+    capture_managed_command_with_spawn(command, timeout, |_| ()).await
+}
+
+/// Like managed capture, with a guard held from successful spawn through
+/// output collection and cleanup.
+pub(crate) async fn capture_managed_command_with_spawn<G>(
     mut command: Command,
     timeout: Duration,
+    register: impl FnOnce(u32) -> G,
 ) -> Result<ManagedCommandOutput, ManagedProcessPolicyError> {
     let process_tree = ProcessTreeControl::prepare(&mut command, managed_process_tree_policy())
         .map_err(|error| containment_error("could not prepare process containment", error))?;
@@ -175,9 +186,10 @@ pub async fn capture_managed_command(
             format!("could not start managed provider process: {error}"),
         )
     })?;
+    let _registration = child.id().map(register);
     if let Err(error) = process_tree.attach(&child) {
-        let _ = child.start_kill();
-        let _ = child.wait().await;
+        cleanup(child.start_kill(), "kill the uncontained managed process");
+        cleanup(child.wait().await, "reap the uncontained managed process");
         return Err(containment_error(
             "could not attach managed process containment",
             error,
@@ -361,13 +373,20 @@ mod tests {
             "CADENCR_AUTH_TOKEN",
             "cadencr_remote_secret",
             "CADENCR_DB_PATH",
+            "CADENCR_ANTIGRAVITY_COMMAND",
             "CADENCR_PUSH_PRIVATE_KEY",
             "VITE_API_TOKEN",
             "VITE_DEV_SERVER_URL",
         ] {
             assert!(is_cadencr_host_secret_env_key(key.as_ref()), "{key}");
         }
-        for key in ["HOME", "PATH", "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
+        for key in [
+            "HOME",
+            "PATH",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTIGRAVITY_CLI_PATH",
+        ] {
             assert!(!is_cadencr_host_secret_env_key(key.as_ref()), "{key}");
         }
     }
@@ -459,7 +478,11 @@ mod tests {
             .arg("60")
             .spawn()
             .expect("spawn descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(
+            std::path::Path::new(&pid_file),
+            descendant.id(),
+        )
+        .expect("write descendant pid");
         if std::env::var_os("PROCESS_TREE_TEST_EXIT_PARENT").is_some() {
             return;
         }
@@ -515,7 +538,11 @@ mod tests {
             if unsafe { libc::kill(pid, 0) } != 0
                 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
             {
-                assert_eq!(error.code, ManagedProcessPolicyErrorCode::ProcessTimedOut);
+                assert_eq!(
+                    error.code,
+                    ManagedProcessPolicyErrorCode::ProcessTimedOut,
+                    "{error}"
+                );
                 return;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;

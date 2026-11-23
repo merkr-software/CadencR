@@ -150,16 +150,16 @@ async fn ensure_local_target(repo: &Path, target: &str) -> Result<String, AppErr
     if target.trim().is_empty() || target.starts_with('-') {
         return Err(AppError::BadRequest("target branch is invalid".into()));
     }
-    if local_branch_exists(repo, target).await {
+    if local_branch_exists(repo, target).await? {
         return Ok(target.to_string());
     }
-    if remote_branch_exists(repo, target).await {
+    if remote_branch_exists(repo, target).await? {
         let local = target
             .split_once('/')
             .map(|(_, branch)| branch)
             .filter(|branch| !branch.is_empty())
             .ok_or_else(|| AppError::BadRequest(format!("target branch is invalid: {target}")))?;
-        if local_branch_exists(repo, local).await {
+        if local_branch_exists(repo, local).await? {
             return Ok(local.to_string());
         }
         run_git_safe_refs(&["branch"], &[], &[local, target], repo).await?;
@@ -369,7 +369,7 @@ mod tests {
         let local = ensure_local_target(repo, "origin/main").await.unwrap();
 
         assert_eq!(local, "main");
-        assert!(local_branch_exists(repo, "main").await);
+        assert!(local_branch_exists(repo, "main").await.unwrap());
     }
 
     #[tokio::test]

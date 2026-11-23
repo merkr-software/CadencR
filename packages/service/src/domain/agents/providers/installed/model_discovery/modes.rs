@@ -14,8 +14,9 @@
 //! provider's primary edit mode. See `docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md`.
 
 use agent_client_protocol::schema::v1::{
-    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
 };
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::{flatten_options, ModelDiscoveryError};
@@ -23,7 +24,7 @@ use crate::domain::agents::adapter::{
     access_mode_wire, parse_access_mode_wire, RuntimeAccessMode, RuntimePermissionMode,
 };
 use crate::domain::agents::permission_modes::{parse_permission_mode, permission_mode_wire};
-use crate::domain::agents::runtime::ProviderModeCatalogEntry;
+use crate::domain::agents::runtime::{ProviderModeAccent, ProviderModeCatalogEntry};
 
 /// Host permission-mode wire ids a connector may map a mode value onto.
 pub const HOST_PERMISSION_MODES: &[&str] = &[
@@ -48,6 +49,7 @@ pub struct MappedMode {
     pub value: String,
     pub label: String,
     pub description: Option<String>,
+    pub accent: Option<ProviderModeAccent>,
 }
 
 impl MappedMode {
@@ -56,6 +58,7 @@ impl MappedMode {
             id: self.host_id.clone(),
             label: self.label.clone(),
             description: self.description.clone(),
+            accent: self.accent,
         }
     }
 }
@@ -156,7 +159,10 @@ fn mapped(
     };
     let mut modes: Vec<MappedMode> = Vec::new();
     for choice in flatten_options(&select.options)? {
-        let Some(host_id) = value_mapping(choice, key) else {
+        let Some(meta) = choice.meta.as_ref().and_then(|meta| meta.get("cadencr")) else {
+            continue;
+        };
+        let Some(host_id) = meta.get(key).and_then(Value::as_str) else {
             continue;
         };
         if !known(host_id) {
@@ -174,14 +180,14 @@ fn mapped(
             value: choice.value.0.to_string(),
             label: choice.name.clone(),
             description: choice.description.clone(),
+            accent: meta
+                .get("modeAccent")
+                .filter(|accent| key == "permissionMode" && accent.is_string())
+                .and_then(|accent| ProviderModeAccent::deserialize(accent).ok()),
         });
     }
     let config_id = (!modes.is_empty()).then(|| option.id.0.to_string());
     Ok((config_id, modes))
-}
-
-fn value_mapping<'a>(choice: &'a SessionConfigSelectOption, key: &str) -> Option<&'a str> {
-    choice.meta.as_ref()?.get("cadencr")?.get(key)?.as_str()
 }
 
 #[cfg(test)]
@@ -205,6 +211,10 @@ mod tests {
 
     #[test]
     fn maps_mode_and_access_selectors_in_order() {
+        let mut plan = mode_value("plan", Some("plan"));
+        plan["_meta"]["cadencr"]["modeAccent"] = json!("violet");
+        let mut ask = mode_value("ask", Some("ask"));
+        ask["_meta"]["cadencr"]["modeAccent"] = json!("future-color");
         let parsed = ProviderModeMap::parse(&options(json!([
             { "id": "model", "name": "Model", "category": "model", "type": "select",
               "currentValue": "m", "options": [{ "value": "m", "name": "M" }] },
@@ -213,15 +223,15 @@ mod tests {
                 mode_value("agent", Some("default")),
                 mode_value("hidden", None),
                 mode_value("future", Some("someFutureMode")),
-                mode_value("plan", Some("plan")),
+                plan,
                 mode_value("again", Some("plan")),
-                mode_value("ask", Some("ask")),
+                ask,
             ] },
             { "id": "sandbox", "name": "Sandbox", "type": "select", "currentValue": "on",
               "_meta": { "cadencr": { "role": "access_mode" } },
               "options": [
                 { "value": "on", "name": "Sandboxed", "description": "Asks first",
-                  "_meta": { "cadencr": { "accessMode": "default" } } },
+                  "_meta": { "cadencr": { "accessMode": "default", "modeAccent": "green" } } },
                 { "value": "off", "name": "Full", "_meta": { "cadencr": { "accessMode": "fullAccess" } } },
                 { "value": "odd", "name": "Odd", "_meta": { "cadencr": { "accessMode": "nope" } } }
             ] }
@@ -253,8 +263,27 @@ mod tests {
             .is_none());
         let catalog = parsed.access_mode_catalog();
         assert_eq!(catalog[0].label, "Sandboxed");
+        assert!(catalog[0].accent.is_none());
         assert_eq!(catalog[0].description.as_deref(), Some("Asks first"));
-        assert_eq!(parsed.mode_catalog()[1].label, "PLAN");
+        let modes = parsed.mode_catalog();
+        assert_eq!(modes[1].label, "PLAN");
+        assert_eq!(serde_json::to_value(&modes[1]).unwrap()["accent"], "violet");
+        assert!(modes[0].accent.is_none());
+        assert!(modes[2].accent.is_none());
+    }
+
+    #[test]
+    fn non_string_accents_leave_the_permission_mode_available() {
+        let mut plan = mode_value("plan", Some("plan"));
+        plan["_meta"]["cadencr"]["modeAccent"] = json!({"violet": null});
+        let parsed = ProviderModeMap::parse(&options(json!([{
+            "id":"mode","category":"mode","name":"Mode","type":"select",
+            "currentValue":"plan","options":[plan]
+        }])))
+        .unwrap();
+        let modes = parsed.mode_catalog();
+        assert_eq!(modes[0].id, "plan");
+        assert!(modes[0].accent.is_none());
     }
 
     #[test]

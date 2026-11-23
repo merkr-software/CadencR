@@ -1,12 +1,12 @@
 import type { ReactElement } from "react";
 import {
-  BotIcon,
   CodeIcon,
   GitCompareArrowsIcon,
   FileTextIcon,
   GlobeIcon,
   TerminalIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 
@@ -39,7 +39,7 @@ vi.mock("@/lib/auto-layout/useAutoLayoutTarget", () => ({ useAutoLayoutTarget: (
 const FEATURE_ID = 11;
 
 const tabs: FeatureTabs = {
-  agent: { label: "Agent", Icon: BotIcon, content: null },
+  agent: { label: "Agent", Icon: AgentIcon, content: null },
   terminal: { label: "Terminal", Icon: TerminalIcon, content: null },
   git: { label: "Git", Icon: GitCompareArrowsIcon, content: null },
   editor: { label: "Editor", Icon: CodeIcon, content: null },

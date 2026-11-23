@@ -132,7 +132,12 @@ fn trim_newest_at_any_depth(
 }
 
 fn visit_message_ids(block: &AgentBlock, visit: &mut impl FnMut(i64)) {
-    if let Some(id) = block_message_id(block) {
+    // A joined block also holds every row up to its last one: a page resuming
+    // past its first row only would skip the rest.
+    for id in block_message_id(block)
+        .into_iter()
+        .chain(block.last_message_id)
+    {
         visit(id);
     }
     if let Some(children) = &block.child_blocks {
@@ -165,6 +170,26 @@ mod tests {
             blocks.first().and_then(block_message_id),
             Some(max_dropped + 1)
         );
+    }
+
+    #[test]
+    fn oldest_trim_resumes_past_every_row_joined_into_a_dropped_block() {
+        // Each block joins ten text rows: ids 10..=19, 20..=29, …
+        let mut blocks: Vec<AgentBlock> = (1..=40)
+            .map(|n| {
+                let mut block = make_root_block(n * 10);
+                block.last_message_id = Some(n * 10 + 9);
+                block.content = "x".repeat(64 * 1024);
+                block
+            })
+            .collect();
+
+        let max_dropped = trim_blocks_to_byte_cap(&mut blocks, SESSION_WIRE_SOFT_CAP_BYTES)
+            .expect("oversized page should be trimmed");
+
+        // The next `before` page ends at the last joined row, not the first.
+        let first_kept = blocks.first().and_then(block_message_id).unwrap();
+        assert_eq!(max_dropped + 1, first_kept);
     }
 
     #[test]

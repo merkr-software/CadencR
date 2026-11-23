@@ -2,11 +2,13 @@ import { installSessionPresentationEffects } from "./ws-session-store";
 import { updateQuestionDraft, useQuestionDraftStore } from "./question-drafts";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { toast } from "sonner";
 import { useWsSessionStore, applyMutations, createStreamingState } from "./ws-session-store";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { updateSession } from "./ws-session-types";
 import { invalidateWorktreeQueries } from "@/lib/worktreeQueries";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 
 vi.mock("@/lib/worktreeQueries", () => ({
   invalidateWorktreeQueries: vi.fn(),
@@ -782,6 +784,25 @@ describe("ws-session-store", () => {
     expect(useWsSessionStore.getState().sessions["s1"].pendingInitPermissionMode).toBeNull();
   });
 
+  it("does not replay a permission mode already acknowledged by initialization", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPermissionMode("s1", "plan");
+    store.sendPrompt("s1", "hello");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "plan" },
+    });
+    expect(ws.sent.map((raw) => JSON.parse(raw).action)).toEqual(["prompt.send"]);
+    expect(useWsSessionStore.getState().sessions.s1).toMatchObject({
+      permissionMode: "plan",
+      pendingInitPermissionMode: null,
+    });
+  });
+
   it.each(["autoReview", "default", "fullAccess"] as const)(
     "replays a pre-init %s access choice before the first queued prompt",
     async (mode) => {
@@ -1008,6 +1029,37 @@ describe("ws-session-store", () => {
     expect(ws.sent).toHaveLength(0);
   });
 
+  it("adopts the confirmed provider default even when the provider also supports the UI seed", async () => {
+    const provider = "example-acp";
+    setProviderCatalogMetadata([
+      {
+        id: provider,
+        label: "Example ACP",
+        modes: [
+          { id: "default", label: "Default" },
+          { id: "auto", label: "Auto" },
+        ],
+      },
+    ]);
+    try {
+      useWsSessionStore.getState().connect("s1");
+      await tick();
+      const ws = getWs();
+      expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("auto");
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider, permission_mode: "default" },
+      });
+
+      expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
+      expect(ws.sent).toHaveLength(0);
+    } finally {
+      setProviderCatalogMetadata([]);
+    }
+  });
+
   it("keeps a valid mode picked while session.init was in flight", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");
@@ -1043,6 +1095,127 @@ describe("ws-session-store", () => {
       reason: "completed",
     });
     expect(session.persistedLoaded).toBe(true);
+  });
+
+  // Found in review: the history snapshot is read before the socket joins the
+  // stream, and the backend writes text deltas up to one flush window after
+  // forwarding them. The next delta then extended the snapshot's shorter copy
+  // and the text in between never showed. The reader's catch-up restates the
+  // whole block first.
+  it("a mid-stream catch-up restores text the history snapshot was missing", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", {
+      blocks: [{ id: "msg-5", type: "text" as const, content: "Hel" }],
+      lifecycle: { phase: "active" },
+    });
+    const stream = (seq: number, event: Record<string, unknown>): void =>
+      ws.simulateMessage({
+        domain: "session",
+        action: "message",
+        payload: {
+          seq,
+          blocks: [{ type: "stream_event", session_id: "rt", agent_message_id: 5, event }],
+        },
+      });
+    stream(1, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: true,
+      content_block: { type: "text", text: "Hello" },
+    });
+    stream(2, {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: " world" },
+    });
+
+    const blocks = useWsSessionStore.getState().sessions.s1.blocks;
+    expect(blocks.filter((block) => block.id === "msg-5")).toEqual([
+      expect.objectContaining({ type: "text", content: "Hello world" }),
+    ]);
+  });
+
+  it("a catch-up keeps the block's model and time, and claims only a free open index", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", {
+      blocks: [
+        {
+          id: "msg-5",
+          type: "text" as const,
+          content: "Hel",
+          model: "model-a",
+          createdAt: "2026-11-23 10:00:00",
+        },
+      ],
+      lifecycle: { phase: "active" },
+    });
+    const send = (seq: number, id: number, event: Record<string, unknown>): void =>
+      ws.simulateMessage({
+        domain: "session",
+        action: "message",
+        payload: {
+          seq,
+          blocks: [{ type: "stream_event", session_id: "rt", agent_message_id: id, event }],
+        },
+      });
+    send(1, 5, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: true,
+      content_block: { type: "text", text: "Hello" },
+    });
+    // An ended block of another scope at index 0 must not take the index.
+    send(2, 4, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: false,
+      content_block: { type: "text", text: "earlier", created_at: "2026-11-23 09:59:00" },
+    });
+    send(3, 5, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } });
+
+    const blocks = useWsSessionStore.getState().sessions.s1.blocks;
+    expect(blocks.find((block) => block.id === "msg-5")).toMatchObject({
+      content: "Hello!",
+      model: "model-a",
+      createdAt: "2026-11-23 10:00:00",
+    });
+    expect(blocks.find((block) => block.id === "msg-4")?.content).toBe("earlier");
+  });
+
+  it("a catch-up for a block the snapshot lacks appends it once", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", { blocks: [], lifecycle: { phase: "active" } });
+    ws.simulateMessage({
+      domain: "session",
+      action: "message",
+      payload: {
+        seq: 1,
+        blocks: [
+          {
+            type: "stream_event",
+            session_id: "rt",
+            agent_message_id: 9,
+            event: {
+              type: "content_block_snapshot",
+              index: 1,
+              content_block: { type: "thinking", thinking: "weighing" },
+            },
+          },
+        ],
+      },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.blocks).toEqual([
+      expect.objectContaining({ id: "msg-9", type: "thinking", content: "weighing" }),
+    ]);
   });
 
   it("setPersistedState restores provider, model, and runtime session metadata", () => {
@@ -1283,6 +1456,27 @@ describe("ws-session-store", () => {
     expect(session.lifecycle).toEqual({ phase: "terminal", reason: "denied" });
   });
 
+  it("drops a gate the backend reports already closed (STALE_GATE) without an error", async () => {
+    const { ws, store } = await connectInitializedSession();
+    simulatePermissionRequest(ws, "perm-1");
+    const blocksBefore = useWsSessionStore.getState().sessions["s1"].blocks.length;
+
+    store.closeGate("s1", "escape");
+    const closeEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
+    // Answered over the API meanwhile: the backend has no open gate left.
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: closeEnvelope.id,
+      payload: { code: "STALE_GATE", message: "no gate is open" },
+    });
+
+    const session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.pendingPermission).toBeNull();
+    expect(session.pendingRequestId).toBe("");
+    expect(session.blocks).toHaveLength(blocksBefore);
+  });
+
   it("drops stale gate state when the backend reports SESSION_NOT_FOUND", async () => {
     const { ws } = await connectInitializedSession();
     simulatePermissionRequest(ws, "perm-1");
@@ -1408,6 +1602,7 @@ describe("ws-session-store", () => {
         ...draft,
         freeText: "kept",
       }));
+      const toastError = vi.spyOn(toast, "error");
       store.respondToQuestion("s1", [["Sonnet"]]);
       const first = lastSentEnvelope(ws, "permission.respond");
       store.respondToQuestion("s1", [["Sonnet"]]);
@@ -1423,7 +1618,14 @@ describe("ws-session-store", () => {
       const after = useWsSessionStore.getState().sessions.s1;
       expect(after.pendingQuestions).toHaveLength(1);
       expect(after.submittingPermissionRequestId).toBeNull();
-      expect(after.blocks.at(-1)?.type).toBe("error");
+      // The answer failed, not the turn: a toast names it, and the
+      // conversation gets no "the agent ended its turn" error.
+      expect(after.blocks.some((block) => block.type === "error")).toBe(false);
+      expect(after.lifecycle.phase).not.toBe("error");
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your response", {
+        description: failure === "timeout" ? "Permission response timed out." : "Disk full",
+      });
+      toastError.mockRestore();
       expect(useQuestionDraftStore.getState().drafts.get(7)?.draft.freeText).toBe("kept");
       store.respondToQuestion("s1", [["Sonnet"]]);
       const retry = lastSentEnvelope(ws, "permission.respond");
@@ -1937,49 +2139,58 @@ describe("ws-session-store", () => {
     expect(usage?.contextWindow).toBe(1_000_000);
   });
 
-  it("model.set.ok invalidates an active negotiated session configuration", async () => {
-    const { ws } = await connectInitializedSession();
-    ws.simulateMessage({
-      domain: "session",
-      action: "runtime_session_id",
-      payload: { runtime_session_id: "runtime-1" },
-    });
-    ws.simulateMessage({
-      domain: "session",
-      action: "config.snapshot",
-      payload: {
-        session_id: "srv-1",
-        config: {
-          options: [
-            {
-              id: "model",
-              name: "Model",
-              type: "select",
-              current_value: "opus",
-              choices: {
-                layout: "ungrouped",
-                options: [{ name: "Opus", value: "opus" }],
+  it.each(["model.set.ok", "initialized"] as const)(
+    "%s invalidates the old configuration after a model switch or a provider switch on reconnect",
+    async (action) => {
+      const { ws } = await connectInitializedSession();
+      ws.simulateMessage({
+        domain: "session",
+        action: "runtime_session_id",
+        payload: { runtime_session_id: "runtime-1" },
+      });
+      ws.simulateMessage({
+        domain: "session",
+        action: "config.snapshot",
+        payload: {
+          session_id: "srv-1",
+          config: {
+            options: [
+              {
+                id: "model",
+                name: "Model",
+                type: "select",
+                current_value: "opus",
+                choices: {
+                  layout: "ungrouped",
+                  options: [{ name: "Opus", value: "opus" }],
+                },
               },
-            },
-          ],
+            ],
+          },
         },
-      },
-    });
+      });
 
-    expect(useWsSessionStore.getState().sessions.s1.sessionConfigSupported).toBe(true);
-    ws.simulateMessage({
-      domain: "session",
-      action: "model.set.ok",
-      payload: { provider: "claude_code", model: "sonnet" },
-    });
+      expect(useWsSessionStore.getState().sessions.s1.sessionConfigSupported).toBe(true);
+      ws.simulateMessage({
+        domain: "session",
+        action,
+        payload: {
+          session_id: "srv-1",
+          provider: action === "initialized" ? "codex_cli" : "claude_code",
+          model: action === "initialized" ? "gpt-5.4" : "sonnet",
+        },
+      });
 
-    const session = useWsSessionStore.getState().sessions.s1;
-    expect(session.currentSelection?.modelId).toBe("sonnet");
-    expect(session.sessionConfig).toBeNull();
-    expect(session.sessionConfigSupported).toBeNull();
-    expect(session.sessionConfigLoading).toBe(false);
-    expect(session.sessionConfigError).toBeNull();
-  });
+      const session = useWsSessionStore.getState().sessions.s1;
+      expect(session.currentSelection?.modelId).toBe(
+        action === "initialized" ? "gpt-5.4" : "sonnet",
+      );
+      expect(session.sessionConfig).toBeNull();
+      expect(session.sessionConfigSupported).toBeNull();
+      expect(session.sessionConfigLoading).toBe(false);
+      expect(session.sessionConfigError).toBeNull();
+    },
+  );
 
   it("clears optimistic thinking effort when initialized payload omits it", async () => {
     const store = useWsSessionStore.getState();
@@ -3122,8 +3333,10 @@ describe("ws-session-store", () => {
       streamExitPlanMode(ws);
       sendPlanPermissionRequest(ws);
 
+      const toastError = vi.spyOn(toast, "error");
       useWsSessionStore.getState().approvePlan("s1");
       const sent = lastSentEnvelope(ws, "permission.respond");
+      const blocksBefore = useWsSessionStore.getState().sessions["s1"].blocks.length;
       ws.simulateMessage({
         domain: "session",
         action: "error",
@@ -3135,7 +3348,13 @@ describe("ws-session-store", () => {
       const session = useWsSessionStore.getState().sessions["s1"];
       expect(session.pendingPlanApproval).not.toBeNull();
       expect(session.submittingPermissionRequestId).toBeNull();
-      expect(session.blocks.at(-1)?.content).toBe("CLI refused the response");
+      // The decision failed, not the turn: no inline turn error.
+      expect(session.blocks).toHaveLength(blocksBefore);
+      expect(session.lifecycle.phase).not.toBe("error");
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your plan decision", {
+        description: "CLI refused the response",
+      });
+      toastError.mockRestore();
       const planBlock = session.blocks.find((b) => b.toolName === "ExitPlanMode");
       expect(planBlock?.planApprovalStatus).toBeUndefined();
     });

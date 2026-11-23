@@ -751,6 +751,26 @@ describe("DiffViewer patch rendering", () => {
     expect(mocks.useGetFileContentMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("patch-diff-view")).toHaveAttribute("data-patch", singleFileDiff);
   });
+
+  it("collapses huge files synchronously on initial render without firing per-file diff fetches", () => {
+    mocks.useFileDiffSectionMock.mockClear();
+    mocks.useGetChangedFilesMock.mockReturnValue({
+      data: [
+        {
+          ...fooFile,
+          file: "src/huge.ts",
+          additions: 500_000,
+          deletions: 0,
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<DiffViewer featureId={1} mode="worktree" />);
+
+    expect(screen.getByRole("button", { name: "Expand src/huge.ts" })).toBeInTheDocument();
+    expect(mocks.useFileDiffSectionMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("visibleReviewThread", () => {

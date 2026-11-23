@@ -1,11 +1,10 @@
 //! The optional `host-integration` provider package command.
 //!
 //! `<provider> host-integration --format cadencr-host-integration-v1` prints
-//! one JSON object declaring host conventions the provider wants: a compaction
-//! slash command, project config paths copied into new worktrees, and a
-//! resume-in-terminal command. It runs once per installation for the life of
-//! the process (refreshed after a connector update) through the same bounded
-//! subprocess helper as `models`. A package that predates the command exits
+//! one JSON object declaring host conventions for compaction, worktree config,
+//! terminal resume, and listener attribution. It runs once per installation
+//! (refreshed after a connector update) through the same bounded subprocess
+//! helper as `models`. A package that predates the command exits
 //! non-zero, which simply means "no host integration". Either outcome other
 //! than a valid declaration is recorded as a diagnostic on
 //! `GET /api/agents/installed-providers`, never silently dropped.
@@ -116,7 +115,7 @@ async fn discover(
             HostIntegration::default(),
             Some(format!(
                 "provider has no `host-integration` command (exited with {}, {} diagnostic \
-                 bytes); compaction, worktree config copying and resume-in-terminal are off",
+                 bytes); using default host integration",
                 output.status,
                 output.stderr.len()
             )),
@@ -195,7 +194,7 @@ mod tests {
         let command = script(
             dir.path(),
             &format!(
-                "echo run >> '{}'\necho '{{\"compactCommand\":\"compress\"}}'",
+                "echo run >> '{}'\necho '{{\"compactCommand\":\"compress\",\"excludeLauncherPorts\":true}}'",
                 counter.display()
             ),
         );
@@ -204,6 +203,7 @@ mod tests {
         assert!(cache.current().compact_command.is_none());
         let loaded = cache.ensure_loaded(&installation).await;
         assert_eq!(loaded.compact_command.as_deref(), Some("compress"));
+        assert!(loaded.exclude_launcher_ports);
         cache.ensure_loaded(&installation).await;
         assert_eq!(
             std::fs::read_to_string(&counter).unwrap().lines().count(),

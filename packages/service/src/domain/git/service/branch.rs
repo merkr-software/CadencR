@@ -18,8 +18,13 @@ pub async fn get_original_branch(
 ) -> Result<OriginalBranchResponse, AppError> {
     let (project_path, worktree_branch) =
         get_project_and_branch(state, params.project_id, params.feature_id).await?;
-    let original_branch =
-        commands::get_original_branch(Path::new(&project_path), &worktree_branch).await?;
+    let original_branch = commands::get_original_branch(Path::new(&project_path), &worktree_branch)
+        .await?
+        .ok_or_else(|| {
+            AppError::git_command(format!(
+                "Cannot determine original branch for worktree branch: {worktree_branch}"
+            ))
+        })?;
     Ok(OriginalBranchResponse {
         original_branch,
         worktree_branch,
@@ -56,10 +61,9 @@ pub async fn delete_feature_branch(
 ) -> Result<SuccessResponse, AppError> {
     let (project_path, branch) =
         get_project_and_branch(state, params.project_id, params.feature_id).await?;
-    if !commands::list_local_branches(Path::new(&project_path))
-        .await?
-        .contains(&branch)
-    {
+    let repo = Path::new(&project_path);
+    crate::shared::git_context::require_git_metadata(repo).await?;
+    if !workflow_service::local_branch_exists(repo, &branch).await? {
         return Ok(SuccessResponse {
             success: true,
             error: None,
@@ -83,7 +87,8 @@ pub async fn delete_feature_branch(
         )
         .await;
     }
-    let default_branch = workflow_service::resolve_default_branch(Path::new(&project_path)).await?;
+    let default_branch =
+        workflow_service::resolve_default_branch_verified(Path::new(&project_path)).await?;
     if workflow_service::same_branch_identity(&branch, &default_branch) {
         return Ok(branch_delete_blocked(
             "default_branch",
@@ -120,7 +125,7 @@ async fn delete_no_worktree_feature_branch(
             "Cannot remove the target branch",
         ));
     }
-    let default_branch = workflow_service::resolve_default_branch(repo).await?;
+    let default_branch = workflow_service::resolve_default_branch_verified(repo).await?;
     if workflow_service::same_branch_identity(branch, &default_branch) {
         return Ok(branch_delete_blocked(
             "default_branch",
@@ -190,21 +195,42 @@ pub async fn check_branch_delete(
     state: &AppState,
     params: BranchDeleteCheckParams,
 ) -> Result<BranchDeleteCheckResponse, AppError> {
-    let (project_path, branch) =
-        get_project_and_branch(state, params.project_id, params.feature_id).await?;
-    let (repo_path, target_branch) =
-        resolve_feature_repo_and_target(state, params.feature_id, &project_path).await?;
-    let default_branch = workflow_service::resolve_default_branch(Path::new(&repo_path)).await?;
+    let ((project_path, branch), feature_git_path) = tokio::try_join!(
+        get_project_and_branch(state, params.project_id, params.feature_id),
+        resolve_feature_git_path(state, params.feature_id),
+    )?;
+    let repo_path = feature_git_path.unwrap_or(project_path);
+    let repo = Path::new(&repo_path);
+    crate::shared::git_context::require_git_metadata(repo).await?;
+
+    // Run concurrently, but report failures in a fixed order: `try_join!`
+    // returns whichever fails first, so a broken repository answered with a
+    // different error from one call to the next.
+    let (default_branch, branch_exists, head_and_target) = tokio::join!(
+        workflow_service::resolve_default_branch_verified(repo),
+        workflow_service::local_branch_exists(repo, &branch),
+        async {
+            let current = commands::get_current_branch(repo).await?;
+            let target = workflow_service::resolve_target_branch_with_head(
+                state,
+                params.feature_id,
+                repo,
+                current.as_deref(),
+                true,
+            )
+            .await?;
+            Ok::<_, AppError>((current, target))
+        },
+    );
+    let (default_branch, branch_exists) = (default_branch?, branch_exists?);
+    let (current_branch, target_branch) = head_and_target?;
+
     let is_default_branch = workflow_service::same_branch_identity(&branch, &default_branch);
-    let branch_exists = commands::list_local_branches(Path::new(&repo_path))
-        .await?
-        .contains(&branch);
     let merged = if branch_exists {
-        commands::is_branch_merged(Path::new(&repo_path), &branch, &target_branch).await?
+        commands::is_branch_merged(repo, &branch, &target_branch).await?
     } else {
         true
     };
-    let current_branch = commands::get_current_branch(Path::new(&repo_path)).await?;
     Ok(BranchDeleteCheckResponse {
         branch,
         branch_exists,
@@ -419,5 +445,84 @@ mod tests {
 
         assert!(result.success);
         assert!(result.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn check_branch_delete_reports_existence_merge_and_current_branch() {
+        let repo = tempfile::tempdir().unwrap();
+        let root = repo.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@e"],
+            &["config", "user.name", "T"],
+            &["config", "commit.gpgsign", "false"],
+            &["commit", "-q", "--allow-empty", "-m", "base"],
+            &["checkout", "-q", "-b", "feature/unmerged"],
+            &["commit", "-q", "--allow-empty", "-m", "work"],
+            &["checkout", "-q", "main"],
+            &["branch", "feature/merged", "main"],
+        ] {
+            run_git_capture(args, &[], &[], root).await.unwrap();
+        }
+        let pool = setup_diff_refs_schema().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'project', ?)")
+            .bind(root.to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'f1'), (2, 1, 'f2'), (3, 1, 'f3')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 1, SETTING_WORKTREE_BRANCH, "feature/unmerged")
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 2, SETTING_WORKTREE_BRANCH, "feature/merged")
+            .await
+            .unwrap();
+        repository::set_feature_setting(&pool, 3, SETTING_WORKTREE_BRANCH, "feature/gone")
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+
+        let unmerged = check_branch_delete(
+            &state,
+            BranchDeleteCheckParams {
+                project_id: 1,
+                feature_id: 1,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(unmerged.branch_exists);
+        assert!(!unmerged.merged);
+        assert!(!unmerged.is_default_branch);
+        assert_eq!(unmerged.current_branch.as_deref(), Some("main"));
+        assert_eq!(unmerged.default_branch, "main");
+        assert_eq!(unmerged.target_branch, "main");
+
+        let merged = check_branch_delete(
+            &state,
+            BranchDeleteCheckParams {
+                project_id: 1,
+                feature_id: 2,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(merged.branch_exists);
+        assert!(merged.merged);
+
+        let gone = check_branch_delete(
+            &state,
+            BranchDeleteCheckParams {
+                project_id: 1,
+                feature_id: 3,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!gone.branch_exists);
+        assert!(gone.merged);
     }
 }

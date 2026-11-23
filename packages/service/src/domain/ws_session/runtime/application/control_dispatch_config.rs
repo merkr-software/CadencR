@@ -15,16 +15,26 @@ use crate::domain::ws_session::runtime::state::{QueryState, SdkHandle, SessionCo
 pub(in crate::domain::ws_session) async fn build_pending_handle(
     app_state: &AppState,
     project_id: i64,
-    row: SessionRow,
+    mut row: SessionRow,
+    user_prompt: bool,
 ) -> Result<SdkHandle, AppError> {
     let runtime_cwd = worktree::resolve_feature_cwd(&app_state.read_pool, row.feature_id)
         .await
         .map(std::path::PathBuf::from)
         .map_err(|error| AppError::internal(error))?;
-    let provider = effective_provider(app_state, project_id, &runtime_cwd, &row).await;
-    persist_resolved_provider(app_state, &row, &provider).await?;
+    let inherited = user_prompt
+        && row
+            .inherit_last_prompt(&app_state.read_pool, &runtime_cwd)
+            .await?;
+    let provider = effective_provider(app_state, project_id, &runtime_cwd, &row).await?;
     let (options, claude_profile) =
         runtime_options(app_state, project_id, runtime_cwd, &provider, &row).await?;
+    if inherited {
+        row.persist_inherited_controls(&app_state.write_pool)
+            .await?;
+    } else {
+        persist_resolved_provider(app_state, &row, &provider).await?;
+    }
     let config = SessionConfig::from_runtime(&options, claude_profile.clone());
     Ok(SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
@@ -73,9 +83,9 @@ async fn effective_provider(
     project_id: i64,
     cwd: &std::path::Path,
     row: &SessionRow,
-) -> String {
+) -> Result<String, AppError> {
     if let Some(provider) = row.runtime_provider.as_ref() {
-        return provider.clone();
+        return Ok(provider.clone());
     }
     let configured = settings::resolve_setting(
         &app_state.read_pool,
@@ -84,15 +94,15 @@ async fn effective_provider(
         Some(project_id),
         Some(default_provider_id()),
     )
-    .await
+    .await?
     .unwrap_or_else(|| default_provider_id().to_string());
-    resolve_effective_provider(
+    Ok(resolve_effective_provider(
         &app_state.read_pool,
         Some(cwd),
         configured,
         row.model.as_deref(),
     )
-    .await
+    .await)
 }
 
 async fn runtime_options(
@@ -137,7 +147,7 @@ async fn runtime_options(
         .await
         .map_err(|error| AppError::database(error.to_string()))?;
     }
-    options.access_mode = runtime_access_mode(app_state, provider, row).await;
+    options.access_mode = runtime_access_mode(app_state, provider, row).await?;
     let selected_profile =
         crate::domain::ws_session::runtime::session_runtime_config::persisted_profile_selection(
             provider,
@@ -147,14 +157,13 @@ async fn runtime_options(
         )
         .await
         .map_err(AppError::BadRequest)?;
+    let context = RuntimeSettingsContext::builder()
+        .read_pool(&app_state.read_pool)
+        .write_pool(&app_state.write_pool)
+        .build();
     let claude_profile =
         crate::domain::ws_session::runtime::session_runtime_config::apply_provider_settings(
-            &RuntimeSettingsContext::builder()
-                .read_pool(&app_state.read_pool)
-                .write_pool(&app_state.write_pool)
-                .build(),
-            project_id,
-            row.feature_id,
+            &context,
             row.id,
             provider,
             selected_profile.as_deref(),
@@ -162,6 +171,15 @@ async fn runtime_options(
         )
         .await
         .map_err(AppError::BadRequest)?;
+    crate::domain::ws_session::runtime::session_runtime_config::apply_bypass_opt_in(
+        &context,
+        project_id,
+        row.feature_id,
+        row.id,
+        provider,
+        &mut options,
+    )
+    .await?;
     Ok((options, claude_profile))
 }
 
@@ -169,16 +187,18 @@ async fn runtime_access_mode(
     app_state: &AppState,
     provider: &str,
     row: &SessionRow,
-) -> Option<crate::domain::agents::adapter::RuntimeAccessMode> {
+) -> Result<Option<crate::domain::agents::adapter::RuntimeAccessMode>, AppError> {
     let configured = crate::domain::ws_session::runtime::access::configured_access_mode(
         provider,
         &app_state.read_pool,
     )
-    .await;
-    crate::domain::ws_session::runtime::access::runtime_access_mode(
-        provider,
-        row.codex_permission_mode.as_deref(),
-        configured,
+    .await?;
+    Ok(
+        crate::domain::ws_session::runtime::access::runtime_access_mode(
+            provider,
+            row.codex_permission_mode.as_deref(),
+            configured,
+        ),
     )
 }
 
@@ -282,7 +302,7 @@ mod tests {
     async fn reconstructed_claude_handle_restores_profile_environment() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::raw_sql(
-            "CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL);
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT 'test', path TEXT NOT NULL);
              CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL);
              CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT);
              INSERT INTO projects (id, path) VALUES (1, '/tmp/test');
@@ -325,7 +345,9 @@ mod tests {
             runtime_overrides: None,
         };
 
-        let handle = build_pending_handle(&app_state, 1, row).await.unwrap();
+        let handle = build_pending_handle(&app_state, 1, row, false)
+            .await
+            .unwrap();
         assert_eq!(
             handle.desired_claude_profile.as_deref(),
             Some("control-routing-proxy")

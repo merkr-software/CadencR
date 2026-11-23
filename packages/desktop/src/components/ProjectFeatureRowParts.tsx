@@ -9,13 +9,8 @@ import {
   TerminalIcon,
   TrashIcon,
 } from "lucide-react";
-import type {
-  AllocatedPort,
-  Feature,
-  FeatureWorktreeInfo,
-  GitStats,
-  PrStatusSnapshot,
-} from "@/api/generated";
+import { AgentIcon } from "@/components/AgentIcon";
+import type { Feature } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { FeatureLabelChip } from "@/components/FeatureLabelChip";
 import { FeatureMetaBadge } from "@/components/FeatureMetaBadge";
@@ -23,7 +18,6 @@ import { FeaturePortsBadge } from "@/components/FeaturePortsBadge";
 import { FeatureLabelEditor } from "@/components/FeatureLabelEditor";
 import { FeaturePrIndicator } from "@/components/PrStatusIndicators";
 import { FeatureTodoProgress } from "@/components/FeatureRowSummaryParts";
-import type { RowSummary } from "@/lib/sidebar-row-summary";
 import { NumStat } from "@/components/NumStat";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useShallow } from "zustand/react/shallow";
@@ -34,28 +28,19 @@ import {
   rowMetaItems,
   rowMetaOptions,
   rowMetaPart,
+  type RowMetaInput,
   type RowMetaItems,
   type RowMetaPart,
 } from "@/lib/sidebar-row-meta";
 import { branchTail } from "@/lib/thread-prs";
 import { cn } from "@/lib/utils";
 
-interface FeatureRowMetaLineProps {
-  feature: Feature;
-  worktree: FeatureWorktreeInfo | undefined;
-  prStatus: PrStatusSnapshot | undefined;
-  gitStats: GitStats | undefined;
-  shellCount: number;
-  browserCount: number;
-  downloadCount: number;
-  ports: readonly AllocatedPort[];
+interface FeatureRowMetaLineProps extends RowMetaInput {
   /** Present while the label is being edited; read-only rows never pass it. */
   labelEditor?: FeatureLabelEditing;
   onOpenPort: (port: number) => void;
   /** Show one of the conversation's pull requests in its Git tab (`null`: the current branch's). */
   onOpenPr?: (prNumber: number | null) => void;
-  /** Feeds the todo progress, shown while some are left (when the option is on). */
-  summary?: RowSummary;
   /** Beside the title (uniform rows): the items join the title line's flow. */
   inline?: boolean;
   /** One part of the details on a line of its own (a fixed row's code or activity line). */
@@ -123,6 +108,7 @@ export function FeatureRowMetaItems({
             )
       }
     >
+      {items.subagents > 0 && <FeatureSubagentBadge count={items.subagents} />}
       <MetaLineLabel feature={feature} label={items.label} style={labelStyle} editor={editor} />
       {branch && (
         <span
@@ -282,6 +268,17 @@ export function FeatureRowActions({
         <span className="sr-only">{archiveActionLabel(isArchived)}</span>
       </Button>
     </div>
+  );
+}
+
+function FeatureSubagentBadge({ count }: { count: number }): ReactElement {
+  const label = `${count} ${count === 1 ? "sub-agent running" : "sub-agents running"}`;
+  return (
+    <span data-feature-subagents className="inline-flex shrink-0">
+      <FeatureMetaBadge icon={<AgentIcon className="size-3" />} label={label}>
+        <span>{count}</span>
+      </FeatureMetaBadge>
+    </span>
   );
 }
 

@@ -75,6 +75,7 @@ async fn approving_a_restored_plan_closes_it_and_tells_the_agent() {
     );
     let row = WsSessionPersistence::get_session_row(&state.read_pool, 1)
         .await
+        .unwrap()
         .unwrap();
     assert!(!row.has_pending_user_input(), "the plan gate is closed");
     let prompt = timeout(Duration::from_secs(5), deliveries.recv())

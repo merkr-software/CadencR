@@ -16,7 +16,11 @@ vi.mock("@/lib/visuals/visual-protocol", async (importOriginal) => ({
 
 const THEME: VisualTheme = {
   key: "1",
-  snapshot: { id: "cadencr-dark", appearance: "dark", tokens: { background: "#101010" } },
+  snapshot: {
+    id: "cadencr-dark",
+    appearance: "dark",
+    tokens: { background: "#101010" },
+  },
   fontSans: "sans-serif",
   fontMono: "monospace",
 };
@@ -29,7 +33,10 @@ interface FakeFrameWindow {
 function stubFrameWindow(): FakeFrameWindow {
   const frame = screen.getByTitle("Agent visual");
   const fake: FakeFrameWindow = { postMessage: vi.fn() };
-  Object.defineProperty(frame, "contentWindow", { value: fake, configurable: true });
+  Object.defineProperty(frame, "contentWindow", {
+    value: fake,
+    configurable: true,
+  });
   return fake;
 }
 
@@ -89,8 +96,14 @@ describe("VisualFrame", () => {
   it("surfaces script errors once each", () => {
     render(<VisualFrame html="<p>errors</p>" theme={THEME} />);
     const frame = stubFrameWindow();
-    postFrom(frame, { type: "cadencr-visual:error", message: "d3 is not defined" });
-    postFrom(frame, { type: "cadencr-visual:error", message: "d3 is not defined" });
+    postFrom(frame, {
+      type: "cadencr-visual:error",
+      message: "d3 is not defined",
+    });
+    postFrom(frame, {
+      type: "cadencr-visual:error",
+      message: "d3 is not defined",
+    });
     expect(screen.getAllByText("Visual error: d3 is not defined")).toHaveLength(1);
   });
 
@@ -99,5 +112,20 @@ describe("VisualFrame", () => {
     stubFrameWindow();
     postFrom(window, { type: "cadencr-visual:error", message: "spoofed" });
     expect(screen.queryByText(/spoofed/)).not.toBeInTheDocument();
+  });
+
+  it("fills its container in fullscreen mode and forwards Escape from the iframe", () => {
+    const onEscape = vi.fn();
+    render(<VisualFrame html="<p>fs</p>" theme={THEME} variant="fullscreen" onEscape={onEscape} />);
+    const frame = stubFrameWindow();
+    postFrom(frame, { type: "cadencr-visual:size", height: 321 });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Agent visual").style.height).toBe("");
+
+    postFrom(window, { type: "cadencr-visual:escape" });
+    expect(onEscape).not.toHaveBeenCalled();
+
+    postFrom(frame, { type: "cadencr-visual:escape" });
+    expect(onEscape).toHaveBeenCalledOnce();
   });
 });

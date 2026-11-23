@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useListFeatureWorktrees, type FeatureWorktreeInfo } from "@/api/generated";
+import { FEATURE_WORKTREES_STALE_MS } from "@/lib/sidebar-queries";
 
 interface FeatureWorktreeState {
   worktree: FeatureWorktreeInfo | undefined;
@@ -21,7 +22,7 @@ export function useFeatureWorktreeInfo(
 ): FeatureWorktreeState {
   const query = useListFeatureWorktrees(
     { project_id: projectId },
-    { query: { enabled, refetchOnMount: "always" } },
+    { query: { enabled, staleTime: FEATURE_WORKTREES_STALE_MS } },
   );
   const worktree = useMemo(
     () => query.data?.find((item) => item.feature_id === featureId),

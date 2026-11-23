@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import {
   getPendingGate,
   respondGate,
@@ -38,12 +39,14 @@ export function useFeaturePendingGate({
 
   const query = useQuery({
     queryKey: ["/api/features", featureId, "pending-gate", liveRequestId ?? ""],
-    queryFn: ({ signal }) => getPendingGate(featureId, signal),
+    queryFn: ({ signal }) => fetchOpenGate(featureId, signal),
     enabled: enabled && sample === null,
     retry: false,
     // A request id names one immutable request: rows remounting (scroll,
-    // expand) reuse its payload. Without an id, always ask again.
-    staleTime: liveRequestId ? Infinity : 0,
+    // expand) reuse its payload. Without an id, or while no gate is open yet
+    // (a restart clears it until the resumed turn raises it again), always
+    // ask again.
+    staleTime: ({ state }) => (liveRequestId && state.data ? Infinity : 0),
     // Pending gates are driven by WS status; window focus refetch is wasteful.
     refetchOnWindowFocus: false,
     // Drop unused payloads quickly — request ids rotate often.
@@ -78,9 +81,9 @@ export function useFeaturePendingGate({
 
   const respond = mutation.mutate;
   const isSubmitting = mutation.isPending;
-  const gateMatchesLive =
-    query.data != null && (liveRequestId == null || query.data.request_id === liveRequestId);
-  const gate = gateMatchesLive ? query.data : undefined;
+  const data = query.data ?? undefined;
+  const gate =
+    data && (liveRequestId == null || data.request_id === liveRequestId) ? data : undefined;
 
   const live = useMemo(
     () => ({
@@ -98,6 +101,24 @@ export function useFeaturePendingGate({
   );
   const sampled = useMemo(() => sample && sampleGate(sample, featureId), [sample, featureId]);
   return sampled ?? live;
+}
+
+/**
+ * The feature's open gate, or null when none is open: the service answers
+ * that with 404 (its documented contract), an ordinary answer here rather
+ * than a failure to show. It happens while a restart continuation re-raises
+ * the gate a row still shows, or right after the gate was answered.
+ */
+async function fetchOpenGate(
+  featureId: number,
+  signal: AbortSignal,
+): Promise<FeaturePendingGateResponse | null> {
+  try {
+    return await getPendingGate(featureId, signal);
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 404) return null;
+    throw error;
+  }
 }
 
 /** A display options preview sample: its request is local, answering it sends nothing. */

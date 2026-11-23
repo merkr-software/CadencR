@@ -82,6 +82,29 @@ pub async fn resolve_feature_branch(
     current_feature_branch(read_pool, feature_id, path, checked_out).await
 }
 
+/// Pure branch-selection policy shared by the single-feature and batched
+/// resolvers: follow `checked_out` in the feature's own worktree or when it
+/// matches the recorded / linked branch; otherwise keep `recorded`, falling
+/// back to `checked_out` ("On branch" mode).
+pub fn select_feature_branch(
+    checked_out: Option<String>,
+    recorded: Option<String>,
+    own_worktree: bool,
+    checked_out_is_linked: bool,
+) -> Option<String> {
+    match checked_out {
+        None => recorded,
+        Some(head)
+            if own_worktree
+                || checked_out_is_linked
+                || recorded.as_deref() == Some(head.as_str()) =>
+        {
+            Some(head)
+        }
+        Some(head) => recorded.or(Some(head)),
+    }
+}
+
 /// The conversation's current branch given what is checked out at `path`: the
 /// checkout when `path` is the feature's own worktree or the checkout is one of
 /// the conversation's branches, otherwise the recorded branch, otherwise the
@@ -97,19 +120,21 @@ pub async fn current_feature_branch(
     };
     // Ownership first: nobody else switches branches in the feature's worktree.
     if is_own_worktree(read_pool, feature_id, path).await? {
-        return Ok(checked_out);
+        return Ok(select_feature_branch(checked_out, None, true, false));
     }
     let recorded = recorded_feature_branch(read_pool, feature_id).await?;
     let key = linked_branches::BranchRef {
         feature_id,
         branch: head,
     };
-    if recorded.as_deref() == Some(head)
-        || linked_branches::repository::is_linked(read_pool, key).await?
-    {
-        return Ok(checked_out);
-    }
-    Ok(recorded.or(checked_out))
+    let is_linked = recorded.as_deref() != Some(head)
+        && linked_branches::repository::is_linked(read_pool, key).await?;
+    Ok(select_feature_branch(
+        checked_out,
+        recorded,
+        false,
+        is_linked,
+    ))
 }
 
 /// True when `path` is the worktree provisioned for `feature_id` rather than
@@ -196,7 +221,7 @@ pub async fn resolve_feature_scope(
         return Ok(head_scope);
     };
     if checked_out.as_deref() == Some(bound.as_str())
-        || !workflow_service::local_branch_exists(path, &bound).await
+        || !workflow_service::local_branch_exists(path, &bound).await?
     {
         return Ok(head_scope);
     }

@@ -23,10 +23,14 @@ pub fn pty_foreground_active(handle: &Arc<PtyHandle>) -> bool {
 }
 
 pub fn foreground_command_counts_by_feature(manager: &PtyManager) -> HashMap<i64, i64> {
+    let handles: Vec<Arc<PtyHandle>> = manager
+        .terminals
+        .iter()
+        .map(|entry| Arc::clone(entry.value()))
+        .collect();
     let mut counts = HashMap::new();
-    for entry in manager.terminals.iter() {
-        let handle = entry.value();
-        if pty_foreground_active(handle) {
+    for handle in handles {
+        if pty_foreground_active(&handle) {
             *counts.entry(handle.feature_id).or_insert(0) += 1;
         }
     }

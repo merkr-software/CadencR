@@ -81,10 +81,10 @@ cadencr pair
 
 ### Install the server archive
 
-Machines without a desktop session, such as a Linux server reached over SSH, use the server archive attached to each release: `cadencr-server-<version>-linux-x64.tar.gz`, with its `.sha256` checksum.
+Machines without a desktop session, such as a Linux server reached over SSH, use a Linux alpha server archive. Choose a [GitHub release](https://github.com/merkr-software/CadencR/releases) that includes `cadencr-server-<version>-linux-x64.tar.gz` and its `.sha256` checksum. Set `version` to that release's version without the leading `v`.
 
 ```bash
-version=0.17.0   # the release you install
+version="X.Y.Z"
 curl -fLO "https://github.com/merkr-software/CadencR/releases/download/v$version/cadencr-server-$version-linux-x64.tar.gz"
 curl -fLO "https://github.com/merkr-software/CadencR/releases/download/v$version/cadencr-server-$version-linux-x64.tar.gz.sha256"
 sha256sum --check "cadencr-server-$version-linux-x64.tar.gz.sha256"
@@ -101,10 +101,11 @@ Update a server installation with:
 ```bash
 cadencr update --check           # report whether a newer release exists
 cadencr update                   # download, verify, and install it
-cadencr update --archive ./cadencr-server-0.17.0-linux-x64.tar.gz   # without network access
+sha256sum --check "cadencr-server-$version-linux-x64.tar.gz.sha256"
+cadencr update --archive "./cadencr-server-$version-linux-x64.tar.gz"
 ```
 
-Stop `cadencr serve` first, then start it again after the update. The update verifies the archive's SHA-256 checksum and that it is built for this machine, replaces the installation folder, and keeps the replaced one beside it as `.cadencr-server.previous` until the next update.
+For an offline update, keep the archive and its checksum in the same directory and set `version` to the archive's version. Run `cadencr update --archive` only after the checksum passes. Stop `cadencr serve` before updating, then start it again after the update. CadencR checks that the archive is built for this machine and keeps the replaced installation beside it as `.cadencr-server.previous` until the next update.
 
 ### Keep it running with systemd
 

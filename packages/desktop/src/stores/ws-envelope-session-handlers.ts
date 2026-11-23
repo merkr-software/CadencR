@@ -7,12 +7,14 @@ import {
   parseMcpServersPayload,
   parsePermissionPayload,
   parsePromptReceivedPayload,
+  parsePromptSteeringPayload,
   parseCanonicalUserMessagePayload,
   parseTranscriptBlockPayload,
 } from "./ws-envelope-payload";
 import {
   messageDbIdFromBlockId,
   upsertCanonicalUserMessage,
+  orderPendingPrompts,
 } from "./ws-user-message-reconciliation";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildClearedGatePatch } from "./ws-gate-state";
@@ -22,7 +24,7 @@ import { parseAccessMode } from "@/types/access-mode";
 import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
 import { providerAcceptsMode } from "@/lib/provider-modes";
 import type { SessionEntry } from "./ws-session-types";
-import { createStreamHealth, updateSession } from "./ws-session-types";
+import { createSessionConfigState, createStreamHealth, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
@@ -94,12 +96,8 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
 }
 
 /**
- * The mode to hold once the backend has picked the session's provider. New
- * entries are seeded with the default provider's mode (Claude's `auto`), which
- * a Codex or installed-provider session can't run; the backend then falls back to its
- * provider default and reports it. Adopt that report only when the local mode
- * doesn't fit the provider — a valid local mode may be a chip change made
- * while `session.init` was in flight, which the init replay still has to send.
+ * The initialization reply owns the current mode. Keep an explicit chip
+ * choice only while the replay still has to send it to the confirmed provider.
  */
 function initializedPermissionMode(
   session: SessionEntry,
@@ -107,9 +105,9 @@ function initializedPermissionMode(
   reported: string | undefined,
 ): PermissionMode | null {
   const providerId = provider ?? session.currentSelection?.providerId;
-  if (!reported || !providerId || providerAcceptsMode(providerId, session.permissionMode)) {
-    return null;
-  }
+  const pending = session.pendingInitPermissionMode;
+  if (!reported) return null;
+  if (providerId && pending && providerAcceptsMode(providerId, pending)) return pending;
   return parsePermissionMode(reported);
 }
 
@@ -121,10 +119,10 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     serverSessionId: p.session_id ?? "",
     lifecycle: transitionTurn(session.lifecycle, { type: "initialized" }),
     mcpServers: null,
+    mcpServersError: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
+    ...promptPlacement(session, p.prompt_receipts_at_submission ?? false),
     initRequestId: null,
-    // `pendingInitPermissionMode` stays until the init replay
-    // (`flushQueuedInitActions`) has sent it.
     // A fresh stream: a retry reported on the previous connection (whose
     // recovery or turn end may have been missed) no longer applies.
     streamHealth: createStreamHealth(),
@@ -135,10 +133,16 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
   // provider's model when accepting their authoritative provider.
   if (p.provider) {
     updates.currentSelection = { providerId: p.provider, modelId: p.model ?? "" };
+    if (p.provider !== session.currentSelection?.providerId) {
+      Object.assign(updates, createSessionConfigState());
+    }
   }
   if (p.profile) updates.currentProfile = p.profile;
   const permissionMode = initializedPermissionMode(session, p.provider, p.permission_mode);
   if (permissionMode) updates.permissionMode = permissionMode;
+  if (p.permission_mode === session.pendingInitPermissionMode) {
+    updates.pendingInitPermissionMode = null;
+  }
   if (p.runtime_overrides) updates.runtimeOverrides = p.runtime_overrides;
   const accessMode = p.access_mode ?? p.codex_permission_mode;
   if (accessMode) {
@@ -162,14 +166,54 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
   ctx.set(updateSession(ctx.get(), sessionId, updates));
 }
 
+function promptPlacement(session: SessionEntry, atSubmission: boolean): Partial<SessionEntry> {
+  if (atSubmission !== session.promptReceiptsAtSubmission) {
+    const ordered = orderPendingPrompts(session.blocks, atSubmission);
+    if (ordered !== session.blocks) {
+      return {
+        promptReceiptsAtSubmission: atSubmission,
+        ...blocksPatchWithDerived(session.streamingState, ordered),
+      };
+    }
+  }
+  return { promptReceiptsAtSubmission: atSubmission };
+}
+
+export function handlePromptSteering(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const parsed = parsePromptSteeringPayload(payload);
+  if (!parsed) return;
+  const session = ctx.getSession(sessionId);
+  const { supported, session_id } = parsed;
+  if (session.sessionDbId == null || String(session.sessionDbId) !== session_id) return;
+  if (
+    session.supportsPromptReceipts === supported &&
+    session.promptReceiptsAtSubmission === supported
+  )
+    return;
+  ctx.set(
+    updateSession(ctx.get(), sessionId, {
+      supportsPromptReceipts: supported,
+      ...promptPlacement(session, supported),
+    }),
+  );
+}
+
 export function handleMcpServers(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseMcpServersPayload(payload);
   if (!p) return;
-  const current = ctx.getSession(sessionId).mcpServers;
-  if (mcpServersEqual(current, p.mcpServers)) return;
+  const session = ctx.getSession(sessionId);
+  if (session.sessionDbId == null || String(session.sessionDbId) !== p.sessionId) return;
+  if (session.mcpServersError === p.error && mcpServersEqual(session.mcpServers, p.mcpServers)) {
+    return;
+  }
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       mcpServers: p.mcpServers,
+      mcpServersError: p.error,
     }),
   );
 }
@@ -281,7 +325,7 @@ export function handleCanonicalUserMessage(
     return;
   }
   const session = ctx.getSession(sessionId);
-  const blocks = upsertCanonicalUserMessage(session.blocks, p);
+  const blocks = upsertCanonicalUserMessage(session.blocks, p, session.promptReceiptsAtSubmission);
   if (blocks !== session.blocks) {
     ctx.set(
       updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),
@@ -329,7 +373,9 @@ export function handleCleared(ctx: StoreAccessors, sessionId: string, payload: u
         type: "turn_cleared",
       }),
       streamingState: freshState,
-      historyPrependDisplayOffset: 0,
+      // The rows above stay where they are: `historyPrependDisplayOffset`
+      // keeps counting them, or Virtuoso would read its first index moving
+      // down as rows dropped from the top and shift the view.
       pendingPermission: null,
       pendingPermissionQueue: [],
       pendingRequestId: "",
@@ -338,6 +384,7 @@ export function handleCleared(ctx: StoreAccessors, sessionId: string, payload: u
       hasFileChanges: false,
       runtimeSessionId: "",
       mcpServers: null,
+      mcpServersError: null,
     }),
   );
 }

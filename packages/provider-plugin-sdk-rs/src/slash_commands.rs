@@ -151,8 +151,29 @@ pub(super) fn execute_slash_commands(
     if let Err(error) = validate_slash_commands(&commands) {
         return Ok(report_failure(&error));
     }
-    println!("{}", serde_json::to_string(&commands)?);
+    println!("{}", encode_listing(commands)?);
     Ok(ExitCode::SUCCESS)
+}
+
+// The host bounds the complete stdout, including println!'s trailing newline.
+const MAX_LISTING_BYTES: usize = 1024 * 1024;
+
+fn encode_listing(mut commands: Vec<SlashCommand>) -> serde_json::Result<String> {
+    let mut limit = MAX_SLASH_COMMAND_DESCRIPTION_CHARS;
+    loop {
+        let encoded = serde_json::to_string(&commands)?;
+        if encoded.len() < MAX_LISTING_BYTES {
+            return Ok(encoded);
+        }
+        // Validated names alone always fit. Preserve every command and shorten
+        // only descriptions that exceed the new limit, on a character boundary.
+        limit /= 2;
+        for description in commands.iter_mut().filter_map(|c| c.description.as_mut()) {
+            if let Some((end, _)) = description.char_indices().nth(limit) {
+                description.truncate(end);
+            }
+        }
+    }
 }
 
 fn parse_args(args: &[OsString]) -> Result<PathBuf, ProviderError> {
@@ -237,6 +258,40 @@ mod tests {
         assert!(described("Line one\nline two\t(skill)").is_ok());
         assert!(described("bell\u{7}").is_err());
         assert!(described(&"d".repeat(4097)).is_err());
+    }
+
+    #[test]
+    fn large_catalogs_keep_every_name_within_the_host_output_budget() {
+        let mut list = vec![SlashCommand::builder()
+            .name("short")
+            .description("Keep me")
+            .build()];
+        for i in 0..999 {
+            list.push(
+                SlashCommand::builder()
+                    .name(format!("test-{i}"))
+                    .description("界\n\"".repeat(1200))
+                    .kind(SlashCommandKind::Skill)
+                    .build(),
+            );
+        }
+        validate_slash_commands(&list).unwrap();
+        let encoded = super::encode_listing(list.clone()).unwrap();
+        assert!(encoded.len() < super::MAX_LISTING_BYTES);
+        let decoded: Vec<SlashCommand> = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.len(), list.len());
+        assert_eq!(decoded[0], list[0]);
+        for (command, original) in decoded.iter().zip(&list) {
+            assert_eq!(
+                (&command.name, command.kind),
+                (&original.name, original.kind)
+            );
+            assert!(original
+                .description
+                .as_ref()
+                .unwrap()
+                .starts_with(command.description.as_ref().unwrap()));
+        }
     }
 
     #[test]

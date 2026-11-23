@@ -2,6 +2,7 @@ import { memo, useState, type ReactElement } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, ArrowUp, ListOrdered, Loader2, Pencil, X } from "lucide-react";
 import type { QueuedPrompt } from "@/api/generated";
+import { AgentMessageSender } from "@/components/AgentMessageSender";
 import { cn } from "@/lib/utils";
 import { useComposerContext } from "./ComposerContext";
 import {
@@ -17,7 +18,9 @@ import { usePromptQueue, type PromptQueueApi } from "./usePromptQueue";
  * Messages queued for after the agent's current turn, stacked on top of the
  * composer card. The server delivers the oldest one when the turn ends; until
  * then each can be sent right away (it steers the running turn), edited or
- * removed. A failed delivery stays here with its reason — nothing a user
+ * removed. Messages other conversations' agents queued for this one
+ * (`delivery=next_turn`) follow the user's own, under their sender, and stay
+ * theirs once edited. A failed delivery stays here with its reason — nothing
  * queued is ever dropped silently.
  */
 export const QueueRail = memo(function QueueRail(): ReactElement | null {
@@ -85,6 +88,7 @@ function QueueRow({
         )}
       </span>
       <span className="min-w-0 flex-1">
+        {item.origin && <AgentMessageSender origin={item.origin} />}
         <span className="block truncate" title={item.content}>
           {item.content}
         </span>

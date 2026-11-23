@@ -25,6 +25,7 @@ use cadencr_service::domain::agents::adapter::{
     AgentRuntimeAdapter, AgentRuntimeSession, RuntimeSessionConfigKind, RuntimeSessionConfigValue,
     RuntimeSpawnConfig,
 };
+use cadencr_service::domain::agents::orchestration_skills::ORCHESTRATION_SKILLS;
 use cadencr_service::domain::agents::providers::installed;
 use cadencr_service::domain::agents::providers::installed::rejection::{
     QuarantineCode, RejectionCode,
@@ -38,7 +39,7 @@ use cadencr_service::domain::ws_session::protocol::{
     CommandsUpdatedPayload, PermissionDecision, PermissionRequestPayload, PermissionRespondPayload,
     PromptSendPayload, SessionActionPayload, SessionConfigSetPayload, SessionConfigSnapshotPayload,
     SessionEndedPayload, SessionInitPayload, SessionInitializedPayload, SessionMessagePayload,
-    SessionUsageUpdatePayload, WsEnvelope, WsSessionAction,
+    SessionUsageUpdatePayload, SlashCommandKindPayload, WsEnvelope, WsSessionAction,
 };
 use common::{start_migrated_test_server, TEST_AUTH_TOKEN};
 use futures::{SinkExt, StreamExt};
@@ -1119,14 +1120,22 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     .await;
     let (mut blocks, commands, usage, permission) =
         collect_rich_until_permission(&mut socket).await;
+    let (virtual_commands, native_commands) =
+        commands.commands.split_at(ORCHESTRATION_SKILLS.len());
+    for (command, skill) in virtual_commands.iter().zip(ORCHESTRATION_SKILLS) {
+        assert_eq!(command.name, skill.command());
+        assert!(matches!(command.kind, SlashCommandKindPayload::Cadencr));
+    }
     assert_eq!(
-        commands
-            .commands
+        native_commands
             .iter()
-            .map(|command| command.name.as_str())
+            .map(|c| c.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["review", "summarize"]
+        ["review", "summarize"]
     );
+    assert!(native_commands
+        .iter()
+        .all(|c| matches!(c.kind, SlashCommandKindPayload::Command)));
     assert_eq!(usage.input_tokens, 321);
     assert_eq!(usage.output_tokens, 0);
     assert_eq!(usage.context_window, Some(8192));

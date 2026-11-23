@@ -80,17 +80,33 @@ impl ManagedStorage {
         )
     }
 
-    pub(crate) fn provider_ids(&self) -> Vec<String> {
-        let mut ids = std::fs::read_dir(&self.root)
-            .into_iter()
-            .flatten()
-            .filter_map(Result::ok)
+    /// The managed installs on disk. A missing root means none; an unreadable
+    /// one is an error, since an empty list would free ids still in use.
+    pub(crate) fn provider_ids(&self) -> Result<Vec<String>, AppError> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(AppError::internal(format!(
+                    "failed to list managed providers in {}: {error}",
+                    self.root.display()
+                )))
+            }
+        };
+        let mut ids = entries
+            .filter_map(|entry| {
+                entry
+                    .inspect_err(|error| {
+                        tracing::warn!(root = %self.root.display(), %error, "skipping an unreadable managed provider entry");
+                    })
+                    .ok()
+            })
             .filter(|entry| entry.path().is_dir())
             .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
             .filter(|id| !id.starts_with('.') && validate_provider_id(id).is_ok())
             .collect::<Vec<_>>();
         ids.sort();
-        ids
+        Ok(ids)
     }
 }
 
@@ -138,6 +154,19 @@ fn set_private_directory(_path: &Path) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An unreadable root used to list as empty, which freed ids still owned
+    /// by installs on disk.
+    #[test]
+    fn an_unreadable_root_is_an_error_but_a_missing_one_is_empty() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = ManagedStorage::new(directory.path().join("absent"));
+        assert!(missing.provider_ids().unwrap().is_empty());
+
+        let not_a_directory = directory.path().join("file");
+        std::fs::write(&not_a_directory, b"").unwrap();
+        assert!(ManagedStorage::new(not_a_directory).provider_ids().is_err());
+    }
 
     #[test]
     fn revision_paths_reject_traversal_and_non_digests() {

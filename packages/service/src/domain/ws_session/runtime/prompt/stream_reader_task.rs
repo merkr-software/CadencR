@@ -1,4 +1,4 @@
-use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashSet;
 
 use axum::extract::ws::Message;
@@ -11,21 +11,18 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
 use crate::domain::runtime_stream::RuntimeUsageState;
-use crate::domain::session_status::{AgentStatus, SessionStatusBroadcaster};
+use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::usage_stats::UsageAttribution;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::domain::ws_session::protocol::{SessionEndedPayload, WsEnvelope};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
+use crate::domain::ws_session::stream_readers::ReaderSignals;
 
 use super::super::output::{OutputTarget, SessionOutput};
 use super::super::SdkSessions;
 use super::runtime_hold_registry;
-use super::stream_reader_resume::transition_active_to_pending_on_stream_end;
+use super::stream_reader_idle::{reconcile_provider_completion, should_reconcile_provider};
 use super::stream_reader_stop;
 use super::stream_reader_turn_state::StreamTurnState;
-
-/// Debounce provider completion checks long enough for normal events to arrive.
-const PROVIDER_RECONCILE_IDLE: std::time::Duration = std::time::Duration::from_millis(750);
 
 pub(super) struct StreamReaderTask {
     pub db_session_id: i64,
@@ -47,6 +44,12 @@ pub(super) struct StreamReaderTask {
     pub provider_context_window: Option<u64>,
     pub app_state: AppState,
     pub cleanup_session_on_end: bool,
+    /// A session-row read failed and viewers were told; later failures stay
+    /// in the log until a read succeeds again.
+    pub row_read_failed: std::sync::atomic::AtomicBool,
+    /// Viewer catch-up requests in, "transcript written" out (see
+    /// [`crate::domain::ws_session::stream_readers`]).
+    pub signals: ReaderSignals,
 }
 
 pub(super) struct StreamReaderState {
@@ -90,6 +93,12 @@ pub(super) struct StreamReaderState {
     /// [`super::runtime_hold`]). Unlike `live_background_agents` it doesn't
     /// keep the session `running`.
     pub(super) runtime_hold: runtime_hold_registry::SharedRuntimeHold,
+    /// The conversation is recorded as owed a resume for background work
+    /// (see [`super::stream_reader_background_work`]).
+    pub(super) background_work_recorded: bool,
+    /// A background-work record failed and viewers were told; retries stay
+    /// in the log until one succeeds.
+    pub(super) background_work_save_failed: bool,
     /// Monotonic counter stamped onto every `session.message` envelope this
     /// reader emits, so clients can detect a dropped envelope (gap) and
     /// resync. Restarts at 1 with each reader; clients treat a lower-than-
@@ -107,6 +116,11 @@ pub(super) struct StreamReaderState {
     pub(super) subagents: crate::domain::subagents::tracker::SubagentTracker,
     /// The model the CLI last reported for the session; `None` until read.
     pub(super) reported_model: Option<Option<String>>,
+    /// A token-usage write failed and viewers were told; later failures stay
+    /// in the log until such a write succeeds again.
+    pub(super) token_usage_save_failed: bool,
+    /// Same for the context-window write, which fails and recovers apart.
+    pub(super) context_window_save_failed: bool,
 }
 
 #[expect(
@@ -120,6 +134,17 @@ enum ReaderAction {
     Event(RuntimeEvent),
     Error(RuntimeError),
     Closed,
+}
+
+/// What woke the reader while it waited for the next runtime event.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Received is the common variant on the stream hot path and is consumed at once"
+)]
+enum ReaderWake {
+    Received(Option<Result<RuntimeEvent, RuntimeError>>),
+    CatchUpRequested,
+    Deadline,
 }
 
 /// The owner connection has gone. The orphaned runtime is closed only once the
@@ -157,17 +182,19 @@ impl StreamReaderTask {
         });
 
         loop {
-            match self.next_action(&mut state).await {
+            match self.next_action(&mut state, &mut persistence).await {
                 ReaderAction::Continue => continue,
                 ReaderAction::Break => break,
                 // Settled before the end is announced, so a refetch the
                 // announcement triggers already reads them stopped.
                 ReaderAction::Closed => {
+                    self.flush_all_pending_deltas(&mut persistence, false).await;
                     self.stop_running_subagents(&mut state).await;
                     self.handle_reader_closed(&mut state).await;
                     break;
                 }
                 ReaderAction::Error(error) => {
+                    self.flush_all_pending_deltas(&mut persistence, false).await;
                     self.stop_running_subagents(&mut state).await;
                     self.handle_reader_error(&mut state, error).await;
                     break;
@@ -183,20 +210,20 @@ impl StreamReaderTask {
                         runtime_event,
                     )
                     .await;
+                    // After the event wrote what it writes (`running`, first).
+                    self.sync_background_work(&mut state).await;
                 }
             }
         }
 
+        self.flush_all_pending_deltas(&mut persistence, true).await;
+        // Nothing this reader buffered can reach the transcript any more.
+        self.signals.mark_settled();
         self.stop_running_subagents(&mut state).await;
         self.publish_transcript_status(&mut persistence, true).await;
+        self.forget_background_work(&mut state).await;
         drop(hold_registration);
-        transition_active_to_pending_on_stream_end(
-            &self.sdk_sessions,
-            self.db_session_id,
-            self.runtime_session_handle.as_ref(),
-            self.cleanup_session_on_end,
-        )
-        .await;
+        self.transition_active_to_pending_on_stream_end().await;
         let app_state = self.app_state.clone();
         let session_id = self.db_session_id;
         drop(self);
@@ -206,25 +233,53 @@ impl StreamReaderTask {
             .await;
     }
 
-    async fn next_action(&mut self, state: &mut StreamReaderState) -> ReaderAction {
-        let recv_result = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            self.message_rx.recv(),
-        )
-        .await;
+    /// Wait for the next runtime event. Buffered deltas are written when
+    /// their flush deadline passes even while the stream is paused mid-block,
+    /// and a viewer's catch-up request is served before further events.
+    async fn next_action(
+        &mut self,
+        state: &mut StreamReaderState,
+        persistence: &mut WsSessionPersistence,
+    ) -> ReaderAction {
+        let tick_deadline = Instant::now() + std::time::Duration::from_millis(500);
+        let flush_deadline = persistence.next_delta_flush_deadline();
+        let wait_until = flush_deadline.map_or(tick_deadline, |d| d.min(tick_deadline));
+        let wake = tokio::select! {
+            biased;
+            () = self.signals.catch_up_requested() => ReaderWake::CatchUpRequested,
+            received = self.message_rx.recv() => ReaderWake::Received(received),
+            () = tokio::time::sleep_until(wait_until) => ReaderWake::Deadline,
+        };
 
-        match recv_result {
-            Ok(Some(Ok(runtime_event))) => ReaderAction::Event(runtime_event),
-            Ok(Some(Err(error))) => ReaderAction::Error(error),
-            Ok(None) => ReaderAction::Closed,
-            Err(_) => self.handle_timeout_tick(state).await,
+        match wake {
+            ReaderWake::Received(Some(Ok(runtime_event))) => ReaderAction::Event(runtime_event),
+            ReaderWake::Received(Some(Err(error))) => ReaderAction::Error(error),
+            ReaderWake::Received(None) => ReaderAction::Closed,
+            ReaderWake::CatchUpRequested => {
+                self.send_live_catch_up(state, persistence).await;
+                ReaderAction::Continue
+            }
+            ReaderWake::Deadline => {
+                self.flush_due_deltas(persistence).await;
+                if flush_deadline.is_some_and(|d| d < tick_deadline) {
+                    return ReaderAction::Continue;
+                }
+                self.handle_timeout_tick(state, persistence).await
+            }
         }
     }
 
-    async fn handle_timeout_tick(&self, state: &mut StreamReaderState) -> ReaderAction {
+    async fn handle_timeout_tick(
+        &self,
+        state: &mut StreamReaderState,
+        persistence: &mut WsSessionPersistence,
+    ) -> ReaderAction {
+        self.sync_background_work(state).await;
         // Viewer liveness is independent of whichever transport started the
         // runtime. Keep idle processes while any client still observes them.
-        let _ = self.sender.send(Message::Ping(vec![].into()));
+        self.sender
+            .send(Message::Ping(vec![].into()))
+            .ignore_closed();
         let unobserved = self
             .feature_senders
             .get_senders(self.feature_id)
@@ -245,8 +300,8 @@ impl StreamReaderTask {
             return ReaderAction::Continue;
         };
         if runtime_session_finished(&self.runtime_provider, &runtime_sid).await {
-            self.reconcile_provider_completion(&runtime_sid, state)
-                .await;
+            self.flush_all_pending_deltas(persistence, false).await;
+            reconcile_provider_completion(self, &runtime_sid, state).await;
             return ReaderAction::Break;
         }
         ReaderAction::Continue
@@ -270,7 +325,7 @@ impl StreamReaderTask {
             return false;
         }
 
-        let session_running = match WsSessionPersistence::try_get_session_row(
+        let session_running = match WsSessionPersistence::get_session_row(
             &self.write_pool,
             self.db_session_id,
         )
@@ -292,33 +347,6 @@ impl StreamReaderTask {
         )
     }
 
-    async fn reconcile_provider_completion(
-        &self,
-        runtime_sid: &str,
-        state: &mut StreamReaderState,
-    ) {
-        info!(
-            self.db_session_id,
-            runtime_session_id = runtime_sid,
-            "provider reports finished session; reconciling completion"
-        );
-        self.record_completed().await;
-        self.session_status_tx.broadcast(
-            self.db_session_id,
-            self.feature_id,
-            AgentStatus::Idle,
-            None,
-        );
-        let end_env = WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
-            reason: "provider_complete".into(),
-            received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
-        }))
-        .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(end_env).into()))
-            .await;
-    }
-
     /// Tear down a runtime whose owner connection has gone, but only when the
     /// turn is safely between turns (see [`should_close_orphaned`]). Returns
     /// `true` when the runtime was closed and the reader should stop.
@@ -331,11 +359,8 @@ impl StreamReaderTask {
         {
             return false;
         }
-        let row = match WsSessionPersistence::try_get_session_row(
-            &self.write_pool,
-            self.db_session_id,
-        )
-        .await
+        let row = match WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
+            .await
         {
             Ok(row) => row,
             // Closing needs proof the turn is over; keep the runtime and retry
@@ -367,11 +392,6 @@ impl StreamReaderTask {
     async fn close_orphaned_runtime(&self) -> bool {
         super::stream_reader_idle::retire_unobserved_runtime(self).await
     }
-}
-
-fn should_reconcile_provider(state: &StreamReaderState) -> bool {
-    state.last_runtime_activity.elapsed() >= PROVIDER_RECONCILE_IDLE
-        && state.last_provider_reconcile.elapsed() >= PROVIDER_RECONCILE_IDLE
 }
 
 #[cfg(test)]

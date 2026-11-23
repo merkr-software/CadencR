@@ -32,6 +32,8 @@ async fn migration_preserves_existing_projects_and_children_unmarked() {
     super::test_fixtures::ensure_agent_session_context_window(&pool).await;
     super::test_fixtures::ensure_user_message_count_prerequisites(&pool).await;
 
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
+
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

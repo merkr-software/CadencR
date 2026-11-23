@@ -13,6 +13,13 @@ export function isAgentSentMessage(
 /** `turn_interrupted` content the service writes when a restart cut the turn off. */
 export const RESTART_INTERRUPTION = "restart";
 
+/**
+ * `turn_interrupted` content the service writes when a restart stopped the
+ * background work (commands, agents, monitors, a scheduled wake-up) an agent
+ * had left running after its turn ended.
+ */
+export const RESTART_BACKGROUND_INTERRUPTION = "restart_background";
+
 /** `turn_interrupted` content for a turn the user stopped by quitting Cadencr. */
 export const QUIT_INTERRUPTION = "quit";
 
@@ -24,11 +31,12 @@ export function isRestartInterruptionMarker(block: AgentBlockData): boolean {
   return block.type === "turn_interrupted" && block.content === RESTART_INTERRUPTION;
 }
 
-/** A marker the service wrote after it stopped mid-turn: a restart or a quit. */
+/** A marker the service wrote after it stopped: a restart or a quit. */
 export function isServiceStopMarker(block: AgentBlockData): boolean {
   return (
     isRestartInterruptionMarker(block) ||
-    (block.type === "turn_interrupted" && block.content === QUIT_INTERRUPTION)
+    (block.type === "turn_interrupted" &&
+      (block.content === QUIT_INTERRUPTION || block.content === RESTART_BACKGROUND_INTERRUPTION))
   );
 }
 
