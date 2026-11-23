@@ -62,6 +62,7 @@ describe("loadSessionPromptTurn", () => {
     await expect(loadSessionPromptTurn(ctx, "s1", 200)).resolves.toBe(true);
 
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(7, {
+      session: 42,
       after: JSON.stringify({ 42: 199 }),
       after_revisions: JSON.stringify({ 42: Number.MAX_SAFE_INTEGER }),
       until: JSON.stringify({ 42: 500 }),
@@ -126,6 +127,7 @@ describe("loadSessionPromptTurn", () => {
 
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledTimes(2);
     expect(apiMocks.getFeatureAgentState).toHaveBeenLastCalledWith(7, {
+      session: 42,
       after: JSON.stringify({ 42: 199 }),
       after_revisions: JSON.stringify({ 42: Number.MAX_SAFE_INTEGER }),
       until: JSON.stringify({ 42: 300 }),

@@ -309,6 +309,7 @@ describe("ws session history pagination", () => {
     await fillSessionHistoryGap(ctx, "s1", "g2", "newer");
 
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, {
+      session: 2586,
       after: JSON.stringify({ 2586: 100 }),
       after_revisions: JSON.stringify({ 2586: Number.MAX_SAFE_INTEGER }),
       // The page stops at the rows already loaded under the gap.
@@ -365,6 +366,7 @@ describe("ws session history pagination", () => {
     await fillSessionHistoryGap(ctx, "s1", "g2", "older");
 
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, {
+      session: 2586,
       before: JSON.stringify({ 2586: 300 }),
       limit: 100,
       since: JSON.stringify({ 2586: 100 }),

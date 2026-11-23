@@ -47,6 +47,8 @@ pub struct AgentStateRequest {
     pub until_message_ids: HashMap<i64, i64>,
     #[builder(default)]
     pub since_message_ids: HashMap<i64, i64>,
+    /// Only this session of the feature; every session when unset.
+    pub session_id: Option<i64>,
 }
 
 pub async fn load_feature_agent_state(
@@ -61,12 +63,29 @@ pub async fn load_feature_agent_state(
         before_message_ids,
         until_message_ids,
         since_message_ids,
+        session_id,
     } = request;
-    let sql = format!("{SESSION_SELECT} FROM agent_sessions WHERE feature_id = ? ORDER BY id ASC");
-    let sessions = sqlx::query_as::<_, AgentSessionRow>(AssertSqlSafe(sql))
-        .bind(feature_id)
-        .fetch_all(pool)
-        .await?;
+    // One session is looked up by its primary key; the feature's sessions scan.
+    let sessions = match session_id {
+        Some(session_id) => {
+            let sql =
+                format!("{SESSION_SELECT} FROM agent_sessions WHERE id = ? AND feature_id = ?");
+            sqlx::query_as::<_, AgentSessionRow>(AssertSqlSafe(sql))
+                .bind(session_id)
+                .bind(feature_id)
+                .fetch_all(pool)
+                .await?
+        }
+        None => {
+            let sql = format!(
+                "{SESSION_SELECT} FROM agent_sessions WHERE feature_id = ? ORDER BY id ASC"
+            );
+            sqlx::query_as::<_, AgentSessionRow>(AssertSqlSafe(sql))
+                .bind(feature_id)
+                .fetch_all(pool)
+                .await?
+        }
+    };
     if sessions.is_empty() {
         return Ok(FeatureAgentStateResponse { sessions: vec![] });
     }
@@ -503,5 +522,37 @@ mod tests {
         assert_eq!(s.blocks[0].content, "t3 t4 ");
         assert!(!s.has_more, "the whole bounded range came back");
         assert_eq!(s.oldest_message_id, Some(ids[3]));
+    }
+
+    #[tokio::test]
+    async fn session_filter_reads_only_that_session() {
+        let pool = setup_test_db().await;
+        let (feature_id, session_id, _) = text_run(&pool).await;
+        let sibling = insert_session(&pool, feature_id, "completed").await;
+        insert_message(&pool, sibling, "text", "sibling", None, None, None).await;
+        let request = AgentStateRequest::builder()
+            .limit(100)
+            .session_id(sibling)
+            .build();
+
+        let state = load_feature_agent_state(&pool, feature_id, request)
+            .await
+            .unwrap();
+
+        let ids: Vec<i64> = state.sessions.iter().map(|s| s.session_db_id).collect();
+        assert_eq!(ids, vec![sibling]);
+        assert_ne!(sibling, session_id);
+
+        // Another feature's session is not this feature's to read.
+        let (other_feature, other_session, _) = text_run(&pool).await;
+        assert_ne!(other_feature, feature_id);
+        let request = AgentStateRequest::builder()
+            .limit(100)
+            .session_id(other_session)
+            .build();
+        let state = load_feature_agent_state(&pool, feature_id, request)
+            .await
+            .unwrap();
+        assert!(state.sessions.is_empty());
     }
 }

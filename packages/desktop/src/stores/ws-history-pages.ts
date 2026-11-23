@@ -29,6 +29,7 @@ export async function fetchOlderPage(
   sinceId: number | null,
 ): Promise<HistoryPage> {
   const data = await getFeatureAgentState(featureId, {
+    session: sessionDbId,
     before: JSON.stringify({ [sessionDbId]: beforeId }),
     limit: AGENT_STATE_OLDER_MESSAGE_LIMIT,
     ...(sinceId === null ? {} : { since: JSON.stringify({ [sessionDbId]: sinceId }) }),
@@ -56,6 +57,7 @@ export async function fetchNewerPage(
   untilId: number | null,
 ): Promise<HistoryPage> {
   const data = await getFeatureAgentState(featureId, {
+    session: sessionDbId,
     after: JSON.stringify({ [sessionDbId]: afterId }),
     // A revision cursor past any real one: only the forward page, not the
     // session's recently edited tool calls from elsewhere in history.

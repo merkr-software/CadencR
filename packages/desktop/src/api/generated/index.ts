@@ -8841,6 +8841,12 @@ export type GetFeatureAgentStateParams = {
    * @nullable
    */
   since?: string | null;
+  /**
+   * Only this session of the feature (a history page for one conversation
+   * needs no other session's latest page).
+   * @nullable
+   */
+  session?: number | null;
 };
 
 export type UnmarkDiffViewedParams = {

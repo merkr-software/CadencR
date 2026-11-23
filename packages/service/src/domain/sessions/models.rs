@@ -131,6 +131,11 @@ pub struct AgentBlock {
     /// bounded preview of it, so the client can say what loading it costs.
     #[serde(rename = "fullContentBytes", skip_serializing_if = "Option::is_none")]
     pub full_content_bytes: Option<u64>,
+    /// The greatest message id joined into this block (consecutive text or
+    /// thinking rows become one block), when it holds more than its own row.
+    /// Server-side only: a page cut by size resumes past it.
+    #[serde(skip)]
+    pub last_message_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentMessageOrigin>,
 }
@@ -156,6 +161,7 @@ impl AgentBlock {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         }
     }
@@ -390,6 +396,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -425,6 +432,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -453,6 +461,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let parent = AgentBlock {
@@ -472,6 +481,7 @@ mod tests {
             model: None,
             truncated_content: None,
             full_content_bytes: None,
+            last_message_id: None,
             origin: None,
         };
         let json = serde_json::to_string(&parent).unwrap();
