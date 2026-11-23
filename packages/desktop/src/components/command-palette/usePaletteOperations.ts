@@ -10,16 +10,23 @@ import {
   type CreateFeatureRequest,
   type MessageSearchHit,
 } from "@/api/generated";
-import { useEditorFileNavigator } from "@/hooks/useOpenEditorFile";
+import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
+import { useSetting } from "@/hooks/useSetting";
 import { SETTINGS_ANCHORS } from "@/components/settings/settings-anchor-ids";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { installCliCommand } from "@/lib/cli/cli-install";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { requestConversationFind } from "@/stores/conversation-find-request-store";
+import { useEditorStore } from "@/stores/editor-store";
+import { DEFAULT_MAX_TABS } from "@/stores/editor-store-types";
+import { activateBuiltinFeatureTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
+import { lookupFeature } from "@/stores/session-status-handlers";
 
 /** How a new conversation gets its working copy. */
 export type WorktreePick = { mode: "new" } | { mode: "skip" } | { mode: "reuse"; branch: string };
@@ -40,45 +47,70 @@ export interface PaletteOperations {
   installCli: () => Promise<void>;
   setPinned: (featureId: number, pinned: boolean) => void;
   restore: (featureId: number) => void;
-  /** Opens `path` in the open conversation's editor using its selected editor. */
+  /** Opens `path` in the open conversation's editor (Neovim when it runs there). */
   openFile: (featureId: number, path: string) => void;
   openMessage: (hit: MessageSearchHit, query: string) => void;
 }
 
-/** Open through the conversation's selected editor, including cold surfaces. */
-function useOpenFile(): PaletteOperations["openFile"] {
-  const navigate = useEditorFileNavigator();
-  return useCallback((featureId, path) => navigate(featureId, { path }), [navigate]);
+/** Opens `path` in a conversation's editor: Neovim's own buffers when it runs there. */
+function useOpenFile(activeFeatureId: number | null): PaletteOperations["openFile"] {
+  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
+  const openInNeovim = useOpenFileInNeovim(activeFeatureId ?? 0);
+  return useCallback(
+    (featureId: number, path: string) => {
+      activateBuiltinFeatureTab(featureId, "editor");
+      if (openInNeovim && featureId === activeFeatureId) {
+        openInNeovim(path);
+        return;
+      }
+      const editor = useEditorStore.getState();
+      const paneId = editor.features[featureId]?.activePaneId ?? "main";
+      const maxTabs = Number.parseInt(maxTabsSetting ?? "", 10) || DEFAULT_MAX_TABS;
+      editor.openFile(featureId, paneId, path, maxTabs);
+    },
+    [activeFeatureId, maxTabsSetting, openInNeovim],
+  );
+}
+
+function onWriteError(fallback: string) {
+  return (error: unknown) => toast.error(apiErrorMessage(error, fallback));
+}
+
+function usePaletteFeatureMutations(refresh: (projectId?: number) => void) {
+  const refreshFeature = (_data: unknown, variables: { id: number }) =>
+    refresh(lookupFeature(variables.id)?.project_id);
+  const { mutate: updatePinned } = useUpdateFeaturePinned({
+    mutation: { onSuccess: refreshFeature, onError: onWriteError("Couldn't update the pin") },
+  });
+  const { mutate: updateStatus } = useUpdateFeatureStatus({
+    mutation: {
+      onSuccess: refreshFeature,
+      onError: onWriteError("Couldn't restore the conversation"),
+    },
+  });
+  return { updatePinned, updateStatus };
 }
 
 /** What the palette does to the app; every failure ends in a toast. */
-export function usePaletteOperations(_activeFeatureId: number | null): PaletteOperations {
+export function usePaletteOperations(activeFeatureId: number | null): PaletteOperations {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const refresh = useCallback(() => {
-    void invalidateByUrlPrefix(queryClient, "/api/features");
-    void invalidateByUrlPrefix(queryClient, "/api/search");
-  }, [queryClient]);
+  const refresh = useCallback(
+    (projectId?: number) => {
+      void invalidateFeatureLists(queryClient, projectId);
+      void invalidateByUrlPrefix(queryClient, "/api/search");
+    },
+    [queryClient],
+  );
   const { mutateAsync: createFeature } = useCreateFeature();
   const addProjectAtPath = useAddProjectAtPath();
   const { mutateAsync: setProjectSetting } = useSetProjectSetting();
-  const onWriteError = (fallback: string) => (error: unknown) =>
-    toast.error(apiErrorMessage(error, fallback));
-  const { mutate: updatePinned } = useUpdateFeaturePinned({
-    mutation: { onSuccess: refresh, onError: onWriteError("Couldn't update the pin") },
-  });
-  const { mutate: updateStatus } = useUpdateFeatureStatus({
-    mutation: { onSuccess: refresh, onError: onWriteError("Couldn't restore the conversation") },
-  });
-  const openFile = useOpenFile();
+  const { updatePinned, updateStatus } = usePaletteFeatureMutations(refresh);
+  const openFile = useOpenFile(activeFeatureId);
 
   const openConversation = useCallback(
-    (projectId: number, featureId: number) => {
-      void navigate({
-        to: "/projects/$projectId/features/$featureId",
-        params: { projectId: String(projectId), featureId: String(featureId) },
-      });
-    },
+    (projectId: number, featureId: number) =>
+      navigateToConversation(navigate, projectId, featureId),
     [navigate],
   );
 
@@ -96,14 +128,14 @@ export function usePaletteOperations(_activeFeatureId: number | null): PaletteOp
           });
         }
         const created = await createFeature({ data });
-        refresh();
-        openConversation(projectId, created.id);
+        refresh(projectId);
+        navigateToConversation(navigate, projectId, created.id, { featureKnown: true });
         toast.dismiss(toastId);
       } catch (error) {
         toast.error(apiErrorMessage(error, "Couldn't create the conversation"), { id: toastId });
       }
     },
-    [createFeature, openConversation, refresh, setProjectSetting],
+    [createFeature, navigate, refresh, setProjectSetting],
   );
 
   const addProject = useCallback(async () => {
