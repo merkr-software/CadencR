@@ -28,7 +28,13 @@ pub async fn list_mcp_servers_from_resolved_config(
     cwd: Option<&Path>,
 ) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
     let binary = resolve_binary().await?;
-    let output = run_opencode_command(&binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await?;
+    let output = run_opencode_command(
+        &binary,
+        cwd,
+        &private_server(&["debug", "config"]),
+        MCP_LIST_TIMEOUT,
+    )
+    .await?;
     parse_mcp_config_output(&output)
 }
 
@@ -41,8 +47,13 @@ pub async fn list_mcp_servers_from_binary(
         cwd = cwd.map(|path| path.display().to_string()).as_deref().unwrap_or("<none>"),
         "discovering OpenCode MCP servers"
     );
-    let config_output =
-        run_opencode_command(binary, cwd, &["debug", "config"], MCP_LIST_TIMEOUT).await;
+    let config_output = run_opencode_command(
+        binary,
+        cwd,
+        &private_server(&["debug", "config"]),
+        MCP_LIST_TIMEOUT,
+    )
+    .await;
     match config_output {
         Ok(output) => {
             tracing::info!(
@@ -89,7 +100,13 @@ async fn list_from_config_files_or_mcp_list(
             return Ok(servers);
         }
     }
-    let output = run_opencode_command(binary, cwd, &["mcp", "list"], MCP_LIST_TIMEOUT).await?;
+    let output = run_opencode_command(
+        binary,
+        cwd,
+        &private_server(&["mcp", "list"]),
+        MCP_LIST_TIMEOUT,
+    )
+    .await?;
     tracing::info!(
         bytes = output.len(),
         "OpenCode mcp list output received for MCP discovery"
@@ -101,6 +118,17 @@ async fn list_from_config_files_or_mcp_list(
         "OpenCode MCP servers parsed from mcp list"
     );
     Ok(servers)
+}
+
+/// `args` for the resolved CLI. 2.x runs these commands against its shared
+/// background service, starting one (left running) when none is up;
+/// `--standalone` keeps them on a private server that exits with the command.
+fn private_server<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut args = args.to_vec();
+    if crate::process::cached_generation().is_some_and(crate::OpenCodeGeneration::is_v2) {
+        args.push("--standalone");
+    }
+    args
 }
 
 pub fn list_mcp_servers_from_config_files(
@@ -124,24 +152,53 @@ pub fn list_mcp_servers_from_config_files(
     Ok(servers)
 }
 
+/// The MCP servers of an OpenCode config: a 1.x/2.x config document, or the
+/// 2.x `opencode debug config` array of sources (`[{type, path, info}]`),
+/// where a later source overrides an earlier one.
 pub fn parse_mcp_config_output(raw: &str) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
     let value: Value = serde_json::from_str(raw).map_err(|error| {
         SdkError::Protocol(format!(
             "opencode debug config returned invalid JSON: {error}"
         ))
     })?;
-    let Some(mcp) = value.get("mcp").and_then(Value::as_object) else {
-        return Ok(Vec::new());
+    let documents: Vec<&Value> = match &value {
+        Value::Array(sources) => sources
+            .iter()
+            .filter_map(|source| source.get("info"))
+            .collect(),
+        Value::Object(_) => vec![&value],
+        _ => {
+            return Err(SdkError::Protocol(
+                "opencode debug config returned neither a config nor its sources".to_string(),
+            ))
+        }
     };
-    let mut servers = mcp
+    let mut by_name = std::collections::BTreeMap::new();
+    for (name, config) in documents.into_iter().flat_map(document_servers) {
+        by_name.insert(name.clone(), config_status(config));
+    }
+    Ok(by_name
+        .into_iter()
+        .map(|(name, status)| OpenCodeMcpServerStatus { name, status })
+        .collect())
+}
+
+/// `mcp.<name>` in 1.x, `mcp.servers.<name>` in 2.x.
+fn document_servers(document: &Value) -> impl Iterator<Item = (&String, &Value)> {
+    let mcp = document.get("mcp").and_then(Value::as_object);
+    let nested = mcp
+        .and_then(|mcp| mcp.get("servers"))
+        .filter(|servers| !is_server_config(servers))
+        .and_then(Value::as_object);
+    nested.or(mcp).into_iter().flatten()
+}
+
+/// A server definition rather than the 2.x `servers` map: it says how to run
+/// or reach the server.
+fn is_server_config(value: &Value) -> bool {
+    ["type", "command", "url"]
         .iter()
-        .map(|(name, config)| OpenCodeMcpServerStatus {
-            name: name.clone(),
-            status: config_status(config),
-        })
-        .collect::<Vec<_>>();
-    servers.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(servers)
+        .any(|key| value.get(key).is_some())
 }
 
 pub fn parse_mcp_list_output(raw: &str) -> Vec<OpenCodeMcpServerStatus> {
@@ -231,7 +288,9 @@ fn is_box_or_separator(ch: char) -> bool {
 }
 
 fn config_status(config: &Value) -> String {
-    if config.get("enabled").and_then(Value::as_bool) == Some(false) {
+    if config.get("enabled").and_then(Value::as_bool) == Some(false)
+        || config.get("disabled").and_then(Value::as_bool) == Some(true)
+    {
         return "unavailable".to_string();
     }
     "connected".to_string()

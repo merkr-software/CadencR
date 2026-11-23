@@ -91,7 +91,11 @@ fn catalog_from_response(
             if default_model_from_wire.is_none() && wire_default == Some(&model.id) {
                 default_model_from_wire = Some(id.clone());
             }
-            let supported_effort_levels = opencode_supported_effort_levels(&provider.id, &model.id);
+            let supported_effort_levels = if model.variants.is_empty() {
+                opencode_supported_effort_levels(&provider.id, &model.id)
+            } else {
+                Some(model.variants.clone())
+            };
             models.push(ModelCatalogEntry {
                 id,
                 label: format!("{provider_label}: {model_label}"),

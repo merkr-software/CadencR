@@ -32,7 +32,7 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
-use super::acp::spawn_headless_acp;
+use super::acp::spawn_acp_probe;
 use crate::domain::agents::acp::incoming::AcpNotification;
 use crate::domain::agents::acp::runtime::events::parse_available_commands;
 use crate::domain::agents::acp::runtime::slash_command_snapshots::SlashCommandSnapshots;
@@ -165,7 +165,7 @@ async fn run_probe(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> 
 /// pushes `available_commands_update`. The client's `Drop` impl reaps
 /// the subprocess.
 async fn probe_inner(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-    let (client, _) = spawn_headless_acp(std::ffi::OsStr::new(cwd))
+    let client = spawn_acp_probe(std::ffi::OsStr::new(cwd))
         .await
         .map_err(|e| RuntimeError::new(format!("{PROBE_LOG_PREFIX}: spawn failed: {e}")))?;
 

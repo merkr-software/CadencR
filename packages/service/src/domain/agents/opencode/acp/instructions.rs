@@ -10,8 +10,13 @@ use crate::domain::agents::response_style::rich_markdown_system_prompt;
 
 const CONFIG_CONTENT_ENV: &str = "OPENCODE_CONFIG_CONTENT";
 
+/// Point OpenCode at Cadencr's instructions file through
+/// `OPENCODE_CONFIG_CONTENT`. `enable_todos` also turns on 2.x's todo tool,
+/// off by default there (`experimental.todo`) and always on in 1.x, unless the
+/// existing config content already decides it.
 pub(super) fn apply_instruction_config(
     config: &mut RuntimeSpawnConfig,
+    enable_todos: bool,
 ) -> Result<TempDir, RuntimeError> {
     let instructions = rich_markdown_system_prompt(config.system_prompt.as_deref());
     let dir = tempfile::Builder::new()
@@ -34,7 +39,8 @@ pub(super) fn apply_instruction_config(
     let existing_config_content = env
         .get(CONFIG_CONTENT_ENV)
         .or(inherited_config_content.as_ref());
-    let merged = opencode_config_content_with_instruction(existing_config_content, &path)?;
+    let merged =
+        opencode_config_content_with_instruction(existing_config_content, &path, enable_todos)?;
     env.insert(CONFIG_CONTENT_ENV.to_string(), merged);
     Ok(dir)
 }
@@ -42,6 +48,7 @@ pub(super) fn apply_instruction_config(
 fn opencode_config_content_with_instruction(
     existing: Option<&String>,
     path: &Path,
+    enable_todos: bool,
 ) -> Result<String, RuntimeError> {
     let mut value = match existing
         .map(|content| content.trim())
@@ -53,6 +60,9 @@ fn opencode_config_content_with_instruction(
         None => json!({}),
     };
     append_instruction_path(&mut value, path)?;
+    if enable_todos {
+        enable_todo_tool(&mut value);
+    }
     serde_json::to_string(&value).map_err(|error| {
         RuntimeError::new(format!(
             "failed to serialize OpenCode config content: {error}"
@@ -85,6 +95,16 @@ fn append_instruction_path(value: &mut Value, path: &Path) -> Result<(), Runtime
     Ok(())
 }
 
+fn enable_todo_tool(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let experimental = object.entry("experimental").or_insert_with(|| json!({}));
+    if let Some(experimental) = experimental.as_object_mut() {
+        experimental.entry("todo").or_insert(Value::Bool(true));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -100,8 +120,9 @@ mod tests {
 
     #[test]
     fn inline_config_adds_instruction_path() {
-        let config = opencode_config_content_with_instruction(None, Path::new("/tmp/cadencr.md"))
-            .expect("config serializes");
+        let config =
+            opencode_config_content_with_instruction(None, Path::new("/tmp/cadencr.md"), false)
+                .expect("config serializes");
         let parsed: Value = serde_json::from_str(&config).unwrap();
 
         assert_eq!(parsed["instructions"], json!(["/tmp/cadencr.md"]));
@@ -114,9 +135,12 @@ mod tests {
             "instructions": ["CONTRIBUTING.md"]
         })
         .to_string();
-        let config =
-            opencode_config_content_with_instruction(Some(&existing), Path::new("/tmp/cadencr.md"))
-                .expect("config serializes");
+        let config = opencode_config_content_with_instruction(
+            Some(&existing),
+            Path::new("/tmp/cadencr.md"),
+            false,
+        )
+        .expect("config serializes");
         let parsed: Value = serde_json::from_str(&config).unwrap();
 
         assert_eq!(parsed["model"], "anthropic/claude-sonnet-4-5");
@@ -133,7 +157,7 @@ mod tests {
             env: Some(HashMap::from([("EXISTING".to_string(), "1".to_string())])),
             ..RuntimeSpawnConfig::default()
         };
-        let dir = apply_instruction_config(&mut config).expect("instruction config applies");
+        let dir = apply_instruction_config(&mut config, false).expect("instruction config applies");
         let env = config.env.as_ref().unwrap();
         let parsed: Value = serde_json::from_str(env.get(CONFIG_CONTENT_ENV).unwrap()).unwrap();
         let instruction_path = parsed["instructions"][0].as_str().unwrap();
@@ -143,5 +167,26 @@ mod tests {
         assert_eq!(env.get("EXISTING").map(String::as_str), Some("1"));
         assert!(content.starts_with(RICH_MARKDOWN_INSTRUCTION));
         assert!(content.ends_with("Base prompt"));
+    }
+
+    #[test]
+    fn v2_config_enables_todos_unless_already_decided() {
+        let enabled: Value = serde_json::from_str(
+            &opencode_config_content_with_instruction(None, Path::new("/tmp/c.md"), true).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(enabled["experimental"]["todo"], true);
+        let existing = r#"{"experimental":{"todo":false,"codemode_vm":true}}"#.to_string();
+        let kept: Value = serde_json::from_str(
+            &opencode_config_content_with_instruction(
+                Some(&existing),
+                Path::new("/tmp/c.md"),
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(kept["experimental"]["todo"], false);
+        assert_eq!(kept["experimental"]["codemode_vm"], true);
     }
 }

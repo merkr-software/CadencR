@@ -13,6 +13,7 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use crate::error::SdkError;
+use crate::generation::{OpenCodeGeneration, OpenCodeInstallation};
 
 /// Provider-neutral spec for finding the `opencode` binary.
 ///
@@ -55,10 +56,18 @@ const RESOLVED_TTL: Duration = Duration::from_secs(300);
 struct ResolvedBinary {
     override_path: Option<PathBuf>,
     path: PathBuf,
+    generation: OpenCodeGeneration,
     resolved_at: Instant,
 }
 
 impl ResolvedBinary {
+    fn installation(&self) -> OpenCodeInstallation {
+        OpenCodeInstallation {
+            path: self.path.clone(),
+            generation: self.generation,
+        }
+    }
+
     /// Still answers for `override_path`, and the binary is still there.
     fn is_fresh_for(&self, override_path: &Option<PathBuf>) -> bool {
         self.override_path == *override_path
@@ -89,6 +98,14 @@ fn current_binary_override() -> Option<PathBuf> {
 }
 
 pub async fn resolve_binary() -> Result<PathBuf, SdkError> {
+    resolve_installation()
+        .await
+        .map(|installation| installation.path)
+}
+
+/// The binary [`resolve_binary`] picks, with the CLI line its `--version`
+/// reported. Shares the discovery cache, so it costs no extra probe.
+pub async fn resolve_installation() -> Result<OpenCodeInstallation, SdkError> {
     let spec = opencode_discovery_spec();
     let override_path = current_binary_override();
     if let Some(path) = &override_path {
@@ -100,7 +117,7 @@ pub async fn resolve_binary() -> Result<PathBuf, SdkError> {
     }
     if let Some(cached) = RESOLVED.read().ok().and_then(|guard| guard.clone()) {
         if cached.is_fresh_for(&override_path) {
-            return Ok(cached.path);
+            return Ok(cached.installation());
         }
     }
     let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await;
@@ -109,15 +126,26 @@ pub async fn resolve_binary() -> Result<PathBuf, SdkError> {
             searched: cli_discovery::searched_dirs(&spec).await,
         });
     };
-    let resolved = best.path.clone();
+    let resolved = ResolvedBinary {
+        override_path,
+        path: best.path.clone(),
+        generation: OpenCodeGeneration::from_version(best.version.as_ref()),
+        resolved_at: Instant::now(),
+    };
+    let installation = resolved.installation();
     if let Ok(mut cache) = RESOLVED.write() {
-        *cache = Some(ResolvedBinary {
-            override_path,
-            path: resolved.clone(),
-            resolved_at: Instant::now(),
-        });
+        *cache = Some(resolved);
     }
-    Ok(resolved)
+    Ok(installation)
+}
+
+/// The CLI line of the last resolved binary, without probing. `None` until a
+/// resolution ran; synchronous callers fall back to the 1.x behavior then.
+pub fn cached_generation() -> Option<OpenCodeGeneration> {
+    RESOLVED
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|resolved| resolved.generation))
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -232,6 +260,7 @@ mod tests {
         *RESOLVED.write().unwrap() = Some(ResolvedBinary {
             override_path: None,
             path,
+            generation: crate::OpenCodeGeneration::V1,
             resolved_at,
         });
     }

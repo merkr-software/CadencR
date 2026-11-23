@@ -148,6 +148,8 @@ impl RuntimeSubagentPatch {
                 "agent_type",
                 "agentType",
                 "role",
+                // OpenCode 2.x `subagent` tool.
+                "agent",
             ]),
             agent_name: text(&["name", "nickname", "task_name"]),
             description: text(&["description", "title"]),

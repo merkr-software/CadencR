@@ -10,6 +10,26 @@
 use serde_json::Value;
 
 use crate::domain::agents::acp::runtime::tool_input;
+use crate::domain::agents::adapter::RuntimePermissionMode;
+use crate::domain::agents::mcp_tool_names::McpToolNameResolver;
+use crate::domain::agents::opencode::tool_names::{
+    canonical_acp_tool_name, canonical_cadencr_tool_name,
+};
+
+/// The Cadencr name of an OpenCode tool (MCP tools by their server prefix).
+pub(super) fn normalize_tool_name(names: &McpToolNameResolver, raw: &str) -> String {
+    let canonical = canonical_cadencr_tool_name(&canonical_acp_tool_name(raw));
+    names.canonical_name(&canonical).unwrap_or(canonical)
+}
+
+/// The OpenCode agent (ACP mode) for a Cadencr permission mode.
+pub(super) fn opencode_mode(mode: RuntimePermissionMode) -> String {
+    match mode {
+        RuntimePermissionMode::Plan => "plan".to_string(),
+        RuntimePermissionMode::OpenCodeAgent(name) => name,
+        _ => "build".to_string(),
+    }
+}
 
 /// Rename ACP-flavoured edit-tool keys to the canonical Anthropic-style
 /// keys the FE diff renderer expects. Operates only on known edit tool
