@@ -10,19 +10,14 @@
 use std::path::Path;
 
 use crate::error::AppError;
+use crate::shared::ignore_watch::editor_tree_walker;
 
 /// Count the entries the editor tree would walk. With `exclude_gitignored`
 /// the walker skips ignored sub-trees wholesale (so `node_modules`, `target`,
 /// … are never descended), matching the fast `tree-all` pass. Runs the
 /// blocking filesystem walk, so call it from `spawn_blocking`.
 pub fn count_entries(project_root: &Path, exclude_gitignored: bool) -> Result<u64, AppError> {
-    let mut walker = ignore::WalkBuilder::new(project_root);
-    walker
-        .hidden(false)
-        .git_ignore(exclude_gitignored)
-        .git_global(exclude_gitignored)
-        .git_exclude(exclude_gitignored)
-        .filter_entry(|entry| entry.file_name() != ".git");
+    let walker = editor_tree_walker(project_root, exclude_gitignored);
 
     let mut count: u64 = 0;
     for result in walker.build() {

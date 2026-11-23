@@ -130,7 +130,7 @@ pub async fn tree_handler(
     let entries = tokio::task::spawn_blocking(move || -> Result<Vec<FileTreeEntry>, AppError> {
         let dir_path = service::validate_path(&project_root, &dir_path_param)?;
 
-        let gitignore = service::build_gitignore(&project_root);
+        let ignore_rules = service::ignore_rules(&project_root);
 
         let mut entries: Vec<FileTreeEntry> = Vec::new();
 
@@ -158,7 +158,7 @@ pub async fn tree_handler(
                 .to_string_lossy()
                 .to_string();
 
-            let is_gitignored = service::is_gitignored(gitignore.as_ref(), &entry.path(), is_dir);
+            let is_gitignored = ignore_rules.is_ignored(&entry.path(), is_dir);
 
             entries.push(FileTreeEntry {
                 name,
