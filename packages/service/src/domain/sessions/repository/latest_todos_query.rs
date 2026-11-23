@@ -3,13 +3,58 @@ use super::MESSAGE_SELECT;
 /// The tool calls that write a todo list, as an SQL `IN` list.
 pub(super) const TODO_TOOL_NAMES_SQL: &str = "('TodoWrite', 'TaskCreate', 'TaskUpdate')";
 
-pub(super) fn latest_todos_sql(session_count: usize) -> String {
+/// Partial index over exactly the [`TODO_TOOL_NAMES_SQL`] tool calls. Queries
+/// name it with `INDEXED BY`: under other statistics (a real `ANALYZE`, another
+/// SQLite release) the planner can prefer the plain `(session_id, id DESC)`
+/// index and walk every message of a long session to find its last todo call.
+/// The index is created by migration and re-created by
+/// `repair_agent_messages_perf_indexes`.
+pub(super) const TODO_TOOLS_INDEX: &str = "idx_agent_messages_session_todo_tools";
+
+/// Which todo tool calls [`todo_rows_sql`] returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TodoRows {
+    /// Every `TodoWrite` snapshot and task tool call.
+    All,
+    /// Only `TaskCreate` / `TaskUpdate`, enough to replay a task list.
+    TasksOnly,
+}
+
+fn target_sessions_cte(session_count: usize) -> String {
     let target_values = std::iter::repeat_n("(?)", session_count)
         .collect::<Vec<_>>()
         .join(",");
+    format!("WITH target_sessions(session_id) AS (VALUES {target_values})")
+}
+
+/// The last todo tool call of each target session, one row per session that
+/// has one: the row that decides whether the list is a `TodoWrite` snapshot or
+/// a task replay.
+pub(super) fn latest_todo_heads_sql(session_count: usize) -> String {
     let message_select_m = aliased_message_select("m");
     format!(
-        "WITH target_sessions(session_id) AS (VALUES {target_values}), \
+        "{} \
+         {message_select_m} FROM target_sessions t \
+         JOIN agent_messages m ON m.id = ( \
+            SELECT h.id FROM agent_messages h INDEXED BY {TODO_TOOLS_INDEX} \
+            WHERE h.session_id = t.session_id \
+              AND h.message_type = 'tool_call' \
+              AND h.tool_name IN {TODO_TOOL_NAMES_SQL} \
+            ORDER BY h.id DESC LIMIT 1)",
+        target_sessions_cte(session_count)
+    )
+}
+
+/// Todo tool calls of the target sessions, plus the results of their
+/// `TaskCreate` calls (which carry the authoritative task id), oldest first.
+pub(super) fn todo_rows_sql(session_count: usize, rows: TodoRows) -> String {
+    let message_select_m = aliased_message_select("m");
+    let tasks_only = match rows {
+        TodoRows::All => "",
+        TodoRows::TasksOnly => "AND m.tool_name <> 'TodoWrite'",
+    };
+    format!(
+        "{}, \
          task_create_ids AS ( \
             SELECT DISTINCT m.session_id, m.tool_use_id FROM agent_messages m \
             JOIN target_sessions t ON t.session_id = m.session_id \
@@ -20,16 +65,26 @@ pub(super) fn latest_todos_sql(session_count: usize) -> String {
          {message_select_m} FROM agent_messages m \
          JOIN target_sessions t ON t.session_id = m.session_id \
          WHERE m.message_type = 'tool_call' \
-           AND m.tool_name IN {TODO_TOOL_NAMES_SQL} \
+           AND m.tool_name IN {TODO_TOOL_NAMES_SQL} {tasks_only} \
          UNION ALL \
          {message_select_m} FROM task_create_ids tci \
          CROSS JOIN agent_messages m \
          WHERE tci.session_id = m.session_id \
            AND tci.tool_use_id = m.tool_use_id \
            AND m.message_type IN ('tool_result', 'tool_error') \
-         ORDER BY 2 ASC, 1 ASC"
+         ORDER BY 2 ASC, 1 ASC",
+        target_sessions_cte(session_count)
     )
 }
+
+/// `ANALYZE` statistics under which the plain `(session_id, id DESC)` index
+/// looks cheaper than [`TODO_TOOLS_INDEX`]: todo lookups must keep the partial
+/// index anyway.
+#[cfg(test)]
+pub(super) const PLAIN_INDEX_FAVOURED_STATS: &[(&str, &str)] = &[
+    (TODO_TOOLS_INDEX, "1000000 1000000 1"),
+    ("idx_agent_messages_session_id_desc", "1000000 2 1"),
+];
 
 fn aliased_message_select(alias: &str) -> String {
     MESSAGE_SELECT
@@ -47,69 +102,68 @@ mod tests {
     async fn task_result_lookup_uses_session_tool_use_index() {
         let pool = setup_test_db().await;
         create_agent_message_indexes(&pool).await;
-        let explain_sql = format!("EXPLAIN QUERY PLAN {}", super::latest_todos_sql(1));
+        let explain_sql = format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::todo_rows_sql(1, super::TodoRows::All)
+        );
 
         let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
             .bind(1_i64)
             .fetch_all(&pool)
             .await
             .unwrap();
-        let details = plan
-            .iter()
-            .map(|(_, _, _, detail)| detail.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let details = crate::shared::test_query_plan::plan_details(&plan);
 
         assert!(
             details.contains("SEARCH m USING INDEX idx_agent_messages_session_tool_use"),
             "{details}"
         );
-        assert!(
-            !details.lines().any(|detail| detail.contains("SCAN m")),
-            "{details}"
-        );
+        crate::shared::test_query_plan::assert_no_full_scan(&details, &["t", "tci"]);
+    }
+
+    async fn migrated_plan(sql: String) -> String {
+        use crate::shared::test_query_plan::{forge_index_stats, migrated_pool, plan_details};
+        let pool = migrated_pool().await;
+        forge_index_stats(&pool, "agent_messages", super::PLAIN_INDEX_FAVOURED_STATS).await;
+        let explain_sql = format!("EXPLAIN QUERY PLAN {sql}");
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
+            .bind(1_i64)
+            .bind(2_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        plan_details(&plan)
     }
 
     #[tokio::test]
     async fn latest_todos_uses_indexes_with_zero_table_scan_on_migrated_db() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        crate::shared::migrate::run_migrations(
-            &crate::shared::migrate::MigrationContext::pool_only(&pool),
-        )
-        .await
-        .unwrap();
+        use crate::shared::test_query_plan::assert_no_full_scan;
+        for rows in [super::TodoRows::All, super::TodoRows::TasksOnly] {
+            let details = migrated_plan(super::todo_rows_sql(2, rows)).await;
 
-        let explain_sql = format!("EXPLAIN QUERY PLAN {}", super::latest_todos_sql(1));
-        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
-            .bind(1_i64)
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-        let details = plan
-            .iter()
-            .map(|(_, _, _, detail)| detail.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+            assert!(
+                details.contains("idx_agent_messages_session_todo_tools")
+                    || details.contains("idx_agent_messages_session_type_tool"),
+                "expected todo index seek:\n{details}"
+            );
+            assert!(
+                details.contains("SEARCH m USING INDEX idx_agent_messages_session_tool_use"),
+                "expected tool_use index seek:\n{details}"
+            );
+            assert_no_full_scan(&details, &["t", "tci"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn latest_todo_heads_seek_the_partial_todo_index_once_per_session() {
+        use crate::shared::test_query_plan::assert_no_full_scan;
+        let details = migrated_plan(super::latest_todo_heads_sql(2)).await;
 
         assert!(
-            details.contains("idx_agent_messages_session_todo_tools")
-                || details.contains("idx_agent_messages_session_type_tool"),
-            "expected todo index seek:\n{details}"
+            details.contains("USING INDEX idx_agent_messages_session_todo_tools (session_id=?)"),
+            "expected the partial todo index:\n{details}"
         );
-        assert!(
-            details.contains("SEARCH m USING INDEX idx_agent_messages_session_tool_use"),
-            "expected tool_use index seek:\n{details}"
-        );
-        assert!(
-            !details
-                .lines()
-                .any(|detail| detail.contains("SCAN m") || detail.contains("SCAN agent_messages")),
-            "unexpected full scan of agent_messages:\n{details}"
-        );
+        assert_no_full_scan(&details, &["t"]);
     }
 
     async fn create_agent_message_indexes(pool: &sqlx::SqlitePool) {

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::models::{ConversationIndexEntry, MessageSearchHit};
-use crate::domain::features::repository::{LAST_ACTIVITY_COLUMN, LATEST_SESSION_JOIN};
+use crate::domain::features::repository::{last_activity_cte, LATEST_SESSION_JOIN};
 use crate::error::AppError;
 
 /// Matching prompts and replies scanned before keeping one per conversation,
@@ -16,16 +16,19 @@ const SNIPPET_TOKENS: i64 = 16;
 /// the palette's Recent matches it.
 fn conversation_index_sql() -> String {
     format!(
-        "SELECT f.id, f.project_id, f.title, f.status, f.label, f.is_pinned, \
+        "{} \
+         SELECT f.id, f.project_id, f.title, f.status, f.label, f.is_pinned, \
                 COALESCE(ls.runtime_provider, f.agent_runtime_session) AS runtime_provider, \
                 (SELECT fs.value FROM feature_settings fs \
                  WHERE fs.feature_id = f.id AND fs.key = 'worktree_branch' AND fs.value <> '') \
                   AS worktree_branch, \
                 COALESCE(f.created_at, datetime('now')) AS created_at, \
-                {LAST_ACTIVITY_COLUMN}, f.archived_at \
-         FROM features f \
+                activity.last_activity_at AS last_activity_at, f.archived_at \
+         FROM activity \
+         JOIN features f ON f.id = activity.feature_id \
          {LATEST_SESSION_JOIN} \
-         ORDER BY datetime(last_activity_at) DESC, f.id DESC"
+         ORDER BY datetime(activity.last_activity_at) DESC, f.id DESC",
+        last_activity_cte("TRUE")
     )
 }
 

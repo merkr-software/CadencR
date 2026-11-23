@@ -24,6 +24,7 @@ async fn legacy_pool() -> sqlx::SqlitePool {
          );
          CREATE TABLE agent_sessions (
              id INTEGER PRIMARY KEY,
+             feature_id INTEGER NOT NULL DEFAULT 1,
              runtime_session_id TEXT
          );
          CREATE TABLE provider_usage_checkpoints (

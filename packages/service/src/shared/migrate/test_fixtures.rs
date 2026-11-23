@@ -112,8 +112,9 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
 /// `agent_sessions` and indexes `agent_messages` carriers by their tool
 /// columns and creation time, and the feature-activity index migration
 /// (20261122020000) indexes `features(project_id, status)` and
-/// `agent_messages(session_id, role, created_at)`, which late-baselined
-/// fixtures omit or declare without all baseline columns.
+/// `agent_messages(session_id, role, created_at)`, and the session feature
+/// index migration (20261123120000) indexes `agent_sessions(feature_id, id)`,
+/// which late-baselined fixtures omit or declare without all baseline columns.
 pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     sqlx::raw_sql(
         "CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT);
@@ -132,6 +133,13 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     ] {
         ensure_column(pool, "features", column, ddl_type).await;
     }
+    ensure_column(
+        pool,
+        "agent_sessions",
+        "feature_id",
+        "INTEGER NOT NULL DEFAULT 1",
+    )
+    .await;
     for (column, ddl_type) in [
         ("role", "TEXT NOT NULL DEFAULT 'assistant'"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),

@@ -24,20 +24,29 @@ const FEATURE_COLUMNS: &str = r#"f.id, f.project_id, f.title, f.status,
             WHERE target_session.feature_id = f.id AND link.link_type IN ('spawned', 'handoff')
             ORDER BY link.created_at ASC, link.id ASC LIMIT 1) AS spawn_link_type"#;
 
-/// Latest user message per feature: computed per matched feature via a
-/// correlated subquery using `idx_agent_sessions_feature_status` and
-/// `idx_agent_messages_session_role_created`, avoiding an unfiltered
-/// `GROUP BY` over every message in the database.
-pub(crate) const LAST_ACTIVITY_COLUMN: &str = r#"COALESCE(
-  (SELECT MAX(
-     (SELECT MAX(m.created_at)
-      FROM agent_messages m
-      WHERE m.session_id = s.id AND m.role = 'user')
-   )
-   FROM agent_sessions s
-   WHERE s.feature_id = f.id),
-  f.created_at
-) AS last_activity_at"#;
+/// `activity(feature_id, last_activity_at)` for the features matching `filter`
+/// (a `WHERE` body over `features f`): the latest user message in any of their
+/// sessions, else the creation time. One correlated lookup per feature through
+/// `idx_agent_sessions_feature_id` and `idx_agent_messages_session_role_created`,
+/// never a `GROUP BY` over every message.
+///
+/// `MATERIALIZED` computes it once per feature: as a plain column, the
+/// `ORDER BY datetime(last_activity_at)` key would re-run the subquery.
+pub(crate) fn last_activity_cte(filter: &str) -> String {
+    format!(
+        "WITH activity AS MATERIALIZED ( \
+           SELECT f.id AS feature_id, COALESCE( \
+             (SELECT MAX( \
+                (SELECT MAX(m.created_at) \
+                 FROM agent_messages m \
+                 WHERE m.session_id = s.id AND m.role = 'user')) \
+              FROM agent_sessions s \
+              WHERE s.feature_id = f.id), \
+             f.created_at) AS last_activity_at \
+           FROM features f \
+           WHERE {filter})"
+    )
+}
 
 /// Join the latest agent session once so model/provider/thinking come from the same row.
 pub(crate) const LATEST_SESSION_JOIN: &str = r#"
@@ -50,11 +59,13 @@ LEFT JOIN agent_sessions ls ON ls.id = (
 /// time. One ordering for the project lists, Pinned and Recent.
 fn by_activity_sql(filter: &str) -> String {
     format!(
-        "SELECT {FEATURE_COLUMNS}, {LAST_ACTIVITY_COLUMN} \
-         FROM features f \
+        "{} \
+         SELECT {FEATURE_COLUMNS}, activity.last_activity_at AS last_activity_at \
+         FROM activity \
+         JOIN features f ON f.id = activity.feature_id \
          {LATEST_SESSION_JOIN} \
-         WHERE {filter} \
-         ORDER BY datetime(last_activity_at) DESC, f.id DESC"
+         ORDER BY datetime(activity.last_activity_at) DESC, f.id DESC",
+        last_activity_cte(filter)
     )
 }
 
@@ -832,36 +843,52 @@ mod tests {
 
     #[tokio::test]
     async fn by_activity_uses_covering_indexes_without_full_message_scan() {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::shared::migrate::run_migrations(
-            &crate::shared::migrate::MigrationContext::pool_only(&pool),
-        )
-        .await
-        .unwrap();
+        use crate::shared::test_query_plan::{assert_no_full_scan, migrated_pool, plan_details};
+        let pool = migrated_pool().await;
 
-        let sql = format!(
+        for (filter, bind_project) in [
+            ("f.project_id = ? AND f.status = 'active'", true),
+            ("f.project_id = ?", true),
+            ("f.is_pinned != 0 AND f.status = 'active'", false),
+            ("f.status = 'active'", false),
+        ] {
+            let sql = format!("EXPLAIN QUERY PLAN {}", by_activity_sql(filter));
+            let mut query = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(sql));
+            if bind_project {
+                query = query.bind(1_i64);
+            }
+            let joined = plan_details(&query.fetch_all(&pool).await.unwrap());
+
+            assert!(
+                joined.contains("idx_agent_sessions_feature_id"),
+                "expected per-feature session lookups to use idx_agent_sessions_feature_id:\n{joined}"
+            );
+            assert!(
+                joined.contains("idx_agent_messages_session_role_created"),
+                "expected user message lookup to use idx_agent_messages_session_role_created:\n{joined}"
+            );
+            assert!(
+                !joined.contains("USE TEMP B-TREE FOR GROUP BY"),
+                "must not build a global GROUP BY:\n{joined}"
+            );
+            assert_eq!(
+                joined.matches("idx_agent_messages_session_role_created").count(),
+                1,
+                "the activity subquery must run once per feature, not again for ORDER BY:\n{joined}"
+            );
+            assert_no_full_scan(&joined, &["activity"]);
+        }
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(format!(
             "EXPLAIN QUERY PLAN {}",
             by_activity_sql("f.project_id = ? AND f.status = 'active'")
-        );
-        let plan_rows: Vec<(i64, i64, i64, String)> = sqlx::query_as(AssertSqlSafe(sql))
-            .bind(1_i64)
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-        let details: Vec<&str> = plan_rows.iter().map(|r| r.3.as_str()).collect();
-        let joined = details.join("\n");
-
+        )))
+        .bind(1_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
         assert!(
-            joined.contains("idx_features_project_status"),
-            "expected features lookup to use idx_features_project_status:\n{joined}"
-        );
-        assert!(
-            joined.contains("idx_agent_messages_session_role_created"),
-            "expected user message lookup to use idx_agent_messages_session_role_created:\n{joined}"
-        );
-        assert!(
-            !joined.contains("SCAN m") && !joined.contains("USE TEMP B-TREE FOR GROUP BY"),
-            "must not full-scan agent_messages or build a global GROUP BY:\n{joined}"
+            plan_details(&plan).contains("idx_features_project_status"),
+            "expected features lookup to use idx_features_project_status"
         );
 
         // Functional ordering check across multiple projects, multiple sessions, and archived rows.

@@ -9,7 +9,6 @@ use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 
 use super::super::models::*;
-use super::latest_todos_query::latest_todos_sql;
 use super::pagination::fetch_missing_parents;
 use super::task_todos::latest_todos_from_messages;
 use super::MESSAGE_SELECT;
@@ -226,46 +225,12 @@ fn is_todo_source_message(message: &AgentMessageRow) -> bool {
     )
 }
 
-const TODO_SESSION_CHUNK_SIZE: usize = 200;
-
-/// Fetch latest todo state for each session from `TodoWrite` snapshots or
-/// Claude Code task tool deltas.
-pub(super) async fn fetch_latest_todos(
-    pool: &SqlitePool,
-    session_ids: &[i64],
-) -> Result<HashMap<i64, Vec<serde_json::Value>>, AppError> {
-    let mut todos_by_session: HashMap<i64, Vec<serde_json::Value>> = HashMap::new();
-    if session_ids.is_empty() {
-        return Ok(todos_by_session);
-    }
-
-    let mut rows_by_session: HashMap<i64, Vec<AgentMessageRow>> = HashMap::new();
-    for chunk in session_ids.chunks(TODO_SESSION_CHUNK_SIZE) {
-        let sql = latest_todos_sql(chunk.len());
-        let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
-        for sid in chunk {
-            query = query.bind(sid);
-        }
-        for row in query.fetch_all(pool).await? {
-            rows_by_session.entry(row.session_id).or_default().push(row);
-        }
-    }
-    for (session_id, rows) in rows_by_session {
-        if let Some(todos) = latest_todos_from_messages(&rows) {
-            todos_by_session.insert(session_id, todos);
-        }
-    }
-    Ok(todos_by_session)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::json;
-
     use super::super::test_support::{insert_message, insert_session, setup_test_db};
-    use super::{fetch_full_messages, fetch_latest_todos, todo_fetch_session_ids};
+    use super::{fetch_full_messages, todo_fetch_session_ids};
 
     #[test]
     fn todo_fetch_session_ids_skips_full_fetches_for_before_pagination() {
@@ -345,53 +310,5 @@ mod tests {
             "the anchor user prompt must come first"
         );
         assert!(result.has_more.get(&session_id).copied().unwrap_or(false));
-    }
-
-    #[tokio::test]
-    async fn fetch_latest_todos_reconstructs_persisted_task_tools() {
-        let pool = setup_test_db().await;
-        let session_id = insert_session(&pool, 1, "running").await;
-
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            r#"{"subject":"Write replay tests","activeForm":"Writing replay tests"}"#,
-            Some("TaskCreate"),
-            Some("create-1"),
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_result",
-            r#"{"id":"task-1"}"#,
-            None,
-            Some("create-1"),
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            r#"{"taskId":"task-1","status":"completed","activeForm":"Finishing replay tests"}"#,
-            Some("TaskUpdate"),
-            Some("update-1"),
-            None,
-        )
-        .await;
-
-        let todos = fetch_latest_todos(&pool, &[session_id]).await.unwrap();
-
-        assert_eq!(
-            todos.get(&session_id),
-            Some(&vec![json!({
-                "content": "Write replay tests",
-                "status": "completed",
-                "activeForm": "Finishing replay tests"
-            })])
-        );
     }
 }
