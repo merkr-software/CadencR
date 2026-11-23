@@ -1,5 +1,5 @@
 import { memo, useMemo, type ReactElement } from "react";
-import { BotIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { toast } from "sonner";
 import type { SubagentRun } from "@/api/generated";
 import { useSubagentCards } from "@/components/agent-session/subagent-reveal";
@@ -40,7 +40,7 @@ export const RunningAgents = memo(function RunningAgents(): ReactElement | null 
       tone="agents"
       label="Running agents"
       data-composer-running-agents
-      icon={<BotIcon />}
+      icon={<AgentIcon />}
       title="Running agents"
       count={offScreen.length}
       hint="Click one to find it in the conversation"

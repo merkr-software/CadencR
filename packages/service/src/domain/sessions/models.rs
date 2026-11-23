@@ -365,6 +365,9 @@ pub struct SessionStatusSnapshotEntry {
     /// The provider is compacting the conversation's context.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub compacting: bool,
+    /// Sub-agents currently running in this session. Omitted when zero.
+    #[serde(skip_serializing_if = "crate::domain::session_status::is_zero_u32")]
+    pub running_subagents: u32,
 }
 
 #[cfg(test)]

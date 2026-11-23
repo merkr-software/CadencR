@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 import { DndContext } from "@dnd-kit/core";
 import {
-  BotIcon,
   CodeIcon,
   GitCompareArrowsIcon,
   FileTextIcon,
   GlobeIcon,
   TerminalIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -40,7 +40,7 @@ const leaf: LayoutLeaf = {
 };
 
 const tabs: FeatureTabs = {
-  agent: { label: "Agent", Icon: BotIcon, content: null },
+  agent: { label: "Agent", Icon: AgentIcon, content: null },
   terminal: { label: "Terminal", Icon: TerminalIcon, content: null },
   git: { label: "Git", Icon: GitCompareArrowsIcon, content: null },
   editor: { label: "Editor", Icon: CodeIcon, content: null },

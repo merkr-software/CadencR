@@ -4,7 +4,6 @@
  * A provider can declare a theme accent for the color.
  */
 import {
-  Bot,
   ClipboardList,
   FileEditIcon,
   Hammer,
@@ -12,6 +11,7 @@ import {
   ShieldOff,
   Sparkles,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 
 import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
 import type { BuiltinPermissionMode } from "@/types/permission-mode";
@@ -64,7 +64,7 @@ const CATALOG_MODE_STYLES: Record<BuiltinPermissionMode, CatalogModeStyle> = {
 
 /** Ids outside the host vocabulary make no claim about autonomy: the neutral level. */
 export const UNKNOWN_MODE_STYLE: CatalogModeStyle = {
-  icon: Bot,
+  icon: AgentIcon,
   risk: "ask",
   tone: "var(--acc-cyan)",
   chipClass: "bg-[var(--acc-cyan)]/15 text-[var(--acc-cyan)] hover:bg-[var(--acc-cyan)]/25",

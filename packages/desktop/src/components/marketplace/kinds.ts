@@ -1,13 +1,5 @@
-import {
-  Code2,
-  Bot,
-  Boxes,
-  Palette,
-  PanelTop,
-  Plug,
-  ScrollText,
-  type LucideIcon,
-} from "lucide-react";
+import { Code2, Boxes, Palette, PanelTop, Plug, ScrollText, type LucideIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { PLUGIN_KINDS, type ListingKind } from "@/lib/marketplace-listings";
 import { AGENT_EXTENSION_KINDS, type AgentExtensionKind } from "@/lib/agent-extensions";
 
@@ -63,7 +55,7 @@ export const KINDS: Record<MarketplaceKind, KindMeta> = {
   provider: {
     label: "Provider",
     plural: "Providers",
-    icon: Bot,
+    icon: AgentIcon,
     tone: "mp-kind-provider",
     pitch: "Bring another coding agent into Cadencr over ACP. Runs a verified executable.",
   },

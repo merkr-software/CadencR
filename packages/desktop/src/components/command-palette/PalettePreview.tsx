@@ -1,5 +1,6 @@
 import { memo, type ReactElement, type ReactNode } from "react";
-import { BotIcon, UserIcon } from "lucide-react";
+import { UserIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { useGetFeatureRowSummary, useReadFile } from "@/api/generated";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { SidebarNextActionLine } from "@/components/SidebarNextActionLine";
@@ -244,7 +245,9 @@ function MessagePreview({
   return (
     <div className="cp-preview-inner">
       <header className="cp-preview-head">
-        <span className="cp-preview-glyph">{hit.role === "user" ? <UserIcon /> : <BotIcon />}</span>
+        <span className="cp-preview-glyph">
+          {hit.role === "user" ? <UserIcon /> : <AgentIcon />}
+        </span>
         <div className="min-w-0">
           <h2 className="cp-preview-title">{hit.feature_title}</h2>
           <p className="cp-preview-sub">

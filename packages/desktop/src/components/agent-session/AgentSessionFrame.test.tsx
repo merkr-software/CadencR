@@ -1,6 +1,6 @@
 import { createRef } from "react";
-import { Bot } from "lucide-react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { AgentIcon } from "@/components/AgentIcon";
 import { render, screen } from "@/test-utils";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
@@ -22,7 +22,7 @@ function renderTranscript({ isIdle }: { isIdle: boolean }) {
       streamContent={<p>the transcript</p>}
       bottomContent={<div>composer</div>}
       onToggle={() => {}}
-      IconComponent={Bot}
+      IconComponent={AgentIcon}
       badge={{ label: "Idle", className: "" }}
       displayLabel="Agent"
       wsSessionId={SESSION_ID}

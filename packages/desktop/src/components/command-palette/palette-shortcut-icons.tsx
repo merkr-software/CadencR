@@ -3,7 +3,6 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  BotIcon,
   CheckCheckIcon,
   CodeIcon,
   GitBranchIcon,
@@ -27,6 +26,7 @@ import {
   ZoomInIcon,
   ZoomOutIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import type { PaletteShortcutId } from "@/lib/command-palette/palette-shortcut-commands";
 
 /** The glyph each listed shortcut wears in the palette. */
@@ -44,7 +44,7 @@ export const PALETTE_SHORTCUT_ICONS: Record<PaletteShortcutId, ReactNode> = {
   "feature-settings": <SlidersHorizontalIcon />,
   "for-me-done": <CheckCheckIcon />,
   "content-search": <TextSearchIcon />,
-  "pane-agent": <BotIcon />,
+  "pane-agent": <AgentIcon />,
   "pane-terminal": <TerminalIcon />,
   "pane-git": <GitBranchIcon />,
   "pane-editor": <CodeIcon />,

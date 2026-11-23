@@ -32,6 +32,7 @@ mod closed_gates;
 mod journal;
 mod live;
 mod provider;
+mod transition;
 mod turn_clock;
 
 pub use broadcaster::{restore_at_boot, SessionStatusBroadcaster, SessionStatusSnapshot};
@@ -107,6 +108,11 @@ pub enum TurnOutcome {
     Failed,
 }
 
+/// Serde skip helper so `running_subagents: 0` stays off the wire.
+pub(crate) fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
 /// Live status update broadcast to subscribed WS clients.
 #[derive(Clone, Debug, Serialize)]
 pub struct SessionStatusEvent {
@@ -131,6 +137,10 @@ pub struct SessionStatusEvent {
     /// truth from the next event or snapshot.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub compacting: bool,
+    /// Sub-agents currently running in this session (foreground, nested, and
+    /// background). Omitted when zero.
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub running_subagents: u32,
     /// Set on the `Idle` event that ends a failed turn, so clients can flag the
     /// conversation until someone opens it. Never part of a snapshot: like
     /// "unread", a failure is relative to who has seen it.

@@ -45,16 +45,27 @@ pub async fn load(
     row.map(|row| run_from_row(&row)).transpose()
 }
 
+/// Persisted result of [`apply_change`].
+pub struct AppliedSubagentChange {
+    pub run: SubagentRun,
+    /// True when the run crossed into or out of [`SubagentRunStatus::Running`],
+    /// so the session's live running-subagent count needs to be re-synced.
+    pub running_changed: bool,
+}
+
 /// Merge `change` into the session's run, creating it on first sight.
 /// Returns the run when something the desktop shows changed.
 pub async fn apply_change(
     pool: &SqlitePool,
     session_id: i64,
     change: &SubagentChange,
-) -> Result<Option<SubagentRun>, sqlx::Error> {
+) -> Result<Option<AppliedSubagentChange>, sqlx::Error> {
     let now = now_timestamp();
     let existing = load(pool, session_id, &change.tool_use_id).await?;
     let is_new = existing.is_none();
+    let was_running = existing
+        .as_ref()
+        .is_some_and(|run| run.status == SubagentRunStatus::Running);
     let mut run = existing.unwrap_or_else(|| {
         SubagentRun::launched()
             .session_id(session_id)
@@ -70,8 +81,12 @@ pub async fn apply_change(
     if !(changed || is_new) {
         return Ok(None);
     }
+    let running_changed = was_running != (run.status == SubagentRunStatus::Running);
     save(pool, &run, &now).await?;
-    Ok(Some(run))
+    Ok(Some(AppliedSubagentChange {
+        run,
+        running_changed,
+    }))
 }
 
 async fn save(pool: &SqlitePool, run: &SubagentRun, now: &str) -> Result<(), sqlx::Error> {
@@ -123,6 +138,18 @@ async fn save(pool: &SqlitePool, run: &SubagentRun, now: &str) -> Result<(), sql
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// How many sub-agents of `session_id` are currently marked running (foreground,
+/// nested, and background included).
+pub async fn count_running(pool: &SqlitePool, session_id: i64) -> Result<u32, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_subagent_runs WHERE session_id = ? AND status = 'running'",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(u32::try_from(count.max(0)).unwrap_or(u32::MAX))
 }
 
 /// Carriers of the session's sub-agents still marked running. With
@@ -300,11 +327,28 @@ mod tests {
             .await
             .unwrap()
             .expect("first sight is a change");
-        assert_eq!(created.description.as_deref(), Some("Audit"));
+        assert!(created.running_changed);
+        assert_eq!(created.run.description.as_deref(), Some("Audit"));
         assert!(apply_change(&pool, session_id, &change(launch))
             .await
             .unwrap()
             .is_none());
+
+        // Progress metadata on an already-running sub-agent persists without
+        // flipping the running count.
+        let progress = apply_change(
+            &pool,
+            session_id,
+            &change(RuntimeSubagentPatch {
+                tool_use_count: Some(3),
+                ..RuntimeSubagentPatch::default()
+            }),
+        )
+        .await
+        .unwrap()
+        .expect("progress update persists");
+        assert!(!progress.running_changed);
+        assert_eq!(progress.run.tool_use_count, Some(3));
 
         let done = apply_change(
             &pool,
@@ -316,12 +360,13 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(done.status, SubagentRunStatus::Completed);
-        assert!(done.ended_at.is_some());
-        assert_eq!(done.description.as_deref(), Some("Audit"));
+        assert!(done.running_changed);
+        assert_eq!(done.run.status, SubagentRunStatus::Completed);
+        assert!(done.run.ended_at.is_some());
+        assert_eq!(done.run.description.as_deref(), Some("Audit"));
         assert_eq!(
             load(&pool, session_id, "toolu_1").await.unwrap(),
-            Some(done)
+            Some(done.run)
         );
     }
 
@@ -361,7 +406,9 @@ mod tests {
                 .len(),
             3
         );
+        assert_eq!(count_running(&pool, session_id).await.unwrap(), 3);
         assert_eq!(stop_runs_orphaned_by_restart(&pool).await.unwrap(), 3);
+        assert_eq!(count_running(&pool, session_id).await.unwrap(), 0);
         let stopped = load(&pool, session_id, "toolu_bg").await.unwrap().unwrap();
         assert_eq!(stopped.status, SubagentRunStatus::Stopped);
         assert_eq!(stopped.status_reason.as_deref(), Some("service_restarted"));

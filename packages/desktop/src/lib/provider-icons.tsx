@@ -1,5 +1,5 @@
-import { BotIcon } from "lucide-react";
 import { memo, useMemo } from "react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import { getProviderMetadata, type ProviderIconVariant, type ProviderMetadata } from "./providers";
 import { cn } from "./utils";
@@ -51,7 +51,7 @@ export function ProviderIconGraphic({
 }): React.JSX.Element | null {
   if (!metadata?.iconSrc) {
     return providerId ? (
-      <BotIcon role="img" aria-label={alt} className={cn(className, "text-muted-foreground")} />
+      <AgentIcon role="img" aria-label={alt} className={cn(className, "text-muted-foreground")} />
     ) : null;
   }
   return (
