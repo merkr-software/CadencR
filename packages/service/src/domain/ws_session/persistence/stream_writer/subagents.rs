@@ -287,7 +287,7 @@ mod session_subagents_tests {
                 text: "Here are my findings.".to_string(),
             },
         ]);
-        p.persist_runtime_event(&make_assistant_event(msg.content, Some("toolu_parent")))
+        p.persist_event_then_flush_due(&make_assistant_event(msg.content, Some("toolu_parent")))
             .await
             .expect("persist subagent text");
 
@@ -324,7 +324,7 @@ mod session_subagents_tests {
             }],
             None,
         );
-        p.persist_runtime_event(&runtime_event)
+        p.persist_event_then_flush_due(&runtime_event)
             .await
             .expect("persist runtime event");
 
@@ -354,7 +354,7 @@ mod session_subagents_tests {
             }],
             Some("toolu_agent"),
         );
-        p.persist_runtime_event(&runtime_event)
+        p.persist_event_then_flush_due(&runtime_event)
             .await
             .expect("persist runtime event");
 

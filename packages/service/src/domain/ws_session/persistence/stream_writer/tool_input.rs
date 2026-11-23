@@ -79,7 +79,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockStart {
@@ -95,7 +95,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockDelta {
@@ -109,7 +109,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockDelta {
@@ -142,7 +142,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::MessageStart {
@@ -153,7 +153,7 @@ mod tests {
             .await
             .expect("persist runtime event");
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockStart {
@@ -169,7 +169,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_b",
                 Some("task_b"),
                 RuntimeStreamEvent::MessageStart {
@@ -180,7 +180,7 @@ mod tests {
             .await
             .expect("persist runtime event");
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_b",
                 Some("task_b"),
                 RuntimeStreamEvent::ContentBlockStart {
@@ -196,7 +196,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockDelta {
@@ -209,7 +209,7 @@ mod tests {
             .await
             .expect("persist runtime event");
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_b",
                 Some("task_b"),
                 RuntimeStreamEvent::ContentBlockDelta {
@@ -264,7 +264,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "ses_1",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -285,7 +285,7 @@ mod tests {
             r#""old_string":"a","new_string":"b"}"#,
         ] {
             persistence
-                .persist_runtime_event(&stream_event(
+                .persist_event_then_flush_due(&stream_event(
                     "ses_1",
                     None,
                     RuntimeStreamEvent::ContentBlockDelta {
@@ -300,7 +300,7 @@ mod tests {
         }
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "ses_1",
                 None,
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },

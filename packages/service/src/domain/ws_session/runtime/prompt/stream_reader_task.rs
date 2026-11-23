@@ -15,6 +15,7 @@ use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::usage_stats::UsageAttribution;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
+use crate::domain::ws_session::stream_readers::ReaderSignals;
 
 use super::super::output::{OutputTarget, SessionOutput};
 use super::super::SdkSessions;
@@ -46,6 +47,9 @@ pub(super) struct StreamReaderTask {
     /// A session-row read failed and viewers were told; later failures stay
     /// in the log until a read succeeds again.
     pub row_read_failed: std::sync::atomic::AtomicBool,
+    /// Viewer catch-up requests in, "transcript written" out (see
+    /// [`crate::domain::ws_session::stream_readers`]).
+    pub signals: ReaderSignals,
 }
 
 pub(super) struct StreamReaderState {
@@ -132,6 +136,17 @@ enum ReaderAction {
     Closed,
 }
 
+/// What woke the reader while it waited for the next runtime event.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Received is the common variant on the stream hot path and is consumed at once"
+)]
+enum ReaderWake {
+    Received(Option<Result<RuntimeEvent, RuntimeError>>),
+    CatchUpRequested,
+    Deadline,
+}
+
 /// The owner connection has gone. The orphaned runtime is closed only once the
 /// turn is genuinely between turns (`between_turns`), at least one turn has
 /// completed (`saw_result`, so a just-started turn isn't killed), no
@@ -202,6 +217,8 @@ impl StreamReaderTask {
         }
 
         self.flush_all_pending_deltas(&mut persistence, true).await;
+        // Nothing this reader buffered can reach the transcript any more.
+        self.signals.mark_settled();
         self.stop_running_subagents(&mut state).await;
         self.publish_transcript_status(&mut persistence, true).await;
         self.forget_background_work(&mut state).await;
@@ -216,6 +233,9 @@ impl StreamReaderTask {
             .await;
     }
 
+    /// Wait for the next runtime event. Buffered deltas are written when
+    /// their flush deadline passes even while the stream is paused mid-block,
+    /// and a viewer's catch-up request is served before further events.
     async fn next_action(
         &mut self,
         state: &mut StreamReaderState,
@@ -224,13 +244,22 @@ impl StreamReaderTask {
         let tick_deadline = Instant::now() + std::time::Duration::from_millis(500);
         let flush_deadline = persistence.next_delta_flush_deadline();
         let wait_until = flush_deadline.map_or(tick_deadline, |d| d.min(tick_deadline));
-        let recv_result = tokio::time::timeout_at(wait_until, self.message_rx.recv()).await;
+        let wake = tokio::select! {
+            biased;
+            () = self.signals.catch_up_requested() => ReaderWake::CatchUpRequested,
+            received = self.message_rx.recv() => ReaderWake::Received(received),
+            () = tokio::time::sleep_until(wait_until) => ReaderWake::Deadline,
+        };
 
-        match recv_result {
-            Ok(Some(Ok(runtime_event))) => ReaderAction::Event(runtime_event),
-            Ok(Some(Err(error))) => ReaderAction::Error(error),
-            Ok(None) => ReaderAction::Closed,
-            Err(_) => {
+        match wake {
+            ReaderWake::Received(Some(Ok(runtime_event))) => ReaderAction::Event(runtime_event),
+            ReaderWake::Received(Some(Err(error))) => ReaderAction::Error(error),
+            ReaderWake::Received(None) => ReaderAction::Closed,
+            ReaderWake::CatchUpRequested => {
+                self.send_live_catch_up(state, persistence).await;
+                ReaderAction::Continue
+            }
+            ReaderWake::Deadline => {
                 self.flush_due_deltas(persistence).await;
                 if flush_deadline.is_some_and(|d| d < tick_deadline) {
                     return ReaderAction::Continue;

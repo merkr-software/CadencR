@@ -47,6 +47,7 @@ pub struct PersistedMessageRef {
 
 mod stream_writer;
 pub use stream_writer::transcript::{TranscriptPersistenceError, TranscriptPersistenceStatus};
+pub(crate) use stream_writer::LiveBlockContent;
 pub(crate) use stream_writer::{result_output_text, strip_duplicated_bash_output};
 
 mod event_identity;
@@ -95,12 +96,21 @@ impl WsSessionPersistence {
         }
     }
 
-    pub async fn persist_runtime_event(
+    /// Test shorthand for one turn of the reader's loop: persist the event
+    /// (text/thinking deltas only reach the buffer), then write the deltas
+    /// whose flush window has passed. `Err` means either step failed — the
+    /// event may well be saved. Production keeps the two apart: the event's
+    /// result is [`Self::persist_runtime_event_buffered`]'s, and the reader
+    /// reports a failed flush on its own (`StreamReaderTask::flush_due_deltas`).
+    #[cfg(test)]
+    pub async fn persist_event_then_flush_due(
         &mut self,
         event: &RuntimeEvent,
     ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
-        let persisted = self.persist_runtime_event_buffered(event).await?;
-        self.flush_due_deltas().await?;
+        let persisted = self.persist_runtime_event_buffered(event).await;
+        let flushed = self.flush_due_deltas().await;
+        let persisted = persisted?;
+        flushed?;
         Ok(persisted)
     }
 
@@ -123,6 +133,14 @@ impl WsSessionPersistence {
 
     pub async fn flush_all_pending_deltas(&mut self) -> Result<(), TranscriptPersistenceError> {
         self.writer.flush_all_pending_deltas().await
+    }
+
+    /// Full text of the current message cycle's text/thinking rows, as written
+    /// so far. Flush the buffered deltas first to include all published text.
+    pub(crate) async fn live_block_contents(
+        &self,
+    ) -> Result<Vec<LiveBlockContent>, TranscriptPersistenceError> {
+        self.writer.live_block_contents().await
     }
 
     pub fn next_delta_flush_deadline(&self) -> Option<tokio::time::Instant> {

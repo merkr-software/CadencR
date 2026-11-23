@@ -49,6 +49,8 @@ impl TranscriptWriter {
                 .insert((stream_scope.clone(), index), pending);
         }
         self.streamed_assistant_content.insert(stream_scope.clone());
+        self.cycle_text_rows
+            .insert((stream_scope.clone(), index), pending);
         self.pending_mergeable_blocks
             .insert((stream_scope.clone(), index), pending);
         self.pending_delta_buffers
@@ -237,8 +239,10 @@ mod tests {
         RuntimeAssistantMessage, RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent,
         RuntimeEventKind, RuntimeEventMetadata, RuntimeStreamEvent,
     };
+    use crate::domain::ws_session::handler::tests::support::freeze_paused_clock;
     use crate::domain::ws_session::persistence::WsSessionPersistence;
     use sqlx::SqlitePool;
+    use std::time::Duration;
 
     async fn attach_update_counter(pool: &SqlitePool) {
         sqlx::raw_sql(
@@ -266,50 +270,83 @@ mod tests {
             .unwrap()
     }
 
-    fn text_start(text: &str) -> RuntimeEvent {
-        stream_event(
-            "root",
-            None,
-            RuntimeStreamEvent::ContentBlockStart {
-                index: 0,
-                block: RuntimeContentBlock::Text { text: text.into() },
-            },
+    async fn rows(pool: &SqlitePool) -> Vec<(String, String)> {
+        sqlx::query_as("SELECT message_type, content FROM agent_messages ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn fail_updates(pool: &SqlitePool) {
+        sqlx::query(
+            "CREATE TRIGGER fail_update BEFORE UPDATE ON agent_messages \
+             BEGIN SELECT RAISE(ABORT, 'disk busy'); END",
         )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn start_at(
+        scope: &str,
+        ptuid: Option<&str>,
+        index: u64,
+        block: RuntimeContentBlock,
+    ) -> RuntimeEvent {
+        stream_event(
+            scope,
+            ptuid,
+            RuntimeStreamEvent::ContentBlockStart { index, block },
+        )
+    }
+
+    fn delta_at(
+        scope: &str,
+        ptuid: Option<&str>,
+        index: u64,
+        delta: RuntimeContentDelta,
+    ) -> RuntimeEvent {
+        stream_event(
+            scope,
+            ptuid,
+            RuntimeStreamEvent::ContentBlockDelta { index, delta },
+        )
+    }
+
+    fn text(text: &str) -> RuntimeContentBlock {
+        RuntimeContentBlock::Text { text: text.into() }
+    }
+
+    fn text_delta_of(text: &str) -> RuntimeContentDelta {
+        RuntimeContentDelta::Text { text: text.into() }
+    }
+
+    fn text_start(text_: &str) -> RuntimeEvent {
+        start_at("root", None, 0, text(text_))
     }
 
     fn text_delta(text: &str) -> RuntimeEvent {
-        stream_event(
-            "root",
-            None,
-            RuntimeStreamEvent::ContentBlockDelta {
-                index: 0,
-                delta: RuntimeContentDelta::Text { text: text.into() },
-            },
-        )
+        delta_at("root", None, 0, text_delta_of(text))
     }
 
     fn thinking_start(thinking: &str) -> RuntimeEvent {
-        stream_event(
+        start_at(
             "root",
             None,
-            RuntimeStreamEvent::ContentBlockStart {
-                index: 0,
-                block: RuntimeContentBlock::Thinking {
-                    thinking: thinking.into(),
-                },
+            0,
+            RuntimeContentBlock::Thinking {
+                thinking: thinking.into(),
             },
         )
     }
 
     fn thinking_delta(thinking: &str) -> RuntimeEvent {
-        stream_event(
+        delta_at(
             "root",
             None,
-            RuntimeStreamEvent::ContentBlockDelta {
-                index: 0,
-                delta: RuntimeContentDelta::Thinking {
-                    thinking: thinking.into(),
-                },
+            0,
+            RuntimeContentDelta::Thinking {
+                thinking: thinking.into(),
             },
         )
     }
@@ -319,6 +356,17 @@ mod tests {
             "root",
             None,
             RuntimeStreamEvent::ContentBlockStop { index: 0 },
+        )
+    }
+
+    fn message_start(scope: &str) -> RuntimeEvent {
+        stream_event(
+            scope,
+            None,
+            RuntimeStreamEvent::MessageStart {
+                model: None,
+                input_tokens: None,
+            },
         )
     }
 
@@ -332,50 +380,90 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn coalesces_rapid_text_deltas_and_flushes_once_on_block_stop() {
+        let _clock = freeze_paused_clock();
         let pool = setup_test_db().await;
         attach_update_counter(&pool).await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
-        p.persist_runtime_event(&text_start("a")).await.unwrap();
+        p.persist_event_then_flush_due(&text_start("a"))
+            .await
+            .unwrap();
         // First delta flushes immediately so first token lands right away.
-        p.persist_runtime_event(&text_delta("b")).await.unwrap();
+        p.persist_event_then_flush_due(&text_delta("b"))
+            .await
+            .unwrap();
+        let first_flush = tokio::time::Instant::now();
         assert_eq!(update_count(&pool).await, 1);
         assert_eq!(message_content(&pool).await, "ab");
 
-        // Rapid subsequent deltas within 200ms coalesce in memory with 0 SQLite UPDATEs.
+        // Deltas arriving within the window coalesce in memory.
         for chunk in ["c", "d", "e", "f", "g", "h"] {
-            p.persist_runtime_event(&text_delta(chunk)).await.unwrap();
+            tokio::time::advance(Duration::from_millis(30)).await;
+            p.persist_event_then_flush_due(&text_delta(chunk))
+                .await
+                .unwrap();
         }
         assert_eq!(update_count(&pool).await, 1);
-        assert!(p.next_delta_flush_deadline().is_some());
+        assert_eq!(
+            p.next_delta_flush_deadline(),
+            Some(first_flush + DELTA_FLUSH_INTERVAL)
+        );
 
         // Block stop flushes all coalesced chunks in a single UPDATE.
-        p.persist_runtime_event(&block_stop()).await.unwrap();
+        p.persist_event_then_flush_due(&block_stop()).await.unwrap();
         assert_eq!(update_count(&pool).await, 2);
         assert_eq!(message_content(&pool).await, "abcdefgh");
         assert!(p.next_delta_flush_deadline().is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
+    async fn a_buffer_is_written_once_its_window_elapses_without_another_delta() {
+        let _clock = freeze_paused_clock();
+        let pool = setup_test_db().await;
+        attach_update_counter(&pool).await;
+        let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
+        p.persist_event_then_flush_due(&text_start("a"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta("b"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta("c"))
+            .await
+            .unwrap();
+
+        tokio::time::advance(DELTA_FLUSH_INTERVAL - Duration::from_millis(1)).await;
+        p.flush_due_deltas().await.unwrap();
+        assert_eq!(message_content(&pool).await, "ab");
+
+        tokio::time::advance(Duration::from_millis(1)).await;
+        p.flush_due_deltas().await.unwrap();
+        assert_eq!(message_content(&pool).await, "abc");
+        assert_eq!(update_count(&pool).await, 2);
+        assert!(p.next_delta_flush_deadline().is_none(), "nothing left");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn coalesces_thinking_deltas_and_flushes_on_turn_result_and_explicit_flush() {
+        let _clock = freeze_paused_clock();
         let pool = setup_test_db().await;
         attach_update_counter(&pool).await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
-        p.persist_runtime_event(&thinking_start("step 1"))
+        p.persist_event_then_flush_due(&thinking_start("step 1"))
             .await
             .unwrap();
-        p.persist_runtime_event(&thinking_delta(", 2"))
+        p.persist_event_then_flush_due(&thinking_delta(", 2"))
             .await
             .unwrap();
         assert_eq!(update_count(&pool).await, 1);
 
-        p.persist_runtime_event(&thinking_delta(", 3"))
+        p.persist_event_then_flush_due(&thinking_delta(", 3"))
             .await
             .unwrap();
-        p.persist_runtime_event(&thinking_delta(", 4"))
+        p.persist_event_then_flush_due(&thinking_delta(", 4"))
             .await
             .unwrap();
         assert_eq!(update_count(&pool).await, 1);
@@ -385,28 +473,39 @@ mod tests {
         assert_eq!(update_count(&pool).await, 2);
         assert_eq!(message_content(&pool).await, "step 1, 2, 3, 4");
 
-        // Another buffered delta followed directly by Result (no ContentBlockStop).
-        p.persist_runtime_event(&thinking_delta(", 5"))
+        // The explicit flush restarted the window: this delta waits.
+        tokio::time::advance(DELTA_FLUSH_INTERVAL / 2).await;
+        p.persist_event_then_flush_due(&thinking_delta(", 5"))
             .await
             .unwrap();
         assert_eq!(update_count(&pool).await, 2);
-        p.persist_runtime_event(&turn_result()).await.unwrap();
+        // A Result with no ContentBlockStop still writes it.
+        p.persist_event_then_flush_due(&turn_result())
+            .await
+            .unwrap();
         assert_eq!(update_count(&pool).await, 3);
         assert_eq!(message_content(&pool).await, "step 1, 2, 3, 4, 5");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn flushes_large_delta_immediately_when_byte_threshold_is_reached() {
+        let _clock = freeze_paused_clock();
         let pool = setup_test_db().await;
         attach_update_counter(&pool).await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
-        p.persist_runtime_event(&text_start("start")).await.unwrap();
-        p.persist_runtime_event(&text_delta("1")).await.unwrap();
+        p.persist_event_then_flush_due(&text_start("start"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta("1"))
+            .await
+            .unwrap();
         assert_eq!(update_count(&pool).await, 1);
 
         let large = "x".repeat(DELTA_FLUSH_MAX_BYTES);
-        p.persist_runtime_event(&text_delta(&large)).await.unwrap();
+        p.persist_event_then_flush_due(&text_delta(&large))
+            .await
+            .unwrap();
         assert_eq!(update_count(&pool).await, 2);
         assert_eq!(
             message_content(&pool).await.len(),
@@ -414,27 +513,157 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn failed_coalesced_flush_on_block_stop_remains_repairable_by_assistant_message() {
+    /// The same index switching from thinking to text writes the thinking
+    /// row's buffered tail before the text row starts.
+    #[tokio::test(start_paused = true)]
+    async fn a_type_change_on_one_index_writes_the_previous_blocks_buffer_first() {
+        let _clock = freeze_paused_clock();
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-
-        p.persist_runtime_event(&text_start("Hel")).await.unwrap();
-        p.persist_runtime_event(&text_delta("l")).await.unwrap();
-        // Buffered in memory.
-        p.persist_runtime_event(&text_delta("o world"))
+        p.persist_event_then_flush_due(&thinking_start("plan"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&thinking_delta(" A"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&thinking_delta(" B"))
             .await
             .unwrap();
 
-        sqlx::query(
-            "CREATE TRIGGER fail_update BEFORE UPDATE ON agent_messages \
-             BEGIN SELECT RAISE(ABORT, 'disk busy'); END",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        p.persist_event_then_flush_due(&text_delta("answer"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta(" more"))
+            .await
+            .unwrap();
+        p.flush_all_pending_deltas().await.unwrap();
 
-        assert!(p.persist_runtime_event(&block_stop()).await.is_err());
+        assert_eq!(
+            rows(&pool).await,
+            [
+                ("thinking".to_string(), "plan A B".to_string()),
+                ("text".to_string(), "answer more".to_string()),
+            ]
+        );
+    }
+
+    /// Buffers are keyed by scope and index: a boundary of one scope writes
+    /// only that scope's buffers, and nothing is crossed between blocks.
+    #[tokio::test(start_paused = true)]
+    async fn interleaved_indexes_and_scopes_keep_their_own_buffers() {
+        let _clock = freeze_paused_clock();
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
+        let blocks = [(None, 0, "r0"), (None, 1, "r1"), (Some("task"), 0, "s0")];
+        for (ptuid, index, start) in blocks {
+            p.persist_event_then_flush_due(&start_at("root", ptuid, index, text(start)))
+                .await
+                .unwrap();
+        }
+        // First deltas are written at once; the second round stays buffered.
+        for round in ["-a", "-b"] {
+            for (ptuid, index, _) in blocks {
+                let delta = delta_at("root", ptuid, index, text_delta_of(round));
+                p.persist_event_then_flush_due(&delta).await.unwrap();
+            }
+        }
+        let content = |rows: Vec<(String, String)>| -> Vec<String> {
+            rows.into_iter().map(|(_, content)| content).collect()
+        };
+        assert_eq!(content(rows(&pool).await), ["r0-a", "r1-a", "s0-a"]);
+
+        // A new root block flushes the root scope's buffers only.
+        p.persist_event_then_flush_due(&start_at("root", None, 2, text("r2")))
+            .await
+            .unwrap();
+        assert_eq!(
+            content(rows(&pool).await),
+            ["r0-a-b", "r1-a-b", "s0-a", "r2"]
+        );
+
+        p.flush_all_pending_deltas().await.unwrap();
+        assert_eq!(
+            content(rows(&pool).await),
+            ["r0-a-b", "r1-a-b", "s0-a-b", "r2"]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn message_start_writes_the_previous_cycles_buffer() {
+        let _clock = freeze_paused_clock();
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
+        p.persist_event_then_flush_due(&text_start("one"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta(" two"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta(" three"))
+            .await
+            .unwrap();
+
+        p.persist_event_then_flush_due(&message_start("root"))
+            .await
+            .unwrap();
+        assert_eq!(message_content(&pool).await, "one two three");
+        assert!(p.next_delta_flush_deadline().is_none());
+        assert_eq!(p.take_transcript_status_change(false), None);
+    }
+
+    /// A new cycle cannot repair the previous one's rows, so a failed flush at
+    /// `message_start` is final for the transcript.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_flush_at_message_start_fails_the_transcript() {
+        let _clock = freeze_paused_clock();
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
+        p.persist_event_then_flush_due(&text_start("one"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta(" two"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta(" three"))
+            .await
+            .unwrap();
+        fail_updates(&pool).await;
+
+        assert!(p
+            .persist_event_then_flush_due(&message_start("root"))
+            .await
+            .is_err());
+        assert_eq!(message_content(&pool).await, "one two");
+        assert_eq!(
+            p.take_transcript_status_change(false),
+            Some(TranscriptPersistenceStatus::Failed)
+        );
+        assert!(
+            p.next_delta_flush_deadline().is_none(),
+            "the tail is dropped"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_coalesced_flush_on_block_stop_remains_repairable_by_assistant_message() {
+        let _clock = freeze_paused_clock();
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
+
+        p.persist_event_then_flush_due(&text_start("Hel"))
+            .await
+            .unwrap();
+        p.persist_event_then_flush_due(&text_delta("l"))
+            .await
+            .unwrap();
+        // Buffered in memory.
+        p.persist_event_then_flush_due(&text_delta("o world"))
+            .await
+            .unwrap();
+
+        fail_updates(&pool).await;
+
+        assert!(p.persist_event_then_flush_due(&block_stop()).await.is_err());
         assert_eq!(
             p.take_transcript_status_change(false),
             Some(TranscriptPersistenceStatus::Degraded)
@@ -460,7 +689,7 @@ mod tests {
                 parent_tool_use_id: None,
             },
         );
-        p.persist_runtime_event(&complete).await.unwrap();
+        p.persist_event_then_flush_due(&complete).await.unwrap();
         assert_eq!(message_content(&pool).await, "Hello world");
         assert_eq!(
             p.take_transcript_status_change(false),

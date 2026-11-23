@@ -21,6 +21,8 @@ impl TranscriptWriter {
                 self.transcript.begin_cycle(&stream_scope);
                 self.pending_mergeable_blocks
                     .retain(|(scope, _), _| scope != &stream_scope);
+                self.cycle_text_rows
+                    .retain(|(scope, _), _| scope != &stream_scope);
                 self.pending_delta_buffers
                     .retain(|(scope, _), _| scope != &stream_scope);
                 self.streamed_assistant_content.remove(&stream_scope);
@@ -231,7 +233,7 @@ pub(super) mod session_events_tests {
         assert_eq!(persistence.current_model_for_event(&content_block), None);
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::MessageStart {
@@ -314,7 +316,7 @@ pub(super) mod session_events_tests {
             ),
         ] {
             persistence
-                .persist_runtime_event(&event)
+                .persist_event_then_flush_due(&event)
                 .await
                 .expect("persist runtime event");
         }
@@ -362,7 +364,7 @@ pub(super) mod session_events_tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         let start_ref = persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -376,7 +378,7 @@ pub(super) mod session_events_tests {
             .expect("persist runtime event")
             .expect("start row id");
         let delta_ref = persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockDelta {
