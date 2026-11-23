@@ -8,6 +8,7 @@ import { AppCloseDialog } from "@/components/AppCloseDialog";
 import { ServiceStatusNotifier } from "@/components/ServiceStatusNotifier";
 import { ImageLightboxHost } from "@/components/ImageLightbox";
 import { MermaidFullscreenHost } from "@/components/MermaidFullscreen";
+import { VisualFullscreenHost } from "@/components/visuals/VisualFullscreen";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Toaster } from "@/components/ui/sonner";
 import { SchedulesShortcut } from "@/components/SchedulesShortcut";
@@ -88,6 +89,7 @@ export const RootOverlays = memo(function RootOverlays({
       <ThemeDrawer />
       <ImageLightboxHost />
       <MermaidFullscreenHost />
+      <VisualFullscreenHost />
       <ArchiveFeatureDialog
         open={archiveConfirmAction != null}
         feature={archiveConfirmAction?.feature}

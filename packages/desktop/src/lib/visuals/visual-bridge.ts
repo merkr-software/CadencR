@@ -54,6 +54,11 @@ export function visualBridgeScript(palette: readonly string[]): string {
   }
   new ResizeObserver(report).observe(document.documentElement);
   window.addEventListener("load", report);
+  window.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !event.defaultPrevented) {
+      post({ type: "${VISUAL_MESSAGE.escape}" });
+    }
+  });
 })();`;
 }
 

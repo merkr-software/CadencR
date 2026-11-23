@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TopLevelSpec } from "vega-lite";
-import { fitsContainerWidth, parseVegaLiteSpec, renderVegaLite } from "./vega-chart";
+import {
+  fitsContainerHeight,
+  fitsContainerWidth,
+  parseVegaLiteSpec,
+  renderVegaLite,
+  resizeToContainer,
+} from "./vega-chart";
 
 const BAR: TopLevelSpec = {
   data: {
@@ -11,12 +17,18 @@ const BAR: TopLevelSpec = {
     ],
   },
   mark: "bar",
-  encoding: { x: { field: "a", type: "nominal" }, y: { field: "b", type: "quantitative" } },
+  encoding: {
+    x: { field: "a", type: "nominal" },
+    y: { field: "b", type: "quantitative" },
+  },
 };
 
 describe("parseVegaLiteSpec", () => {
   it("accepts a JSON object", () => {
-    expect(parseVegaLiteSpec('{"mark": "bar"}')).toEqual({ ok: true, spec: { mark: "bar" } });
+    expect(parseVegaLiteSpec('{"mark": "bar"}')).toEqual({
+      ok: true,
+      spec: { mark: "bar" },
+    });
   });
 
   it("explains invalid JSON and non-object specs", () => {
@@ -42,6 +54,18 @@ describe("fitsContainerWidth", () => {
   });
 });
 
+describe("fitsContainerHeight", () => {
+  it("fills single and layered views that set no height", () => {
+    expect(fitsContainerHeight(BAR)).toBe(true);
+    expect(fitsContainerHeight({ layer: [] } as unknown as TopLevelSpec)).toBe(true);
+  });
+
+  it("leaves explicit heights and compositions alone", () => {
+    expect(fitsContainerHeight({ ...BAR, height: 240 })).toBe(false);
+    expect(fitsContainerHeight({ vconcat: [BAR, BAR] } as TopLevelSpec)).toBe(false);
+  });
+});
+
 describe("renderVegaLite", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -62,9 +86,25 @@ describe("renderVegaLite", () => {
 
   it("refuses external data", async () => {
     const container = document.createElement("div");
-    const spec = { ...BAR, data: { url: "https://example.com/data.json" } } as TopLevelSpec;
+    const spec = {
+      ...BAR,
+      data: { url: "https://example.com/data.json" },
+    } as TopLevelSpec;
     await expect(renderVegaLite(container, spec, {})).rejects.toThrow(
       /cannot load external resources/,
     );
+  });
+
+  it("fits height in fullscreen even when initial clientHeight is 0 and updates on resize", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const view = await renderVegaLite(container, BAR, {}, { fitHeight: true });
+    const svg = container.querySelector("svg");
+    expect(Number(svg?.getAttribute("height"))).toBe(200);
+
+    await resizeToContainer(view, BAR, 900, 620);
+    expect(Number(svg?.getAttribute("width"))).toBe(900);
+    expect(Number(svg?.getAttribute("height"))).toBe(620);
+    view.finalize();
   });
 });
