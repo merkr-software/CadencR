@@ -179,13 +179,20 @@ impl Fixture {
 
     /// `track`: whether the client asks for the agent's receipt.
     async fn send_follow_up(&self, track: bool) -> tokio::task::JoinHandle<()> {
+        let dispatch = self.dispatch_prompt(FOLLOW_UP, "and the docs too", track);
+        self.wait_persisted(FOLLOW_UP).await;
+        dispatch
+    }
+
+    /// Send a tracked prompt, without waiting for anything.
+    fn dispatch_prompt(&self, uuid: &str, text: &str, track: bool) -> tokio::task::JoinHandle<()> {
         let envelope = make_envelope(
             "session",
             "prompt.send",
             serde_json::json!({
                 "session_id": self.session_id,
-                "text": "and the docs too",
-                "message_uuid": FOLLOW_UP,
+                "text": text,
+                "message_uuid": uuid,
                 "track_prompt_receipt": track,
             }),
         );
@@ -194,17 +201,19 @@ impl Fixture {
             self.sessions.clone(),
             self.app_state.clone(),
         );
-        let dispatch = tokio::spawn(async move {
+        tokio::spawn(async move {
             dispatch_envelope(envelope, &tx, &sessions, &app_state).await;
-        });
+        })
+    }
+
+    async fn wait_persisted(&self, uuid: &str) {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while self.delivery_state().await.is_none() {
+            while self.delivery_state_of(uuid).await.is_none() {
                 tokio::task::yield_now().await;
             }
         })
         .await
-        .expect("the follow-up is persisted");
-        dispatch
+        .expect("the prompt is persisted");
     }
 
     /// What the stopped turn's end does with what its Stop left.
@@ -234,11 +243,25 @@ impl Fixture {
 
     /// `Some(state)` once the follow-up row exists (`"none"` for no state).
     async fn delivery_state(&self) -> Option<String> {
+        self.delivery_state_of(FOLLOW_UP).await
+    }
+
+    async fn wait_failed_of(&self, uuid: &str) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while self.delivery_state_of(uuid).await.as_deref() != Some("delivery_failed") {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the withdrawn prompt reads as not delivered");
+    }
+
+    async fn delivery_state_of(&self, uuid: &str) -> Option<String> {
         sqlx::query_scalar::<_, Option<String>>(
             "SELECT delivery_state FROM agent_messages WHERE session_id = ? AND message_uuid = ?",
         )
         .bind(self.db_id)
-        .bind(FOLLOW_UP)
+        .bind(uuid)
         .fetch_optional(&self.app_state.write_pool)
         .await
         .unwrap()
@@ -448,7 +471,7 @@ async fn a_stop_before_the_hand_over_cancels_the_follow_up() {
         .app_state
         .active_turns
         .followups()
-        .record_stop(fixture.db_id);
+        .record_stop(fixture.db_id, None);
     drop(held);
     dispatch.await.unwrap();
 
@@ -487,20 +510,18 @@ async fn a_stop_after_the_hand_over_withdraws_the_follow_up_from_the_runtime() {
     );
 }
 
-/// A prompt sent while nothing runs starts the turn: the Stop stops that turn.
+/// A Stop that came before a prompt sent while idle stopped something else:
+/// the prompt starts its turn.
 #[tokio::test]
-async fn a_prompt_sent_while_idle_is_not_cancelled_by_a_stop() {
+async fn a_stop_before_an_idle_prompt_does_not_cancel_it() {
     let mut fixture = fixture(false).await;
-    let held = fixture.barrier.clone().lock_owned().await;
-    let dispatch = fixture.send_held_follow_up().await;
-
     fixture
         .app_state
         .active_turns
         .followups()
-        .record_stop(fixture.db_id);
-    drop(held);
-    dispatch.await.unwrap();
+        .record_stop(fixture.db_id, None);
+
+    fixture.send_held_follow_up().await.await.unwrap();
 
     tokio::time::timeout(std::time::Duration::from_secs(2), fixture.streamed.recv())
         .await
@@ -512,13 +533,7 @@ async fn a_prompt_sent_while_idle_is_not_cancelled_by_a_stop() {
 }
 
 async fn wait_for_failed(fixture: &Fixture) {
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while fixture.delivery_state().await.as_deref() != Some("delivery_failed") {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the cancelled follow-up reads as not delivered");
+    fixture.wait_failed_of(FOLLOW_UP).await;
 }
 
 /// The stopped turn ended while the follow-up waited: it must not mark the
@@ -533,7 +548,7 @@ async fn a_follow_up_cancelled_after_the_turn_ended_leaves_the_session_idle() {
         .app_state
         .active_turns
         .followups()
-        .record_stop(fixture.db_id);
+        .record_stop(fixture.db_id, None);
     fixture.app_state.session_status_tx.broadcast(
         fixture.db_id,
         1,
@@ -674,3 +689,5 @@ async fn a_follow_up_acknowledged_before_the_stopped_turn_ended_stays_received()
         Some("received_agent")
     );
 }
+
+mod checkpoint_window;

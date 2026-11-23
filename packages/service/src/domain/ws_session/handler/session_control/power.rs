@@ -229,7 +229,16 @@ async fn pause_running_turn(
     let sid = q.session_id().await;
     let allows_resume_persistence = q.allows_resume_persistence();
     let _barrier = q.turn_control_guard().await;
-    let turn_running = app_state.session_status_tx.is_busy(db_session_id);
+    // A prompt whose reserved turn has not reached the runtime is withdrawn,
+    // as by a Stop: the runtime runs nothing to interrupt.
+    let busy = app_state.session_status_tx.is_busy(db_session_id);
+    let turns = &app_state.active_turns;
+    let current = turns.current_generation(db_session_id).await;
+    let cancelled_start = busy
+        && turns
+            .followups()
+            .cancel_pending_start(db_session_id, current);
+    let turn_running = busy && !cancelled_start;
     let result = interrupt_as_intended(
         app_state,
         query,

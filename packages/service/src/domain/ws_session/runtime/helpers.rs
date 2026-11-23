@@ -159,22 +159,6 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
     resume_sid
 }
 
-/// The value whose anchoring write succeeded, or `None` once the failure was
-/// reported to the requester.
-pub(in crate::domain::ws_session) fn saved_or_report<T>(
-    sender: &impl OutputTarget,
-    envelope_id: &str,
-    what: &str,
-    saved: Result<T, sqlx::Error>,
-) -> Option<T> {
-    saved
-        .map_err(|error| {
-            let message = format!("Failed to save the conversation's {what}: {error}");
-            send_error(sender, envelope_id, "DB_ERROR", &message);
-        })
-        .ok()
-}
-
 /// The setting that was read, or `None` once the read failure was reported to
 /// the requester. A setting that cannot be read never falls back to a default:
 /// the session would start with a value the user did not choose.

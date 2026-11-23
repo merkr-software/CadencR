@@ -9,6 +9,7 @@ use crate::domain::ws_session::protocol::{SessionInitializedPayload, WsEnvelope,
 use crate::shared::discard::IgnoreClosed;
 
 use super::super::{QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender};
+use super::writes::InitWrites;
 
 #[derive(bon::Builder)]
 pub(super) struct Binding<'a> {
@@ -20,13 +21,22 @@ pub(super) struct Binding<'a> {
     ref_id: &'a str,
 }
 
+/// The handle an init resolved, its reply, and the row writes describing it.
+pub(super) struct PendingInit {
+    pub(super) handle: SdkHandle,
+    pub(super) payload: SessionInitializedPayload,
+    pub(super) writes: InitWrites,
+}
+
 impl Binding<'_> {
     /// Reply from a live handle when possible. After discovery, install the
-    /// proposed handle only if a concurrent spawn has not already won.
+    /// proposed handle only if a concurrent spawn has not already won, and
+    /// save its controls to the row then, under the cell lock: a losing init
+    /// leaves the row to the runtime that won.
     pub(super) async fn initialize(
         &self,
         row: Option<&SessionRow>,
-        pending: Option<(SdkHandle, SessionInitializedPayload)>,
+        pending: Option<PendingInit>,
     ) -> bool {
         let mut sessions = self.sdk_sessions.lock().await;
         let spawning = self.app_state.session_runtimes.is_spawning(self.id).await;
@@ -39,10 +49,19 @@ impl Binding<'_> {
                 runtime,
                 row.and_then(|row| row.runtime_session_id.clone()),
             )
-        } else if let Some((handle, payload)) = pending {
-            let resume_id = handle.resume_session_id.clone();
-            sessions.insert(self.id, handle);
-            (payload, None, resume_id)
+        } else if let Some(pending) = pending {
+            let written = pending
+                .writes
+                .apply(&self.app_state.write_pool, self.id)
+                .await;
+            if let Err(failure) = written {
+                drop(sessions);
+                super::super::send_error(self.sender, self.ref_id, failure.code, &failure.message);
+                return false;
+            }
+            let resume_id = pending.handle.resume_session_id.clone();
+            sessions.insert(self.id, pending.handle);
+            (pending.payload, None, resume_id)
         } else {
             return false;
         };
@@ -257,7 +276,14 @@ mod tests {
                 .runtime_provider("claude_code".into())
                 .call();
             let (payload, _) = live_payload(11, &pending, None, true).unwrap();
-            let initialize = binding.initialize(None, Some((pending, payload)));
+            let initialize = binding.initialize(
+                None,
+                Some(PendingInit {
+                    handle: pending,
+                    payload,
+                    writes: InitWrites::default(),
+                }),
+            );
             tokio::pin!(initialize);
             assert!(futures::poll!(&mut initialize).is_pending());
             drop(registry);
@@ -282,5 +308,90 @@ mod tests {
             assert!(initialized);
             drop(claim);
         }
+    }
+
+    async fn model_of(state: &AppState, id: i64) -> Option<String> {
+        crate::domain::ws_session::persistence::WsSessionPersistence::get_session_row(
+            &state.read_pool,
+            id,
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .model
+    }
+
+    fn pending_with_model(model: &str) -> PendingInit {
+        let handle = pending_handle()
+            .runtime_config(RuntimeSpawnConfig::default())
+            .feature_id(1)
+            .runtime_provider("claude_code".into())
+            .call();
+        let (payload, _) = live_payload(1, &handle, None, true).unwrap();
+        PendingInit {
+            handle,
+            payload,
+            writes: InitWrites {
+                permission_mode: Some("plan".into()),
+                selection: Some(super::super::writes::SelectionWrite::Resolved {
+                    provider: "claude_code".into(),
+                    model: Some(model.into()),
+                    initial_overrides: None,
+                    clear_thinking_effort: false,
+                }),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Found in review: an init that lost the race to a prompt from another
+    /// connection (which spawned on its own selection while the init probed
+    /// the CLI) still saved its own model, which the next prompt then
+    /// adopted. The loser now leaves the row to the runtime that won.
+    #[tokio::test]
+    async fn an_init_that_lost_to_a_live_runtime_leaves_the_row_alone() {
+        let state = make_test_app_state().await;
+        let id = crate::domain::ws_session::persistence::WsSessionPersistence::new(
+            state.write_pool.clone(),
+            1,
+        )
+        .find_or_create_session_for_binding(Some("opus"), None, None)
+        .await
+        .unwrap();
+        let sessions = new_sdk_sessions();
+        let mut live = make_active_handle(1, None);
+        live.desired_model = Some("opus".into());
+        sessions.lock().await.insert(id, live);
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let binding = Binding::builder()
+            .app_state(&state)
+            .sdk_sessions(&sessions)
+            .id(id)
+            .feature_id(1)
+            .sender(&sender)
+            .ref_id("init")
+            .build();
+
+        assert!(
+            binding
+                .initialize(None, Some(pending_with_model("haiku")))
+                .await
+        );
+
+        assert_eq!(model_of(&state, id).await.as_deref(), Some("opus"));
+        assert!(matches!(
+            sessions.lock().await[&id].state,
+            QueryState::Active { .. }
+        ));
+
+        // With no live runtime, the init's handle and its selection land together.
+        sessions.lock().await.clear();
+        assert!(
+            binding
+                .initialize(None, Some(pending_with_model("haiku")))
+                .await
+        );
+        assert_eq!(model_of(&state, id).await.as_deref(), Some("haiku"));
+        assert_eq!(sessions.lock().await[&id].runtime_provider, "claude_code");
     }
 }

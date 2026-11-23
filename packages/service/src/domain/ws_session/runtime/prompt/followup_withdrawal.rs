@@ -9,58 +9,54 @@ use super::prompt_followup::FollowupPromptContext;
 use super::prompt_receipt::{clear_pending_prompt_receipt, prompt_received_envelope};
 use super::user_shell_context::PendingUserShellContext;
 use crate::domain::ws_session::protocol::{PromptReceiptState, PromptSendPayload};
-use crate::domain::ws_session::runtime::followup_stops::AcceptedFollowup;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
 const WITHDRAWN_BY_STOP: &str = "Stopped before the agent took this message in; it was not sent";
+const WITHDRAWN_BY_REPLACEMENT: &str =
+    "The agent was closed or restarted before it took this message in; it was not sent";
 
-/// End a follow-up a Stop cancelled before it reached the agent.
-/// How a follow-up's delivery ends when it cannot be handed over.
-pub(super) struct FollowupDelivery {
-    /// A refused steer leaves the running turn alone (control callers).
-    pub(super) preserve_running_turn: bool,
-    /// Sent while a turn ran: a user Stop after it cancels it.
-    pub(super) accepted: Option<AcceptedFollowup>,
-    /// The turn it started, which ends idle if the follow-up is withdrawn.
-    pub(super) turn_generation: Option<u64>,
+/// Why a prompt was withdrawn before the agent took it in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WithdrawnBy {
+    /// A user Stop (or a sleep pause) cancelled it.
+    Stop,
+    /// Its runtime was closed or replaced (a rewind, a fork, a close) while
+    /// it waited for its pre-turn checkpoint.
+    RuntimeReplaced,
 }
 
-impl FollowupDelivery {
-    /// The turn a withdrawal must end itself. A follow-up sent mid-turn needs
-    /// none: the Stop interrupted that turn, whose end settles the session
-    /// (settling it earlier would close the turn before its stop marker).
-    /// A prompt sent while idle that the runtime dropped started the only turn.
-    pub(super) fn turn_to_end(&self) -> Option<u64> {
-        self.accepted
-            .is_none()
-            .then_some(self.turn_generation)
-            .flatten()
+impl WithdrawnBy {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Stop => WITHDRAWN_BY_STOP,
+            Self::RuntimeReplaced => WITHDRAWN_BY_REPLACEMENT,
+        }
+    }
+
+    fn code(self) -> &'static str {
+        match self {
+            Self::Stop => "FOLLOWUP_CANCELLED",
+            Self::RuntimeReplaced => "FOLLOWUP_RUNTIME_REPLACED",
+        }
     }
 }
 
-/// Whether a user Stop came after this follow-up was accepted mid-turn.
-pub(super) fn stopped_since_accepted(
-    context: &FollowupPromptContext,
-    delivery: &FollowupDelivery,
-) -> bool {
-    delivery.accepted.is_some_and(|accepted| {
-        context
-            .active_turns
-            .followups()
-            .stopped_since(context.db_session_id, accepted)
-    })
-}
-
-/// `started_turn`: the turn generation the follow-up started (it marked the
-/// session working), which ends idle unless a newer turn began since.
+/// End a prompt withdrawn before it reached the agent. `started_turn`: the
+/// turn generation it started (it marked the session working), which ends idle
+/// unless a newer turn began since.
 pub(super) async fn withdraw_followup(
     context: &FollowupPromptContext,
     payload: &PromptSendPayload,
     shell_context: Option<PendingUserShellContext>,
     dispatch_claim: Option<&(i64, String)>,
     started_turn: Option<u64>,
+    by: WithdrawnBy,
 ) -> Result<(), String> {
-    info!(context.db_session_id, "follow-up cancelled by a Stop");
+    info!(
+        context.db_session_id,
+        ?by,
+        "prompt withdrawn before its hand-over"
+    );
     if let Some(shell_context) = shell_context {
         shell_context
             .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
@@ -69,7 +65,7 @@ pub(super) async fn withdraw_followup(
     if let Some(generation) = started_turn {
         end_withdrawn_turn(context, generation).await;
     }
-    mark_followup_dispatch_failed(context, dispatch_claim, WITHDRAWN_BY_STOP).await;
+    mark_followup_dispatch_failed(context, dispatch_claim, by.reason()).await;
     match payload.message_uuid.clone() {
         Some(message_uuid) => {
             clear_pending_prompt_receipt(
@@ -85,12 +81,12 @@ pub(super) async fn withdraw_followup(
         None => crate::domain::ws_session::runtime::helpers::send_warning(
             &context.sender,
             &context.envelope_id,
-            "FOLLOWUP_CANCELLED",
-            WITHDRAWN_BY_STOP,
+            by.code(),
+            by.reason(),
         ),
     }
     if context.wait_for_delivery {
-        Err(WITHDRAWN_BY_STOP.to_string())
+        Err(by.reason().to_string())
     } else {
         Ok(())
     }
@@ -98,31 +94,59 @@ pub(super) async fn withdraw_followup(
 
 /// The turn the follow-up started never ran: nothing else ends it.
 async fn end_withdrawn_turn(context: &FollowupPromptContext, generation: u64) {
-    if !context
-        .active_turns
-        .is_current_generation(context.db_session_id, generation)
-        .await
-    {
-        return;
+    end_turn_idle()
+        .pool(&context.write_pool)
+        .feature_senders(&context.ws_feature_senders)
+        .status(&context.session_status_tx)
+        .active_turns(&context.active_turns)
+        .session_id(context.db_session_id)
+        .feature_id(context.feature_id)
+        .generation(generation)
+        .call()
+        .await;
+}
+
+/// End a turn a prompt marked working that never reached the runtime: a
+/// withdrawn prompt's, one a Stop cancelled, one whose prompt was dropped.
+/// No result will end it, and a stop mark of it dies with it. `generation`:
+/// that turn, left alone once a newer one began. The generation is held
+/// meanwhile, so no turn begins between the check and its end.
+#[bon::builder]
+pub(in crate::domain::ws_session) async fn end_turn_idle(
+    pool: &sqlx::SqlitePool,
+    feature_senders: &WsFeatureSenderRegistry,
+    status: &crate::domain::session_status::SessionStatusBroadcaster,
+    active_turns: &super::super::ActiveTurnRegistry,
+    session_id: i64,
+    feature_id: i64,
+    generation: Option<u64>,
+) {
+    let _generation = active_turns.lock_turn_generation(session_id).await;
+    if let Some(generation) = generation {
+        if !active_turns
+            .is_current_generation(session_id, generation)
+            .await
+        {
+            return;
+        }
     }
-    if let Err(error) =
+    active_turns.end_turn(session_id).await;
+    let completed =
         crate::domain::ws_session::persistence::WsSessionPersistence::mark_completed_static(
-            &context.write_pool,
-            context.db_session_id,
+            pool, session_id,
         )
-        .await
-    {
-        error!(context.db_session_id, %error, "failed to persist the idle state of a withdrawn follow-up");
-        crate::domain::ws_session::runtime::helpers::send_warning(
-            &context.sender,
-            &context.envelope_id,
-            "STATE_NOT_SAVED",
-            "The agent stopped, but its idle state could not be saved",
-        );
-    }
-    context.session_status_tx.broadcast(
-        context.db_session_id,
-        context.feature_id,
+        .await;
+    crate::domain::ws_session::runtime::helpers::report_if_unsaved(
+        feature_senders,
+        feature_id,
+        session_id,
+        "that the agent is idle",
+        completed,
+    )
+    .await;
+    status.broadcast(
+        session_id,
+        feature_id,
         crate::domain::session_status::AgentStatus::Idle,
         None,
     );

@@ -73,6 +73,12 @@ impl ActiveTurnRegistry {
             .await
     }
 
+    /// Tasks holding or waiting for the session's follow-up order lock.
+    #[cfg(test)]
+    pub(crate) async fn followup_delivery_holders(&self, db_session_id: i64) -> usize {
+        Arc::strong_count(&self.followup_delivery.lock_for(&db_session_id).await) - 1
+    }
+
     /// Record a new logical turn for `db_session_id` in its runtime cell.
     /// Called at every turn start (`mark_agent_running`); a mid-turn respawn
     /// keeps the same owner map, so it does not need to touch the registry.

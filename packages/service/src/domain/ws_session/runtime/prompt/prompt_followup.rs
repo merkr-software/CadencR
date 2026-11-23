@@ -1,12 +1,7 @@
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSessionHandle};
+use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::ws_session::runtime::output::SessionOutput;
 use tracing::info;
 
-struct FollowupTurnGuard {
-    runtime: tokio::sync::OwnedRwLockReadGuard<Box<dyn AgentRuntimeSession>>,
-    _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
-    followup_order: Option<tokio::sync::OwnedMutexGuard<()>>,
-}
 use crate::domain::feature_events::{FeatureEventAction, FeatureEventBroadcaster};
 use crate::domain::ws_session::protocol::PromptSendPayload;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -19,17 +14,15 @@ use super::content::{
     payload_attachments,
 };
 use super::errors::persist_pause_and_send_session_error;
+use super::followup_delivery::{mark_running, FollowupDelivery};
 use super::followup_dispatch::{
     claim_followup_shell_context, fail_followup_stream, mark_followup_dispatch_failed,
     mark_followup_succeeded,
 };
-use super::followup_withdrawal::{
-    fail_stopped_followups, stopped_since_accepted, withdraw_followup, FollowupDelivery,
-};
+use super::followup_turn::{acquire_followup_turn_guard, FollowupTurnGuard};
+use super::followup_withdrawal::{fail_stopped_followups, withdraw_followup, WithdrawnBy};
 use super::prompt_receipt::clear_pending_prompt_receipt;
-use super::prompt_status::{
-    mark_agent_running, persist_and_publish_prompt, PromptPersistenceOutcome,
-};
+use super::prompt_status::{persist_and_publish_prompt, PromptPersistenceOutcome};
 use crate::domain::ws_session::runtime::followup_stops::HandOff;
 
 pub(in crate::domain::ws_session) struct FollowupPromptContext {
@@ -68,17 +61,7 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     context: FollowupPromptContext,
     payload: PromptSendPayload,
 ) -> Result<(), String> {
-    let turn_running = context.session_status_tx.is_busy(context.db_session_id);
-    let mut delivery = FollowupDelivery {
-        preserve_running_turn: context.wait_for_delivery && turn_running,
-        accepted: turn_running.then(|| {
-            context
-                .active_turns
-                .followups()
-                .accept(context.db_session_id)
-        }),
-        turn_generation: None,
-    };
+    let mut delivery = FollowupDelivery::arrive(&context);
     let persistence = persist_followup_user_message(&context, &payload).await?;
     if !persistence.should_dispatch() {
         return Ok(());
@@ -95,39 +78,28 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     )
     .await?;
 
-    // A mid-turn follow-up is registered in FollowupStops. Let Stop through
-    // before the order lock and checkpoint. An idle prompt first reserves its turn.
-    if delivery.accepted.is_some() {
-        crate::domain::ws_session::handler::let_controls_through();
-    }
+    // Before the order lock and the pre-turn checkpoint: a prompt sent while
+    // idle reserves its turn (the session reads working, with its Stop), one
+    // sent mid-turn is already a follow-up. A Stop then cancels either, so the
+    // controls received after it are let through.
+    delivery.reserve_turn(&context).await;
 
     let Some(turn_guard) = acquire_followup_turn_guard(
         &context,
         &payload,
         persistence.message_id(),
         dispatch_claim.as_ref(),
-        &delivery,
+        &mut delivery,
     )
     .await?
     else {
         return Ok(());
     };
-
-    mark_agent_running(
-        &context.write_pool,
-        &context.session_status_tx,
-        &context.ws_feature_senders,
-        &context.active_turns,
-        &context.sdk_sessions,
-        context.db_session_id,
-        context.feature_id,
-    )
-    .await;
-
-    delivery.turn_generation = context
-        .active_turns
-        .current_generation(context.db_session_id)
-        .await;
+    // A follow-up marks the session working once it is sure to be handed
+    // over; a start did when it reserved its turn.
+    if delivery.follows_a_turn() {
+        mark_running(&context).await;
+    }
 
     info!(context.db_session_id, "follow-up prompt");
     let prepared = PreparedFollowup {
@@ -152,50 +124,6 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     }
     drop(task);
     Ok(())
-}
-
-/// Serialize back-to-back follow-ups in FIFO order, capture the pre-turn git
-/// checkpoint before locking the runtime, and acquire the runtime + turn
-/// barrier. Returns `Ok(None)` if a concurrent Stop withdrew the follow-up.
-async fn acquire_followup_turn_guard(
-    context: &FollowupPromptContext,
-    payload: &PromptSendPayload,
-    message_id: Option<i64>,
-    dispatch_claim: Option<&(i64, String)>,
-    delivery: &FollowupDelivery,
-) -> Result<Option<FollowupTurnGuard>, String> {
-    let followup_order = context
-        .active_turns
-        .lock_followup_delivery(context.db_session_id)
-        .await;
-    if stopped_since_accepted(context, delivery) {
-        drop(followup_order);
-        withdraw_followup(context, payload, None, dispatch_claim, None).await?;
-        return Ok(None);
-    }
-
-    // Snapshot the worktree *before* this turn's prompt is delivered to the live
-    // agent (`stream_input`), so a later rewind to this message can restore the
-    // pre-turn code state. A deliberate pre-turn barrier.
-    super::prompt_checkpoint::capture_pre_turn_followup(context, message_id).await;
-
-    // Retain this read guard through dispatch. Reacquiring it while holding
-    // the barrier could deadlock against a queued writer and another control.
-    let runtime = context.query.clone().read_owned().await;
-    let barrier = runtime.turn_control_guard().await;
-    let turn_guard = FollowupTurnGuard {
-        runtime,
-        _barrier: barrier,
-        followup_order: Some(followup_order),
-    };
-    // Before it starts a turn: a Stop that came meanwhile ended the one it
-    // followed, and nothing would end the turn it starts.
-    if stopped_since_accepted(context, delivery) {
-        drop(turn_guard);
-        withdraw_followup(context, payload, None, dispatch_claim, None).await?;
-        return Ok(None);
-    }
-    Ok(Some(turn_guard))
 }
 
 async fn resolve_followup_references(
@@ -271,7 +199,7 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
         dispatch_claim,
         receipt_message_uuid,
         conversation_references,
-        delivery,
+        mut delivery,
     } = prepared;
     let shell_context =
         claim_followup_shell_context(&context, &payload, dispatch_claim.as_ref()).await?;
@@ -288,7 +216,7 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
     .await?;
     let content =
         build_content_value_for_provider(&context.provider_id, &prompt_text, &attachments);
-    if stopped_since_accepted(&context, &delivery) {
+    if !delivery.claim_hand_over(&context).await {
         drop(turn_guard);
         drop(context.delivery_lease.take());
         return withdraw_followup(
@@ -297,6 +225,7 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
             Some(shell_context),
             dispatch_claim.as_ref(),
             delivery.turn_to_end(),
+            WithdrawnBy::Stop,
         )
         .await;
     }
@@ -347,6 +276,7 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
                 Some(shell_context),
                 dispatch_claim.as_ref(),
                 delivery.turn_to_end(),
+                WithdrawnBy::Stop,
             )
             .await;
         }

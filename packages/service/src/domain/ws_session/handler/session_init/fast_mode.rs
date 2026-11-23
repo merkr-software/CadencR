@@ -4,7 +4,6 @@ use tracing::warn;
 
 use super::super::fast_mode_support::{model_supports_fast_mode, FastModeTarget};
 use crate::app_state::AppState;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 pub(super) struct RestoreFastModeOptions<'a> {
     pub(super) db_session_id: i64,
@@ -15,12 +14,15 @@ pub(super) struct RestoreFastModeOptions<'a> {
     pub(super) stored_fast_mode: bool,
 }
 
+/// The restored fast mode, and whether the stored one must be cleared (the
+/// model no longer supports it). The clear is saved with the init's other
+/// writes (see `writes`).
 pub(super) async fn resolve(
     app_state: &AppState,
     options: RestoreFastModeOptions<'_>,
-) -> Result<bool, sqlx::Error> {
+) -> (bool, bool) {
     if !options.stored_fast_mode {
-        return Ok(false);
+        return (false, false);
     }
     let supported = model_supports_fast_mode(
         app_state,
@@ -33,23 +35,15 @@ pub(super) async fn resolve(
     )
     .await;
     let (enabled, clear_stored) = normalize_restored_fast_mode(options.stored_fast_mode, supported);
-    if !clear_stored {
-        return Ok(enabled);
+    if clear_stored {
+        warn!(
+            db_session_id = options.db_session_id,
+            runtime_provider = %options.provider,
+            model = ?options.model,
+            "clearing fast mode unsupported by selected model"
+        );
     }
-
-    warn!(
-        db_session_id = options.db_session_id,
-        runtime_provider = %options.provider,
-        model = ?options.model,
-        "clearing fast mode unsupported by selected model"
-    );
-    WsSessionPersistence::update_fast_mode_static(
-        &app_state.write_pool,
-        options.db_session_id,
-        false,
-    )
-    .await?;
-    Ok(false)
+    (enabled, clear_stored)
 }
 
 fn normalize_restored_fast_mode(stored: bool, supported: bool) -> (bool, bool) {

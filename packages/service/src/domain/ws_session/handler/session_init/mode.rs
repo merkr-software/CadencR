@@ -3,10 +3,9 @@ use std::path::Path;
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeError, RuntimePermissionMode};
 use crate::domain::agents::permission_modes::{parse_permission_mode, permission_mode_wire};
-use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::persistence::SessionRow;
 use crate::domain::ws_session::runtime::helpers::send_warning;
 
-use super::super::helpers::saved_or_report;
 use super::{send_error, WsSender};
 
 const DISCOVERY_FAILED: &str = "PROVIDER_MODE_DISCOVERY_FAILED";
@@ -15,6 +14,9 @@ pub(super) struct Prepared {
     pub mode: Option<RuntimePermissionMode>,
     pub wire: Option<String>,
     pub warning: Option<RuntimeError>,
+    /// The resolved mode to save, when it differs from the saved one (with
+    /// the init's other writes, see `writes`).
+    pub persist: Option<String>,
 }
 
 #[bon::builder]
@@ -22,7 +24,6 @@ pub(super) async fn prepare(
     app_state: &AppState,
     sender: &WsSender,
     ref_id: &str,
-    session_id: i64,
     adapter: &dyn AgentRuntimeAdapter,
     cwd: &Path,
     requested: Option<&str>,
@@ -57,15 +58,16 @@ pub(super) async fn prepare(
                 mode,
                 wire: saved.map(str::to_owned),
                 warning: Some(error),
+                persist: None,
             });
         }
     };
-    let persisted_mode = persist(app_state, session_id, saved, mode.as_ref()).await;
-    let wire = saved_or_report(sender, ref_id, "permission mode", persisted_mode)?;
+    let (wire, persist) = resolved_wire(saved, mode.as_ref());
     Some(Prepared {
         mode,
         wire,
         warning: None,
+        persist,
     })
 }
 
@@ -97,23 +99,15 @@ async fn is_restoring(
     super::super::session_control::session_has_messages(pool, row.id).await
 }
 
-/// Persist the provider's resolved initial mode for the initialized reply.
-pub(super) async fn persist(
-    app_state: &AppState,
-    db_session_id: i64,
+/// The provider's resolved initial mode for the initialized reply, and the
+/// wire to save when it differs from the saved one.
+pub(super) fn resolved_wire(
     saved: Option<&str>,
     mode: Option<&RuntimePermissionMode>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> (Option<String>, Option<String>) {
     let wire = mode.map(permission_mode_wire);
-    if let Some(wire) = wire.as_deref().filter(|wire| Some(*wire) != saved) {
-        WsSessionPersistence::update_permission_mode_static(
-            &app_state.write_pool,
-            db_session_id,
-            wire,
-        )
-        .await?;
-    }
-    Ok(wire)
+    let persist = wire.clone().filter(|wire| Some(wire.as_str()) != saved);
+    (wire, persist)
 }
 
 #[cfg(test)]
@@ -123,6 +117,7 @@ mod tests {
     use crate::domain::agents::runtime::ProviderCatalogEntry;
     use crate::domain::agents::runtime_adapter;
     use crate::domain::ws_session::handler::tests::support::make_test_app_state;
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
 
     struct OfflineProvider;
 
@@ -188,7 +183,6 @@ mod tests {
                     .app_state(&state)
                     .sender(&sender)
                     .ref_id("open-history")
-                    .session_id(id)
                     .adapter(&OfflineProvider)
                     .cwd(Path::new("/tmp"))
                     .maybe_requested(requested)
@@ -214,7 +208,6 @@ mod tests {
             .app_state(&state)
             .sender(&sender)
             .ref_id("new-session")
-            .session_id(4)
             .adapter(&OfflineProvider)
             .cwd(Path::new("/tmp"))
             .requested("plan")
@@ -258,9 +251,14 @@ mod tests {
                 .resolve_initial_permission_mode(&std::env::temp_dir(), requested_mode)
                 .await
                 .unwrap();
-            let wire = persist(&state, session_id, requested_mode, mode.as_ref())
-                .await
-                .unwrap();
+            let (wire, persist) = resolved_wire(requested_mode, mode.as_ref());
+            super::super::writes::InitWrites {
+                permission_mode: persist,
+                ..Default::default()
+            }
+            .apply(&state.write_pool, session_id)
+            .await
+            .unwrap();
             assert_eq!(wire.as_deref(), Some(expected_mode), "{provider}");
             let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
                 .await

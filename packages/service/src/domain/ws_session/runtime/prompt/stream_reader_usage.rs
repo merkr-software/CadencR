@@ -265,6 +265,7 @@ mod tests {
             initial_content: Value::String("P1".into()),
             context_window: None,
             hooks: Arc::new(StandardAcpHooks),
+            wire_transform: None,
         })
         .await
         .unwrap();
