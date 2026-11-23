@@ -206,9 +206,10 @@ mod tests {
         let resp = app.clone().oneshot(make_req(&raw_token)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // 2. Delete the row directly behind the cache to prove the second
-        //    request is served purely from the in-memory cache (0 DB queries).
-        //    Then restore it before testing `revoke_handler`.
+        // 2. Flip the row behind the cache (no production path does this:
+        //    revocations go through `revocation::revoke_device`, which evicts)
+        //    to prove the second request is served from the in-memory cache
+        //    alone. Then restore it before testing `revoke_handler`.
         sqlx::query("UPDATE remote_devices SET revoked_at = datetime('now') WHERE id = ?")
             .bind(device_id)
             .execute(&pool)

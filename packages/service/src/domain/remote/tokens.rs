@@ -138,7 +138,6 @@ pub async fn verify_device_token(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
 
     #[test]
     fn hash_is_deterministic_and_pepper_sensitive() {
@@ -158,24 +157,7 @@ mod tests {
 
     #[tokio::test]
     async fn device_tokens_remain_valid_until_revoked() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("in-memory database");
-        sqlx::query(
-            "CREATE TABLE remote_devices (
-                id INTEGER PRIMARY KEY,
-                token_hash TEXT NOT NULL UNIQUE,
-                label TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                last_seen_at TEXT,
-                revoked_at TEXT
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("create remote device table");
+        let pool = repo::remote_devices_test_pool().await;
 
         let pepper = b"pepper";
         let token = "long-lived-token";
@@ -201,24 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn token_cache_serves_hits_without_db_and_evicts_synchronously() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("in-memory database");
-        sqlx::query(
-            "CREATE TABLE remote_devices (
-                id INTEGER PRIMARY KEY,
-                token_hash TEXT NOT NULL UNIQUE,
-                label TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                last_seen_at TEXT,
-                revoked_at TEXT
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("create remote device table");
+        let pool = repo::remote_devices_test_pool().await;
 
         let cache = DeviceTokenCache::default();
         let pepper = b"cache-unit-test-pepper";
