@@ -6,9 +6,11 @@
 
 mod support;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use axum::{http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+use cadencr_service::app_state::{BROWSER_BRIDGE_TOKEN_ENV, BROWSER_BRIDGE_URL_ENV};
 use cadencr_service::domain::mcp::{
     control_grant::McpControlServer,
     servers::{create_mcp_server, AgentType, McpServer},
@@ -17,6 +19,7 @@ use cadencr_service::domain::mcp::{
 use rmcp::ServiceExt;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use support::mcp_service::served_mcp_context;
@@ -303,4 +306,110 @@ async fn real_workspace_tool_succeeds_over_modern_and_legacy_wire() {
             assert_eq!(projects[0]["path"], "/tmp/proj");
         }
     }
+}
+
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct EnvRestore {
+    prev_url: Option<String>,
+    prev_token: Option<String>,
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl EnvRestore {
+    async fn set_bridge(url: &str, token: &str) -> Self {
+        let _lock = ENV_LOCK.lock().await;
+        let prev_url = std::env::var(BROWSER_BRIDGE_URL_ENV).ok();
+        let prev_token = std::env::var(BROWSER_BRIDGE_TOKEN_ENV).ok();
+        std::env::set_var(BROWSER_BRIDGE_URL_ENV, url);
+        std::env::set_var(BROWSER_BRIDGE_TOKEN_ENV, token);
+        Self {
+            prev_url,
+            prev_token,
+            _lock,
+        }
+    }
+}
+
+impl Drop for EnvRestore {
+    fn drop(&mut self) {
+        match &self.prev_url {
+            Some(v) => std::env::set_var(BROWSER_BRIDGE_URL_ENV, v),
+            None => std::env::remove_var(BROWSER_BRIDGE_URL_ENV),
+        }
+        match &self.prev_token {
+            Some(v) => std::env::set_var(BROWSER_BRIDGE_TOKEN_ENV, v),
+            None => std::env::remove_var(BROWSER_BRIDGE_TOKEN_ENV),
+        }
+    }
+}
+
+#[tokio::test]
+async fn browser_list_tabs_schema_has_no_tab_id_and_omitted_arguments_forward_empty_object() {
+    let captured: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+    let captured_for_handler = captured.clone();
+    let app = Router::new().route(
+        "/",
+        post(move |Json(body): Json<Value>| {
+            let captured = captured_for_handler.clone();
+            async move {
+                *captured.lock().unwrap() = Some(body.clone());
+                if !body["args"].is_object() {
+                    return (StatusCode::BAD_REQUEST, "Expected args object.").into_response();
+                }
+                (StatusCode::OK, Json(json!({ "text": "{\"tabs\":[]}" }))).into_response()
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let bridge_server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let _env_guard = EnvRestore::set_bridge(&format!("http://{addr}/"), "test-bridge-token").await;
+
+    let mut client = WireClient::connect(AgentType::Browser);
+    client
+        .request(json!(0), "server/discover", json!({"_meta": modern_meta()}))
+        .await;
+
+    let tools = client
+        .request(json!(1), "tools/list", json!({"_meta": modern_meta()}))
+        .await;
+    let list_tabs = tools["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .find(|tool| tool["name"] == "browser_list_tabs")
+        .expect("browser_list_tabs tool");
+    let properties = list_tabs["inputSchema"]["properties"]
+        .as_object()
+        .expect("browser_list_tabs properties");
+    assert!(
+        properties.is_empty(),
+        "unexpected properties: {properties:?}"
+    );
+    assert!(!properties.contains_key("tab_id"));
+
+    // Omit `arguments` entirely so the server receives `arguments: None`.
+    let call = client
+        .request(
+            json!(2),
+            "tools/call",
+            json!({"name": "browser_list_tabs", "_meta": modern_meta()}),
+        )
+        .await;
+    assert_eq!(call["isError"], false, "{call}");
+    assert_eq!(call["content"][0]["text"], "{\"tabs\":[]}");
+
+    let forwarded = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("bridge received request");
+    assert_eq!(forwarded["tool_name"], "browser_list_tabs");
+    assert_eq!(forwarded["args"], json!({}));
+    assert_eq!(forwarded["feature_id"], 1);
+
+    bridge_server.abort();
 }
