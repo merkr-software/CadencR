@@ -1,23 +1,41 @@
-import { getFeatureAgentState } from "@/api/generated";
-import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import type { DisplayRowMode } from "@/types/agent-stream";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId } from "./ws-message-identity";
-import { prependHistoryBlocks } from "./ws-session-prepend";
+import { type HistoryGap, markPageLoaded } from "./ws-history-gaps";
+import { fetchNewerPage } from "./ws-history-pages";
+import { mergeHistoryBlocks } from "./ws-session-prepend";
+
+/** Fetches tried when other loads keep moving the prompt's gap meanwhile. */
+const MAX_TURN_ATTEMPTS = 3;
+const KEPT_MOVING = "The conversation kept changing while that message loaded.";
+
+function gapHolding(gaps: readonly HistoryGap[], messageDbId: number): HistoryGap | undefined {
+  return gaps.find(
+    ({ afterId, beforeId }) => (afterId ?? -Infinity) < messageDbId && messageDbId < beforeId,
+  );
+}
+
+function holdsPrompt(ctx: StoreAccessors, sessionId: string, messageDbId: number): boolean {
+  const blocks = ctx.get().sessions[sessionId]?.blocks ?? [];
+  return blocks.some((block) => blockMessageDbId(block) === messageDbId);
+}
 
 /**
  * Makes one prompt that sits in unloaded history reachable, for the message
- * navigator: fetches the prompt and the start of its turn (one forward page)
- * and merges it in by database order — the same shape as the first-prompt
- * anchor the server ships ahead of the initial window.
+ * navigator: fetches the prompt and the start of its turn (one forward page,
+ * kept inside the gap the prompt sits in) and merges it in by database order
+ * — the same shape as the first-prompt island the server ships ahead of the
+ * latest page.
  *
  * Paging back to an old prompt instead would pull in every message in
- * between, and a long agentic session holds thousands per turn. The gap this
- * leaves is closed by ordinary older-history paging, which merges by identity.
- * The pagination cursor (`oldestMessageId`, `hasMore`) is left alone for
- * exactly that reason.
+ * between, and a long agentic session holds thousands per turn. The turn
+ * becomes an island in its gap: the gap splits in two, one row on each side,
+ * and each fills as the reader scrolls toward it. A gap fill that moves the
+ * gap while the turn is in flight makes the page stale (it could overlap rows
+ * now loaded); it is fetched again for the new bounds, a few times at most.
  *
- * Resolves with whether the prompt is now in the transcript.
+ * Resolves with whether the prompt is now in the transcript; rejects when its
+ * gap never held still long enough.
  */
 export async function loadSessionPromptTurn(
   ctx: StoreAccessors,
@@ -25,20 +43,34 @@ export async function loadSessionPromptTurn(
   messageDbId: number,
   displayMode?: DisplayRowMode,
 ): Promise<boolean> {
-  const session = ctx.get().sessions[sessionId];
-  if (!session?.featureId || !session.sessionDbId) return false;
-  const sessionDbId = session.sessionDbId;
-  const data = await getFeatureAgentState(session.featureId, {
+  for (let attempt = 0; attempt < MAX_TURN_ATTEMPTS; attempt += 1) {
+    const session = ctx.get().sessions[sessionId];
+    if (!session?.featureId || !session.sessionDbId) return false;
+    const gap = gapHolding(session.historyGaps, messageDbId);
+    if (!gap) return holdsPrompt(ctx, sessionId, messageDbId);
     // `after` is exclusive: start the forward page on the prompt itself.
-    after: JSON.stringify({ [sessionDbId]: messageDbId - 1 }),
-    // A revision cursor past any real one: only the forward page, not the
-    // session's recently edited tool calls from elsewhere in history.
-    after_revisions: JSON.stringify({ [sessionDbId]: Number.MAX_SAFE_INTEGER }),
-  });
-  const serverSession = data.sessions.find((s) => s.sessionDbId === sessionDbId);
-  const turn = serverBlocksToAgentBlocks((serverSession?.blocks ?? []) as never[]);
-  if (!turn.some((block) => blockMessageDbId(block) === messageDbId)) return false;
+    const page = await fetchNewerPage(
+      session.featureId,
+      session.sessionDbId,
+      messageDbId - 1,
+      gap.beforeId,
+    );
+    if (!page.blocks.some((block) => blockMessageDbId(block) === messageDbId)) return false;
 
-  // The turn lands ahead of the loaded window, like an older-history page.
-  return prependHistoryBlocks(ctx, sessionId, turn, displayMode) !== null;
+    const current = ctx.get().sessions[sessionId];
+    if (!current) return false;
+    const now = gapHolding(current.historyGaps, messageDbId);
+    if (now && (now.afterId !== gap.afterId || now.beforeId !== gap.beforeId)) continue;
+    if (!now) return holdsPrompt(ctx, sessionId, messageDbId);
+    const to = Math.max(messageDbId, page.to);
+    // The turn lands far above the reader, who jumps to it next.
+    const merged = mergeHistoryBlocks(ctx, sessionId, page.blocks, displayMode, {
+      shiftsRowsBelow: true,
+      historyGaps: markPageLoaded(current.historyGaps, page.blocks, messageDbId, to),
+      seamFromId: to + 1,
+    });
+    return merged !== null;
+  }
+  if (holdsPrompt(ctx, sessionId, messageDbId)) return true;
+  throw new Error(KEPT_MOVING);
 }

@@ -49,6 +49,7 @@ function createSession(
 }
 
 const afterCursor = (cursor: number, revision = 0) => ({
+  session: 2586,
   after: JSON.stringify({ 2586: cursor }),
   after_revisions: JSON.stringify({ 2586: revision }),
 });
@@ -506,7 +507,7 @@ describe("resyncMessagesOnReconnect", () => {
       sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-1", "restored")], maxMessageId: 1 }],
     });
     await resyncMessagesOnReconnect(ctx, "s1");
-    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077);
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, { session: 2586 });
     expect(ctx.get().sessions.s1.blocks.map((block) => block.id)).toEqual(["msg-1"]);
   });
 });
@@ -541,6 +542,7 @@ describe("repairPersistedBlocksAfterTurn", () => {
 
     await repairPersistedBlocksAfterTurn(ctx, "s1");
 
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, { session: 2586 });
     const repairedParent = ctx.get().sessions.s1.blocks[0];
     expect(repairedParent.childBlocks?.map((c) => c.id)).toEqual(["child-a", "child-b", "child-c"]);
   });

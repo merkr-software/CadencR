@@ -200,8 +200,9 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
   while (true) {
     const data =
       firstPage && request.fullSnapshot
-        ? await getFeatureAgentState(request.featureId)
+        ? await getFeatureAgentState(request.featureId, { session: request.sessionDbId })
         : await getFeatureAgentState(request.featureId, {
+            session: request.sessionDbId,
             after: JSON.stringify({ [request.sessionDbId]: messageCursor }),
             after_revisions: JSON.stringify({ [request.sessionDbId]: revisionCursor }),
           });
@@ -298,7 +299,7 @@ export async function repairPersistedBlocksAfterTurn(
   const session = ctx.get().sessions[sessionId];
   if (!session?.featureId || !session.sessionDbId) return;
 
-  const data = await getFeatureAgentState(session.featureId);
+  const data = await getFeatureAgentState(session.featureId, { session: session.sessionDbId });
   const serverSession = data.sessions.find((s) => s.sessionDbId === session.sessionDbId);
   if (!serverSession) return;
 

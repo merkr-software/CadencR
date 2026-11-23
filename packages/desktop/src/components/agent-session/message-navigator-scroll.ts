@@ -60,6 +60,8 @@ interface JumpArgs {
    * default (a prompt jump), a sub-agent card for the composer's agent list.
    */
   flashSelectors?: readonly string[];
+  /** The jump is over: landed, given up, cancelled or taken over by the reader. */
+  onSettled?: () => void;
 }
 
 function scrollToRowIndex(writer: StreamScrollWriter, { virtuoso, rowIndex }: JumpArgs): void {
@@ -191,6 +193,7 @@ export function jumpToRow(args: JumpArgs): () => void {
     for (const type of USER_SCROLL_EVENTS) scroller.removeEventListener(type, abort);
     delete scroller.dataset.navJumping;
     if (land) flashArrival(scroller, blockId, args.flashSelectors ?? [USER_BUBBLE_SELECTOR]);
+    args.onSettled?.();
   };
   function abort(): void {
     finish(false);

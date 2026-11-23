@@ -90,6 +90,7 @@ describe("reconnect after a repaired assistant frame was lost", () => {
       "msg-11",
     ]);
     expect(api.getFeatureAgentState).toHaveBeenLastCalledWith(1, {
+      session: 2,
       after: JSON.stringify({ 2: 10 }),
       after_revisions: JSON.stringify({ 2: 0 }),
     });

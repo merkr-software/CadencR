@@ -21,6 +21,7 @@ interface AgentSessionStreamContentProps {
   /** The transcript's scroll wiring, history loading included. */
   scroll: UseAgentSessionScrollResult;
   historyPrependDisplayOffset?: number;
+  historyGaps: AgentStreamProps["historyGaps"];
   verbosityMode: AgentStreamProps["verbosityMode"];
   summaryMode: AgentStreamProps["summaryMode"];
   searchEnabled: boolean;
@@ -40,6 +41,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   projectPath,
   scroll,
   historyPrependDisplayOffset,
+  historyGaps,
   verbosityMode,
   summaryMode,
   searchEnabled,
@@ -65,11 +67,9 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       followOutput={scroll.followOutput}
       onAtBottomStateChange={scroll.onAtBottomStateChange}
       onTotalListHeightChanged={scroll.onTotalListHeightChanged}
-      onStartReached={scroll.onStartReached}
-      isLoadingOlder={scroll.isLoadingOlder}
-      olderLoadError={scroll.olderLoadError}
-      onRetryOlder={scroll.retryOlderHistory}
       historyPrependDisplayOffset={historyPrependDisplayOffset}
+      historyGaps={historyGaps}
+      historyGapStatus={scroll.historyGapStatus}
       verbosityMode={verbosityMode}
       summaryMode={summaryMode}
       searchEnabled={searchEnabled}

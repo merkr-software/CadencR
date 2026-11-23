@@ -1,3 +1,4 @@
+import type { HistoryGapFillDirection } from "@/stores/ws-history-gaps";
 import {
   useState,
   useEffect,
@@ -98,8 +99,8 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
     projectId,
     wsSessionId,
     agentCatalog: providedAgentCatalog,
-    hasMore,
-    onLoadOlder,
+    historyGaps,
+    onFillHistoryGap,
     agentTabActive = true,
     disableShortcuts,
   } = props;
@@ -118,34 +119,55 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
   const messageNavigatorEnabled = parseAgentMessageNavigator(
     useSetting(AGENT_MESSAGE_NAVIGATOR_SETTING_KEY).value,
   );
-  const loadOlder = onLoadOlder
-    ? (): Promise<number | void> =>
-        onLoadOlder({ summaryMode, compactMode: verbosityMode === "compact" })
+  const fillGap = onFillHistoryGap
+    ? (
+        gapId: string,
+        direction: HistoryGapFillDirection,
+        shouldContinue: () => boolean,
+      ): Promise<void> =>
+        onFillHistoryGap(gapId, direction, {
+          displayMode: { summaryMode, compactMode: verbosityMode === "compact" },
+          shouldContinue,
+        })
     : undefined;
   const scroll = useAgentSessionScroll({
     blocks,
     conversationKey: wsSessionId ?? null,
-    hasMore,
-    onLoadOlder: loadOlder,
+    historyGaps,
+    onFillGap: fillGap,
   });
   useAutoScrollShortcut({
     enabled: agentTabActive && !disableShortcuts,
     onEnableAutoScroll: scroll.scrollToBottom,
   });
 
-  const { startJump } = scroll;
+  const { startJump, holdHistoryFills } = scroll;
   const { onLoadPromptTurn } = props;
   const compactMode = verbosityMode === "compact";
   const messageNavigator = useMemo(() => {
     // A hidden agent tab keeps streaming: skip the rail's per-delta work there.
     if (!messageNavigatorEnabled || !agentTabActive || !onLoadPromptTurn) return null;
-    const loadPromptTurn = (messageDbId: number): Promise<boolean> =>
-      onLoadPromptTurn(messageDbId, { summaryMode, compactMode });
+    const loadPromptTurn = (messageDbId: number): Promise<boolean> => {
+      // No gap fill may move the prompt's gap while its turn loads. Once it
+      // has, the jump it leads to (a render later) takes over the hold.
+      const release = holdHistoryFills();
+      return onLoadPromptTurn(messageDbId, { summaryMode, compactMode }).then(
+        (found) => {
+          requestAnimationFrame(() => requestAnimationFrame(release));
+          return found;
+        },
+        (error: unknown) => {
+          release();
+          throw error;
+        },
+      );
+    };
     return { startJump, loadPromptTurn };
   }, [
     messageNavigatorEnabled,
     agentTabActive,
     startJump,
+    holdHistoryFills,
     onLoadPromptTurn,
     summaryMode,
     compactMode,
@@ -296,6 +318,7 @@ export const AgentSession = memo(
         projectPath={s.projectPath}
         scroll={s.scroll}
         historyPrependDisplayOffset={props.historyPrependDisplayOffset}
+        historyGaps={props.historyGaps}
         verbosityMode={s.verbosityMode}
         summaryMode={s.summaryMode}
         searchEnabled={(props.agentTabActive ?? true) && !props.disableShortcuts}

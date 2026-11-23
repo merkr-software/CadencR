@@ -1,15 +1,19 @@
 import type { SizeFunction } from "react-virtuoso";
 import { isIos } from "@/lib/is-ios";
-import { findStreamItemList, USER_SCROLL_EVENTS } from "./agent-session-scroll-utils";
+import {
+  findStreamItemList,
+  readerFocusRow,
+  USER_SCROLL_EVENTS,
+} from "./agent-session-scroll-utils";
 import type { StreamScrollWriter } from "./stream-scroll-writer";
 
 /** Absolute row index (`firstItemIndex`-based), aligned across prepends. */
 const ITEM_INDEX_ATTRIBUTE = "data-item-index";
-/** Local row index: "0" is the list's first row. */
-const LOCAL_INDEX_ATTRIBUTE = "data-index";
 const BLOCK_ID_ATTRIBUTE = "data-block-id";
 /** Fractional layout noise: never worth moving the view for. */
 const DRIFT_EPSILON_PX = 0.5;
+/** How long an anchor row Virtuoso unmounted is waited for before the guard lets go of it. */
+const LOST_ANCHOR_MS = 1000;
 
 /** Everything the guard holds while attached to a stream scroller. */
 interface Attachment {
@@ -24,10 +28,10 @@ interface Anchor {
   itemIndex: string;
   /** First block the row renders, so a re-keyed row is not mistaken for it. */
   blockId: string | null;
-  /** The list's first row, which older history is inserted below (see `pickAnchor`). */
-  listHead: boolean;
   /** Row top in layout content coordinates: independent of scroll and of the bridge. */
   top: number;
+  /** Row top on screen (from the viewport's top) when picked: where a lost row goes back to. */
+  viewTop: number;
 }
 
 /** The part of `requested` that moves in the direction of `pending`, capped at it. */
@@ -40,25 +44,16 @@ function firstBlockId(row: Element): string | null {
   return row.querySelector(`[${BLOCK_ID_ATTRIBUTE}]`)?.getAttribute(BLOCK_ID_ATTRIBUTE) ?? null;
 }
 
-function isListHead(row: Element): boolean {
-  return row.getAttribute(LOCAL_INDEX_ATTRIBUTE) === "0";
-}
-
 /**
  * The anchor's row: its block wherever it now sits, else the row now holding
  * its absolute index. The second case is a row re-keyed in place — summary
  * mode re-keys a recap when older history extends its turn — and
- * `firstItemIndex` keeps absolute indices aligned across prepends, so that
- * row is still the one the reader was looking at.
- *
- * The list's first row goes by position outright: a page inserted below it
- * takes over its absolute index with the newest loaded row, which is what
- * Virtuoso keeps in place too — the reader lands in the page they asked for
- * and can keep scrolling up through it.
+ * `firstItemIndex` keeps absolute indices aligned across pages landing above
+ * the reader, so that row is still the one the reader was looking at.
  */
 function findAnchorRow(list: HTMLElement, anchor: Anchor): Element | null {
   const byIndex = list.querySelector(`[${ITEM_INDEX_ATTRIBUTE}="${anchor.itemIndex}"]`);
-  if (byIndex && (anchor.listHead || firstBlockId(byIndex) === anchor.blockId)) return byIndex;
+  if (byIndex && firstBlockId(byIndex) === anchor.blockId) return byIndex;
   const block =
     anchor.blockId === null
       ? null
@@ -115,7 +110,17 @@ export class ScrollAnchorGuard {
   private anchor: Anchor | null = null;
   /** Measured drift not yet absorbed by the scroll offset (px, + = content moved down). */
   private pending = 0;
+  /**
+   * When the anchor's row left the DOM while the anchor still stands: Virtuoso
+   * re-rendered the range before compensating (history landing above it), and
+   * mounts the row again once it has scrolled.
+   */
+  private lostSince: number | null = null;
+  /** The frames that release the scroll range floor (`holdScrollRange`). */
+  private floorFrame = 0;
   private suspended = false;
+  /** Bumped by each suspension: a release only ends the one it was handed for. */
+  private suspension = 0;
   private fallbackFrame = 0;
 
   /** `isEngaged` reports bottom-stick: the guard stands down while it holds. */
@@ -157,10 +162,23 @@ export class ScrollAnchorGuard {
     this.attached = null;
   }
 
-  /** Hands the viewport to a programmatic jump until the next user scroll input. */
-  suspend(): void {
+  /**
+   * Hands the viewport to a programmatic jump until the next user scroll
+   * input, or until the returned release — the jump has settled. Released, the
+   * guard anchors at once on the rows the jump left on screen, so history
+   * landing around them right after holds them in place.
+   */
+  suspend(): () => void {
     this.suspended = true;
+    this.suspension += 1;
+    const suspension = this.suspension;
     this.reset();
+    return () => {
+      if (!this.suspended || suspension !== this.suspension) return;
+      this.suspended = false;
+      const attached = this.activeAttachment();
+      if (attached) this.anchor = this.pickAnchor(attached);
+    };
   }
 
   /**
@@ -187,13 +205,28 @@ export class ScrollAnchorGuard {
 
   private readonly resume = (): void => {
     this.suspended = false;
+    // The reader's own scroll: a row still awaited is no longer theirs.
+    if (this.lostSince !== null) {
+      this.lostSince = null;
+      this.anchor = null;
+    }
   };
+
+  /** True while an unmounted anchor row is still awaited (see `lostSince`). */
+  private awaitingLostAnchor(): boolean {
+    if (this.lostSince === null) return false;
+    if (performance.now() - this.lostSince <= LOST_ANCHOR_MS) return true;
+    this.lostSince = null;
+    this.anchor = null;
+    return false;
+  }
 
   private readonly onScroll = (): void => {
     // Content coordinates don't move with the scroll offset, so this only
     // keeps the anchor on screen; drift is measured against it by `check`.
+    // An anchor awaited back keeps its place: the scroll is Virtuoso's own.
     const attached = this.activeAttachment();
-    if (attached) this.anchor = this.pickAnchor(attached);
+    if (attached && !this.awaitingLostAnchor()) this.anchor = this.pickAnchor(attached);
   };
 
   private readonly onListMutation = (records: MutationRecord[]): void => {
@@ -215,14 +248,25 @@ export class ScrollAnchorGuard {
     if (!attached || !anchor) return;
     const row = findAnchorRow(attached.list, anchor);
     if (!row) {
-      // The anchor's row left the list (unmounted, or the data was replaced):
-      // whatever moved went unmeasured, so Virtuoso's compensation is trusted
-      // as-is until the next scroll sets a new baseline.
-      this.reset();
+      // The anchor's row left the list. History landing above it does that:
+      // Virtuoso first renders the old offset over the new rows, then scrolls
+      // by its estimate of their height and mounts the row again. The anchor
+      // waits for it (`lostSince`); a row that never returns is let go after
+      // `LOST_ANCHOR_MS` or at the reader's next input.
+      this.lostSince ??= performance.now();
+      this.awaitingLostAnchor();
       return;
     }
-    const drift = this.layoutTop(attached.scroller, row) - anchor.top;
+    // Back after Virtuoso scrolled by its estimate — and moved the list by
+    // its deviation offset, which no `scrollBy` reports: the row goes back
+    // where the reader saw it, whatever the scroll offset did meanwhile.
+    const drift =
+      this.lostSince === null
+        ? this.layoutTop(attached.scroller, row) - anchor.top
+        : this.viewTop(attached.scroller, row) - anchor.viewTop;
+    this.lostSince = null;
     if (Math.abs(drift) > DRIFT_EPSILON_PX) {
+      this.holdScrollRange(attached);
       this.pending += drift;
       this.applyBridge();
       this.scheduleFallbackSettle();
@@ -235,6 +279,18 @@ export class ScrollAnchorGuard {
     // Without a measured anchor there is no ground truth to arbitrate with.
     const attached = this.anchor ? this.activeAttachment() : null;
     if (!attached) return false;
+    // Virtuoso compensates from inside the commit that moved the rows (its
+    // prepend offset), before the mutation observer reports that commit:
+    // measured first, the drift it compensates is already pending.
+    const records = attached.mutationObserver.takeRecords();
+    if (records.length > 0) this.onListMutation(records);
+    // The anchor's row is unmounted: Virtuoso's estimate is all there is to
+    // bring it back on screen. It runs; what it misses is cancelled once the
+    // row returns. An anchor given up meanwhile leaves nothing to arbitrate.
+    if (this.awaitingLostAnchor() || !this.anchor) {
+      this.holdScrollRange(attached, requestedTop);
+      return false;
+    }
     const applied = clampToward(requestedTop, this.pending);
     if (applied !== 0) this.absorb(attached, applied);
     return true;
@@ -251,9 +307,55 @@ export class ScrollAnchorGuard {
 
   /** Moves `amount` of bridged drift into the scroll offset; the view does not move. */
   private absorb(attached: Attachment, amount: number): void {
+    // Raised first, so the write lands inside the held range.
+    this.holdScrollRange(attached, amount);
     this.pending -= amount;
     this.applyBridge();
     attached.writer.scrollBy("keep-anchor", amount);
+    this.holdScrollRange(attached);
+  }
+
+  /**
+   * Keeps the scroll range from ending above the viewport's bottom (moved by
+   * `ahead` when a scroll is about to land) while compensation is under way,
+   * and for two quiet frames after it. Virtuoso swaps its prepend offset
+   * (`margin-top`) for row padding across commits, and a layout between the
+   * two is shorter: near the end of the conversation the browser clamps the
+   * scroll offset there, moving the view by an amount no guard measurement
+   * can see.
+   */
+  private holdScrollRange({ scroller, list }: Attachment, ahead = 0): void {
+    // Virtuoso's header and footer sit around the list and keep their height:
+    // the list only has to reach the viewport's bottom without them. A floor
+    // past the natural end would let a pin to the bottom overshoot it.
+    let chrome = 0;
+    for (const sibling of list.parentElement?.children ?? []) {
+      if (sibling !== list && sibling instanceof HTMLElement) chrome += sibling.offsetHeight;
+    }
+    const bottom = scroller.scrollTop + Math.max(0, ahead) + scroller.clientHeight;
+    const floor = `${Math.max(0, Math.ceil(bottom - chrome))}px`;
+    if (list.style.minHeight !== floor) list.style.minHeight = floor;
+    this.armScrollRangeRelease();
+  }
+
+  /** Releases the floor two frames from now, unless compensation is still under way then. */
+  private armScrollRangeRelease(): void {
+    cancelAnimationFrame(this.floorFrame);
+    this.floorFrame = requestAnimationFrame(() => {
+      this.floorFrame = requestAnimationFrame(() => {
+        this.floorFrame = 0;
+        // Bridged drift or a queued settle still has a scroll to write.
+        if (this.pending !== 0 || this.fallbackFrame !== 0) this.armScrollRangeRelease();
+        else this.releaseScrollRange();
+      });
+    });
+  }
+
+  private releaseScrollRange(): void {
+    cancelAnimationFrame(this.floorFrame);
+    this.floorFrame = 0;
+    const list = this.attached?.list;
+    if (list?.style.minHeight) list.style.minHeight = "";
   }
 
   private scheduleFallbackSettle(): void {
@@ -282,52 +384,42 @@ export class ScrollAnchorGuard {
   /** Drops any bridge and the anchor; the next scroll starts afresh. */
   private reset(): void {
     this.cancelFallback();
+    this.releaseScrollRange();
     this.anchor = null;
+    this.lostSince = null;
     if (this.pending === 0) return;
     this.pending = 0;
     this.applyBridge();
   }
 
+  /** Row top on screen, from the viewport's top: bridge and scroll offset included. */
+  private viewTop(scroller: HTMLElement, row: Element): number {
+    return row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  }
+
   private layoutTop(scroller: HTMLElement, row: Element): number {
-    const viewportTop = scroller.getBoundingClientRect().top;
-    return row.getBoundingClientRect().top - viewportTop + scroller.scrollTop + this.pending;
+    return this.viewTop(scroller, row) + scroller.scrollTop + this.pending;
   }
 
   /**
-   * The first row whose top edge is on screen, else the row spanning the top
-   * edge. The list's first row only anchors when nothing else is on screen:
-   * while older history remains it is the session's first prompt, shipped
-   * ahead of the loaded window, and older pages are inserted *below* it —
-   * holding it in place would let each page push the reader's rows away. When
-   * it does anchor, it is followed by position, not identity (`findAnchorRow`).
+   * The reader's row (`readerFocusRow`): the first row whose top edge is on
+   * screen, else the row spanning the top edge, never a history gap's row. A
+   * gap fills toward that same row, so the page it loads lands on the far side
+   * of the anchor and moves nothing the reader sees.
    */
   private pickAnchor({ scroller, list }: Attachment): Anchor | null {
     const viewportTop = scroller.getBoundingClientRect().top;
-    const viewportBottom = viewportTop + scroller.clientHeight;
-    let spanning: Element | null = null;
-    let listHead: Element | null = null;
-    for (const row of list.children) {
-      if (!row.hasAttribute(ITEM_INDEX_ATTRIBUTE)) continue;
-      const rect = row.getBoundingClientRect();
-      if (rect.bottom <= viewportTop) continue;
-      if (rect.top >= viewportBottom) break;
-      if (isListHead(row)) {
-        listHead = row;
-        continue;
-      }
-      if (rect.top >= viewportTop) return this.toAnchor(scroller, row);
-      spanning ??= row;
-    }
-    const fallback = spanning ?? listHead;
-    return fallback ? this.toAnchor(scroller, fallback) : null;
+    const focus = readerFocusRow(list, viewportTop, viewportTop + scroller.clientHeight);
+    return focus ? this.toAnchor(scroller, focus.row) : null;
   }
 
   private toAnchor(scroller: HTMLElement, row: Element): Anchor {
+    const viewTop = this.viewTop(scroller, row);
     return {
       itemIndex: row.getAttribute(ITEM_INDEX_ATTRIBUTE) ?? "",
       blockId: firstBlockId(row),
-      listHead: isListHead(row),
-      top: this.layoutTop(scroller, row),
+      top: viewTop + scroller.scrollTop + this.pending,
+      viewTop,
     };
   }
 }

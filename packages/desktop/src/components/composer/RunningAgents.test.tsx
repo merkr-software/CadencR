@@ -47,7 +47,7 @@ function renderList(reveal: (toolUseId: string) => boolean) {
   cards.attach({ reveal, getScroller: () => scroller });
   const composer = { featureId: 1, sessionId: 9 } as unknown as ComposerContextValue;
   const view = render(
-    <SubagentLinkContext.Provider value={{ cards, startJump: (run) => run() }}>
+    <SubagentLinkContext.Provider value={{ cards, startJump: (run) => run(() => {}) }}>
       <ComposerContextProvider value={composer}>
         <RunningAgents />
       </ComposerContextProvider>

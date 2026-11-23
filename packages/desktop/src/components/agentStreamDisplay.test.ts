@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBlockData } from "@/types/agent-block";
 import {
+  displayItemBlocks,
   buildDisplayItems,
   countRenderableDisplayRows,
   deriveAgentStreamDisplayBlocks,
@@ -458,5 +459,42 @@ describe("liveDisplayItemKey", () => {
   it("keys nothing once the turn ends, or in an empty stream", () => {
     expect(liveDisplayItemKey(items, false)).toBeNull();
     expect(liveDisplayItemKey([], true)).toBeNull();
+  });
+});
+
+describe("history gap rows", () => {
+  const read = (id: string): AgentBlockData =>
+    block(id, "", { type: "tool_call", toolName: "Read" });
+  const gaps = [{ id: "g1", afterId: 10, beforeId: 500 }];
+
+  it("sits right before the first row past the gap", () => {
+    const items = buildDisplayItems([block("msg-10", "first"), block("msg-500", "latest")], {
+      compact: false,
+      gaps,
+    });
+    expect(items.map((item) => item.key)).toEqual(["msg-10", "gap:g1", "msg-500"]);
+  });
+
+  it("splits a compact run that would otherwise span it", () => {
+    const items = buildDisplayItems([read("msg-11"), read("msg-500"), read("msg-501")], {
+      compact: true,
+      gaps,
+    });
+    expect(items.map((item) => item.kind)).toEqual(["flow", "gap", "flow"]);
+    expect(displayItemBlocks(items[1])).toEqual([]);
+  });
+
+  it("is counted as a row", () => {
+    const blocks = [block("msg-10", "first"), block("msg-500", "latest")];
+    expect(countRenderableDisplayRows(blocks, undefined, gaps)).toBe(3);
+  });
+
+  it("places a summary recap by the first step it folds", () => {
+    const recap = block("tool-summary-msg-600", "", {
+      type: "tool_summary",
+      childBlocks: [read("msg-600")],
+    });
+    const items = buildDisplayItems([block("msg-10", "first"), recap], { compact: false, gaps });
+    expect(items.map((item) => item.key)).toEqual(["msg-10", "gap:g1", recap.id]);
   });
 });

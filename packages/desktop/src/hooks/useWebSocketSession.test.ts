@@ -2967,7 +2967,7 @@ describe("useWebSocketSession", () => {
       interrupt: result.current.interrupt,
       setPermissionMode: result.current.setPermissionMode,
       approvePlan: result.current.approvePlan,
-      loadOlderMessages: result.current.loadOlderMessages,
+      fillHistoryGap: result.current.fillHistoryGap,
     };
 
     // Streaming a chunk mutates this session's slice, which would otherwise
@@ -3005,7 +3005,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.interrupt).toBe(before.interrupt);
     expect(result.current.setPermissionMode).toBe(before.setPermissionMode);
     expect(result.current.approvePlan).toBe(before.approvePlan);
-    expect(result.current.loadOlderMessages).toBe(before.loadOlderMessages);
+    expect(result.current.fillHistoryGap).toBe(before.fillHistoryGap);
   });
 });
 

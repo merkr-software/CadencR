@@ -46,6 +46,7 @@ pub(super) fn convert_block(idx: usize, all: &[MutableBlock]) -> AgentBlock {
         model: b.model.clone(),
         truncated_content: (preview_truncated || b.truncated_content == Some(true)).then_some(true),
         full_content_bytes,
+        last_message_id: b.last_message_id,
         origin: b.origin.clone(),
     }
 }

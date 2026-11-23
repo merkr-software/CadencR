@@ -3,6 +3,7 @@
  */
 
 import type { AgentBlockData } from "@/types/agent-block";
+import type { HistoryGap } from "@/types/agent-stream";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
@@ -238,8 +239,11 @@ export interface SessionEntry extends SessionConfigState {
   worktreeBranch: string | null;
   worktreeSetupOutput: string[];
   worktreeError: string | null;
-  hasMore: boolean;
-  oldestMessageId: number | null;
+  /**
+   * Saved history not loaded yet, in database order (see `HistoryGap`). Each
+   * is a row of the transcript that loads its messages as it nears the view.
+   */
+  historyGaps: HistoryGap[];
   /**
    * Highest DB message id this client has hydrated. Cursor for the
    * reconnect resync: after the socket drops (e.g. mobile sleep) we fetch
@@ -324,8 +328,7 @@ export function createSessionEntry(): SessionEntry {
     worktreeBranch: null,
     worktreeSetupOutput: [],
     worktreeError: null,
-    hasMore: false,
-    oldestMessageId: null,
+    historyGaps: [],
     lastAppliedMessageId: null,
     lastAppliedContentRevision: null,
     featureId: null,

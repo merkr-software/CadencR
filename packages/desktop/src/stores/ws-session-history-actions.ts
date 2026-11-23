@@ -1,5 +1,7 @@
 import type { DisplayRowMode } from "@/types/agent-stream";
-import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
+import { applyPersistedState } from "./ws-session-actions";
+import type { HistoryGapFillDirection } from "./ws-history-gaps";
+import { type FillHistoryGapOptions, fillSessionHistoryGap } from "./ws-session-history-fill";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
@@ -13,7 +15,7 @@ type HistoryActions = Pick<
   | "retryPersistedLoad"
   | "setPersistedState"
   | "hydratePersistedState"
-  | "loadOlderMessages"
+  | "fillHistoryGap"
   | "loadPromptTurn"
   | "refreshSessionMessages"
 >;
@@ -61,8 +63,13 @@ export function createHistoryActions(ctx: StoreAccessors): HistoryActions {
       set(updateSession(get(), sessionId, { persistedLoaded: true, historyLoadFailure: null }));
     },
 
-    async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {
-      return loadOlderSessionMessages(ctx, sessionId, displayMode);
+    fillHistoryGap(
+      sessionId: string,
+      gapId: string,
+      direction: HistoryGapFillDirection,
+      options?: FillHistoryGapOptions,
+    ): Promise<void> {
+      return fillSessionHistoryGap(ctx, sessionId, gapId, direction, options);
     },
 
     loadPromptTurn(

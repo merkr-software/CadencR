@@ -68,8 +68,18 @@ function scrollByTop(args: unknown[]): number {
  * chunk pins it straight back). Virtuoso's own `scrollBy` compensation is
  * intercepted here and handed to the arbiter the anchor guard registers.
  */
+/**
+ * How long Virtuoso keeps re-aiming an index scroll: until 1,200 ms after it,
+ * each list change re-scrolls to the same *index* (react-virtuoso's
+ * `scrollToIndex` retry), and each retry re-arms that window. Rows inserted
+ * above meanwhile shift what that index holds, and the view lands on another
+ * row. Every such scroll reaches the scroller through `scrollTo`.
+ */
+const INDEX_SCROLL_RETRY_MS = 1250;
+
 export class StreamScrollWriter {
   private arbiter: ScrollCompensationArbiter | null = null;
+  private lastIndexScrollAt = Number.NEGATIVE_INFINITY;
   /** Non-iOS only, like every raw follow write. */
   private glide: StreamFollowGlide | null = null;
 
@@ -83,6 +93,16 @@ export class StreamScrollWriter {
     this.detach();
     this.scroller = scroller;
     writers.set(scroller, this);
+    // Virtuoso's index scrolls and their retries land through `scrollTo`: noted,
+    // then passed through untouched, on every platform.
+    Object.defineProperty(scroller, "scrollTo", {
+      configurable: true,
+      writable: true,
+      value: (...args: unknown[]): void => {
+        this.lastIndexScrollAt = performance.now();
+        Reflect.apply(HTMLElement.prototype.scrollTo, scroller, args);
+      },
+    });
     // Virtuoso compensates resizes and prepends through `scrollBy` only; an
     // own property shadows the prototype method. iOS keeps Virtuoso's
     // deviation-based correction untouched: no anchor guard runs there.
@@ -104,6 +124,7 @@ export class StreamScrollWriter {
     // detached writer (`streamScrollWriterFor`) never installed one.
     if (writers.get(scroller) === this) {
       Reflect.deleteProperty(scroller, "scrollBy");
+      Reflect.deleteProperty(scroller, "scrollTo");
       writers.delete(scroller);
     }
     this.scroller = null;
@@ -187,8 +208,18 @@ export class StreamScrollWriter {
     if (!virtuoso) return false;
     if (intent === "follow-bottom" && !this.owner.isFollowing()) return false;
     this.takeViewport(intent);
+    this.lastIndexScrollAt = performance.now();
     virtuoso.scrollToIndex(location);
     return true;
+  }
+
+  /**
+   * Milliseconds until Virtuoso stops re-aiming the last index scroll or its
+   * latest retry (see `INDEX_SCROLL_RETRY_MS`); 0 once it has. Rows must not be
+   * inserted above the view before then.
+   */
+  indexScrollSettlesIn(): number {
+    return Math.max(0, this.lastIndexScrollAt + INDEX_SCROLL_RETRY_MS - performance.now());
   }
 
   /** A jump or reveal moves the view away from the bottom: follow lets go first. */

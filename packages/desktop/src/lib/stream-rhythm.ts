@@ -47,7 +47,9 @@ function blockFamily(block: AgentBlockData): RowFamily {
 }
 
 function rowFamily(item: DisplayItem): RowFamily {
-  return item.kind === "flow" ? "step" : blockFamily(item.block);
+  if (item.kind === "flow") return "step";
+  // A gap row is one line of type with no leading to take off, like a prompt's box.
+  return item.kind === "gap" ? "prompt" : blockFamily(item.block);
 }
 
 /** Padding between `upper` and `lower` that leaves one visible gap between them. */

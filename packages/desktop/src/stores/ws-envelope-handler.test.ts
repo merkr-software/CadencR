@@ -355,7 +355,7 @@ describe("handleEnvelope canonical user_message", () => {
 });
 
 describe("handleEnvelope cleared", () => {
-  it("resets prepend anchoring state when a clear divider starts a new turn history", () => {
+  it("keeps the prepend offset: the rows above the clear divider stay", () => {
     const session = createSessionEntry();
     session.blocks = [{ id: "old", type: "text", content: "old content" }];
     session.rootBlocks = session.blocks;
@@ -369,7 +369,7 @@ describe("handleEnvelope cleared", () => {
     });
 
     const updated = ctx.getSession("s1");
-    expect(updated.historyPrependDisplayOffset).toBe(0);
+    expect(updated.historyPrependDisplayOffset).toBe(42);
     expect(updated.blocks.map((block) => block.type)).toEqual(["text", "clear_divider"]);
     expect(updated.rootBlocks.map((block) => block.type)).toEqual(["text", "clear_divider"]);
   });

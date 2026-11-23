@@ -22,11 +22,14 @@ const TOOL_UPDATE_PAGE_LIMIT: i64 = 16;
 const INCREMENTAL_MESSAGE_PAGE_LIMIT: usize = 40;
 
 /// Fetch new immutable messages plus tool-call rows changed after the client's
-/// independent content-revision cursor.
+/// independent content-revision cursor. `until` bounds a session's page from
+/// above (exclusive): a client filling a gap in its history stops the page at
+/// the messages it already holds below the gap.
 pub(super) async fn fetch_incremental_data(
     pool: &SqlitePool,
     fetches: &[(i64, i64)],
     after_revisions: &HashMap<i64, i64>,
+    until: &HashMap<i64, i64>,
     sessions: &[AgentSessionRow],
 ) -> Result<IncrementalData, AppError> {
     let mut messages: HashMap<i64, Vec<AgentMessageRow>> = HashMap::new();
@@ -43,10 +46,11 @@ pub(super) async fn fetch_incremental_data(
     for (sid, after_id) in fetches {
         let mut msgs = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
             "{MESSAGE_SELECT} FROM agent_messages
-             WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?"
+             WHERE session_id = ? AND id > ? AND id < ? ORDER BY id ASC LIMIT ?"
         )))
         .bind(sid)
         .bind(after_id)
+        .bind(until.get(sid).copied().unwrap_or(i64::MAX))
         .bind(INCREMENTAL_MESSAGE_PAGE_LIMIT as i64 + 1)
         .fetch_all(pool)
         .await?;
@@ -355,6 +359,7 @@ mod tests {
             &pool,
             &[(session_id, call_id)],
             &HashMap::from([(session_id, 0)]),
+            &HashMap::new(),
             &[captured],
         )
         .await
@@ -367,6 +372,7 @@ mod tests {
             &pool,
             &[(session_id, call_id)],
             &HashMap::from([(session_id, 1)]),
+            &HashMap::new(),
             &[fresh],
         )
         .await
