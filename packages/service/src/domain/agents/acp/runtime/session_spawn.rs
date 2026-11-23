@@ -49,6 +49,9 @@ pub struct AcpRuntimeSpawnArgs {
     /// Provider-resolved context window for the negotiated model.
     pub context_window: Option<u64>,
     pub hooks: Arc<dyn AcpProviderHooks>,
+    /// Provider translation of the wire (see `acp::wire_transform`).
+    pub wire_transform:
+        Option<Arc<dyn crate::domain::agents::acp::wire_transform::AcpWireTransform>>,
 }
 
 /// End-to-end spawn for a generic ACP subprocess: client + handshake +
@@ -67,6 +70,7 @@ pub async fn spawn_acp_runtime_session(
         initial_content,
         context_window,
         hooks,
+        wire_transform,
     } = args;
     // `session/new` carries the workspace root, and every ACP path also sets it
     // as the child's working directory. An empty one would reach the agent as a
@@ -85,6 +89,7 @@ pub async fn spawn_acp_runtime_session(
             .process_tree_policy(process_tree_policy)
             .exclude_launcher_ports(hooks.exclude_launcher_ports())
             .maybe_spawn_guard(spawn_guard)
+            .maybe_wire_transform(wire_transform)
             .build(),
     )
     .await

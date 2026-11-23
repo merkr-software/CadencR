@@ -444,6 +444,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             // there is nothing to pre-seed it from.
             context_window: None,
             hooks: Arc::new(hooks),
+            wire_transform: None,
         })
         .await
     }

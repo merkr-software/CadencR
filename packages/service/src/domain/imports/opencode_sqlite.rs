@@ -12,6 +12,9 @@ use crate::error::AppError;
 
 use super::types::{truncate_title, ImportedConversation, ImportedMessage};
 
+/// OpenCode 2.x tables, read beside the 1.x ones.
+mod v2;
+
 pub async fn list_project_conversations(
     project_path: &str,
 ) -> Result<Vec<ImportedConversation>, AppError> {
@@ -56,29 +59,57 @@ pub async fn load_project_conversation_by_id(
     Ok(None)
 }
 
+/// The project's conversations in one OpenCode database. A 2.x database keeps
+/// the 1.x tables it migrated from: its own tables come first, and a 1.x
+/// session they do not hold yet (a migration still running) is added.
 pub async fn list_project_conversations_in_db(
     db_path: &Path,
     project_path: &str,
 ) -> Result<Vec<ImportedConversation>, AppError> {
     let pool = open_readonly_pool(db_path).await?;
+    let mut out = if v2::has_table(&pool, "session_v2").await? {
+        v2::list_conversations(&pool, project_path).await?
+    } else {
+        Vec::new()
+    };
+    if v2::has_table(&pool, "session").await? {
+        let known: std::collections::HashSet<String> = out
+            .iter()
+            .map(|conversation| conversation.source_session_id.clone())
+            .collect();
+        out.extend(list_v1_conversations(&pool, project_path, &known).await?);
+    }
+    Ok(out)
+}
+
+/// The 1.x sessions of the project, except those in `known` (already read
+/// from the 2.x tables).
+async fn list_v1_conversations(
+    pool: &SqlitePool,
+    project_path: &str,
+    known: &std::collections::HashSet<String>,
+) -> Result<Vec<ImportedConversation>, AppError> {
     let sessions = sqlx::query(
         "SELECT id, title, model, time_created, time_updated
          FROM session
          WHERE directory = ? AND parent_id IS NULL",
     )
     .bind(project_path)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await?;
 
     let mut out = Vec::with_capacity(sessions.len());
     for session in sessions {
         let source_session_id: String = session.try_get("id")?;
+        if known.contains(&source_session_id) {
+            continue;
+        }
         let title: String = session.try_get("title")?;
         let model =
             opencode_session_model(session.try_get::<Option<String>, _>("model").ok().flatten());
         let started_at = int_timestamp_field(&session, "time_created");
         let modified_at = int_timestamp_field(&session, "time_updated").or(started_at.clone());
-        let messages = load_session_messages(&pool, &source_session_id).await?;
+        let messages = load_session_messages(pool, &source_session_id).await?;
         if messages.is_empty() {
             continue;
         }
@@ -390,6 +421,73 @@ mod tests {
         assert_eq!(
             conv.messages[1].model.as_deref(),
             Some("openai/gpt-5.3-codex")
+        );
+    }
+
+    /// A 2.x database still holding the 1.x tables it migrated from: its own
+    /// tables win, a 1.x session it does not hold yet is still listed.
+    #[tokio::test]
+    async fn a_v2_database_lists_its_sessions_and_unmigrated_v1_ones() {
+        let db = tempfile::NamedTempFile::new().unwrap();
+        let url = format!("sqlite://{}", db.path().display());
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        for sql in [
+            "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, title TEXT NOT NULL, parent_id TEXT, model TEXT, time_created INTEGER, time_updated INTEGER)",
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER, data TEXT NOT NULL)",
+            "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER, data TEXT NOT NULL)",
+            "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT NOT NULL, title TEXT, parent_id TEXT, model TEXT, time_created INTEGER, time_updated INTEGER)",
+            "CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, time_created INTEGER, data TEXT NOT NULL)",
+            "INSERT INTO session VALUES ('ses_old', '/repo', 'Migrated', NULL, NULL, 1, 2)",
+            "INSERT INTO message VALUES ('m_old', 'ses_old', 1, '{\"role\":\"user\"}')",
+            "INSERT INTO part VALUES ('p_old', 'm_old', 'ses_old', 1, '{\"id\":\"p_old\",\"type\":\"text\",\"text\":\"stale copy\"}')",
+            "INSERT INTO session VALUES ('ses_v1', '/repo', 'Not migrated yet', NULL, NULL, 1, 2)",
+            "INSERT INTO message VALUES ('m_v1', 'ses_v1', 1, '{\"role\":\"user\"}')",
+            "INSERT INTO part VALUES ('p_v1', 'm_v1', 'ses_v1', 1, '{\"id\":\"p_v1\",\"type\":\"text\",\"text\":\"v1 only\"}')",
+            "INSERT INTO session_v2 VALUES ('ses_old', '/repo', 'Migrated', NULL, '{\"id\":\"big-pickle\",\"providerID\":\"opencode\"}', 1, 3)",
+            "INSERT INTO session_message VALUES ('u1', 'ses_old', 'user', 1, 1, '{\"text\":\"from v2\",\"files\":[]}')",
+            "INSERT INTO session_message VALUES ('i1', 'ses_old', 'idle', 2, 2, '{}')",
+            "CREATE TABLE session_part (id INTEGER PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, ordinal INTEGER NOT NULL, data TEXT NOT NULL)",
+            "INSERT INTO session_message VALUES ('a1', 'ses_old', 'assistant', 3, 3, '{\"content\":[{\"type\":\"text\",\"text\":\"inline tail\"}]}')",
+            "INSERT INTO session_part VALUES (1, 'a1', 'ses_old', 1, '{\"type\":\"text\",\"text\":\"second part\"}')",
+            "INSERT INTO session_part VALUES (2, 'a1', 'ses_old', 0, '{\"type\":\"text\",\"text\":\"first part\"}')",
+            "INSERT INTO session_v2 VALUES ('ses_child', '/repo', 'Child', 'ses_old', NULL, 1, 3)",
+            "INSERT INTO session_v2 VALUES ('ses_other', '/elsewhere', 'Other', NULL, NULL, 1, 3)",
+        ] {
+            exec(&pool, sql).await;
+        }
+        drop(pool);
+
+        let conversations = list_project_conversations_in_db(db.path(), "/repo")
+            .await
+            .unwrap();
+
+        let summary: Vec<_> = conversations
+            .iter()
+            .map(|conv| {
+                (
+                    conv.source_session_id.as_str(),
+                    conv.messages[0].content.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(summary, vec![("ses_old", "from v2"), ("ses_v1", "v1 only")]);
+        assert_eq!(
+            conversations[0].model.as_deref(),
+            Some("opencode/big-pickle")
+        );
+        let contents: Vec<_> = conversations[0]
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect();
+        assert_eq!(
+            contents,
+            vec!["from v2", "first part", "second part", "inline tail"],
+            "idle rows are not messages; part rows come first, by ordinal"
         );
     }
 }

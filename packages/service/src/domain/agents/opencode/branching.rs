@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use opencode_sdk_rs::{Message, MessageRole, OpenCodeClient, SdkError};
+use opencode_sdk_rs::{
+    Message, MessageRole, OpenCodeClient, OpenCodeGeneration, SdkError, StandaloneApi,
+};
 
 use super::acp::spawn_headless_acp;
 use crate::domain::agents::adapter::{BranchContext, BranchError, BranchResult, SessionBranching};
@@ -19,6 +21,15 @@ pub(super) struct OpenCodeSessionBranching;
 #[async_trait]
 impl SessionBranching for OpenCodeSessionBranching {
     async fn truncate_before(&self, ctx: &BranchContext) -> Result<BranchResult, BranchError> {
+        let installation = opencode_sdk_rs::resolve_installation()
+            .await
+            .map_err(branch_surgery)?;
+        if installation.generation == OpenCodeGeneration::V2 {
+            let api = StandaloneApi::new(installation.path, Some(ctx.cwd.clone()));
+            return tokio::time::timeout(BRANCH_TIMEOUT, truncate_with_api(&api, ctx))
+                .await
+                .map_err(|_| BranchError::Surgery("OpenCode fork timed out".to_string()))?;
+        }
         let (client, port) = spawn_headless_acp(ctx.cwd.as_os_str())
             .await
             .map_err(|error| BranchError::Surgery(format!("OpenCode ACP spawn failed: {error}")))?;
@@ -48,6 +59,49 @@ async fn truncate_with_client(
     Ok(BranchResult {
         new_runtime_session_id: forked.id,
     })
+}
+
+/// 2.x: fork through `opencode api --standalone` before the cut prompt.
+async fn truncate_with_api(
+    api: &StandaloneApi,
+    ctx: &BranchContext,
+) -> Result<BranchResult, BranchError> {
+    let user_messages = api
+        .user_message_ids(&ctx.source_runtime_session_id)
+        .await
+        .map_err(branch_surgery)?;
+    let message_id = cut_user_message_id(ctx, &user_messages)?;
+    let forked = api
+        .fork_session(&ctx.source_runtime_session_id, Some(&message_id))
+        .await
+        .map_err(branch_surgery)?;
+    Ok(BranchResult {
+        new_runtime_session_id: forked,
+    })
+}
+
+/// The provider message id of the cut, else the user prompt at the cut ordinal.
+fn cut_user_message_id(
+    ctx: &BranchContext,
+    user_messages: &[String],
+) -> Result<String, BranchError> {
+    if let Some(uuid) = ctx
+        .cut_provider_uuid
+        .as_ref()
+        .filter(|uuid| user_messages.contains(uuid))
+    {
+        return Ok(uuid.clone());
+    }
+    ctx.cut_user_ordinal
+        .checked_sub(1)
+        .and_then(|index| user_messages.get(index))
+        .cloned()
+        .ok_or_else(|| {
+            BranchError::Surgery(format!(
+                "could not locate OpenCode cut point (ordinal {})",
+                ctx.cut_user_ordinal
+            ))
+        })
 }
 
 async fn wait_for_messages(
@@ -98,7 +152,22 @@ fn branch_surgery(error: SdkError) -> BranchError {
 
 #[cfg(test)]
 mod tests {
-    use super::cut_message_id;
+    use super::{cut_message_id, cut_user_message_id};
+
+    #[test]
+    fn v2_cut_prefers_a_known_provider_id_then_the_ordinal() {
+        let users = vec!["msg_u1".to_string(), "msg_u2".to_string()];
+        assert_eq!(
+            cut_user_message_id(&ctx(1, Some("msg_u2")), &users).unwrap(),
+            "msg_u2"
+        );
+        assert_eq!(
+            cut_user_message_id(&ctx(2, Some("other")), &users).unwrap(),
+            "msg_u2"
+        );
+        assert!(cut_user_message_id(&ctx(3, None), &users).is_err());
+        assert!(cut_user_message_id(&ctx(0, None), &users).is_err());
+    }
     use crate::domain::agents::adapter::BranchContext;
     use opencode_sdk_rs::{Message, MessageRole};
 

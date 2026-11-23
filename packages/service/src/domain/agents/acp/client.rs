@@ -40,6 +40,9 @@ pub struct AcpSpawnOptions {
     #[builder(default)]
     pub exclude_launcher_ports: bool,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,
+    /// Rewrites the wire between the agent's pipes and this client.
+    pub wire_transform:
+        Option<std::sync::Arc<dyn crate::domain::agents::acp::wire_transform::AcpWireTransform>>,
 }
 
 /// Provider-neutral handling of ACP subprocess diagnostics.

@@ -269,6 +269,10 @@ pub struct ConfigProviderModel {
     pub name: Option<String>,
     #[serde(default)]
     pub limit: Option<ConfigModelLimit>,
+    /// Effort variants a 2.x catalog declares (`low`, `high`, …); empty when
+    /// the source does not list them.
+    #[serde(default)]
+    pub variants: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -301,6 +305,7 @@ where
             id,
             name: body.name,
             limit: body.limit,
+            variants: Vec::new(),
         })
         .collect())
 }

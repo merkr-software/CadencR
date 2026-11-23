@@ -84,6 +84,7 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
         initial_content: Value::String("hello".to_string()),
         context_window: Some(1000),
         hooks: Arc::new(SpawnHooks),
+        wire_transform: None,
     })
     .await
     .unwrap();
@@ -141,6 +142,7 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
         initial_content: Value::String("remain in flight".to_string()),
         context_window: None,
         hooks: Arc::new(SpawnHooks),
+        wire_transform: None,
     })
     .await
     .unwrap();

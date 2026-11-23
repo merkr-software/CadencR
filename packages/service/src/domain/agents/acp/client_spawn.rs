@@ -20,6 +20,7 @@ use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpEventHub;
 use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+use crate::domain::agents::acp::wire_transform::interpose;
 use crate::domain::ports::provider_processes::{ProviderProcess, ProviderProcessScope};
 
 mod stderr;
@@ -132,18 +133,18 @@ pub(super) async fn spawn_acp_subprocess(
         .take()
         .ok_or_else(|| AcpError::Protocol("missing ACP stderr".to_string()))?;
 
-    assemble(
-        stdin,
-        stdout,
-        stderr,
-        Some(SpawnedProcess {
-            child,
-            control: process_tree,
-            port_exclusion,
-        }),
-        options,
-    )
-    .await
+    let process = Some(SpawnedProcess {
+        child,
+        control: process_tree,
+        port_exclusion,
+    });
+    match options.wire_transform.take() {
+        Some(transform) => {
+            let wire = interpose(stdin, stdout, transform);
+            assemble(wire.stdin, wire.stdout, stderr, process, options).await
+        }
+        None => assemble(stdin, stdout, stderr, process, options).await,
+    }
 }
 
 #[cfg(test)]

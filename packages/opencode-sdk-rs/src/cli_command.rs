@@ -20,6 +20,33 @@ pub(crate) async fn run_opencode_command(
     args: &[&str],
     timeout: Duration,
 ) -> Result<String, SdkError> {
+    let run = capture_opencode_command(binary, cwd, args, timeout).await?;
+    if !run.status.success() {
+        return Err(SdkError::CommandFailed {
+            command: run.label,
+            status: run.status,
+            stderr: CommandStderr::new(run.stderr),
+        });
+    }
+    Ok(run.stdout)
+}
+
+/// A finished one-shot run: its streams are kept whatever the exit status.
+pub struct CapturedRun {
+    pub label: String,
+    pub status: std::process::ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Run `opencode <args>` and keep stdout and stderr even when it fails: some
+/// commands (`opencode api`) print the response body on stdout either way.
+pub async fn capture_opencode_command(
+    binary: &Path,
+    cwd: Option<&Path>,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<CapturedRun, SdkError> {
     let label = format!("opencode {}", args.join(" "));
     let mut command = cli_discovery::login_shell_exec_command(
         binary.as_os_str(),
@@ -40,18 +67,15 @@ pub(crate) async fn run_opencode_command(
         .await
         .map_err(|_| SdkError::Timeout(label.clone()))??;
 
-    if !output.status.success() {
-        return Err(SdkError::CommandFailed {
-            command: label,
-            status: output.status,
-            stderr: CommandStderr::new(String::from_utf8_lossy(&output.stderr).into_owned()),
-        });
-    }
-
     let stdout = tokio::task::spawn_blocking(move || std::fs::read(stdout_capture.path()))
         .await
         .map_err(|error| SdkError::Protocol(format!("read {label} output: {error}")))??;
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
+    Ok(CapturedRun {
+        label,
+        status: output.status,
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 #[cfg(test)]
