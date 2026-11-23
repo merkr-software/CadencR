@@ -10,87 +10,98 @@ use crate::shared::discard::IgnoreClosed;
 
 use super::super::{QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender};
 
-pub(super) async fn live_session_payload(
-    app_state: &AppState,
-    sdk_sessions: &SdkSessions,
+#[derive(bon::Builder)]
+pub(super) struct Binding<'a> {
+    app_state: &'a AppState,
+    sdk_sessions: &'a SdkSessions,
     id: i64,
-    row: Option<&SessionRow>,
-) -> Option<(SessionInitializedPayload, Option<RuntimeSessionHandle>)> {
-    let sessions = sdk_sessions.lock().await;
-    let spawning = app_state.session_runtimes.is_spawning(id).await;
-    sessions
-        .get(&id)
-        .and_then(|handle| live_payload(id, handle, row, spawning))
+    feature_id: i64,
+    sender: &'a WsSender,
+    ref_id: &'a str,
 }
 
-/// Install `pending` unless a concurrent active/spawning runtime appeared while
-/// init probes ran unlocked, then send the `initialized` reply and restore
-/// state for whichever payload won.
-#[bon::builder]
-pub(super) async fn finalize_pending_or_live(
-    app_state: &AppState,
-    sdk_sessions: &SdkSessions,
-    sender: &WsSender,
-    ref_id: &str,
-    db_session_id: i64,
-    feature_id: i64,
-    row: Option<&SessionRow>,
-    pending: SdkHandle,
-    pending_payload: SessionInitializedPayload,
-    resume_session_id: Option<&str>,
-) {
-    if let Some((live, runtime)) =
-        insert_pending_unless_live(app_state, sdk_sessions, db_session_id, row, pending).await
-    {
-        let live_resume = row.and_then(|row| row.runtime_session_id.as_deref());
-        reply_and_restore(
-            app_state,
-            sender,
-            ref_id,
-            live,
-            feature_id,
-            live_resume,
-            runtime.map(|query| (sdk_sessions, query)),
+impl Binding<'_> {
+    /// Reply from a live handle when possible. After discovery, install the
+    /// proposed handle only if a concurrent spawn has not already won.
+    pub(super) async fn initialize(
+        &self,
+        row: Option<&SessionRow>,
+        pending: Option<(SdkHandle, SessionInitializedPayload)>,
+    ) -> bool {
+        let mut sessions = self.sdk_sessions.lock().await;
+        let spawning = self.app_state.session_runtimes.is_spawning(self.id).await;
+        let live = sessions
+            .get(&self.id)
+            .and_then(|handle| live_payload(self.id, handle, row, spawning));
+        let (mut payload, runtime, resume_id) = if let Some((payload, runtime)) = live {
+            (
+                payload,
+                runtime,
+                row.and_then(|row| row.runtime_session_id.clone()),
+            )
+        } else if let Some((handle, payload)) = pending {
+            let resume_id = handle.resume_session_id.clone();
+            sessions.insert(self.id, handle);
+            (payload, None, resume_id)
+        } else {
+            return false;
+        };
+        if let Some(query) = runtime {
+            drop(sessions);
+            if let Some(steering) = query.read().await.negotiated_prompt_steering() {
+                payload.supports_prompt_receipts = steering;
+                payload.prompt_receipts_at_submission = steering;
+            }
+            self.send_initialized(payload);
+            crate::domain::ws_session::runtime::prompt::mcp_servers::replay_cached_mcp_servers(
+                self.sdk_sessions,
+                self.id,
+                &query,
+                self.sender,
+            )
+            .await;
+        } else {
+            // A spawn publishes the negotiated capabilities after taking this
+            // lock. Queue the provisional snapshot before that event can arrive.
+            self.send_initialized(payload);
+            drop(sessions);
+        }
+        self.app_state
+            .persistence_health
+            .replay(self.id, self.sender)
+            .await;
+        if let Some(resume_id) = resume_id {
+            super::super::send_runtime_session_id(self.sender, &resume_id);
+        }
+        super::restore::restore_pending_or_idle(
+            self.app_state,
+            self.sender,
+            self.id,
+            self.feature_id,
         )
         .await;
-        return;
+        if let Err(error) = super::super::session_init_worktree::restore_worktree_state(
+            self.app_state,
+            self.sender,
+            self.feature_id,
+        )
+        .await
+        {
+            super::super::send_error(self.sender, self.ref_id, "WORKTREE_CHECK_FAILED", &error);
+        }
+        true
     }
-    reply_and_restore(
-        app_state,
-        sender,
-        ref_id,
-        pending_payload,
-        feature_id,
-        resume_session_id,
-        None,
-    )
-    .await;
+
+    fn send_initialized(&self, payload: SessionInitializedPayload) {
+        let reply = WsEnvelope::session_reply(self.ref_id, &WsSessionEvent::Initialized(payload))
+            .expect("session event payload should serialize");
+        self.sender
+            .send(axum::extract::ws::Message::Text(String::from(reply).into()))
+            .ignore_closed();
+    }
 }
 
-/// Insert `pending` into `sdk_sessions` unless a concurrent active/spawning
-/// runtime appeared while init probes ran unlocked. Returns `Some(live)` when
-/// an authoritative live runtime won the race so the caller replies with it
-/// instead of clobbering it with `Pending`.
-pub(super) async fn insert_pending_unless_live(
-    app_state: &AppState,
-    sdk_sessions: &SdkSessions,
-    id: i64,
-    row: Option<&SessionRow>,
-    pending: SdkHandle,
-) -> Option<(SessionInitializedPayload, Option<RuntimeSessionHandle>)> {
-    let mut sessions = sdk_sessions.lock().await;
-    let spawning = app_state.session_runtimes.is_spawning(id).await;
-    if let Some(live) = sessions
-        .get(&id)
-        .and_then(|handle| live_payload(id, handle, row, spawning))
-    {
-        return Some(live);
-    }
-    sessions.insert(id, pending);
-    None
-}
-
-pub(super) fn live_payload(
+fn live_payload(
     id: i64,
     handle: &SdkHandle,
     row: Option<&SessionRow>,
@@ -106,6 +117,7 @@ pub(super) fn live_payload(
         .as_ref()
         .map(access_mode_wire)
         .map(str::to_owned);
+    let adapter = runtime_adapter(&handle.runtime_provider);
     let payload = SessionInitializedPayload {
         session_id: id.to_string(),
         provider: Some(handle.runtime_provider.clone()),
@@ -118,52 +130,20 @@ pub(super) fn live_payload(
             .desired_permission_mode
             .as_ref()
             .map(permission_mode_wire),
-        codex_permission_mode: runtime_adapter(&handle.runtime_provider)
+        codex_permission_mode: adapter
+            .as_ref()
             .and_then(|adapter| adapter.legacy_access_mode_wire(access_mode.as_deref())),
         access_mode,
         input_tokens: row.and_then(|row| row.input_tokens).map(|v| v as u64),
         output_tokens: row.and_then(|row| row.output_tokens).map(|v| v as u64),
         context_window: row.and_then(|row| row.context_window).map(|v| v as u64),
-        supports_prompt_receipts: runtime_adapter(&handle.runtime_provider)
+        supports_prompt_receipts: adapter
+            .as_ref()
             .is_some_and(|adapter| adapter.supports_prompt_receipts()),
+        prompt_receipts_at_submission: adapter
+            .is_some_and(|adapter| adapter.prompt_receipts_at_submission()),
     };
     Some((payload, live_query))
-}
-
-pub(super) async fn reply_and_restore(
-    state: &AppState,
-    sender: &WsSender,
-    ref_id: &str,
-    payload: SessionInitializedPayload,
-    feature_id: i64,
-    resume_id: Option<&str>,
-    runtime: Option<(&SdkSessions, RuntimeSessionHandle)>,
-) {
-    let id = payload
-        .session_id
-        .parse()
-        .expect("initialized session id is numeric");
-    let reply = WsEnvelope::session_reply(ref_id, &WsSessionEvent::Initialized(payload))
-        .expect("session event payload should serialize");
-    sender
-        .send(axum::extract::ws::Message::Text(String::from(reply).into()))
-        .ignore_closed();
-    if let Some((sessions, query)) = runtime {
-        crate::domain::ws_session::runtime::prompt::mcp_servers::replay_cached_mcp_servers(
-            sessions, id, &query, sender,
-        )
-        .await;
-    }
-    state.persistence_health.replay(id, sender).await;
-    if let Some(resume_id) = resume_id {
-        super::super::send_runtime_session_id(sender, resume_id);
-    }
-    super::restore::restore_pending_or_idle(state, sender, id, feature_id).await;
-    if let Err(error) =
-        super::super::session_init_worktree::restore_worktree_state(state, sender, feature_id).await
-    {
-        super::super::send_error(sender, ref_id, "WORKTREE_CHECK_FAILED", &error);
-    }
 }
 
 #[bon::builder]
@@ -246,52 +226,61 @@ mod tests {
     use crate::domain::ws_session::handler::types::new_sdk_sessions;
 
     #[tokio::test]
-    async fn insert_pending_unless_live_preserves_racing_active_or_spawning_runtime() {
-        let app_state = make_test_app_state().await;
+    async fn initialized_snapshot_precedes_spawn_publication_and_preserves_the_winning_handle() {
+        let state = make_test_app_state().await;
         let sessions = new_sdk_sessions();
-        let mut active = make_active_handle(1, Some("live-sid".to_string()));
-        active.desired_model = Some("opus".to_string());
-        sessions.lock().await.insert(11, active);
-
-        let pending = pending_handle()
-            .runtime_config(RuntimeSpawnConfig::default())
-            .feature_id(1)
-            .runtime_provider("claude_code".to_string())
-            .call();
-        let live = insert_pending_unless_live(&app_state, &sessions, 11, None, pending).await;
-        assert_eq!(live.and_then(|(p, _)| p.model).as_deref(), Some("opus"));
-        assert!(matches!(
-            sessions.lock().await[&11].state,
-            QueryState::Active { .. }
-        ));
-
-        // Spawning Pending handle must also win over a racing init.
-        let mut spawning_handle = pending_handle()
-            .runtime_config(RuntimeSpawnConfig {
-                model: Some("sonnet".to_string()),
-                ..Default::default()
-            })
-            .feature_id(1)
-            .runtime_provider("claude_code".to_string())
-            .call();
-        spawning_handle.desired_model = Some("sonnet".to_string());
-        sessions.lock().await.insert(12, spawning_handle);
-        let _spawn_claim = app_state.session_runtimes.claim_spawn(12).await;
-
-        let racing_pending = pending_handle()
-            .runtime_config(RuntimeSpawnConfig {
-                model: Some("haiku".to_string()),
-                ..Default::default()
-            })
-            .feature_id(1)
-            .runtime_provider("claude_code".to_string())
-            .call();
-        let live =
-            insert_pending_unless_live(&app_state, &sessions, 12, None, racing_pending).await;
-        assert_eq!(live.and_then(|(p, _)| p.model).as_deref(), Some("sonnet"));
-        assert_eq!(
-            sessions.lock().await[&12].desired_model.as_deref(),
-            Some("sonnet")
-        );
+        for spawning in [false, true] {
+            let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+            let binding = Binding::builder()
+                .app_state(&state)
+                .sdk_sessions(&sessions)
+                .id(11)
+                .feature_id(1)
+                .sender(&sender)
+                .ref_id("init")
+                .build();
+            let mut current = make_active_handle(1, None);
+            if spawning {
+                current.state = QueryState::Pending(RuntimeSpawnConfig::default());
+            }
+            current.desired_model = Some("existing-model".into());
+            let claim = if spawning {
+                Some(state.session_runtimes.claim_spawn(11).await)
+            } else {
+                None
+            };
+            let mut registry = sessions.lock().await;
+            registry.insert(11, current);
+            let pending = pending_handle()
+                .runtime_config(RuntimeSpawnConfig::default())
+                .feature_id(1)
+                .runtime_provider("claude_code".into())
+                .call();
+            let (payload, _) = live_payload(11, &pending, None, true).unwrap();
+            let initialize = binding.initialize(None, Some((pending, payload)));
+            tokio::pin!(initialize);
+            assert!(futures::poll!(&mut initialize).is_pending());
+            drop(registry);
+            let check = async {
+                let registry = sessions.lock().await;
+                assert_eq!(
+                    registry[&11].desired_model.as_deref(),
+                    Some("existing-model")
+                );
+                let snapshot: WsEnvelope = if spawning {
+                    // A competing registration can now publish its handshake. The viewer
+                    // must already have the provisional snapshot queued on its socket.
+                    serde_json::from_str(receiver.try_recv().unwrap().to_text().unwrap()).unwrap()
+                } else {
+                    drop(registry);
+                    serde_json::from_str(receiver.recv().await.unwrap().to_text().unwrap()).unwrap()
+                };
+                assert_eq!(snapshot.action, "initialized");
+                assert_eq!(snapshot.payload["model"], "existing-model");
+            };
+            let (initialized, ()) = tokio::join!(initialize, check);
+            assert!(initialized);
+            drop(claim);
+        }
     }
 }

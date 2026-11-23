@@ -186,6 +186,10 @@ impl AcpProviderHooks for InstalledAcpHooks {
         true
     }
 
+    fn uses_negotiated_prompt_receipts(&self) -> bool {
+        true
+    }
+
     fn supports_durable_resume(&self) -> bool {
         self.capabilities.supports_durable_resume()
     }
@@ -266,6 +270,7 @@ mod tests {
         let hooks = hooks("model-picker");
         assert_eq!(hooks.model_config_id(), Some("model-picker"));
         assert!(hooks.requires_verified_model_selection());
+        assert!(hooks.uses_negotiated_prompt_receipts());
         assert!(!hooks.supports_durable_resume());
         hooks.observe_durable_resume_capability(true);
         assert!(hooks.supports_durable_resume());

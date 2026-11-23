@@ -73,6 +73,12 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
+    /// Installed connectors negotiate receipt support with the live process.
+    /// Adapters that implement receipts independently keep their own policy.
+    fn uses_negotiated_prompt_receipts(&self) -> bool {
+        false
+    }
+
     /// Observe live session config options (retain aliases for later set_config_option).
     fn observe_session_config_options(&self, _options: &[SessionConfigOption]) {}
 

@@ -81,6 +81,7 @@ session_events! {
     StreamStatus(SessionStreamStatusPayload) => "stream_status",
     PersistenceStatus(SessionPersistenceStatusPayload) => "persistence_status",
     SubagentUpdated(crate::domain::subagents::SubagentRun) => "subagent_updated",
+    PromptSteering(SessionPromptSteeringPayload) => "prompt_steering",
 }
 
 impl From<WsSessionAction> for String {

@@ -214,6 +214,12 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         false
     }
 
+    /// Keep a pending prompt at its submission position in the transcript.
+    /// Its receipt still depends on the provider accepting the prompt.
+    fn prompt_receipts_at_submission(&self) -> bool {
+        false
+    }
+
     /// Extract an authoritative context window for the current event.
     ///
     /// The default implementation stays provider-neutral by relying only on
@@ -459,6 +465,7 @@ mod tests {
             .parse_permission_request(&json!({"type": "none"}))
             .is_none());
         assert!(!adapter.supports_prompt_receipts());
+        assert!(!adapter.prompt_receipts_at_submission());
         assert_eq!(
             adapter.permission_response_route(),
             RuntimePermissionResponseRoute::Session

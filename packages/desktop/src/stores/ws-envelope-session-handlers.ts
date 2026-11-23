@@ -7,12 +7,14 @@ import {
   parseMcpServersPayload,
   parsePermissionPayload,
   parsePromptReceivedPayload,
+  parsePromptSteeringPayload,
   parseCanonicalUserMessagePayload,
   parseTranscriptBlockPayload,
 } from "./ws-envelope-payload";
 import {
   messageDbIdFromBlockId,
   upsertCanonicalUserMessage,
+  orderPendingPrompts,
 } from "./ws-user-message-reconciliation";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildClearedGatePatch } from "./ws-gate-state";
@@ -119,6 +121,7 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     mcpServers: null,
     mcpServersError: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
+    ...promptPlacement(session, p.prompt_receipts_at_submission ?? false),
     initRequestId: null,
     // A fresh stream: a retry reported on the previous connection (whose
     // recovery or turn end may have been missed) no longer applies.
@@ -161,6 +164,42 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     };
   }
   ctx.set(updateSession(ctx.get(), sessionId, updates));
+}
+
+function promptPlacement(session: SessionEntry, atSubmission: boolean): Partial<SessionEntry> {
+  if (atSubmission !== session.promptReceiptsAtSubmission) {
+    const ordered = orderPendingPrompts(session.blocks, atSubmission);
+    if (ordered !== session.blocks) {
+      return {
+        promptReceiptsAtSubmission: atSubmission,
+        ...blocksPatchWithDerived(session.streamingState, ordered),
+      };
+    }
+  }
+  return { promptReceiptsAtSubmission: atSubmission };
+}
+
+export function handlePromptSteering(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const parsed = parsePromptSteeringPayload(payload);
+  if (!parsed) return;
+  const session = ctx.getSession(sessionId);
+  const { supported, session_id } = parsed;
+  if (session.sessionDbId == null || String(session.sessionDbId) !== session_id) return;
+  if (
+    session.supportsPromptReceipts === supported &&
+    session.promptReceiptsAtSubmission === supported
+  )
+    return;
+  ctx.set(
+    updateSession(ctx.get(), sessionId, {
+      supportsPromptReceipts: supported,
+      ...promptPlacement(session, supported),
+    }),
+  );
 }
 
 export function handleMcpServers(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
@@ -286,7 +325,7 @@ export function handleCanonicalUserMessage(
     return;
   }
   const session = ctx.getSession(sessionId);
-  const blocks = upsertCanonicalUserMessage(session.blocks, p);
+  const blocks = upsertCanonicalUserMessage(session.blocks, p, session.promptReceiptsAtSubmission);
   if (blocks !== session.blocks) {
     ctx.set(
       updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),

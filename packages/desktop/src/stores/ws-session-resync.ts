@@ -47,7 +47,8 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
 import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { blockMessageDbId, mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
+import { pendingPromptFetchCursor } from "./ws-pending-prompts";
+import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
 import { isServiceStopMarker } from "@/lib/agent-message-origin";
 import { invalidateFeatureSubagents } from "@/hooks/useFeatureSubagents";
 import {
@@ -98,7 +99,7 @@ async function performMessageResync(
   // Sub-agent pushes sent while disconnected are gone too.
   invalidateFeatureSubagents(featureId);
   const cursor = target?.cursor ?? session.lastAppliedMessageId ?? 0;
-  const fetchCursor = target ? cursor : reconnectFetchCursor(session.blocks, cursor);
+  const fetchCursor = target ? cursor : pendingPromptFetchCursor(session.blocks, cursor);
   const revisionCursor = session.lastAppliedContentRevision ?? 0;
   const persistenceRepair = repairPersistence ? capturePersistenceRepair(session) : null;
   const pages = await drainResyncPages({
@@ -128,7 +129,11 @@ async function performMessageResync(
     pages.truncatedToolCallUpdateIds,
   );
   const merged = dropStaleReconnectNotices(
-    mergeCanonicalBlocks(currentWithUpdates, incomingWithUpdates),
+    mergeCanonicalBlocks(
+      currentWithUpdates,
+      incomingWithUpdates,
+      current.promptReceiptsAtSubmission,
+    ),
     incomingWithUpdates,
   );
   ctx.set(
@@ -211,6 +216,7 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     blocks = mergeCanonicalBlocks(
       blocks,
       serverBlocksToAgentBlocks(serverSession.blocks as never[]),
+      true, // Database pages are merged in submission order before applying the live policy.
     );
     const pageTruncatedIds = new Set(serverSession.truncatedToolCallUpdateIds ?? []);
     for (const [id, content] of Object.entries(serverSession.toolCallUpdates ?? {})) {
@@ -248,16 +254,6 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     complete,
     settled,
   };
-}
-
-function reconnectFetchCursor(blocks: AgentBlockData[], confirmedCursor: number): number {
-  let cursor = confirmedCursor;
-  for (const block of blocks) {
-    if (block.type !== "user_message" || block.promptDeliveryState !== "pending_agent") continue;
-    const messageId = blockMessageDbId(block);
-    if (messageId != null) cursor = Math.min(cursor, messageId - 1);
-  }
-  return Math.max(0, cursor);
 }
 
 /**
@@ -319,7 +315,7 @@ export async function repairPersistedBlocksAfterTurn(
   };
   const repaired = current.blocks.map((block) => repairBlockTree(block, serverById, markChanged));
 
-  const merged = mergeCanonicalBlocks(repaired, fetched);
+  const merged = mergeCanonicalBlocks(repaired, fetched, current.promptReceiptsAtSubmission);
   const appended = merged.length - repaired.length;
 
   if (!changed && appended === 0 && merged === repaired) return;

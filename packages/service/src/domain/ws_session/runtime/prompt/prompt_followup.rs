@@ -1,12 +1,11 @@
+use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::SessionOutput;
 use tracing::info;
-
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSessionHandle};
 
 struct FollowupTurnGuard {
     runtime: tokio::sync::OwnedRwLockReadGuard<Box<dyn AgentRuntimeSession>>,
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
-    _followup_order: tokio::sync::OwnedMutexGuard<()>,
+    followup_order: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 use crate::domain::feature_events::{FeatureEventAction, FeatureEventBroadcaster};
 use crate::domain::ws_session::protocol::PromptSendPayload;
@@ -96,12 +95,8 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     )
     .await?;
 
-    // A follow-up sent while a turn already runs is registered in
-    // `FollowupStops`: a Stop arriving now cancels it cleanly, so release the
-    // control lane before awaiting the per-session order lock or the 15 s
-    // pre-turn git checkpoint. When `!turn_running`, keep controls behind
-    // until `turn_guard` is held so a Stop cannot overtake the prompt before
-    // the new turn is registered.
+    // A mid-turn follow-up is registered in FollowupStops. Let Stop through
+    // before the order lock and checkpoint. An idle prompt first reserves its turn.
     if delivery.accepted.is_some() {
         crate::domain::ws_session::handler::let_controls_through();
     }
@@ -144,16 +139,18 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
         conversation_references,
         delivery,
     };
-    if prepared.context.wait_for_delivery {
+    let wait = prepared.context.wait_for_delivery;
+    if wait && prepared.turn_guard.runtime.negotiated_prompt_steering() != Some(true) {
         return stream_followup_prompt(prepared).await;
     }
-    tokio::spawn(async move {
-        #[expect(
-            clippy::let_underscore_must_use,
-            reason = "every failure path already reported to the requester before returning"
-        )]
-        let _ = stream_followup_prompt(prepared).await;
-    });
+    // The dispatch owns its ACP request and receipt if the control caller leaves.
+    let task = tokio::spawn(stream_followup_prompt(prepared));
+    if wait {
+        return task
+            .await
+            .map_err(|error| format!("Follow-up dispatch task failed: {error}"))?;
+    }
+    drop(task);
     Ok(())
 }
 
@@ -189,7 +186,7 @@ async fn acquire_followup_turn_guard(
     let turn_guard = FollowupTurnGuard {
         runtime,
         _barrier: barrier,
-        _followup_order: followup_order,
+        followup_order: Some(followup_order),
     };
     // Before it starts a turn: a Stop that came meanwhile ended the one it
     // followed, and nothing would end the turn it starts.
@@ -269,7 +266,7 @@ async fn persist_followup_user_message(
 async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String> {
     let PreparedFollowup {
         mut context,
-        turn_guard,
+        mut turn_guard,
         payload,
         dispatch_claim,
         receipt_message_uuid,
@@ -305,7 +302,11 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
     }
     let stream_result = turn_guard
         .runtime
-        .stream_input_with_client_message_id(content, receipt_message_uuid.clone())
+        .stream_input_with_delivery_order(
+            content,
+            receipt_message_uuid.clone(),
+            &mut turn_guard.followup_order,
+        )
         .await;
     // Recorded before the barrier drops: a Stop that follows withdraws it,
     // and finds its dispatch final.

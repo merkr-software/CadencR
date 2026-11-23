@@ -249,6 +249,46 @@ describe("resyncMessagesOnReconnect", () => {
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(10, 7));
   });
 
+  it("recovers separate receipts across two steers without moving their streamed answers", async () => {
+    const pending = (id: number): AgentBlockData => ({
+      id: `msg-${id}`,
+      type: "user_message",
+      content: `request ${id}`,
+      messageDbId: id,
+      messageUuid: crypto.randomUUID(),
+      promptDeliveryState: "pending_agent",
+    });
+    const first = pending(12);
+    const second = pending(14);
+    const answer = makeBlock("msg-13", "first response");
+    const ctx = createCtx({
+      ...createSession([first, answer, second], 15),
+      promptReceiptsAtSubmission: true,
+    });
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          maxMessageId: 16,
+          blocks: [
+            { ...first, promptDeliveryState: "received_agent" },
+            answer,
+            { ...second, promptDeliveryState: "delivery_failed" },
+            makeBlock("msg-16", "original command returned"),
+          ],
+        },
+      ],
+    });
+    await resyncMessagesOnReconnect(ctx, "s1");
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(11, 7));
+    expect(ctx.getSession("s1").rootBlocks.map((b) => [b.id, b.promptDeliveryState])).toEqual([
+      ["msg-12", "received_agent"],
+      ["msg-13", undefined],
+      ["msg-14", "delivery_failed"],
+      ["msg-16", undefined],
+    ]);
+  });
+
   it("coalesces concurrent reconnect and gap resyncs", async () => {
     const ctx = createCtx(createSession([makeBlock("msg-10", "before")], 10));
     let resolveRequest: ((value: unknown) => void) | undefined;

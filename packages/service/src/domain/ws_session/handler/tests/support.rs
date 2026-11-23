@@ -331,6 +331,20 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
+    // Native usage reports keep a durable, provider-scoped replay identity.
+    sqlx::query(
+        "CREATE TABLE provider_usage_events (
+            session_id INTEGER NOT NULL,
+            provider_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            PRIMARY KEY (session_id, provider_id, event_id),
+            FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query(
         r#"CREATE TABLE session_runtime_ids (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

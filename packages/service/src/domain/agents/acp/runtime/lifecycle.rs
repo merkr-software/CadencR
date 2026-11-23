@@ -22,6 +22,7 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::schema::ProtocolVersion;
 use serde_json::Value;
 
+use super::prompt_turn::supports_prompt_steering;
 use super::provider_hooks::AcpProviderHooks;
 use super::session_config::snapshot_from_options;
 use super::session_task::session_meta;
@@ -49,6 +50,8 @@ pub struct NegotiatedSession {
     pub session_config: RuntimeSessionConfigSnapshot,
     /// Whether the agent advertised stable ACP `session/close` support.
     pub supports_session_close: bool,
+    /// Whether another `session/prompt` can steer an outstanding prompt.
+    pub supports_prompt_steering: bool,
     /// Legacy `session/load` may replay transcript updates. Stable
     /// `session/resume` explicitly does not.
     pub may_replay_history: bool,
@@ -59,6 +62,7 @@ pub struct AgentCapabilities {
     pub load_session: bool,
     pub resume_session: bool,
     pub close_session: bool,
+    pub prompt_steering: bool,
 }
 
 impl AgentCapabilities {
@@ -67,6 +71,7 @@ impl AgentCapabilities {
             load_session: capabilities.load_session,
             resume_session: capabilities.session_capabilities.resume.is_some(),
             close_session: capabilities.session_capabilities.close.is_some(),
+            prompt_steering: supports_prompt_steering(capabilities.meta.as_ref()),
         }
     }
 
@@ -179,6 +184,7 @@ async fn handshake(
             current_mode,
             session_config,
             supports_session_close: capabilities.close_session,
+            supports_prompt_steering: capabilities.prompt_steering,
             may_replay_history,
         });
     }
@@ -193,6 +199,7 @@ async fn handshake(
         current_mode,
         session_config,
         supports_session_close: capabilities.close_session,
+        supports_prompt_steering: capabilities.prompt_steering,
         may_replay_history: false,
     })
 }
@@ -348,6 +355,25 @@ mod tests {
 
     const RESUME_ID: &str = "ses_existing";
     const RESUME_TEST_TIMEOUT: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn prompt_steering_requires_an_explicit_live_boolean() {
+        for (wire, supported) in [
+            (json!({}), false),
+            (
+                json!({"_meta":{"cadencr":{"promptSteering":"true"}}}),
+                false,
+            ),
+            (json!({"_meta":{"cadencr":{"promptSteering":false}}}), false),
+            (json!({"_meta":{"cadencr":{"promptSteering":true}}}), true),
+        ] {
+            let capabilities = serde_json::from_value::<ProtocolAgentCapabilities>(wire).unwrap();
+            assert_eq!(
+                AgentCapabilities::from_protocol(&capabilities).prompt_steering,
+                supported
+            );
+        }
+    }
 
     struct ResumeHooks;
 

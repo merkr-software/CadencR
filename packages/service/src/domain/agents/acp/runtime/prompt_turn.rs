@@ -9,6 +9,15 @@
 
 use serde_json::{json, Value};
 
+pub(in crate::domain::agents) fn supports_prompt_steering(
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> bool {
+    meta.and_then(|meta| meta.get("cadencr"))
+        .and_then(|meta| meta.get("promptSteering"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
 /// Convert Cadencr-shaped content into an ACP prompt block array.
 ///
 /// Accepted inputs (in order of preference):

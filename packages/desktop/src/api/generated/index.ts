@@ -5476,6 +5476,7 @@ export interface ProviderSetOkPayload {
   model: string;
   /** @nullable */
   profile?: string | null;
+  prompt_receipts_at_submission?: boolean;
   provider: string;
   runtime_overrides: RuntimeConfigOverrides;
   supports_prompt_receipts: boolean;
@@ -6704,6 +6705,8 @@ export interface SessionInitializedPayload {
   permission_mode?: string | null;
   /** @nullable */
   profile?: string | null;
+  /** Keep provider-pending prompts in their submission order. */
+  prompt_receipts_at_submission?: boolean;
   /** @nullable */
   provider?: string | null;
   runtime_overrides: RuntimeConfigOverrides;
@@ -6781,6 +6784,11 @@ export interface SessionPrompt {
   image_count: number;
   /** Start of the prompt's text, whitespace-collapsed. */
   preview: string;
+}
+
+export interface SessionPromptSteeringPayload {
+  session_id: string;
+  supported: boolean;
 }
 
 export interface SessionPromptsResponse {
@@ -7640,6 +7648,7 @@ export const WsSessionAction = {
   stream_status: "stream_status",
   persistence_status: "persistence_status",
   subagent_updated: "subagent_updated",
+  prompt_steering: "prompt_steering",
 } as const;
 
 export type WsSessionCommandOneOfAction =
@@ -8503,6 +8512,18 @@ export type WsSessionEventOneOfEightone = {
   payload: SubagentRun;
 };
 
+export type WsSessionEventOneOfEightthreeAction =
+  (typeof WsSessionEventOneOfEightthreeAction)[keyof typeof WsSessionEventOneOfEightthreeAction];
+
+export const WsSessionEventOneOfEightthreeAction = {
+  prompt_steering: "prompt_steering",
+} as const;
+
+export type WsSessionEventOneOfEightthree = {
+  action: WsSessionEventOneOfEightthreeAction;
+  payload: SessionPromptSteeringPayload;
+};
+
 /**
  * Session-domain server events, flattened beside the envelope id/domain/ref.
  */
@@ -8547,7 +8568,8 @@ export type WsSessionEvent =
   | WsSessionEventOneOfSevenfive
   | WsSessionEventOneOfSevenseven
   | WsSessionEventOneOfSevennine
-  | WsSessionEventOneOfEightone;
+  | WsSessionEventOneOfEightone
+  | WsSessionEventOneOfEightthree;
 
 export type GetAgentCatalogParams = {
   /**

@@ -3,6 +3,7 @@ import type { CommandsListPayload } from "@/lib/ws-envelope";
 import type { McpServerStatus } from "./ws-session-types";
 import type {
   ProviderSetOkPayload,
+  SessionPromptSteeringPayload,
   RuntimeSessionConfigChoices,
   RuntimeSessionConfigOption,
   RuntimeSessionConfigSelectOption,
@@ -234,6 +235,7 @@ export function parseInitializedPayload(payload: unknown): {
   output_tokens?: number;
   context_window?: number;
   supports_prompt_receipts?: boolean;
+  prompt_receipts_at_submission?: boolean;
   runtime_overrides?: {
     model: string | null;
     thinking_effort: string | null;
@@ -271,6 +273,7 @@ export function parseInitializedPayload(payload: unknown): {
     output_tokens: optionalNumber(record, "output_tokens"),
     context_window: optionalNumber(record, "context_window"),
     supports_prompt_receipts: optionalBoolean(record, "supports_prompt_receipts"),
+    prompt_receipts_at_submission: optionalBoolean(record, "prompt_receipts_at_submission"),
     runtime_overrides: runtimeOverrides,
   };
 }
@@ -299,10 +302,18 @@ export function parseModelPayload(payload: unknown): {
   };
 }
 
+const promptSteeringSchema = z.object({ session_id: z.string(), supported: z.boolean() });
+
+export function parsePromptSteeringPayload(payload: unknown): SessionPromptSteeringPayload | null {
+  const result = promptSteeringSchema.safeParse(payload);
+  return result.success ? result.data : null;
+}
+
 const providerPayloadSchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
   supports_prompt_receipts: z.boolean().optional(),
+  prompt_receipts_at_submission: z.boolean().optional(),
   codex_permission_mode: z.string().optional(),
   access_mode: z.string().optional(),
   profile: z.string().nullable().optional(),

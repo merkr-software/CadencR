@@ -221,6 +221,7 @@ mod tests {
             current_mode: Some("accept-edits".into()),
             session_config: snapshot_from_options(&config_options("accept-edits")),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);

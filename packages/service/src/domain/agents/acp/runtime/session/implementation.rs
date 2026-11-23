@@ -49,10 +49,7 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) current_mode: Arc<RwLock<String>>,
     pub(in crate::domain::agents::acp::runtime) session_config: AcpSessionConfigState,
     pub(in crate::domain::agents::acp::runtime) supports_session_close: bool,
-    /// Tracks whether the agent supports `session/set_config_option`.
-    /// Defaults to `true`; flipped to `false` on the first `MethodNotFound`
-    /// response so we stop wasting round trips and let the legacy
-    /// "ride-along on the next prompt" fallback handle model/effort changes.
+    /// A method-not-found response lets subsequent prompts carry model and effort.
     pub(in crate::domain::agents::acp::runtime) supports_set_config_option: Arc<AtomicBool>,
     /// Tracks whether the agent supports `session/set_mode`.
     pub(in crate::domain::agents::acp::runtime) supports_set_mode: Arc<AtomicBool>,
@@ -94,9 +91,8 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) replay_suppression: Arc<AtomicBool>,
     /// Client prompt ids waiting for provider-side receipt confirmation.
     pub(in crate::domain::agents::acp::runtime) pending_prompt_receipts: Arc<PendingPromptReceipts>,
-    /// Serialises prompt turns so a second `stream_input` waits for the
-    /// in-flight turn (request + post-response drain) to finish before
-    /// sending its own `session/prompt` (W4).
+    /// Orders prompt admission and keeps compaction and detached activity
+    /// outside the native prompt requests.
     pub(in crate::domain::agents::acp::runtime) prompt_turn_lock: PromptTurnLock,
     pub(in crate::domain::agents::acp::runtime) prompt_cancel: PromptCancel,
 }
@@ -106,16 +102,6 @@ impl AcpRuntimeSession {
         self.local_tx
             .as_ref()
             .expect("ACP runtime sender unavailable after close")
-    }
-
-    pub async fn current_session_id(&self) -> Option<String> {
-        self.session_id.read().await.clone()
-    }
-
-    pub(super) async fn require_session_id(&self) -> Result<String, RuntimeError> {
-        self.current_session_id()
-            .await
-            .ok_or_else(|| RuntimeError::new("ACP session id not yet known"))
     }
 
     fn with_mcp_connection_statuses(
@@ -138,6 +124,12 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         self.message_rx
             .take()
             .expect("AcpRuntimeSession message_rx already taken")
+    }
+
+    fn negotiated_prompt_steering(&self) -> Option<bool> {
+        self.hooks
+            .uses_negotiated_prompt_receipts()
+            .then(|| self.prompt_turn_lock.supports_steering())
     }
 
     fn context_window(&self) -> Option<u64> {
@@ -199,7 +191,17 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input(content, client_message_id).await
+        self.prompt_input(content, client_message_id, &mut None)
+            .await
+    }
+
+    async fn stream_input_with_delivery_order(
+        &self,
+        content: Value,
+        client_message_id: Option<String>,
+        order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+    ) -> Result<(), RuntimeError> {
+        self.prompt_input(content, client_message_id, order).await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {
@@ -213,6 +215,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     async fn interrupt(&self) -> Result<(), RuntimeError> {
         let session_id = self.require_session_id().await?;
         reject_all_pending(&self.client, &self.pending_permissions).await;
+        let _admission = self.prompt_turn_lock.lock_admission().await;
         // The agent may report the interruption as soon as it sees the notification.
         self.prompt_cancel.cancel_current_turn();
         self.client

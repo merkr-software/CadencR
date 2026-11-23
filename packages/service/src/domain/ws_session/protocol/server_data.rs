@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionPromptSteeringPayload {
+    pub session_id: String,
+    pub supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionAcknowledgedPayload {
     pub action: String,
 }

@@ -8,6 +8,20 @@ mod prompt;
 pub use implementation::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
 pub(super) use modes::select_value;
 
+use crate::domain::agents::adapter::RuntimeError;
+
+impl AcpRuntimeSession {
+    pub async fn current_session_id(&self) -> Option<String> {
+        self.session_id.read().await.clone()
+    }
+
+    async fn require_session_id(&self) -> Result<String, RuntimeError> {
+        self.current_session_id()
+            .await
+            .ok_or_else(|| RuntimeError::new("ACP session id not yet known"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! End-to-end harness for [`super::session`].
@@ -35,7 +49,7 @@ mod tests {
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
-    use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
+    use tokio::sync::{mpsc, RwLock};
 
     struct PlainHooks;
 
@@ -75,6 +89,7 @@ mod tests {
             current_mode: None,
             session_config: Default::default(),
             supports_session_close,
+            supports_prompt_steering: false,
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
@@ -285,7 +300,7 @@ mod tests {
         let mode = Arc::new(RwLock::new("build".to_string()));
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
         let pending = PendingPermissions::default();
-        let lock = Arc::new(AsyncMutex::new(()));
+        let lock = super::super::turn_lifecycle::PromptTurnLock::default();
         let cancel = PromptCancel::new();
         let (tx, mut rx) = mpsc::channel(64);
 
@@ -361,6 +376,7 @@ mod tests {
             current_mode: None,
             session_config: Default::default(),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
@@ -411,6 +427,7 @@ mod tests {
             current_mode: None,
             session_config: snapshot_from_options(&model_options("m1")),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
@@ -486,6 +503,7 @@ mod tests {
             current_mode: None,
             session_config: Default::default(),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
@@ -515,11 +533,12 @@ mod tests {
         let cancel = read_one_request(&mut agent_stdin).await;
         assert_eq!(cancel["method"], "session/cancel");
 
-        tokio::time::timeout(Duration::from_secs(5), prompt)
+        let delivery_error = tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
             .expect("escalation should unblock the prompt turn")
             .unwrap()
-            .unwrap();
+            .expect_err("a terminated runtime cannot confirm prompt delivery");
+        assert!(delivery_error.is_stop_escalation());
         let escalation = runtime_rx
             .recv()
             .await

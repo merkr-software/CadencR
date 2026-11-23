@@ -35,7 +35,9 @@ mod permissions_dispatch;
 mod permissions_refresh;
 pub mod permissions_typed;
 pub mod prompt_receipts;
+mod prompt_settlement;
 pub mod prompt_turn;
+mod prompt_turn_lock;
 pub mod provider_hooks;
 pub mod schema_bridge;
 #[cfg(test)]

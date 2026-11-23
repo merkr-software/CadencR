@@ -5,7 +5,9 @@ use serde_json::Value;
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call::MappedUpdate;
 use super::turn_result::detached_result;
-use crate::domain::agents::adapter::RuntimeStreamEvent;
+use crate::domain::agents::adapter::{
+    RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeStreamEvent,
+};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum DetachedReply {
@@ -27,7 +29,7 @@ impl DetachedReply {
 #[derive(Clone, Copy)]
 pub(super) enum DetachedUpdate {
     Chunk,
-    End { pending: bool },
+    End { pending: Option<bool> },
     WorkFinished,
 }
 
@@ -39,12 +41,12 @@ impl DetachedUpdate {
         let body = params.get("update").unwrap_or(params);
         match body.get("sessionUpdate").and_then(Value::as_str) {
             Some("agent_message_chunk" | "agent_thought_chunk") => Some(Self::Chunk),
-            Some("usage_update")
+            Some("usage_update" | "session_info_update")
                 if body.pointer("/_meta/cadencr/detachedReplyEnded")
                     == Some(&Value::Bool(true)) =>
             {
                 Some(Self::End {
-                    pending: super::background_work::pending(body) == Some(true),
+                    pending: super::background_work::pending(body),
                 })
             }
             Some("session_info_update") if super::background_work::pending(body) == Some(false) => {
@@ -75,16 +77,29 @@ impl DetachedUpdate {
                 }
             }
             Self::End { pending } if indexer.detached_reply == DetachedReply::Streaming => {
+                let pending = if indexer.turn_interrupted() {
+                    Some(false)
+                } else {
+                    pending
+                };
                 finish_reply(indexer, mapped, session_id, pending);
             }
             Self::WorkFinished if indexer.background_work.is_pending() => {
                 if !owns_prompt_lock || indexer.detached_reply == DetachedReply::Inactive {
-                    // The reader settles the old work without completing the new turn.
-                    emit_result(indexer, mapped, session_id, false);
+                    if indexer.background_work.held_at_result() {
+                        // A prior visible turn held the work. The reader checks its generation.
+                        emit_result(indexer, mapped, session_id, Some(false));
+                    } else {
+                        emit_release(indexer, mapped);
+                    }
                 } else if indexer.detached_reply == DetachedReply::Awaiting
                     || indexer.turn_interrupted()
                 {
-                    finish_reply(indexer, mapped, session_id, false);
+                    finish_reply(indexer, mapped, session_id, Some(false));
+                } else {
+                    // The wake started before the standalone release arrived.
+                    // Drain the work hold and let this reply's own result finish it.
+                    emit_release(indexer, mapped);
                 }
             }
             _ => {}
@@ -92,11 +107,19 @@ impl DetachedUpdate {
     }
 }
 
+fn emit_release(indexer: &mut EventIndexer, mapped: &mut MappedUpdate) {
+    let signal = indexer.background_work.observe_progress(false);
+    mapped.events.push(
+        RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
+            .with_background_agent(signal),
+    );
+}
+
 fn finish_reply(
     indexer: &mut EventIndexer,
     mapped: &mut MappedUpdate,
     session_id: &str,
-    pending: bool,
+    pending: Option<bool>,
 ) {
     if indexer.detached_reply == DetachedReply::Streaming {
         mapped
@@ -113,7 +136,7 @@ fn emit_result(
     indexer: &mut EventIndexer,
     mapped: &mut MappedUpdate,
     session_id: &str,
-    pending: bool,
+    pending: Option<bool>,
 ) {
     let signal = indexer.background_work.observe(pending);
     let result = detached_result(session_id);
@@ -130,9 +153,9 @@ mod tests {
     use super::super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
     use super::*;
     use crate::domain::agents::acp::AcpClient;
-    use crate::domain::agents::adapter::RuntimeError;
-    use crate::domain::agents::adapter::RuntimeEvent;
+    use crate::domain::agents::adapter::{BackgroundAgentSignal, RuntimeError};
     use serde_json::json;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
     use tokio::sync::mpsc;
@@ -145,14 +168,21 @@ mod tests {
         config: EventLoopConfig,
         tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
         rx: mpsc::Receiver<Result<RuntimeEvent, RuntimeError>>,
+        event_loop: JoinHandle<()>,
     }
 
     impl Harness {
         async fn new() -> Self {
+            Self::with_steering(false).await
+        }
+
+        async fn with_steering(steering: bool) -> Self {
             let (client, stdout, stdin) = build_in_memory_client().await;
             let (tx, rx) = mpsc::channel(32);
-            let config = event_loop_config(std::env::temp_dir());
-            spawn_event_loop(
+            let mut config = event_loop_config(std::env::temp_dir());
+            config.prompt_turn_lock =
+                Arc::new(super::super::prompt_turn_lock::PromptTurns::new(steering));
+            let event_loop = spawn_event_loop(
                 client.clone(),
                 client.subscribe_reliable(),
                 tx.clone(),
@@ -165,6 +195,7 @@ mod tests {
                 config,
                 tx,
                 rx,
+                event_loop,
             }
         }
 
@@ -293,8 +324,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn release_during_a_steer_leaves_it_open_and_is_not_overwritten_by_its_fallback() {
+        let mut harness = Harness::with_steering(true).await;
+        let (id, original) = harness.start_prompt().await;
+        let (steer_id, steer) = harness.start_prompt().await;
+        let mut response = prompt_result();
+        response["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        send_response(&mut harness.stdout, id, response).await;
+        await_prompt(original).await;
+        assert!(harness.next().await.is_usage_accounting());
+        let started = harness.next().await;
+        assert!(matches!(
+            started.background_agent_signal(),
+            Some(BackgroundAgentSignal::Started { .. })
+        ));
+        harness
+            .send_burst(&[release_work("s-1"), usage("s-1", 7, false)])
+            .await;
+        let release = harness.through_usage(7).await;
+        assert!(!release.iter().any(RuntimeEvent::is_result));
+        assert!(release.iter().any(|e| matches!(
+            e.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        )));
+
+        harness
+            .send_burst(&[
+                json!({"jsonrpc":"2.0","id":steer_id,"error":{"code":-32602,"message":"rejected"}}),
+                usage("s-1", 8, false),
+            ])
+            .await;
+        let events = harness.through_usage(8).await;
+        await_prompt(steer).await;
+        let fallback = events.iter().find(|e| e.is_result()).unwrap();
+        assert_eq!(fallback.raw_json()["stop_reason"], "end_turn");
+        assert!(fallback.token_usage().is_none() && fallback.background_agent_signal().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_lost_response_fence_uses_the_last_confirmed_boundary() {
+        let mut harness = Harness::with_steering(true).await;
+        let (id, original) = harness.start_prompt().await;
+        let (steer_id, steer) = harness.start_prompt().await;
+        let mut response = prompt_result();
+        response["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        send_response(&mut harness.stdout, id, response).await;
+        await_prompt(original).await;
+        assert!(harness.next().await.is_usage_accounting());
+        assert!(harness.next().await.background_agent_signal().is_some());
+        harness.event_loop.abort();
+        assert!((&mut harness.event_loop).await.unwrap_err().is_cancelled());
+        send_response(&mut harness.stdout, steer_id, prompt_result()).await;
+        await_prompt(steer).await;
+        let fallback = harness.next().await;
+        assert_eq!(fallback.raw_json()["stop_reason"], "end_turn");
+        assert!(fallback.token_usage().is_none() && fallback.background_agent_signal().is_some());
+    }
+
+    #[tokio::test]
+    async fn explicit_background_work_keeps_detached_replies_eligible_after_a_non_end_turn_result()
+    {
+        for reason in ["max_tokens", "cancelled"] {
+            let mut harness = Harness::with_steering(true).await;
+            let (id, task) = harness.start_prompt().await;
+            send_response(
+                &mut harness.stdout,
+                id,
+                json!({
+                    "stopReason":reason,
+                    "_meta":{"cadencr":{"backgroundWorkPending":true}}
+                }),
+            )
+            .await;
+            await_prompt(task).await;
+            let result = harness.next().await;
+            assert!(result.is_result());
+            assert!(matches!(
+                result.background_agent_signal(),
+                Some(BackgroundAgentSignal::Started { .. })
+            ));
+            let mut marker = usage("s-1", 1, true);
+            marker["params"]["update"]["_meta"]["cadencr"]["backgroundWorkPending"] = json!(false);
+            harness
+                .send_burst(&[chunk(), marker, usage("s-1", 2, false)])
+                .await;
+            let events = harness.through_usage(2).await;
+            let end = events.iter().find(|e| e.is_detached_reply_end()).unwrap();
+            assert!(matches!(
+                end.background_agent_signal(),
+                Some(BackgroundAgentSignal::Finished { .. })
+            ));
+        }
+    }
+
+    #[tokio::test]
     async fn coalesced_result_and_work_release_preserve_accounting_and_settle_once() {
-        use crate::domain::agents::adapter::BackgroundAgentSignal;
         let mut harness = Harness::new().await;
         let (id, task) = harness.start_prompt().await;
         let mut result = prompt_result();
@@ -334,7 +458,6 @@ mod tests {
 
     #[tokio::test]
     async fn work_release_during_a_new_prompt_preserves_that_prompts_open_blocks() {
-        use crate::domain::agents::adapter::BackgroundAgentSignal;
         let mut harness = Harness::new().await;
         let (id, first) = harness.start_prompt().await;
         let mut result = prompt_result();
@@ -362,6 +485,106 @@ mod tests {
         let result = harness.next().await;
         assert!(result.is_result() && result.token_usage().is_some());
         assert!(result.background_agent_signal().is_none());
+    }
+
+    #[tokio::test]
+    async fn unmarked_boundaries_keep_the_hold_and_a_racing_release_leaves_the_reply_open() {
+        let mut harness = Harness::new().await;
+        let (id, first) = harness.start_prompt().await;
+        let mut result = prompt_result();
+        result["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        send_response(&mut harness.stdout, id, result).await;
+        await_prompt(first).await;
+        assert!(matches!(
+            harness.next().await.background_agent_signal(),
+            Some(BackgroundAgentSignal::Started { .. })
+        ));
+
+        let (id, second) = harness.start_prompt().await;
+        send_response(&mut harness.stdout, id, prompt_result()).await;
+        await_prompt(second).await;
+        assert!(matches!(
+            harness.next().await.background_agent_signal(),
+            Some(BackgroundAgentSignal::Started { .. })
+        ));
+
+        harness
+            .send_burst(&[chunk(), usage("s-1", 1, true), usage("s-1", 2, false)])
+            .await;
+        let events = harness.through_usage(2).await;
+        let boundary = events.iter().find(|e| e.is_detached_reply_end()).unwrap();
+        assert!(matches!(
+            boundary.background_agent_signal(),
+            Some(BackgroundAgentSignal::Started { .. })
+        ));
+
+        harness
+            .send_burst(&[chunk(), release_work("s-1"), usage("s-1", 3, false)])
+            .await;
+        let events = harness.through_usage(3).await;
+        assert!(!events.iter().any(|e| e.is_result() || is_block_stop(e)));
+        assert!(events.iter().any(|e| matches!(
+            e.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        )));
+
+        harness
+            .send(update(
+                "s-1",
+                json!({"sessionUpdate":"session_info_update","_meta":{"cadencr":{
+                    "detachedReplyEnded":true,"backgroundWorkPending":false
+                }}}),
+            ))
+            .await;
+        assert!(!harness.next().await.is_result());
+        assert!(is_block_stop(&harness.next().await));
+        let final_boundary = harness.next().await;
+        assert!(final_boundary.is_detached_reply_end());
+        assert!(final_boundary.background_agent_signal().is_none());
+    }
+
+    #[tokio::test]
+    async fn cancellation_marker_completes_a_held_detached_reply_without_a_usage_budget() {
+        let mut harness = Harness::new().await;
+        let cancel = PromptCancel::new();
+        harness
+            .config
+            .indexer
+            .lock()
+            .unwrap()
+            .watch_prompt_cancel(cancel.clone());
+        let (id, task) = harness.start_prompt().await;
+        let mut result = prompt_result();
+        result["_meta"] = json!({"cadencr":{"backgroundWorkPending":true}});
+        send_response(&mut harness.stdout, id, result).await;
+        await_prompt(task).await;
+        assert!(harness.next().await.is_result());
+        harness.send(chunk()).await;
+        loop {
+            let event = harness.next().await;
+            if matches!(
+                event.stream_event(),
+                Some(RuntimeStreamEvent::ContentBlockDelta { .. })
+            ) {
+                break;
+            }
+        }
+
+        cancel.cancel_current_turn();
+        harness
+            .send(update(
+                "s-1",
+                json!({"sessionUpdate":"session_info_update","_meta":{"cadencr":{"detachedReplyEnded":true}}}),
+            ))
+            .await;
+        assert!(!harness.next().await.is_result());
+        assert!(is_block_stop(&harness.next().await));
+        let end = harness.next().await;
+        assert!(end.is_detached_reply_end());
+        assert!(matches!(
+            end.background_agent_signal(),
+            Some(BackgroundAgentSignal::Finished { .. })
+        ));
     }
 
     #[tokio::test]

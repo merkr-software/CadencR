@@ -23,6 +23,7 @@ pub(super) fn reply(provider: &str, runtime: &RuntimeSpawnConfig) -> ProviderSet
         .as_ref()
         .map(access_mode_wire)
         .map(str::to_string);
+    let adapter = runtime_adapter(provider);
     ProviderSetOkPayload {
         provider: provider.to_string(),
         model: runtime.model.clone().unwrap_or_default(),
@@ -30,8 +31,11 @@ pub(super) fn reply(provider: &str, runtime: &RuntimeSpawnConfig) -> ProviderSet
         runtime_overrides: runtime.overrides.clone(),
         thinking_effort: runtime.thinking_effort.clone(),
         fast_mode: runtime.fast_mode,
-        supports_prompt_receipts: runtime_adapter(provider)
+        supports_prompt_receipts: adapter
+            .as_ref()
             .is_some_and(|adapter| adapter.supports_prompt_receipts()),
+        prompt_receipts_at_submission: adapter
+            .is_some_and(|adapter| adapter.prompt_receipts_at_submission()),
         codex_permission_mode: access_mode.clone(),
         access_mode,
     }

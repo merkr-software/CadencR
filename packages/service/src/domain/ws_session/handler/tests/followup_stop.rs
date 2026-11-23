@@ -16,6 +16,7 @@ struct StopAwareSession {
     withdraws_inputs: bool,
     /// Keep what it was handed at a Stop, as Codex keeps an accepted steer.
     keeps_inputs: bool,
+    reject_after: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Notify>>>>,
     message_rx: Option<RuntimeMessageRx>,
 }
 
@@ -32,6 +33,14 @@ impl AgentRuntimeSession for StopAwareSession {
             return Err(RuntimeError::input_withdrawn("the turn was stopped first"));
         }
         self.streamed.send(content).unwrap();
+        let reject_after = self.reject_after.lock().unwrap().take();
+        if let Some(reject_after) = reject_after {
+            reject_after.notified().await;
+            return Err(RuntimeError::PromptDeliveryFailed {
+                message: "the provider refused the steer".into(),
+                surfaced_on_stream: false,
+            });
+        }
         Ok(())
     }
     async fn turn_control_guard(&self) -> Option<tokio::sync::OwnedMutexGuard<()>> {
@@ -77,6 +86,7 @@ struct Fixture {
     streamed: mpsc::UnboundedReceiver<Value>,
     barrier: Arc<tokio::sync::Mutex<()>>,
     withdraw_asked: Arc<std::sync::Mutex<Vec<String>>>,
+    reject_after: Arc<std::sync::Mutex<Option<Arc<tokio::sync::Notify>>>>,
 }
 
 const FOLLOW_UP: &str = "5b0b0c1e-8d3f-4a59-9a43-2f4f3d1f9a10";
@@ -99,6 +109,7 @@ async fn fixture_full(turn_running: bool, withdraws_inputs: bool, keeps_inputs: 
     let (streamed_tx, streamed) = mpsc::unbounded_channel();
     let barrier = Arc::new(tokio::sync::Mutex::new(()));
     let withdraw_asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let reject_after = Arc::new(std::sync::Mutex::new(None));
     {
         let mut handles = sessions.lock().await;
         let handle = handles.get_mut(&db_id).unwrap();
@@ -111,6 +122,7 @@ async fn fixture_full(turn_running: bool, withdraws_inputs: bool, keeps_inputs: 
                 withdraw_asked: withdraw_asked.clone(),
                 withdraws_inputs,
                 keeps_inputs,
+                reject_after: reject_after.clone(),
                 message_rx: Some(message_rx),
             }))),
             permission_tx,
@@ -134,10 +146,31 @@ async fn fixture_full(turn_running: bool, withdraws_inputs: bool, keeps_inputs: 
         streamed,
         barrier,
         withdraw_asked,
+        reject_after,
     }
 }
 
 impl Fixture {
+    async fn install_acp(
+        &self,
+        client: &crate::domain::agents::acp::AcpClient,
+        steering: bool,
+    ) -> (RuntimeSessionHandle, RuntimeMessageRx) {
+        let mut session =
+            crate::domain::agents::acp::runtime::test_support::assembled_prompt_session(
+                client, steering,
+            );
+        let events = session.take_message_rx();
+        let runtime = Arc::new(RwLock::new(session));
+        let mut handles = self.sessions.lock().await;
+        let handle = handles.get_mut(&self.db_id).unwrap();
+        let QueryState::Active { query, .. } = &mut handle.state else {
+            panic!("fixture must own a live runtime");
+        };
+        *query = runtime.clone();
+        (runtime, events)
+    }
+
     /// Send a follow-up while the test holds the turn barrier, and wait until
     /// it is accepted (persisted) and waits at that barrier.
     async fn send_held_follow_up(&self) -> tokio::task::JoinHandle<()> {
@@ -211,6 +244,198 @@ impl Fixture {
         .unwrap()
         .map(|state| state.unwrap_or_else(|| "none".to_string()))
     }
+}
+
+#[tokio::test]
+async fn a_scoped_refusal_keeps_the_runtime_status_and_records_failed_delivery() {
+    let mut fixture = fixture(true).await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *fixture.reject_after.lock().unwrap() = Some(release.clone());
+    let dispatch = fixture.send_follow_up(true).await;
+    tokio::time::timeout(std::time::Duration::from_secs(3), fixture.streamed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    // The retained boundary reached the reader first and marked all
+    // still-pending delivery unknown. The definitive RPC error wins.
+    crate::domain::sessions::user_messages::resolve_pending_delivery_states(
+        &fixture.app_state.write_pool,
+        fixture.db_id,
+        "delivery_unknown",
+    )
+    .await
+    .unwrap();
+    release.notify_one();
+    dispatch.await.unwrap();
+    wait_for_failed(&fixture).await;
+    assert_eq!(fixture.dispatch_status().await, "error");
+    assert_eq!(
+        db_status(&fixture.app_state, fixture.db_id).await,
+        "running"
+    );
+    assert!(fixture.app_state.session_status_tx.is_busy(fixture.db_id));
+}
+
+#[tokio::test]
+async fn a_wait_for_delivery_refusal_fails_the_dispatch_without_pausing_the_runtime() {
+    let mut fixture = fixture(true).await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *fixture.reject_after.lock().unwrap() = Some(release.clone());
+    let state = fixture.app_state.clone();
+    let id = fixture.db_id;
+    let dispatch = tokio::spawn(async move {
+        crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid(
+            &state,
+            1,
+            id,
+            "and the docs too",
+            false,
+            Some(FOLLOW_UP.parse().unwrap()),
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), fixture.streamed.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    release.notify_one();
+    let error = dispatch
+        .await
+        .unwrap()
+        .expect_err("refusal reaches the waiting caller");
+    assert!(error.to_string().contains("the provider refused the steer"));
+    assert_eq!(fixture.dispatch_status().await, "error");
+    assert_eq!(
+        db_status(&fixture.app_state, fixture.db_id).await,
+        "running"
+    );
+}
+
+#[tokio::test]
+async fn cooperative_stop_of_an_acp_control_prompt_preserves_the_dispatched_row() {
+    use crate::domain::agents::acp::runtime::test_support::{
+        build_in_memory_client, read_request, send_response,
+    };
+    use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
+
+    for steering in [false, true] {
+        let fixture = fixture(false).await;
+        let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+        let (_runtime, _events) = fixture.install_acp(&client, steering).await;
+
+        let state = fixture.app_state.clone();
+        let id = fixture.db_id;
+        let delivery = tokio::spawn(async move {
+            dispatch_control_prompt_with_message_uuid(
+                &state,
+                1,
+                id,
+                "start then stop",
+                false,
+                Some(FOLLOW_UP.parse().unwrap()),
+            )
+            .await
+        });
+        let request =
+            tokio::time::timeout(std::time::Duration::from_secs(3), read_request(&mut stdin))
+                .await
+                .expect("control prompt must reach ACP");
+        assert_eq!(request["method"], "session/prompt");
+        stop_session(&fixture.app_state, Some(&fixture.sessions), fixture.db_id)
+            .await
+            .unwrap();
+        assert_eq!(read_request(&mut stdin).await["method"], "session/cancel");
+        send_response(
+            &mut stdout,
+            request["id"].clone(),
+            serde_json::json!({"stopReason":"cancelled"}),
+        )
+        .await;
+        tokio::time::timeout(std::time::Duration::from_secs(3), delivery)
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("delivery succeeded before the cooperative Stop");
+        assert_eq!(fixture.dispatch_status().await, "dispatched");
+        assert_ne!(
+            fixture.delivery_state().await.as_deref(),
+            Some("delivery_failed")
+        );
+    }
+}
+
+#[tokio::test]
+async fn disconnecting_a_control_waiter_does_not_abandon_the_native_steer() {
+    use crate::domain::agents::acp::runtime::test_support::{
+        build_in_memory_client, read_request, send_response,
+    };
+    use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
+    use std::time::Duration;
+
+    let fixture = fixture(true).await;
+    let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+    let (runtime, mut events) = fixture.install_acp(&client, true).await;
+    let original = tokio::spawn(async move {
+        runtime
+            .read()
+            .await
+            .stream_input(serde_json::json!("original"))
+            .await
+    });
+    let old = tokio::time::timeout(Duration::from_secs(3), read_request(&mut stdin))
+        .await
+        .unwrap();
+    let app_state = fixture.app_state.clone();
+    let session_id = fixture.db_id;
+    let waiter = tokio::spawn(async move {
+        dispatch_control_prompt_with_message_uuid(
+            &app_state,
+            1,
+            session_id,
+            "steer then disconnect",
+            false,
+            Some(FOLLOW_UP.parse().unwrap()),
+        )
+        .await
+    });
+    let steer = tokio::time::timeout(Duration::from_secs(3), read_request(&mut stdin))
+        .await
+        .unwrap();
+    assert_eq!(steer["method"], "session/prompt");
+    send_response(
+        &mut stdout,
+        old["id"].clone(),
+        serde_json::json!({"stopReason":"end_turn"}),
+    )
+    .await;
+    original.await.unwrap().unwrap();
+    assert!(
+        events.try_recv().is_err(),
+        "P1 must leave the overlapping turn open"
+    );
+    assert_eq!(fixture.dispatch_status().await, "dispatching");
+
+    waiter.abort();
+    assert!(waiter.await.unwrap_err().is_cancelled());
+    send_response(
+        &mut stdout,
+        steer["id"].clone(),
+        serde_json::json!({"stopReason":"end_turn"}),
+    )
+    .await;
+    let final_result = tokio::time::timeout(Duration::from_secs(3), events.recv())
+        .await
+        .expect("a disconnected caller cannot strand the accepted ACP turn")
+        .unwrap()
+        .unwrap();
+    assert!(final_result.is_result());
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while fixture.dispatch_status().await != "dispatched" {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the native steer must settle its durable dispatch");
 }
 
 #[tokio::test]

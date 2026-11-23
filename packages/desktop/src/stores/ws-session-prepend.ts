@@ -42,7 +42,7 @@ export function prependHistoryBlocks(
   const compactBoundary = displayMode?.compactMode
     ? leadingCompactFlowBlock(current.blocks)
     : undefined;
-  const merged = mergeCanonicalBlocks(current.blocks, fetched);
+  const merged = mergeCanonicalBlocks(current.blocks, fetched, current.promptReceiptsAtSubmission);
   const addedBlocks = merged.length - current.blocks.length;
   const mergedBlocks =
     addedBlocks > 0 ? preserveCompactFlowPrependSeam(merged, compactBoundary) : merged;

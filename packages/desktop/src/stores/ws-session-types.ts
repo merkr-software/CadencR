@@ -213,6 +213,7 @@ export interface SessionEntry extends SessionConfigState {
   /** Why the runtime could not report its MCP servers; `mcpServers` is then empty. */
   mcpServersError: string | null;
   supportsPromptReceipts: boolean;
+  promptReceiptsAtSubmission: boolean;
   persistedLoaded: boolean;
   /**
    * Why the conversation's saved history failed to load, shown in the
@@ -304,6 +305,7 @@ export function createSessionEntry(): SessionEntry {
     mcpServers: null,
     mcpServersError: null,
     supportsPromptReceipts: false,
+    promptReceiptsAtSubmission: false,
     persistedLoaded: false,
     historyLoadFailure: null,
     contextUsage: null,

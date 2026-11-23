@@ -16,6 +16,7 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         context.db_session_id,
         "runtime query spawned successfully, starting stream reader"
     );
+    let negotiated_steering = runtime_session.negotiated_prompt_steering();
     let provider_context_window = runtime_session.context_window();
     let runtime_control_endpoint = runtime_session.runtime_control_endpoint();
     if let Some(context_window) = provider_context_window {
@@ -72,6 +73,9 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         );
         return Err(message);
     }
+    if let Some(supported) = negotiated_steering {
+        publish_prompt_steering(&context, supported).await;
+    }
     spawn_auto_name_if_needed(
         auto_name_handled,
         context.app_state.write_pool.clone(),
@@ -101,4 +105,26 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         .cleanup_session_on_end(cleanup_session_on_end)
         .call();
     Ok(())
+}
+
+async fn publish_prompt_steering(context: &PendingPromptContext, supported: bool) {
+    use crate::domain::ws_session::protocol::{
+        SessionPromptSteeringPayload, WsEnvelope, WsSessionEvent,
+    };
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::PromptSteering(
+        SessionPromptSteeringPayload {
+            session_id: context.db_session_id.to_string(),
+            supported,
+        },
+    ))
+    .expect("prompt steering capability should serialize");
+    context
+        .app_state
+        .ws_feature_senders
+        .send_and_mirror(
+            context.feature_id,
+            &context.sender,
+            axum::extract::ws::Message::Text(String::from(envelope).into()),
+        )
+        .await;
 }
