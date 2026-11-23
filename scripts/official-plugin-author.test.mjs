@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync, cpSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -9,8 +9,8 @@ import { fixture } from "./official-plugin-author-fixtures.mjs";
 const sha = "a".repeat(40);
 const zero = "0".repeat(64);
 const hash = (data) => createHash("sha256").update(data).digest("hex");
-test("network fixture preserves stdlib imports and mocks only HTTP access", () => {
-  const f = fixture();
+test("network fixture preserves stdlib imports and mocks only HTTP access", (t) => {
+  const f = fixture(t);
   f.approve();
   const result = spawnSync(
     "python3",
@@ -32,15 +32,15 @@ with urllib.request.build_opener().open(request) as response:
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
 });
-test("current author pin and policy fail before candidate access", () => {
-  const f = fixture();
+test("current author pin and policy fail before candidate access", (t) => {
+  const f = fixture(t);
   const r = f.stage();
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /AUTHOR_PUBLICATION_PENDING/);
   assert.equal(r.stdout, "");
 });
-test("gate rejects non-main and untrusted workflow contexts", () => {
-  const f = fixture();
+test("gate rejects non-main and untrusted workflow contexts", (t) => {
+  const f = fixture(t);
   f.approve();
   f.env.GITHUB_REF = "refs/tags/evil";
   assert.match(
@@ -54,8 +54,8 @@ test("gate rejects non-main and untrusted workflow contexts", () => {
     /AUTHOR_CONTEXT_INVALID/,
   );
 });
-test("mocked approved reconstruction is deterministic and confirmation rejects changed bytes", () => {
-  const f = fixture();
+test("mocked approved reconstruction is deterministic and confirmation rejects changed bytes", (t) => {
+  const f = fixture(t);
   f.approve();
   const inspected = f.stage();
   assert.equal(inspected.status, 0, inspected.stderr);
@@ -65,8 +65,34 @@ test("mocked approved reconstruction is deterministic and confirmation rejects c
   assert.equal(confirmed.stdout, inspected.stdout);
   assert.match(f.stage("b".repeat(64)).stderr, /AUTHOR_REQUEST_DIGEST_MISMATCH/);
 });
-test("pin changes fail before preparation", () => {
-  const f = fixture();
+
+test("author stage removes a timed-out preparer's scratch", (t) => {
+  const f = fixture(t);
+  f.approve();
+  f.env.TMPDIR = join(f.root, "tmp");
+  mkdirSync(f.env.TMPDIR);
+  const stage = join(f.root, "scripts/official-plugin-author-stage.sh");
+  const source = readFileSync(stage, "utf8");
+  assert.match(source, /timeout=600/);
+  writeFileSync(stage, source.replace("timeout=600", "timeout=2"));
+  writeFileSync(
+    join(f.root, "scripts/official-plugin-release.sh"),
+    `#!/bin/sh
+set -eu
+mktemp -d "$TMPDIR/official-plugin-XXXXXX" > "${f.root}/preparer-started"
+exec sleep 60
+`,
+  );
+
+  const result = f.stage();
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(result.stderr.trim(), "AUTHOR_STAGE_FAILED");
+  assert.match(readFileSync(join(f.root, "preparer-started"), "utf8"), /official-plugin-/);
+  assert.deepEqual(readdirSync(f.env.TMPDIR), []);
+});
+
+test("pin changes fail before preparation", (t) => {
+  const f = fixture(t);
   f.approve();
   writeFileSync(join(f.root, "scripts/official-plugin-author-cli.env"), "changed");
   assert.match(f.stage().stderr, /AUTHOR_POLICY_INVALID/);
@@ -79,8 +105,8 @@ test("workflow has no artifact authority or write token and scopes author secret
   assert.match(workflow, /ref: \$\{\{ github.sha \}\}/);
 });
 
-test("tag mismatch and source policy drift fail before reconstruction", () => {
-  const f = fixture();
+test("tag mismatch and source policy drift fail before reconstruction", (t) => {
+  const f = fixture(t);
   f.approve();
   writeFileSync(
     join(f.root, "mock/git"),
@@ -96,8 +122,8 @@ test("tag mismatch and source policy drift fail before reconstruction", () => {
   assert.match(f.stage().stderr, /AUTHOR_POLICY_MISMATCH/);
 });
 
-test("unprotected environment and repository identity mismatch fail closed", () => {
-  const f = fixture();
+test("unprotected environment and repository identity mismatch fail closed", (t) => {
+  const f = fixture(t);
   f.approve();
   f.env.MOCK_ENV_UNPROTECTED = "1";
   assert.match(f.stage().stderr, /AUTHOR_ENVIRONMENT_ID_MISMATCH/);
@@ -106,23 +132,23 @@ test("unprotected environment and repository identity mismatch fail closed", () 
   assert.match(f.stage().stderr, /AUTHOR_REPOSITORY_INVALID/);
 });
 
-test("malformed dispatch input cannot reach source or environment inspection", () => {
-  const f = fixture();
+test("malformed dispatch input cannot reach source or environment inspection", (t) => {
+  const f = fixture(t);
   f.approve();
   const result = f.run("official-plugin-author-gate.sh", ["bad\ninput", zero]);
   assert.match(result.stderr, /AUTHOR_INPUT_INVALID/);
   assert.equal(result.stdout, "");
 });
 
-test("qualification evidence must match the independently reviewed pin", () => {
-  const f = fixture();
+test("qualification evidence must match the independently reviewed pin", (t) => {
+  const f = fixture(t);
   f.approve();
   writeFileSync(join(f.root, "scripts/official-plugin-author-qualification.json"), "{}");
   assert.match(f.stage().stderr, /AUTHOR_QUALIFICATION_INVALID/);
 });
 
-test("environment identity binds reviewed no-bypass attestation", () => {
-  const f = fixture();
+test("environment identity binds reviewed no-bypass attestation", (t) => {
+  const f = fixture(t);
   f.approve();
   // Documented normal response omits can_admins_bypass: explicit reviewed
   // attestation bound to the unchanged environment ID is required.
@@ -155,10 +181,10 @@ test("preparation mode flags are mutually exclusive", () => {
 });
 
 for (const kind of ["theme", "provider", "tab"]) {
-  test(`${kind}: real trusted orchestrators reconstruct all metadata/assets and bind exact source content`, () => {
-    const f = fixture();
+  test(`${kind}: real trusted orchestrators reconstruct all metadata/assets and bind exact source content`, (t) => {
+    const f = fixture(t);
     f.approve();
-    const c = releaseFixture(kind);
+    const c = releaseFixture(t, kind);
     c.policy.publication = "APPROVED";
     c.files["plugins/release-policy.json"] = JSON.stringify(c.policy);
     c.save();
@@ -213,8 +239,8 @@ for (const kind of ["theme", "provider", "tab"]) {
   });
 }
 
-test("author preparation rejects extra reconstructed content and unknown policy entries", () => {
-  const f = fixture();
+test("author preparation rejects extra reconstructed content and unknown policy entries", (t) => {
+  const f = fixture(t);
   f.approve();
   const script = join(f.root, "scripts/official-plugin-release.sh");
   writeFileSync(script, readFileSync(script, "utf8") + '\nprintf unreviewed > "$5/extra.txt"\n');
@@ -222,8 +248,8 @@ test("author preparation rejects extra reconstructed content and unknown policy 
   assert.match(f.stage(zero, "plugins/tab-unapproved/v0.1.0").stderr, /AUTHOR_PLUGIN_UNAPPROVED/);
 });
 
-test("reviewed schema-2 policy passes only the activation gate, without publication", () => {
-  const f = fixture();
+test("reviewed schema-2 policy passes only the activation gate, without publication", (t) => {
+  const f = fixture(t);
   f.approve();
   const result = f.run("official-plugin-author-gate.sh", [sha, zero]);
   assert.equal(result.status, 0, result.stderr);
@@ -244,9 +270,9 @@ const remoteRule = (prevent = false, reviewers = [{ type: "User", reviewer: { id
   { type: "required_reviewers", prevent_self_review: prevent, reviewers },
 ];
 
-test("explicit reviewed self-review settings accept exactly both boolean configurations", () => {
+test("explicit reviewed self-review settings accept exactly both boolean configurations", (t) => {
   for (const prevent of [false, true]) {
-    const f = fixture();
+    const f = fixture(t);
     f.approve();
     setReviewPolicy(f, reviewedPolicy(prevent));
     f.env.MOCK_REVIEW_RULE = JSON.stringify(remoteRule(prevent));
@@ -256,7 +282,7 @@ test("explicit reviewed self-review settings accept exactly both boolean configu
   }
 });
 
-test("review policy requires explicit valid identities, boolean and pinned environment", () => {
+test("review policy requires explicit valid identities, boolean and pinned environment", (t) => {
   for (const invalid of [
     undefined,
     null,
@@ -281,14 +307,14 @@ test("review policy requires explicit valid identities, boolean and pinned envir
     },
     { ...reviewedPolicy(), unreviewed: true },
   ]) {
-    const f = fixture();
+    const f = fixture(t);
     f.approve();
     setReviewPolicy(f, invalid);
     assert.match(f.stage().stderr, /AUTHOR_REVIEW_POLICY_INVALID/);
   }
 });
 
-test("remote required reviewers fail closed on missing, invalid, extra or mismatched identities", () => {
+test("remote required reviewers fail closed on missing, invalid, extra or mismatched identities", (t) => {
   for (const rules of [
     [],
     [...remoteRule(true), ...remoteRule(true)],
@@ -309,15 +335,15 @@ test("remote required reviewers fail closed on missing, invalid, extra or mismat
       { type: "User", reviewer: { id: 1 } },
     ]),
   ]) {
-    const f = fixture();
+    const f = fixture(t);
     f.approve();
     f.env.MOCK_REVIEW_RULE = JSON.stringify(rules);
     assert.match(f.stage().stderr, /AUTHOR_ENVIRONMENT_UNPROTECTED/);
   }
 });
 
-test("reviewed User and Team identities are compared as an exact unordered set", () => {
-  const f = fixture();
+test("reviewed User and Team identities are compared as an exact unordered set", (t) => {
+  const f = fixture(t);
   f.approve();
   setReviewPolicy(f, {
     ...reviewedPolicy(),

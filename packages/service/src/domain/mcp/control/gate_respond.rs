@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use super::audit::{elapsed_ms, record_tool_audit, ToolAudit};
+use super::gate_answer::answer_gate;
 use super::gate_notify::linked_parent;
-use super::gate_policy::{authorize_decision, GateDecision};
+use super::gate_policy::GateDecision;
 use super::scope::{resolve_session_scope, SessionScope};
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::PermissionRespondPayload;
@@ -75,14 +76,13 @@ async fn respond_authorized(
     request: &RespondGateRequest,
 ) -> Result<Vec<String>, AppError> {
     require_linked_parent(state, request.source_session_id, request.session_id).await?;
-    let payload = authorize_decision(
+    answer_gate(
         state,
         request.session_id,
         &request.request_id,
         &request.decision,
     )
-    .await?;
-    dispatch_permission_response(state, request.session_id, payload).await
+    .await
 }
 
 async fn finish_response(

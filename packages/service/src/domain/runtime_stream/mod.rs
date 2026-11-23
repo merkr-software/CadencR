@@ -51,24 +51,21 @@ pub(crate) async fn persist_usage(
     runtime_event: &RuntimeEvent,
     db_session_id: i64,
     write_pool: &sqlx::SqlitePool,
-) -> bool {
+) -> Result<bool, sqlx::Error> {
     let Some(usage) = runtime_event.usage() else {
-        return false;
+        return Ok(false);
     };
-
     if usage.is_zero() {
-        return false;
+        return Ok(false);
     }
-
     crate::domain::ws_session::persistence::WsSessionPersistence::update_token_usage(
         write_pool,
         db_session_id,
         usage.input_tokens,
         usage.output_tokens,
     )
-    .await;
-
-    true
+    .await?;
+    Ok(true)
 }
 
 #[cfg(test)]

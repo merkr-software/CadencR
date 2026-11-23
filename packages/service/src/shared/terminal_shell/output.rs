@@ -1,5 +1,6 @@
 //! Forward a shell's startup-file and terminal output as lines.
 
+use crate::shared::discard::IgnoreClosed;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -111,7 +112,7 @@ fn read_source(source: &mut Source, output_tx: &Sender<String>) {
 fn flush_remaining(pending: &mut String, output_tx: &Sender<String>) {
     if !pending.is_empty() {
         let line = std::mem::take(pending).trim_end_matches('\r').to_string();
-        let _ = output_tx.blocking_send(line);
+        output_tx.blocking_send(line).ignore_closed();
     }
 }
 
@@ -135,7 +136,7 @@ fn flush_oversized_pending(pending: &mut String, output_tx: &Sender<String>) {
         return;
     }
     let line = std::mem::take(pending);
-    let _ = output_tx.blocking_send(line);
+    output_tx.blocking_send(line).ignore_closed();
 }
 
 #[cfg(test)]

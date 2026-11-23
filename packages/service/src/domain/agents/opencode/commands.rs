@@ -23,6 +23,7 @@
 //! pushes a `commands.updated` envelope when the probe (or a live
 //! session's ACP push) produces fresh data.
 
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex as StdMutex, OnceLock};
@@ -31,7 +32,7 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
-use super::acp::spawn_headless_acp;
+use super::acp::spawn_acp_probe;
 use crate::domain::agents::acp::incoming::AcpNotification;
 use crate::domain::agents::acp::runtime::events::parse_available_commands;
 use crate::domain::agents::acp::runtime::slash_command_snapshots::SlashCommandSnapshots;
@@ -126,7 +127,7 @@ pub(in crate::domain::agents::opencode) async fn refresh_via_acp(
         .as_ref()
         .map(|commands| commands.clone())
         .map_err(|error| error.to_string());
-    let _ = tx.send(broadcast_payload);
+    tx.send(broadcast_payload).ignore_closed();
     if let Ok(ref commands) = outcome {
         record_snapshot(cwd, commands.clone()).await;
     }
@@ -164,7 +165,7 @@ async fn run_probe(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> 
 /// pushes `available_commands_update`. The client's `Drop` impl reaps
 /// the subprocess.
 async fn probe_inner(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-    let (client, _) = spawn_headless_acp(std::ffi::OsStr::new(cwd))
+    let client = spawn_acp_probe(std::ffi::OsStr::new(cwd))
         .await
         .map_err(|e| RuntimeError::new(format!("{PROBE_LOG_PREFIX}: spawn failed: {e}")))?;
 

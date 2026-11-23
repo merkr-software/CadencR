@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BotIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { AgentSession } from "@/components/agent-session";
-import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
+import { SessionInfoMcpServersProvider } from "@/components/agent-session/McpServersRow";
+import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -19,6 +20,7 @@ import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
 import type { AgentSessionProps, SessionConfigControls } from "./agent-session/types";
+import { applyThinkingEffort } from "@/components/sessionThinkingEffort";
 
 type SessionControls = ReturnType<typeof useSessionControls>;
 const NO_SLASH_COMMANDS: NonNullable<AgentSessionProps["slashCommandsOverride"]> = [];
@@ -53,8 +55,9 @@ function useStableSessionCallbacks(controls: SessionControls) {
       onModelChange: (nextProviderId: string, modelId: string): void =>
         handleModelChange(nextProviderId, modelId, latest.current),
       onThinkingEffortChange: (effort: string | undefined): void =>
-        setEffort(latest.current, effort),
-      onFastModeChange: (enabled: boolean): Promise<void> => setFastMode(latest.current, enabled),
+        applyThinkingEffort(latest.current, effort),
+      onFastModeChange: (enabled: boolean): Promise<void> =>
+        changeFastMode(latest.current, enabled),
     }),
     [latest],
   );
@@ -103,7 +106,10 @@ function AgentTabContent({
   const sessionConfigControls = useSessionConfigControls(controls);
   const callbacks = useStableSessionCallbacks(controls);
   return (
-    <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
+    <SessionInfoMcpServersProvider
+      mcpServers={controls.ws.mcpServers}
+      error={controls.ws.mcpServersError}
+    >
       <AgentSession
         ref={refs.agent}
         agentType="session"
@@ -166,8 +172,8 @@ function AgentTabContent({
         disableShortcuts={!hotkeysEnabled}
         agentTabActive={agentVisible && hotkeysEnabled}
         claudeProfileSelection={controls.claudeProfile}
-        hasMore={controls.ws.hasMore}
-        onLoadOlder={controls.ws.loadOlderMessages}
+        historyGaps={controls.ws.historyGaps}
+        onFillHistoryGap={controls.ws.fillHistoryGap}
         onLoadPromptTurn={controls.ws.loadPromptTurn}
         worktreeMode={controls.worktreeMode}
         onWorktreeModeChange={controls.setWorktreeMode}
@@ -176,23 +182,21 @@ function AgentTabContent({
         worktreeProjectPath={data.projectPath}
         worktreeSelectedBranch={controls.selectedBranch}
         onWorktreeBranchChange={controls.setSelectedBranch}
+        openingPreview={args.openingPreview}
         className="h-full"
       />
     </SessionInfoMcpServersProvider>
   );
 }
 
-function setEffort(controls: SessionControls, effort: string | undefined): void {
-  if (controls.supportsConfigInheritance)
-    void controls.ws
-      .setRuntimeOverrides({ thinking_effort: effort ?? null })
-      .catch((error) => toastError(error, "Could not update thinking effort"));
-  else controls.ws.setThinkingEffort(effort);
-}
-
-function setFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
+/**
+ * Fast mode, through the session command queue like the model and effort:
+ * a runtime override for providers that take one, `fast_mode.set` otherwise.
+ */
+export function changeFastMode(controls: SessionControls, enabled: boolean): Promise<void> {
   if (controls.supportsConfigInheritance) {
-    return controls.ws.setRuntimeOverrides({ fast_mode: enabled });
+    controls.ws.queueRuntimeOverride({ fast_mode: enabled });
+    return Promise.resolve();
   }
   return controls.ws.setFastMode(enabled);
 }
@@ -205,7 +209,7 @@ export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
   return useMemo(
     () => ({
       label: "Agent",
-      Icon: BotIcon,
+      Icon: AgentIcon,
       shortcutId: "pane-agent",
       content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
     }),
@@ -253,7 +257,10 @@ function useAgentSendHandler(args: {
         controls.ws.compactSession();
         return;
       }
-      const isFirstPrompt = (data.session?.blocks?.length ?? 0) === 0;
+      const isFirstPrompt = isNewConversation(
+        data.session?.blocks?.length ?? 0,
+        data.session?.historyLoadFailure != null,
+      );
       const choice = resolveWorktreeChoice({
         mode: controls.worktreeMode,
         selectedBranch: controls.selectedBranch,
@@ -319,9 +326,7 @@ export function handleModelChange(
   const currentProviderId = controls.ws.currentSelection?.providerId;
   if (currentProviderId !== undefined && currentProviderId === nextProviderId) {
     if (controls.supportsConfigInheritance) {
-      void controls.ws
-        .setRuntimeOverrides({ model: modelId })
-        .catch((error) => toastError(error, "Could not update model"));
+      controls.ws.queueRuntimeOverride({ model: modelId });
     } else controls.ws.setModel(modelId, nextProviderId);
   } else {
     controls.ws.setProvider(nextProviderId, modelId);

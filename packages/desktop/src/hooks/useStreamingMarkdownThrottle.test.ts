@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { StrictMode } from "react";
 import { renderHook, act } from "@testing-library/react";
 import { useStreamingMarkdownThrottle } from "./useStreamingMarkdownThrottle";
 
@@ -76,6 +77,29 @@ describe("useStreamingMarkdownThrottle", () => {
     rerender({ c: "edited", a: false }); // content changes while inactive
     rerender({ c: "edited", a: true }); // stream restarts
     expect(result.current).toBe("edited"); // no stale "a" flash
+  });
+
+  it("keeps publishing when StrictMode replays the effects of a block mounted mid-stream", () => {
+    // A block created by `content_block_start` mounts already streaming. Its
+    // effects then run, are torn down and run again (StrictMode, or any
+    // disconnect/reconnect of a kept fiber): the replay must re-arm the timer
+    // instead of trusting the one the teardown cancelled.
+    const { result, rerender } = renderHook(({ c, a }) => useStreamingMarkdownThrottle(c, a), {
+      initialProps: { c: "a", a: true },
+      wrapper: StrictMode,
+    });
+    rerender({ c: "ab", a: true });
+    rerender({ c: "abc", a: true });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(result.current).toBe("abc");
+
+    rerender({ c: "abcd", a: true });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(result.current).toBe("abcd");
   });
 
   it("leaves no pending publish once streaming stops", () => {

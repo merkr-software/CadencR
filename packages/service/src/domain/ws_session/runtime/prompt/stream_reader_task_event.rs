@@ -1,20 +1,14 @@
 use super::super::send_runtime_session_id;
-use super::mcp_servers::send_mcp_servers_if_init;
-use super::stream_reader_background_agents::track_background_agents;
-use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
+use super::mcp_servers::mcp_servers_message_if_init;
 use super::stream_reader_resume::runtime_allows_resume_persistence;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
+use super::stream_reader_task_event_phases::EventObservation;
 use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent};
-use crate::domain::runtime_stream::{
-    capture_runtime_session_id, permission_request_payload, persist_usage,
-};
-use crate::domain::ws_session::persistence::{
-    PendingUserInput, TranscriptPersistenceError, WsSessionPersistence,
-};
-use crate::domain::ws_session::protocol::{permission_request_envelope, PermissionRequestPayload};
-use crate::domain::ws_session::runtime::application::mark_awaiting_user;
+use crate::domain::runtime_stream::{capture_runtime_session_id, persist_usage};
+use crate::domain::ws_session::persistence::{TranscriptPersistenceError, WsSessionPersistence};
 use axum::extract::ws::Message;
-use tracing::{debug, error, info};
+use tracing::{error, info};
+
 impl StreamReaderTask {
     /// Process one runtime event. A closed owner socket is no longer fatal:
     /// every send becomes best-effort because the agent must keep running on
@@ -28,97 +22,43 @@ impl StreamReaderTask {
         persistence: &mut WsSessionPersistence,
         runtime_event: RuntimeEvent,
     ) {
-        state.last_runtime_activity = tokio::time::Instant::now();
-        state.diagnostics.record(runtime_event.raw_json());
-        // Provider-native token reports are recorded before any early return
-        // below. Context-window usage remains on the separate `usage_state`
-        // path and is never mistaken for consumption, except for a provider's
-        // explicit provider fallback.
-        self.capture_usage_attribution(state, &runtime_event).await;
-        self.capture_provider_usage_event_id(state, &runtime_event);
-        self.record_token_usage(state, &runtime_event).await;
-        if runtime_event.is_usage_accounting() {
+        if runtime_event.mcp_servers_changed() {
+            self.publish_current_mcp_servers().await;
             return;
         }
-        if runtime_event.is_result() {
-            state.usage_attribution = None;
-            state.usage_attribution_captured = false;
-            state.provider_usage_event_id = None;
-        }
-        let interrupted_generation = if runtime_event.is_result() {
-            self.take_interruption().await
+        state.last_runtime_activity = tokio::time::Instant::now();
+        state.diagnostics.record(runtime_event.raw_json());
+        let detached_generation = if runtime_event.is_detached_reply_end() {
+            Some(
+                self.app_state
+                    .active_turns
+                    .lock_turn_generation(self.db_session_id)
+                    .await,
+            )
         } else {
             None
         };
-        self.reflect_reported_status(&runtime_event);
-        self.observe_reported_model(state, &runtime_event).await;
-        let had_background_agents = !state.live_background_agents.is_empty();
-        track_background_agents(&mut state.live_background_agents, &runtime_event);
-        if had_background_agents && state.live_background_agents.is_empty() {
-            self.end_background_only_stop(state).await;
-        }
-        self.track_subagents(state, &runtime_event, interrupted_generation.is_some())
-            .await;
-        if runtime_event.is_subagent_signal_only() {
+        if !self.accepts_result_event(state, &runtime_event).await {
             return;
         }
-        state.runtime_hold.observe(&runtime_event);
-
-        match forward_immediate_event(self, state, &runtime_event).await {
-            // `prompt_received` / `commands.updated` / `stream_status` are
-            // transient UI acks that are never persisted. `SenderClosed` here
-            // means only the owner socket is gone — mirrored acks
-            // (`prompt_received`, `stream_status`) already reached other viewers
-            // before that send — so either outcome just continues the stream.
-            ForwardOutcome::Forwarded
-            | ForwardOutcome::SenderClosed
-            | ForwardOutcome::Suppressed => return,
-            ForwardOutcome::NotHandled => {}
-        }
-
+        let EventObservation::Continue {
+            interrupted_generation,
+        } = self.observe_runtime_event(state, &runtime_event).await
+        else {
+            return;
+        };
         if self
-            .handle_permission_request(runtime_adapter, &runtime_event)
+            .handle_before_persistence(state, runtime_adapter, persistence, &runtime_event)
             .await
         {
             return;
         }
-
-        self.capture_runtime_session_id(state, runtime_adapter, &runtime_event)
-            .await;
-        // MCP-server snapshots only go to the owner socket; if it is gone, skip
-        // and keep streaming the rest of the turn.
-        let _ = self.send_mcp_servers_if_init(&runtime_event).await;
-
-        if self.handle_provider_error(&runtime_event).await {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
-            return;
-        }
-
-        if self.handle_unknown_message(&runtime_event).await {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
-            return;
-        }
-
-        // A turn-ending error result is surfaced but must NOT short-circuit —
-        // the result still has to flow through the turn-complete path below.
-        // Suppressed when an error already surfaced this turn (issue #78).
-        if interrupted_generation.is_none()
-            && self
-                .surface_result_error(
-                    state.turn_state.has_error_surfaced_this_turn(),
-                    &runtime_event,
-                )
-                .await
+        if self
+            .surface_event_errors(state, persistence, &runtime_event, interrupted_generation)
+            .await
         {
-            state
-                .turn_state
-                .mark_error_surfaced(runtime_event.parent_tool_use_id());
+            return;
         }
-
         if self.handle_non_result_signal(state, &runtime_event).await {
             return;
         }
@@ -131,54 +71,15 @@ impl StreamReaderTask {
             interrupted_generation,
         )
         .await;
+        // Queue delivery can begin a new generation in this same session.
+        drop(detached_generation);
+        if runtime_event.is_result() {
+            self.continue_after_result(state, interrupted_generation)
+                .await;
+        }
     }
 
-    async fn handle_permission_request(
-        &self,
-        runtime_adapter: Option<&dyn AgentRuntimeAdapter>,
-        runtime_event: &RuntimeEvent,
-    ) -> bool {
-        let Some(request) = runtime_adapter
-            .and_then(|adapter| adapter.parse_permission_request(runtime_event.raw_json()))
-        else {
-            return false;
-        };
-        let is_question = crate::domain::ws_session::protocol::is_question_tool(&request.tool_name);
-        let mut payload: PermissionRequestPayload = permission_request_payload(request);
-        crate::domain::ws_session::protocol::clear_question_permission_chrome(&mut payload);
-        let question_payload = is_question.then(|| {
-            serde_json::to_value(&payload).expect("question permission payload should serialize")
-        });
-        self.persist_pending_user_input(&payload, question_payload.as_ref())
-            .await;
-        let envelope = permission_request_envelope(payload)
-            .expect("permission request payload should serialize");
-        // Mirror the gate to every device viewing this feature so it appears on
-        // the host and any remote clients alike, not only the turn owner.
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
-            .await;
-        true
-    }
-
-    async fn persist_pending_user_input(
-        &self,
-        payload: &PermissionRequestPayload,
-        question_payload: Option<&serde_json::Value>,
-    ) {
-        let pending = question_payload
-            .map(PendingUserInput::Question)
-            .unwrap_or(PendingUserInput::Permission(payload));
-        mark_awaiting_user(
-            &self.app_state,
-            self.db_session_id,
-            self.feature_id,
-            &pending,
-        )
-        .await;
-    }
-
-    async fn capture_runtime_session_id(
+    pub(super) async fn capture_runtime_session_id(
         &self,
         state: &mut StreamReaderState,
         adapter: Option<&dyn AgentRuntimeAdapter>,
@@ -217,21 +118,13 @@ impl StreamReaderTask {
         send_runtime_session_id(&self.sender, persisted_sid.as_str());
     }
 
-    async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) -> Result<(), ()> {
-        let result = send_mcp_servers_if_init(
-            &self.sender,
-            &self.sdk_sessions,
-            self.db_session_id,
-            runtime_event,
-        )
-        .await;
-        if result.is_err() {
-            debug!(
-                self.db_session_id,
-                "WebSocket sender closed during mcp_servers forward"
-            );
+    pub(super) async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) {
+        let message =
+            mcp_servers_message_if_init(&self.sdk_sessions, self.db_session_id, runtime_event)
+                .await;
+        if let Some(message) = message {
+            self.publish(message).await;
         }
-        result
     }
 
     async fn handle_non_result_signal(
@@ -246,6 +139,11 @@ impl StreamReaderTask {
             // New turn: clear any error surfaced in the previous turn so this
             // turn's terminal error-result (if any) can surface (issue #78).
             state.turn_state.mark_fresh_turn_started();
+            // Also a turn the CLI opened itself: a Stop during it must count.
+            self.app_state
+                .active_turns
+                .resume_turn(self.db_session_id)
+                .await;
         }
         if !state.turn_state.is_between_turns() {
             self.broadcast_runtime_signal(runtime_event).await;
@@ -277,15 +175,24 @@ impl StreamReaderTask {
             .usage_state
             .apply_event(runtime_adapter, runtime_event);
         if usage_update.context_window_changed {
-            WsSessionPersistence::update_context_window(
+            let saved = WsSessionPersistence::update_context_window(
                 &self.write_pool,
                 self.db_session_id,
                 usage_update.snapshot.context_window,
             )
             .await;
+            self.report_usage_write(
+                &mut state.context_window_save_failed,
+                "its context window",
+                saved.map(|()| true),
+            )
+            .await;
         }
 
-        let persisted_message = match persistence.persist_runtime_event(runtime_event).await {
+        let persisted_message = match persistence
+            .persist_runtime_event_buffered(runtime_event)
+            .await
+        {
             Ok(message) => message,
             Err(TranscriptPersistenceError::AwaitingReconciliation) => None,
             Err(error) => {
@@ -301,7 +208,9 @@ impl StreamReaderTask {
             .stream_event()
             .and_then(|_| persistence.current_model_for_event(runtime_event));
         if !usage_update.is_subagent {
-            let _ = persist_usage(runtime_event, self.db_session_id, &self.write_pool).await;
+            let saved = persist_usage(runtime_event, self.db_session_id, &self.write_pool).await;
+            self.report_usage_write(&mut state.token_usage_save_failed, "its token usage", saved)
+                .await;
         }
         // Any change is worth pushing, including a window that resolved on the
         // `init` event before this turn spent a token — without that the UI
@@ -333,14 +242,25 @@ impl StreamReaderTask {
         // because a background agent is still alive (issue #58) — keep the turn
         // lifecycle in `active` so the header timer doesn't reset on resume.
         if let Some(envelope) = envelope {
-            let _ = self
-                .send_and_mirror(Message::Text(String::from(envelope).into()))
+            self.publish(Message::Text(String::from(envelope).into()))
                 .await;
         }
-        if runtime_event.is_result()
-            && state.live_background_agents.is_empty()
-            && interrupted_generation.is_none()
-        {
+        // Write the deltas whose flush window has passed only after this
+        // frame went out, so the frame itself never waits on SQLite. The write
+        // still runs on this task: the next event waits for it (at most one
+        // UPDATE per block per window), which keeps writes in stream order
+        // and their failures on this event's durability path.
+        self.flush_due_deltas(persistence).await;
+    }
+
+    async fn continue_after_result(
+        &self,
+        state: &StreamReaderState,
+        interrupted_generation: Option<u64>,
+    ) {
+        if let Some(generation) = interrupted_generation {
+            self.after_stopped_turn(generation).await;
+        } else if state.live_background_agents.is_empty() {
             if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_completed(
                 &self.app_state,
                 self.db_session_id,
@@ -358,10 +278,260 @@ impl StreamReaderTask {
 mod tests {
     use super::*;
     use crate::domain::agents::adapter::{
-        AgentRuntimeSession, RuntimeError, RuntimeEventKind, RuntimeEventMetadata,
-        RuntimeSpawnConfig,
+        AgentRuntimeSession, BackgroundAgentSignal, RuntimeError, RuntimeEventKind,
+        RuntimeEventMetadata, RuntimeSpawnConfig, RuntimeStreamEvent,
     };
+    use crate::domain::runtime_stream::RuntimeUsageSnapshot;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn held_acp_boundaries_keep_one_clock_and_one_persisted_turn_summary() {
+        use crate::domain::session_status::AgentStatus;
+
+        let (task, _runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        task.record_running().await;
+        let statuses = &task.session_status_tx;
+        statuses.broadcast_running(id, task.feature_id);
+        let session = id.to_string();
+        let started_at = statuses.snapshot().states[&session]
+            .clock
+            .turn_started_at_ms;
+        assert!(started_at.is_some());
+        let mut status_rx = statuses.subscribe();
+
+        let detached_end = || {
+            RuntimeEvent::new(
+                RuntimeEventMetadata::default(),
+                RuntimeEventKind::DetachedReplyEnded,
+            )
+        };
+        let hold = || {
+            Some(BackgroundAgentSignal::Started {
+                agent_id: "acp-background-work".into(),
+            })
+        };
+        let resumed = || {
+            RuntimeEvent::new(
+                RuntimeEventMetadata::default(),
+                RuntimeEventKind::StreamEvent {
+                    event: RuntimeStreamEvent::MessageStart {
+                        model: None,
+                        input_tokens: None,
+                    },
+                    parent_tool_use_id: None,
+                },
+            )
+        };
+        for event in [
+            RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Result)
+                .with_background_agent(hold()),
+            resumed(),
+            detached_end().with_background_agent(hold()),
+            resumed(),
+            RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
+                .with_background_agent(Some(BackgroundAgentSignal::Finished {
+                    agent_id: "acp-background-work".into(),
+                })),
+        ] {
+            task.handle_runtime_event(&mut state, None, &mut persistence, event)
+                .await;
+            let active = &statuses.snapshot().states[&session];
+            assert_eq!(active.status, AgentStatus::Agent);
+            assert_eq!(active.clock.turn_started_at_ms, started_at);
+        }
+
+        let summaries = "SELECT content FROM agent_messages WHERE session_id = ? AND message_type = 'turn_summary'";
+        let journal = statuses.journal();
+        journal.flush(pool, &task.feature_senders).await;
+        let interim = sqlx::query_scalar::<_, String>(summaries)
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        assert!(interim.is_empty());
+        assert!(status_rx.try_recv().is_err());
+
+        task.handle_runtime_event(&mut state, None, &mut persistence, detached_end())
+            .await;
+        assert_eq!(status_rx.try_recv().unwrap().status, AgentStatus::Idle);
+        assert!(status_rx.try_recv().is_err());
+        journal.flush(pool, &task.feature_senders).await;
+        let completed = sqlx::query_scalar::<_, String>(summaries)
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        assert_eq!(completed.len(), 1);
+        let summary: serde_json::Value = serde_json::from_str(&completed[0]).unwrap();
+        assert_eq!(summary["startedAtMs"].as_i64(), started_at);
+    }
+
+    #[tokio::test]
+    async fn detached_completion_preserves_prompt_delivery_and_an_open_gate() {
+        use crate::domain::ws_session::persistence::PendingUserInput;
+
+        let (task, _runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let turns = &task.app_state.active_turns;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        let message_uuid = uuid::Uuid::new_v4();
+        persistence
+            .persist_user_message_with_delivery(
+                "Still preparing to send",
+                message_uuid,
+                Some("pending_agent"),
+            )
+            .await
+            .unwrap();
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        assert!(state
+            .turn_state
+            .accepts_result_generation(false, turns.current_generation(id).await));
+        state.turn_state.mark_fresh_turn_started();
+
+        // The newer foreground prompt is preparing, before its ACP request
+        // has even taken the session's prompt lock.
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        WsSessionPersistence::mark_running_static(pool, id)
+            .await
+            .unwrap();
+        let end = RuntimeEvent::new(
+            RuntimeEventMetadata::default(),
+            RuntimeEventKind::DetachedReplyEnded,
+        );
+        state.live_background_agents.insert("older-work".into());
+        let stale = end
+            .clone()
+            .with_background_agent(Some(BackgroundAgentSignal::Finished {
+                agent_id: "older-work".into(),
+            }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, stale)
+            .await;
+        assert!(state.live_background_agents.is_empty());
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "running");
+        assert!(!state.turn_state.is_between_turns());
+
+        // When the detached reply belongs to the current generation, its
+        // boundary closes the stream without deciding the pending question.
+        assert!(state
+            .turn_state
+            .accepts_result_generation(false, turns.current_generation(id).await));
+        let gate = json!({"request_id":"detached-gate", "tool_name":"AskUserQuestion"});
+        WsSessionPersistence::set_pending_user_input_static(
+            pool,
+            id,
+            &PendingUserInput::Question(&gate),
+        )
+        .await;
+        task.handle_runtime_event(&mut state, None, &mut persistence, end)
+            .await;
+        assert!(state.turn_state.is_between_turns());
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "completed");
+        let (_, payload) = row.pending_gate_payload().unwrap();
+        assert_eq!(payload.request_id, "detached-gate");
+        let delivery: String =
+            sqlx::query_scalar("SELECT delivery_state FROM agent_messages WHERE message_uuid = ?")
+                .bind(message_uuid.to_string())
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(delivery, "pending_agent");
+    }
+
+    #[tokio::test]
+    async fn stale_background_release_does_not_interrupt_the_new_prompt() {
+        check_background_release_after_new_prompt(false).await;
+    }
+
+    #[tokio::test]
+    async fn stale_background_release_preserves_a_stop_of_the_new_prompt() {
+        check_background_release_after_new_prompt(true).await;
+    }
+
+    async fn check_background_release_after_new_prompt(stop_new_prompt: bool) {
+        let (task, runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let turns = &task.app_state.active_turns;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        let result =
+            || RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Result);
+
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        let held = result().with_background_agent(Some(BackgroundAgentSignal::Started {
+            agent_id: "older-work".into(),
+        }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, held)
+            .await;
+        assert_eq!(turns.request_interruption(id, &runtime).await, Some(1));
+        turns.begin_turn(id, &task.sdk_sessions).await;
+        task.record_running().await;
+        if stop_new_prompt {
+            assert_eq!(turns.request_interruption(id, &runtime).await, Some(2));
+        }
+
+        let release = RuntimeEvent::new(
+            RuntimeEventMetadata::default(),
+            RuntimeEventKind::DetachedReplyEnded,
+        )
+        .with_background_agent(Some(BackgroundAgentSignal::Finished {
+            agent_id: "older-work".into(),
+        }));
+        task.handle_runtime_event(&mut state, None, &mut persistence, release)
+            .await;
+        assert!(state.live_background_agents.is_empty());
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "running");
+
+        task.handle_runtime_event(&mut state, None, &mut persistence, result())
+            .await;
+        let row = WsSessionPersistence::get_session_row(pool, id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.status, "completed");
+        let interruption_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'turn_interrupted'",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(interruption_count, i64::from(stop_new_prompt));
+    }
 
     struct BoundOwnerAdapter;
     #[async_trait::async_trait]
@@ -413,6 +583,7 @@ mod tests {
         drop(runtime);
         let row = WsSessionPersistence::get_session_row(&task.write_pool, task.db_session_id)
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(
             row.runtime_session_id.as_deref(),

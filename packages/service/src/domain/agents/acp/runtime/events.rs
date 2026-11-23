@@ -105,6 +105,54 @@ mod tests {
         }
     }
     #[test]
+    fn child_tool_activity_leaves_the_root_reply_stream_open() {
+        let mut idx = EventIndexer::default();
+        let first = run_chunk(&mut idx, "agent_message_chunk", "first");
+        for (kind, status) in [
+            ("tool_call", "in_progress"),
+            ("tool_call_update", "completed"),
+        ] {
+            let events = session_update_to_events(
+                &json!({"update": {
+                    "sessionUpdate": kind,
+                    "toolCallId": "read",
+                    "parentToolCallId": "agent",
+                    "toolName": "Read",
+                    "status": status,
+                    "rawOutput": "ok"
+                }}),
+                &mut idx,
+                None,
+                None,
+                &PlainHooks,
+            )
+            .events;
+            assert!(!events.is_empty());
+            assert!(events
+                .iter()
+                .all(|event| event.parent_tool_use_id() == Some("agent")));
+        }
+        idx.background_subagents.insert("agent".into(), true);
+        let settled = session_update_to_events(
+            &json!({"update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "agent",
+                "_meta": {"cadencr": {"subagent": {"status": "completed"}}}
+            }}),
+            &mut idx,
+            None,
+            None,
+            &PlainHooks,
+        );
+        assert_eq!(settled.events.len(), 1);
+        assert!(settled.events[0].is_subagent_signal_only());
+        let more = run_chunk(&mut idx, "agent_message_chunk", " second");
+        assert_eq!(more.len(), 1);
+        assert!(matches!(
+            (first.last().unwrap().stream_event(), more[0].stream_event()),
+            (Some(RuntimeStreamEvent::ContentBlockDelta { index: a, .. }), Some(RuntimeStreamEvent::ContentBlockDelta { index: b, .. })) if a == b
+        ));
+    }
+    #[test]
     fn tool_call_after_text_flushes_streaming_block_first() {
         let mut idx = EventIndexer::default();
         let _ = run_chunk(&mut idx, "agent_message_chunk", "hi");

@@ -2,18 +2,14 @@ import { create } from "zustand";
 import type { SessionStatusEntry } from "./session-status-store";
 
 export interface QuestionAnswerDraft {
-  text: string;
   selectedOptions: Set<string>;
   freeText: string;
   showOther: boolean;
 }
 
-export interface QuestionDraft {
+export interface QuestionDraft extends QuestionAnswerDraft {
   currentIndex: number;
   answers: QuestionAnswerDraft[];
-  selectedOptions: Set<string>;
-  freeText: string;
-  showOther: boolean;
 }
 
 export interface QuestionDraftIdentity {

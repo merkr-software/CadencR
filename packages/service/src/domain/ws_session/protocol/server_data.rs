@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionPromptSteeringPayload {
+    pub session_id: String,
+    pub supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionAcknowledgedPayload {
     pub action: String,
 }
@@ -27,7 +33,12 @@ pub struct SessionClearedPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionMcpServersPayload {
+    pub session_id: String,
     pub mcp_servers: Vec<McpServerStatusPayload>,
+    /// Why the servers could not be read; `mcp_servers` is then empty and
+    /// says nothing about what the agent has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

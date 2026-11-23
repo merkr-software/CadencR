@@ -29,7 +29,14 @@ export interface GitTabToolbarProps {
   fileListCollapsed: boolean;
   isFileListCollapseLoading: boolean;
   onToggleFileList: () => void;
-  stats: { isLoading: boolean; isError: boolean; additions?: number; deletions?: number };
+  stats: {
+    isLoading: boolean;
+    isError: boolean;
+    additions?: number;
+    deletions?: number;
+    /** No diff to measure (its target branch does not exist): show nothing. */
+    hidden?: boolean;
+  };
 }
 
 /** The file-list toggle's box — fixed, so the tab strip beside it never shifts
@@ -154,7 +161,9 @@ function GitToolbarNumStat({
   isError,
   additions,
   deletions,
-}: GitTabToolbarProps["stats"]): ReactElement {
+  hidden = false,
+}: GitTabToolbarProps["stats"]): ReactElement | null {
+  if (hidden) return null;
   if (isLoading) {
     return (
       <Skeleton

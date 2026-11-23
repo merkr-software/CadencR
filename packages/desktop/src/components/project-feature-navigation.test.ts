@@ -32,6 +32,21 @@ describe("project feature navigation cache helpers", () => {
     queryClient.clear();
   });
 
+  it("forgets a deleted conversation everywhere it is cached", () => {
+    const queryClient = new QueryClient();
+    const keys = [["/api/features/pinned"], ["/api/features/active"], ["/api/features/recent"]];
+    for (const key of keys) queryClient.setQueryData<Feature[]>(key, [feature(1), feature(2)]);
+    queryClient.setQueryData<Feature>(["/api/features/1"], feature(1));
+
+    removeFeatureFromCachedLists(queryClient, 1);
+
+    for (const key of keys) {
+      expect(queryClient.getQueryData<Feature[]>(key)?.map(({ id }) => id)).toEqual([2]);
+    }
+    expect(queryClient.getQueryState(["/api/features/1"])).toBeUndefined();
+    queryClient.clear();
+  });
+
   it("marks an archived only conversation so home shows the empty project screen", () => {
     const queryClient = new QueryClient();
     const key = ["/api/features", { project_id: 1, include_archived: true }] as const;

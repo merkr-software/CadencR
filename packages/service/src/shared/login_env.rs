@@ -3,6 +3,7 @@
 //! All later service-spawned Git and agent subprocesses inherit this env.
 //! Scope: macOS/Linux by default, best-effort, and bounded by a timeout.
 
+use crate::shared::discard::cleanup;
 use std::collections::HashSet;
 use std::process::Stdio;
 use std::time::Duration;
@@ -161,8 +162,8 @@ async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
         Ok(Ok(raw)) => raw,
         Ok(Err(e)) => return Err(e),
         Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            cleanup(child.kill().await, "kill the timed-out login shell");
+            cleanup(child.wait().await, "reap the timed-out login shell");
             return Err(format!(
                 "shell hydration timed out after {}s",
                 LOGIN_ENV_TIMEOUT.as_secs()
@@ -174,7 +175,10 @@ async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
     // Reap the child so it doesn't show up as a zombie. Ignore the status:
     // an interactive shell can legitimately exit non-zero from rc-file
     // glitches and still have produced a valid env dump.
-    let _ = timeout(Duration::from_millis(500), child.wait()).await;
+    cleanup(
+        timeout(Duration::from_millis(500), child.wait()).await,
+        "reap the login shell",
+    );
 
     Ok(raw)
 }

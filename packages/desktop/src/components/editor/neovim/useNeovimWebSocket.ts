@@ -12,11 +12,14 @@ import {
 import { useConnectionStatusStore } from "@/stores/connection-status-store";
 
 const WRITE_DROPPED_TOAST_ID = "neovim-write-dropped";
+const INPUT_ERROR_TOAST_ID = "neovim-input-error";
 
 const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("data"), data: z.string() }),
   z.object({ type: z.literal("attached"), scrollback: z.string() }),
   z.object({ type: z.literal("error"), message: z.string() }),
+  // Input Neovim could not take; the session stays attached.
+  z.object({ type: z.literal("input_error"), message: z.string() }),
 ]);
 type ServerMessage = z.infer<typeof serverMessageSchema>;
 
@@ -66,6 +69,11 @@ function handleMessage(
     case "error":
       lastErrorSetter(message.message);
       optionsRef.current.onError(message.message);
+      break;
+    case "input_error":
+      toast.error(`Neovim input was not delivered: ${message.message}`, {
+        id: INPUT_ERROR_TOAST_ID,
+      });
       break;
   }
 }

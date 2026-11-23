@@ -17,7 +17,7 @@ interface AgentQuestionOptionListProps {
   showOther: boolean;
   freeTextFocused: boolean;
   onOptionToggle: (option: string) => void;
-  onOtherToggle: () => void;
+  onOtherToggle?: () => void;
   /**
    * `drawer` (default) is the in-chat form. `compact` and `touch` are the sidebar
    * popover's: the digit hints are plain keys that work in the popover, "Other" shows
@@ -162,13 +162,15 @@ function AgentQuestionOptionListComponent({
           </button>
         );
       })}
-      <OtherOptionButton
-        layout={layout}
-        selected={showOther}
-        highlighted={highlightedIndex === options.length}
-        otherKey={otherKey}
-        onToggle={onOtherToggle}
-      />
+      {onOtherToggle && (
+        <OtherOptionButton
+          layout={layout}
+          selected={showOther}
+          highlighted={highlightedIndex === options.length}
+          otherKey={otherKey}
+          onToggle={onOtherToggle}
+        />
+      )}
     </div>
   );
 }

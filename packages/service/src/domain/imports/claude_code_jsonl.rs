@@ -21,9 +21,10 @@ use super::types::truncate_title;
 pub use super::types::{ImportedConversation, ImportedMessage};
 
 /// Encode a filesystem path the way Claude Code does for its
-/// `~/.claude/projects/<encoded>/` directory: drop the leading `/`, replace
-/// every non-alphanumeric character (`/`, `.`, spaces, etc.) with `-`, then
-/// prepend a single `-`.
+/// `~/.claude/projects/<encoded>/` directory: every character that is not an
+/// ASCII letter or digit becomes `-` (counted in UTF-16 units, as JavaScript
+/// does). A name longer than 200 characters keeps its first 200, followed by
+/// `-` and a hash of the whole path (`JD` in Claude Code 2.1.x).
 ///
 /// Matching Claude Code exactly matters: this encoded dir is how we locate a
 /// session's transcript for branching (rewind/fork context trim) and for
@@ -32,14 +33,46 @@ pub use super::types::{ImportedConversation, ImportedMessage};
 /// transcript was never found and rewind/fork fell back to resuming the full,
 /// un-trimmed history.
 pub fn encode_project_path(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    let trimmed = s.trim_start_matches('/');
-    let mut encoded = String::with_capacity(trimmed.len() + 1);
-    encoded.push('-');
-    for ch in trimmed.chars() {
-        encoded.push(if ch.is_ascii_alphanumeric() { ch } else { '-' });
+    const MAX_NAME: usize = 200;
+    let text = path.to_string_lossy();
+    let encoded: String = text
+        .encode_utf16()
+        .map(|unit| match char::from_u32(u32::from(unit)) {
+            Some(ch) if ch.is_ascii_alphanumeric() => ch,
+            _ => '-',
+        })
+        .collect();
+    if encoded.len() <= MAX_NAME {
+        return encoded;
     }
-    encoded
+    format!(
+        "{}-{}",
+        &encoded[..MAX_NAME],
+        base36(path_hash(&text).unsigned_abs())
+    )
+}
+
+/// Claude Code's `hre`: Java's string hash over UTF-16 units, in i32.
+fn path_hash(text: &str) -> i32 {
+    text.encode_utf16().fold(0i32, |hash, unit| {
+        hash.wrapping_shl(5)
+            .wrapping_sub(hash)
+            .wrapping_add(i32::from(unit))
+    })
+}
+
+fn base36(mut value: u32) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut digits = Vec::new();
+    loop {
+        digits.push(DIGITS[(value % 36) as usize]);
+        value /= 36;
+        if value == 0 {
+            break;
+        }
+    }
+    digits.reverse();
+    String::from_utf8(digits).expect("base36 digits are ASCII")
 }
 
 /// Scan all `*.jsonl` files directly under the given dir. Subdirectories
@@ -171,6 +204,26 @@ mod tests {
             encode_project_path(p),
             "-Users-rle--cadencr-worktrees-cadencr-feature-x-5d03"
         );
+    }
+
+    #[test]
+    fn encode_project_path_shortens_long_names_like_claude_code() {
+        // Claude Code 2.1.322 keeps the first 200 characters of the encoded
+        // name and appends `-` plus base 36 of the absolute Java string hash
+        // of the path (checked against its own memory path).
+        let p = Path::new(
+            "/home/dev/projects/monorepo/packages/applications/web-frontend/src/features/very-long-folder-name-to-exceed-two-hundred-characters/nested/deeper/still-deeper/and-even-deeper-than-that/final-folder-name-xxxxxxxxxx",
+        );
+        assert_eq!(
+            encode_project_path(p),
+            "-home-dev-projects-monorepo-packages-applications-web-frontend-src-features-very-long-folder-name-to-exceed-two-hundred-characters-nested-deeper-still-deeper-and-even-deeper-than-that-final-folder-nam-sxp7ho"
+        );
+    }
+
+    #[test]
+    fn encode_project_path_counts_utf16_units() {
+        // JavaScript sees an emoji as two UTF-16 units, so two dashes.
+        assert_eq!(encode_project_path(Path::new("/a/é😀")), "-a----");
     }
 
     #[test]

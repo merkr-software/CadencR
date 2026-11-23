@@ -5,11 +5,12 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
+use opencode_sdk_rs::OpenCodeGeneration;
+
 use crate::domain::agents::adapter::RuntimeError;
 use crate::domain::agents::runtime::ProviderModeCatalogEntry;
 use crate::shared::cli_stderr;
 
-const AGENT_LIST_COMMAND: &str = "opencode agent list";
 const AGENT_LIST_TIMEOUT: Duration = Duration::from_secs(10);
 const AGENT_LIST_CACHE_TTL: Duration = Duration::from_secs(30);
 const MODE_PREFIX: &str = "opencodeAgent:";
@@ -40,9 +41,14 @@ pub(in crate::domain::agents::opencode) async fn primary_agent_modes(
         return modes;
     }
 
-    match list_agents_output(cwd).await {
-        Ok(output) => {
-            let modes = parse_primary_agent_modes(&output);
+    let listed = list_agents_output(cwd)
+        .await
+        .and_then(|(generation, output)| match generation {
+            OpenCodeGeneration::V1 => Ok(parse_primary_agent_modes(&output)),
+            OpenCodeGeneration::V2 => parse_v2_primary_agent_modes(&output),
+        });
+    match listed {
+        Ok(modes) => {
             cache_modes(cache_key, modes.clone()).await;
             modes
         }
@@ -71,62 +77,90 @@ async fn cache_modes(cwd: PathBuf, modes: Vec<ProviderModeCatalogEntry>) {
     );
 }
 
-async fn list_agents_output(cwd: &Path) -> Result<String, RuntimeError> {
-    let binary = opencode_sdk_rs::process::resolve_binary().await?;
-    let mut command = cli_discovery::login_shell_exec_command(
-        binary.as_os_str(),
-        [
-            std::ffi::OsString::from("agent"),
-            std::ffi::OsString::from("list"),
-        ],
-    );
-    command.current_dir(cwd).kill_on_drop(true);
-    let output = tokio::time::timeout(AGENT_LIST_TIMEOUT, command.output())
-        .await
-        .map_err(|_| RuntimeError::new(format!("{AGENT_LIST_COMMAND} timed out")))?
-        .map_err(|error| RuntimeError::new(format!("{AGENT_LIST_COMMAND} failed: {error}")))?;
-
-    if !output.status.success() {
-        return Err(agent_list_failure(&output));
+/// The agent listing of the resolved CLI: `opencode agent list` (text) on
+/// 1.x, `opencode debug agents` (JSON) on 2.x.
+async fn list_agents_output(cwd: &Path) -> Result<(OpenCodeGeneration, String), RuntimeError> {
+    let installation = opencode_sdk_rs::resolve_installation().await?;
+    // `--standalone`: without it 2.x starts its background service and
+    // leaves it running.
+    let args: &[&str] = match installation.generation {
+        OpenCodeGeneration::V1 => &["agent", "list"],
+        OpenCodeGeneration::V2 => &["debug", "agents", "--standalone"],
+    };
+    // Captured through a file: OpenCode cuts a piped stdout at 64 KiB, and
+    // the 2.x JSON carries every agent's prompt.
+    let run = opencode_sdk_rs::capture_opencode_command(
+        &installation.path,
+        Some(cwd),
+        args,
+        AGENT_LIST_TIMEOUT,
+    )
+    .await?;
+    if !run.status.success() {
+        return Err(agent_list_failure(&run.label, &run.status, &run.stderr));
     }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok((installation.generation, run.stdout))
 }
 
-/// Why `opencode agent list` failed, from the end of its stderr (bounded,
-/// known secrets masked).
-fn agent_list_failure(output: &std::process::Output) -> RuntimeError {
+/// Why the agent listing failed, from the end of its stderr (bounded, known
+/// secrets masked).
+fn agent_list_failure(
+    label: &str,
+    status: &std::process::ExitStatus,
+    stderr: &str,
+) -> RuntimeError {
     RuntimeError::new(cli_stderr::command_failure(
-        AGENT_LIST_COMMAND,
-        &output.status,
-        &String::from_utf8_lossy(&output.stderr),
+        label,
+        status,
+        stderr,
         &cli_stderr::secret_values([]),
     ))
 }
 
 fn parse_primary_agent_modes(raw: &str) -> Vec<ProviderModeCatalogEntry> {
-    let mut seen = HashSet::new();
-    let mut modes = Vec::new();
+    modes_from(raw.lines().map(str::trim).filter_map(parse_agent_header))
+}
 
-    for line in raw.lines().map(str::trim) {
-        let Some((name, mode)) = parse_agent_header(line) else {
-            continue;
-        };
-        if !is_user_invokable_mode(mode)
-            || BUILTIN_PRIMARY_AGENTS.contains(&name)
-            || name.contains('/')
-            || !seen.insert(name)
-        {
-            continue;
-        }
-        modes.push(ProviderModeCatalogEntry {
+/// `opencode debug agents` (2.x): a JSON array of `{id, mode, hidden, …}`.
+fn parse_v2_primary_agent_modes(raw: &str) -> Result<Vec<ProviderModeCatalogEntry>, RuntimeError> {
+    let agents = serde_json::from_str::<Vec<serde_json::Value>>(raw).map_err(|error| {
+        RuntimeError::new(format!(
+            "opencode debug agents returned unexpected output: {error}"
+        ))
+    })?;
+    Ok(modes_from(
+        agents
+            .iter()
+            .filter(|agent| agent.get("hidden").and_then(serde_json::Value::as_bool) != Some(true))
+            .filter_map(|agent| {
+                Some((
+                    agent.get("id").and_then(serde_json::Value::as_str)?,
+                    agent.get("mode").and_then(serde_json::Value::as_str)?,
+                ))
+            }),
+    ))
+}
+
+/// The Shift+Tab modes for `(name, mode)` agents: user-invokable custom
+/// agents, once each.
+fn modes_from<'a>(
+    agents: impl Iterator<Item = (&'a str, &'a str)>,
+) -> Vec<ProviderModeCatalogEntry> {
+    let mut seen = HashSet::new();
+    agents
+        .filter(|(name, mode)| {
+            is_user_invokable_mode(mode)
+                && !BUILTIN_PRIMARY_AGENTS.contains(name)
+                && !name.contains('/')
+                && seen.insert(*name)
+        })
+        .map(|(name, _)| ProviderModeCatalogEntry {
             id: mode_id_for_agent(name),
             label: name.to_string(),
             description: Some(format!("Use the OpenCode {name} agent.")),
-        });
-    }
-
-    modes
+            accent: None,
+        })
+        .collect()
 }
 
 /// OpenCode agents declare themselves as `primary` (user-invokable),
@@ -148,7 +182,28 @@ fn parse_agent_header(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_list_failure, agent_name_from_mode_id, parse_primary_agent_modes};
+    use super::{
+        agent_list_failure, agent_name_from_mode_id, parse_primary_agent_modes,
+        parse_v2_primary_agent_modes,
+    };
+
+    #[test]
+    fn v2_debug_agents_lists_visible_custom_primary_agents() {
+        let modes = parse_v2_primary_agent_modes(
+            r#"[
+                {"id":"build","mode":"primary","hidden":false},
+                {"id":"plan","mode":"primary","hidden":false},
+                {"id":"compaction","mode":"primary","hidden":true},
+                {"id":"general","mode":"subagent","hidden":false},
+                {"id":"reviewer","mode":"all","hidden":false},
+                {"id":"secret","mode":"primary","hidden":true}
+            ]"#,
+        )
+        .unwrap();
+        let ids: Vec<_> = modes.iter().map(|mode| mode.label.as_str()).collect();
+        assert_eq!(ids, vec!["reviewer"]);
+        assert!(parse_v2_primary_agent_modes("not json").is_err());
+    }
 
     #[cfg(unix)]
     #[test]
@@ -165,11 +220,11 @@ mod tests {
             "{}\n\u{1b}[31mError:\u{1b}[0m token {secret} rejected\n",
             "noise ".repeat(200)
         );
-        let error = agent_list_failure(&std::process::Output {
-            status: std::process::ExitStatus::from_raw(1 << 8),
-            stdout: Vec::new(),
-            stderr: stderr.into_bytes(),
-        });
+        let error = agent_list_failure(
+            "opencode agent list",
+            &std::process::ExitStatus::from_raw(1 << 8),
+            &stderr,
+        );
         assert_eq!(
             error.to_string(),
             "opencode agent list exited with status 1: Error: token ••• rejected"

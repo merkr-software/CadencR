@@ -1,4 +1,5 @@
 use crate::domain::ws_session::runtime::output::{OutputTarget, SessionOutput};
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -151,7 +152,7 @@ impl WsFeatureSenderRegistry {
             if sender.same_channel(exclude) {
                 continue;
             }
-            let _ = sender.send(message.clone());
+            sender.send(message.clone()).ignore_closed();
         }
         if senders.is_empty() {
             map.remove(&feature_id);
@@ -162,7 +163,7 @@ impl WsFeatureSenderRegistry {
     pub async fn broadcast_all(&self, feature_id: i64, message: &Message) {
         self.notify_observers(feature_id, message);
         for sender in self.get_senders(feature_id).await {
-            let _ = sender.send(message.clone());
+            sender.send(message.clone()).ignore_closed();
         }
     }
 
@@ -214,6 +215,18 @@ impl WsFeatureSenderRegistry {
             map.remove(&feature_id);
         }
         self.observers.recount(&map);
+    }
+
+    /// [`Self::send_and_mirror`] for an event whose delivery the caller does
+    /// not act on: an owner that hung up resyncs from the database when it
+    /// reconnects, and the viewers still got the event.
+    pub(crate) async fn publish(&self, feature_id: i64, owner: &impl OutputTarget, msg: Message) {
+        if self.send_and_mirror(feature_id, owner, msg).await {
+            tracing::debug!(
+                feature_id,
+                "owner socket closed; viewers still received the event"
+            );
+        }
     }
 
     /// Send `msg` to the turn `owner` and mirror it to every *other* device

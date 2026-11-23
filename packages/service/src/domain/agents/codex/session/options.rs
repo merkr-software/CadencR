@@ -9,6 +9,7 @@ pub(in crate::domain::agents::codex) struct CodexSessionOptions {
     pub(in crate::domain::agents::codex) effective_model: Option<String>,
     pub(in crate::domain::agents::codex) effective_effort: Option<String>,
     pub(in crate::domain::agents::codex) summary: Option<String>,
+    pub(in crate::domain::agents::codex) native_fast_mode: bool,
     pub(in crate::domain::agents::codex) fast_mode: Option<bool>,
     pub(in crate::domain::agents::codex) permission_mode: Option<RuntimePermissionMode>,
     pub(in crate::domain::agents::codex) access_mode: Option<RuntimeAccessMode>,

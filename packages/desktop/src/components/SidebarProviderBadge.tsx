@@ -1,12 +1,12 @@
 import { memo, type CSSProperties, type ReactElement } from "react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import { BotIcon } from "lucide-react";
 import { useProviderMetadata } from "@/lib/provider-icons";
 import { cn } from "@/lib/utils";
 import { thinkingEffortLabel, parseThinkingEffort } from "@/shared/thinking-effort";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 
-/** A provider's mono mark tinted with the text color; a bot glyph without one. */
+/** A provider's mono mark tinted with the text color; an agent glyph without one. */
 export function ProviderMonoMark({
   iconSrc,
   scale,
@@ -16,7 +16,7 @@ export function ProviderMonoMark({
   scale?: number | null;
   className?: string;
 }): ReactElement {
-  if (!iconSrc) return <BotIcon className={cn("size-3.5", className)} aria-hidden />;
+  if (!iconSrc) return <AgentIcon className={cn("size-3.5", className)} aria-hidden />;
   return (
     <span
       aria-hidden

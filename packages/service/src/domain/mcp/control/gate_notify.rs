@@ -142,7 +142,7 @@ mod tests {
         .await
         .unwrap();
         let queued: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM agent_session_message_queue WHERE target_session_id = 11",
+            "SELECT COUNT(*) FROM agent_session_prompt_queue WHERE session_id = 11",
         )
         .fetch_one(&pool)
         .await

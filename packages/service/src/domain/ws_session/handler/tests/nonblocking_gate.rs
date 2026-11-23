@@ -61,11 +61,6 @@ struct Fixture {
 /// persisted and shown as the session's pending gate.
 async fn fixture(status: &str, nonblocking: bool) -> Fixture {
     let app_state = make_test_app_state().await;
-    // Closing a question that ended its wait drains the reply queue.
-    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
-        .execute(&app_state.write_pool)
-        .await
-        .unwrap();
     let gate = serde_json::json!({
         "request_id": QUESTION, "tool_name": "AskUserQuestion",
         "tool_input": {"questions": [{"question": "Open the QA instance?"}]}
@@ -292,4 +287,28 @@ async fn closing_a_question_answered_by_a_plain_reply_leaves_the_session_idle() 
     assert_eq!(fixture.dismissed.recv().await.unwrap(), QUESTION);
     assert_eq!(shown_status(&fixture.app_state), None);
     assert!(!has_stop_mark(&fixture).await);
+}
+
+/// The race left after the dismissal fix: a turn's end read the question as
+/// still pending, then the user closed it and sent a prompt that started a
+/// new turn, and only then did the old turn's end show the question again.
+/// It must not: the question is closed, and the new turn is working.
+#[tokio::test]
+async fn a_turn_end_that_read_a_question_before_it_closed_does_not_show_it_again() {
+    let fixture = fixture("running", true).await;
+    let status = &fixture.app_state.session_status_tx;
+    // A plain reply sent while the question waited: the book shows the turn.
+    status.broadcast_running(SESSION, 1);
+    status.broadcast_gate_left_pending(SESSION, 1, PendingKind::Question, QUESTION.into());
+    status.broadcast_running(SESSION, 1);
+    assert_eq!(shown_status(&fixture.app_state), Some(AgentStatus::Agent));
+    // 1. The turn ends and reads the question as still pending (not shown yet).
+    // 2. The user closes it, and a new prompt starts the next turn.
+    only_gate_closed(&close_question(&fixture).await);
+    status.broadcast_running(SESSION, 1);
+
+    // 3. The old turn's end now shows what it read.
+    status.broadcast_gate_left_pending(SESSION, 1, PendingKind::Question, QUESTION.into());
+
+    assert_eq!(shown_status(&fixture.app_state), Some(AgentStatus::Agent));
 }

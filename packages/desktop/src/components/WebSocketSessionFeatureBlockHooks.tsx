@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import type { AgentSessionHandle } from "@/components/agent-session";
 import type { FeatureTerminalTabHandle } from "@/components/FeatureTerminalTab";
 import {
@@ -17,8 +17,11 @@ import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import type { FeatureEditorTabHandle } from "@/components/editor/FeatureEditorTab";
 import type { WorktreeStatus } from "@/types/workflow";
 import type { SessionControls } from "@/components/WebSocketSessionControls";
+import { applyThinkingEffort } from "@/components/sessionThinkingEffort";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
+import { useWorkspaceSession } from "@/hooks/useWorkspaceSession";
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 export { useSessionControls } from "@/components/WebSocketSessionControls";
 
 /** The selected native profile to attach to an outgoing prompt when supported. */
@@ -89,7 +92,7 @@ export function useSessionFeatureData(
       ),
     [featureSettingsData],
   );
-  const session = useWsSessionStore((state) => state.sessions[sessionId]);
+  const session = useWorkspaceSession(sessionId);
   const liveWorktreeBranch = useWsSessionStore(
     (state) => state.sessions[sessionId]?.worktreeBranch,
   );
@@ -184,6 +187,7 @@ function useSessionInitialization({
 }: WsSessionEffectsArgs): void {
   const { initSession, isConnected } = controls.ws;
   const serverSessionId = data.session?.serverSessionId;
+  const pendingPermissionMode = data.session?.pendingInitPermissionMode;
   const persistedLoaded = data.session?.persistedLoaded ?? false;
   // Embedded cards skip init on mount, but a prompt sent from one is only
   // queued until `session.initialized` — so init on demand (issue #251). The
@@ -197,7 +201,8 @@ function useSessionInitialization({
     if (!initOnMount && !needsOnDemandInit) return;
     // A card and the full view can share this session; read the live entry so
     // two effects in one commit don't both send an init.
-    if (useWsSessionStore.getState().sessions[sessionId]?.initRequestId) return;
+    const latest = useWsSessionStore.getState().sessions[sessionId];
+    if (latest?.initRequestId) return;
     controls.initializedRef.current = sessionId;
     // No provider/model/effort: the frontend resolvers return catalog
     // fallbacks until the selection query settles. The backend treats any
@@ -207,21 +212,61 @@ function useSessionInitialization({
     initSession({
       cwd,
       featureId,
-      permissionMode: controls.ws.permissionMode,
+      permissionMode:
+        (latest ? latest.pendingInitPermissionMode : pendingPermissionMode) ?? undefined,
     });
   }, [
     autoInitSession,
     controls.initializedRef,
-    controls.ws.permissionMode,
     cwd,
     featureId,
     initSession,
     isConnected,
     needsOnDemandInit,
+    pendingPermissionMode,
     persistedLoaded,
     serverSessionId,
     sessionId,
   ]);
+}
+
+/**
+ * Showing a workspace again (`WorkspacePool`) gives focus back to the tab it
+ * shows, the way a requested tab is focused (`useRequestedTabFocus`): the
+ * prompt, the terminal or the editor. Only on a hidden → shown transition: on
+ * mount the tabs focus themselves.
+ */
+function useFocusWhenShown({
+  refs,
+  focusedTabId,
+  hotkeysEnabled,
+  autoFocusPrompt,
+}: WsSessionEffectsArgs): void {
+  const activity = useWorkspaceActivity();
+  const latest = useRef({ focusedTabId, autoFocusPrompt });
+  useLayoutEffect(() => {
+    latest.current = { focusedTabId, autoFocusPrompt };
+  }, [autoFocusPrompt, focusedTabId]);
+  useEffect(() => {
+    if (!hotkeysEnabled) return undefined;
+    let frame = 0;
+    const unsubscribe = activity.subscribe(() => {
+      cancelAnimationFrame(frame);
+      if (!activity.isActive()) return;
+      // A frame later, when the tab this switch asked for (`WorkspacePool`) is
+      // the focused one.
+      frame = requestAnimationFrame(() => {
+        const { focusedTabId: tab, autoFocusPrompt: promptAllowed } = latest.current;
+        if (tab === "agent" && promptAllowed) refs.agent.current?.focusPromptBar();
+        else if (tab === "terminal") refs.terminal.current?.activate();
+        else if (tab === "editor") refs.editor.current?.focusActiveEditor();
+      });
+    });
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(frame);
+    };
+  }, [activity, hotkeysEnabled, refs.agent, refs.editor, refs.terminal]);
 }
 
 export function useWsSessionEffects(args: WsSessionEffectsArgs): void {
@@ -232,21 +277,27 @@ export function useWsSessionEffects(args: WsSessionEffectsArgs): void {
     onFocus: () => refs.agent.current?.focusActiveInput(),
   });
   useSessionInitialization(args);
+  // A workspace kept mounted but hidden (see `WorkspacePool`) leaves focus
+  // alone; `useFocusWhenShown` takes it back each time it is shown again.
+  const activity = useWorkspaceActivity();
   useEffect(() => {
-    if (!autoFocusPrompt) return undefined;
-    if (!hotkeysEnabled || focusedTabId !== "agent") return undefined;
+    if (!autoFocusPrompt || !hotkeysEnabled || focusedTabId !== "agent") return undefined;
+    if (!activity.isActive()) return undefined;
     const frame = requestAnimationFrame(() => refs.agent.current?.focusPromptBar());
     return () => cancelAnimationFrame(frame);
-  }, [autoFocusPrompt, focusedTabId, hotkeysEnabled, refs.agent, sessionId]);
+  }, [activity, autoFocusPrompt, focusedTabId, hotkeysEnabled, refs.agent, sessionId]);
+  useFocusWhenShown(args);
   useEffect(() => {
     const handler = (): void => {
       // `autoFocusPrompt` is false on phones, so notification-driven focus
       // won't pop the keyboard there either.
-      if (autoFocusPrompt && hotkeysEnabled) refs.agent.current?.focusPromptBar();
+      if (autoFocusPrompt && hotkeysEnabled && activity.isActive()) {
+        refs.agent.current?.focusPromptBar();
+      }
     };
     window.addEventListener("cadencr:focus-prompt", handler);
     return () => window.removeEventListener("cadencr:focus-prompt", handler);
-  }, [autoFocusPrompt, hotkeysEnabled, refs.agent]);
+  }, [activity, autoFocusPrompt, hotkeysEnabled, refs.agent]);
   useEffect(() => {
     if (!hotkeysEnabled) return;
     if (serverSessionId && data.effectiveCwd) {
@@ -287,7 +338,8 @@ export function useWsSessionShortcuts(args: {
         controls.supportedThinkingEfforts,
         controls.ws.currentThinkingEffort,
       );
-      if (next) controls.ws.setThinkingEffort(next);
+      // Same path as the composer's effort control (Codex: runtime override).
+      if (next) applyThinkingEffort(controls, next);
     },
     "agent",
     { enabled: hotkeysEnabled },

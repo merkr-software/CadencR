@@ -30,6 +30,7 @@ pub struct InstalledAcpHooks {
     model_config_id: String,
     modes: Arc<ProviderModeMap>,
     compact_command: Option<String>,
+    exclude_launcher_ports: bool,
     live: RwLock<LiveConfigIds>,
     capabilities: InstalledAcpCapabilities,
     prompt_capabilities: SharedPromptCapabilities,
@@ -51,6 +52,7 @@ impl InstalledAcpHooks {
         model_config_id: String,
         #[builder(default)] modes: Arc<ProviderModeMap>,
         compact_command: Option<String>,
+        #[builder(default)] exclude_launcher_ports: bool,
         #[builder(default)] prompt_capabilities: SharedPromptCapabilities,
         #[builder(default)] slash_commands: Arc<SlashCommandCatalog>,
     ) -> Self {
@@ -58,6 +60,7 @@ impl InstalledAcpHooks {
             model_config_id,
             modes,
             compact_command,
+            exclude_launcher_ports,
             live: RwLock::new(LiveConfigIds::default()),
             capabilities: InstalledAcpCapabilities::default(),
             prompt_capabilities,
@@ -134,6 +137,11 @@ fn unsupported_block(kind: &str, capabilities: ProviderPromptCapabilities) -> Op
 
 #[async_trait]
 impl AcpProviderHooks for InstalledAcpHooks {
+    #[cfg(unix)]
+    fn observe_attached_mcp_connections(&self) -> bool {
+        true
+    }
+
     fn normalize_tool_name(&self, raw: &str) -> String {
         raw.to_string()
     }
@@ -178,8 +186,16 @@ impl AcpProviderHooks for InstalledAcpHooks {
         true
     }
 
+    fn uses_negotiated_prompt_receipts(&self) -> bool {
+        true
+    }
+
     fn supports_durable_resume(&self) -> bool {
         self.capabilities.supports_durable_resume()
+    }
+
+    fn exclude_launcher_ports(&self) -> bool {
+        self.exclude_launcher_ports
     }
 
     fn observe_durable_resume_capability(&self, supported: bool) {
@@ -254,6 +270,7 @@ mod tests {
         let hooks = hooks("model-picker");
         assert_eq!(hooks.model_config_id(), Some("model-picker"));
         assert!(hooks.requires_verified_model_selection());
+        assert!(hooks.uses_negotiated_prompt_receipts());
         assert!(!hooks.supports_durable_resume());
         hooks.observe_durable_resume_capability(true);
         assert!(hooks.supports_durable_resume());

@@ -56,7 +56,7 @@ fn encode_hex(bytes: &[u8]) -> String {
     bytes
         .iter()
         .fold(String::with_capacity(64), |mut out, byte| {
-            let _ = write!(out, "{byte:02x}");
+            write!(out, "{byte:02x}").expect("writing to a String cannot fail");
             out
         })
 }
@@ -86,7 +86,9 @@ fn put_in(root: &Path, bytes: &[u8]) -> Result<BlobHash, AppError> {
     if verify_blob(&path, &hash).map_err(|error| blob_io("verify existing blob", error))? {
         return Ok(hash);
     }
-    quarantine_corrupt(&path, shard, &hash)?;
+    if quarantine_corrupt(&path, shard, &hash)? {
+        return Ok(hash);
+    }
 
     // UUID + create_new makes staging unique across threads and processes.
     let staging = shard.join(format!(
@@ -124,6 +126,16 @@ fn blob_io(action: &'static str, error: std::io::Error) -> AppError {
     AppError::internal(format!("failed to {action}: {error}"))
 }
 
+/// Only a missing file is "not found": a blob that exists but cannot be read
+/// (permissions, I/O) is a server failure, not a reference to lost bytes.
+fn read_error(hash: &str, error: std::io::Error) -> AppError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        AppError::NotFound(format!("blob {hash} not found"))
+    } else {
+        blob_io("read blob", error)
+    }
+}
+
 /// A false result covers both absence and a corrupt/non-file path.
 fn verify_blob(path: &Path, expected_hash: &str) -> std::io::Result<bool> {
     let metadata = match std::fs::symlink_metadata(path) {
@@ -148,28 +160,58 @@ fn verify_blob(path: &Path, expected_hash: &str) -> std::io::Result<bool> {
     Ok(actual == expected_hash)
 }
 
-fn quarantine_corrupt(path: &Path, shard: &Path, hash: &str) -> Result<(), AppError> {
-    if std::fs::symlink_metadata(path).is_err() {
-        return Ok(());
-    }
+/// Set aside what sits at `path` before the commit replaces it, and tell
+/// whether it is the valid blob after all: a concurrent writer may have
+/// committed it since `put_in` checked. A regular file is linked aside, not
+/// moved, so a valid one never leaves `path` (its readers and its writer never
+/// find the path empty) and the commit's rename replaces a corrupt one
+/// atomically. Anything else, or a file where hard links are refused, is
+/// moved aside, and put back if it turns out valid.
+fn quarantine_corrupt(path: &Path, shard: &Path, hash: &str) -> Result<bool, AppError> {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(false);
+    };
     let quarantine = shard.join(format!(
         ".{hash}.{}.{}.corrupt",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
-    std::fs::rename(path, &quarantine).map_err(|error| {
-        AppError::internal(format!(
-            "failed to quarantine corrupt blob {} as {}: {error}",
-            path.display(),
-            quarantine.display()
-        ))
-    })?;
+    let linked = metadata.file_type().is_file()
+        && match std::fs::hard_link(path, &quarantine) {
+            Ok(()) => true,
+            // Another writer set it aside first.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            // A filesystem without hard links: move it aside instead.
+            Err(_) => false,
+        };
+    if !linked {
+        match std::fs::rename(path, &quarantine) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(AppError::internal(format!(
+                    "failed to quarantine corrupt blob {} as {}: {error}",
+                    path.display(),
+                    quarantine.display()
+                )))
+            }
+        }
+    }
+    if verify_blob(&quarantine, hash).map_err(|error| blob_io("verify quarantined blob", error))? {
+        let restored = if linked {
+            std::fs::remove_file(&quarantine)
+        } else {
+            std::fs::rename(&quarantine, path)
+        };
+        restored.map_err(|error| blob_io("restore a valid blob set aside", error))?;
+        return Ok(true);
+    }
     tracing::warn!(
         blob = %path.display(),
         quarantine = %quarantine.display(),
         "quarantined corrupt blob entry"
     );
-    Ok(())
+    Ok(false)
 }
 
 fn cleanup_staging(path: &Path) {
@@ -205,25 +247,37 @@ pub fn get(hash: &str) -> Result<Vec<u8>, AppError> {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
     let path = path_for(hash);
-    let bytes =
-        std::fs::read(&path).map_err(|_| AppError::NotFound(format!("blob {hash} not found")))?;
+    let bytes = std::fs::read(&path).map_err(|error| read_error(hash, error))?;
     if !path.is_file() || hash_bytes(&bytes) != hash {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
     Ok(bytes)
 }
 
-/// Async read path for HTTP handlers; large screenshots must not block a Tokio
-/// worker while the filesystem fills the response buffer.
+/// Async read path for HTTP handlers; file open, metadata check, full read,
+/// and SHA-256 verification all run inside a single blocking task so large
+/// screenshots never stall a Tokio worker.
 pub async fn get_async(hash: &str) -> Result<Vec<u8>, AppError> {
     if !is_valid_hash(hash) {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
-    let path = path_for(hash);
-    let bytes = tokio::fs::read(&path)
+    let hash = hash.to_string();
+    let path = path_for(&hash);
+    tokio::task::spawn_blocking(move || read_verified_blob(&path, &hash))
         .await
-        .map_err(|_| AppError::NotFound(format!("blob {hash} not found")))?;
-    if !path.is_file() || hash_bytes(&bytes) != hash {
+        .map_err(|error| AppError::internal(format!("failed to join blob read task: {error}")))?
+}
+
+fn read_verified_blob(path: &Path, hash: &str) -> Result<Vec<u8>, AppError> {
+    let mut file = std::fs::File::open(path).map_err(|error| read_error(hash, error))?;
+    let metadata = file.metadata().map_err(|error| read_error(hash, error))?;
+    if !metadata.is_file() {
+        return Err(AppError::NotFound(format!("blob {hash} not found")));
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    file.read_to_end(&mut bytes)
+        .map_err(|error| read_error(hash, error))?;
+    if hash_bytes(&bytes) != hash {
         return Err(AppError::NotFound(format!("blob {hash} not found")));
     }
     Ok(bytes)
@@ -232,6 +286,15 @@ pub async fn get_async(hash: &str) -> Result<Vec<u8>, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every read failure used to answer 404, hiding a broken store.
+    #[test]
+    fn only_a_missing_blob_reads_as_not_found() {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert!(matches!(read_error("abc", missing), AppError::NotFound(_)));
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(matches!(read_error("abc", denied), AppError::Internal(_)));
+    }
 
     #[test]
     fn round_trips_bytes_and_is_content_addressed() {
@@ -311,6 +374,21 @@ mod tests {
     }
 
     #[test]
+    fn a_blob_committed_since_the_check_is_never_set_aside() {
+        let root = tempfile::tempdir().unwrap();
+        let hash = hash_bytes(b"committed meanwhile");
+        let path = path_for_in(root.path(), &hash);
+        let shard = path.parent().unwrap();
+        std::fs::create_dir_all(shard).unwrap();
+        std::fs::write(&path, b"committed meanwhile").unwrap();
+
+        assert!(quarantine_corrupt(&path, shard, &hash).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), b"committed meanwhile");
+        let entries: Vec<_> = std::fs::read_dir(shard).unwrap().flatten().collect();
+        assert_eq!(entries.len(), 1, "nothing left aside: {entries:?}");
+    }
+
+    #[test]
     fn replaces_a_directory_at_the_hash_path_without_deleting_it() {
         let root = tempfile::tempdir().unwrap();
         let hash = hash_bytes(b"correct");
@@ -359,5 +437,41 @@ mod tests {
             b"incomplete unrelated write",
             "a write must not delete another process's staging data"
         );
+    }
+
+    #[tokio::test]
+    async fn get_async_round_trips_and_verifies_blob_off_runtime() {
+        let hash = put(b"async-screenshot-bytes").unwrap();
+        assert_eq!(get_async(&hash).await.unwrap(), b"async-screenshot-bytes");
+
+        let absent = "0".repeat(64);
+        assert!(matches!(
+            get_async(&absent).await,
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            get_async("../invalid").await,
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn read_verified_blob_rejects_corrupt_or_directory_entry() {
+        let root = tempfile::tempdir().unwrap();
+        let hash = hash_bytes(b"expected");
+        let path = path_for_in(root.path(), &hash);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"corrupt").unwrap();
+        assert!(matches!(
+            read_verified_blob(&path, &hash),
+            Err(AppError::NotFound(_))
+        ));
+
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(matches!(
+            read_verified_blob(&path, &hash),
+            Err(AppError::NotFound(_))
+        ));
     }
 }

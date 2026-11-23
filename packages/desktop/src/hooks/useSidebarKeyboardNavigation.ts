@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type { useNavigate } from "@tanstack/react-router";
 import { useShortcut } from "@/hooks/useShortcut";
 import { getActiveFocusZone } from "@/lib/focus-zones";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
 
 type Navigate = ReturnType<typeof useNavigate>;
@@ -75,11 +76,8 @@ function activateSidebarItem(
   const id = focused.getAttribute("data-nav-id");
   const projectId = focused.getAttribute("data-nav-project-id");
   if (type === "feature" && id && projectId) {
-    const focusTab = getFocusedTabForFeature(activeFeatureId);
-    void navigate({
-      to: "/projects/$projectId/features/$featureId",
-      params: { projectId, featureId: id },
-      search: focusTab ? { focusTab } : undefined,
+    navigateToConversation(navigate, Number(projectId), Number(id), {
+      focusTab: getFocusedTabForFeature(activeFeatureId),
     });
   } else if (type === "project" && id) {
     focused.click();

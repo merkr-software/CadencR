@@ -51,6 +51,9 @@ pub struct Project {
     pub authoring_target: Option<ProjectAuthoringTarget>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_id: Option<String>,
+    /// The folder is not where the project records it (moved or deleted
+    /// outside Cadencr); the user can locate it.
+    pub path_missing: bool,
 }
 
 /// Result of read-only, local preparation checks for an authored provider.
@@ -93,6 +96,44 @@ pub struct CreateProjectRequest {
     pub path: String,
 }
 
+/// Rename a project, move its folder, or both.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateProjectRequest {
+    /// The new display name; omitted keeps the current one.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Where the folder goes; omitted leaves it where it is.
+    #[serde(default)]
+    pub folder: Option<ProjectFolderChange>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ProjectFolderChange {
+    /// The folder's new absolute path.
+    pub path: String,
+    pub mode: ProjectFolderMode,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectFolderMode {
+    /// Cadencr moves (or renames) the folder to `path`.
+    Move,
+    /// The folder was already moved outside Cadencr; it now is at `path`.
+    Locate,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UpdateProjectResponse {
+    pub project: Project,
+    /// What could not follow the folder, for the user.
+    pub warnings: Vec<String>,
+    /// A move to another volume copied the folder: the original is still
+    /// here, for the user to delete once satisfied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_left_at: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ProjectSetting {
     pub key: String,
@@ -119,6 +160,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             authoring_target: None,
             plugin_id: None,
+            path_missing: false,
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains("Test Project"));

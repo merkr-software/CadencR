@@ -14,8 +14,9 @@ use crate::domain::agents::adapter::{summarize_subagent_result, RuntimeSubagentP
 /// Plenty for a conversation; older runs stay in its transcript.
 const MAX_RUNS: i64 = 500;
 
-/// Carriers first (the `+` keeps the planner on the partial carriers index
-/// instead of scanning every tool row), then each one's registry row and
+/// Carriers first, sought per session of the feature on their tool name (the
+/// `+` keeps the planner off the `tool_use_id` index, which would walk every
+/// tool row), then each one's registry row and
 /// transcript counts. Content and last activity are only read for untracked,
 /// pre-registry runs; the observed model only while none is resolved.
 const LIST_SQL: &str = "WITH carriers AS (
@@ -300,31 +301,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn carriers_come_from_the_partial_carriers_index() {
+    async fn carriers_are_sought_per_feature_session_without_a_scan() {
         let pool = test_support::migrated_pool().await;
-        let details: Vec<String> = sqlx::query(sqlx::AssertSqlSafe(format!(
+        let rows: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "EXPLAIN QUERY PLAN {LIST_SQL}"
         )))
         .bind(1_i64)
         .bind(MAX_RUNS)
         .fetch_all(&pool)
         .await
-        .unwrap()
-        .iter()
-        .map(|row| row.get::<String, _>("detail"))
-        .collect();
+        .unwrap();
+        let plan = crate::shared::test_query_plan::plan_details(&rows);
         assert!(
-            details
-                .iter()
-                .any(|detail| detail.contains("idx_agent_messages_subagent_carriers")),
-            "{details:?}"
+            plan.contains("SEARCH s USING COVERING INDEX idx_agent_sessions_feature_id"),
+            "{plan}"
         );
         assert!(
-            !details.iter().any(
-                |detail| detail.contains("idx_agent_messages_session_tool_use")
-                    && detail.starts_with("SCAN")
-            ),
-            "{details:?}"
+            plan.contains("idx_agent_messages_subagent_carriers")
+                || plan.contains(
+                    "idx_agent_messages_session_type_tool (session_id=? AND message_type=? AND tool_name=?)"
+                ),
+            "carriers must come from an exact tool-name seek:\n{plan}"
         );
+        crate::shared::test_query_plan::assert_no_full_scan(&plan, &["c"]);
     }
 }

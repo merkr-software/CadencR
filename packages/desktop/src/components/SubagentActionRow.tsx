@@ -14,6 +14,7 @@ import { thinkingPreview } from "@/components/ThinkingBlock";
 import { truncateSubagentText, firstSubagentMarkdownLine } from "@/components/subagent-actions";
 import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
 import { cn } from "@/lib/utils";
+import { toolCallFailure } from "@/lib/tool-failure";
 import {
   extractBashCommand,
   isFileChangeTool,
@@ -47,6 +48,8 @@ const SUBAGENT_MARKDOWN_COLLAPSED_CLASS = cn(
 
 interface SubagentActionRowProps {
   block: AgentBlockData;
+  result?: AgentBlockData;
+  agentRunning?: boolean;
   basePath?: string;
   /** When true, prose blocks render their full content instead of a one-line preview. */
   expanded?: boolean;
@@ -60,6 +63,8 @@ interface SubagentActionRowProps {
  */
 export const SubagentActionRow = memo(function SubagentActionRow({
   block,
+  result,
+  agentRunning,
   basePath,
   expanded = false,
   isStreaming = false,
@@ -73,8 +78,36 @@ export const SubagentActionRow = memo(function SubagentActionRow({
     );
   }
   if (block.type !== "tool_call") return null;
-  return <ToolActionLine block={block} basePath={basePath} />;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <ToolActionLine block={block} basePath={basePath} />
+      </div>
+      <ToolOutcome block={block} result={result} agentRunning={agentRunning} />
+    </div>
+  );
 });
+
+function ToolOutcome({
+  block,
+  result,
+  agentRunning,
+}: Pick<SubagentActionRowProps, "block" | "result" | "agentRunning">): ReactElement | null {
+  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
+  if (failure) {
+    return (
+      <span className="shrink-0 text-[10px] text-destructive" title={failure.reason}>
+        Failed
+      </span>
+    );
+  }
+  if (!result && !(agentRunning && block.toolUseId)) return null;
+  return (
+    <span className="shrink-0 text-[10px] text-muted-foreground">
+      {result ? "Result received" : "Awaiting result"}
+    </span>
+  );
+}
 
 function TextActionLine({
   content,
@@ -192,7 +225,7 @@ function FileChangeActionLine({
   const { detail, stats } = useMemo(() => {
     const summary = parseToolCall(toolName, toolArgs);
     return {
-      detail: truncateOptional(oneLineDetail(summary?.detail, basePath), 70),
+      detail: oneLineDetail(summary?.detail, basePath),
       stats: computeToolNumStat(rawToolName, toolArgs),
     };
   }, [rawToolName, toolName, toolArgs, basePath]);
@@ -203,6 +236,7 @@ function FileChangeActionLine({
       accent="edit"
       label={toolName}
       detail={detail}
+      pathDetail
       trailing={
         stats ? (
           <NumStat additions={stats.additions} deletions={stats.deletions} hideZero />
@@ -229,7 +263,7 @@ function GenericActionLine({
     const summary = parseToolCall(toolName, toolArgs);
     return {
       label: toolName,
-      detail: oneLineDetail(summary?.detail, basePath),
+      detail: summary?.detail === toolName ? undefined : oneLineDetail(summary?.detail, basePath),
       accent: "tool" as const,
     };
   }, [toolName, toolArgs, basePath]);
@@ -238,7 +272,8 @@ function GenericActionLine({
       icon={WrenchIcon}
       accent={accent}
       label={label}
-      detail={truncateOptional(detail, 80)}
+      detail={toolName === "Read" ? detail : truncateOptional(detail, 80)}
+      pathDetail={toolName === "Read"}
     />
   );
 }
@@ -248,12 +283,14 @@ function ActionLine({
   accent,
   label,
   detail,
+  pathDetail = false,
   trailing,
 }: {
   icon: LucideIcon;
   accent: ToolAccent;
   label: string;
   detail?: string;
+  pathDetail?: boolean;
   trailing?: ReactElement;
 }): ReactElement {
   const classes = TOOL_ACCENT_CLASSES[accent];
@@ -262,8 +299,12 @@ function ActionLine({
       <Icon className={cn("size-3 shrink-0", classes.label)} aria-hidden />
       <span className={cn("shrink-0 font-medium", classes.label)}>{label}</span>
       {detail && (
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
-          {detail}
+        <span
+          className="min-w-0 flex-1 truncate text-left font-mono text-[11px] text-muted-foreground"
+          dir={pathDetail ? "rtl" : undefined}
+          title={pathDetail ? detail : undefined}
+        >
+          {pathDetail ? <bdi dir="ltr">{detail}</bdi> : detail}
         </span>
       )}
       {!detail && <span className="min-w-0 flex-1" />}

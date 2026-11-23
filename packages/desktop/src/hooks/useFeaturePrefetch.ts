@@ -1,36 +1,35 @@
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  getFeatureAgentState,
-  getGetFeatureAgentStateQueryKey,
-  getBranch,
-  getGetBranchQueryKey,
-  getStats,
-  getGetStatsQueryKey,
-} from "@/api/generated";
-import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { getBranch, getGetBranchQueryKey, getStats, getGetStatsQueryKey } from "@/api/generated";
+import { useDebouncedCallback, type DebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { preloadConversation } from "@/lib/conversation-preload";
 
 /**
- * Debounced prefetch for the small, always-fetched-on-open queries of a
- * feature row: agent-state, git branch (per project), git stats. Wire onto
- * `onMouseEnter` and `onFocus` so keyboard users get the same warm-cache
- * benefit (per `keyboard-shortcuts.md`).
+ * How long the pointer rests on a row before its conversation is fetched.
+ * Shorter than a deliberate hover, longer than a row takes to cross in a
+ * cursor sweep down the sidebar.
+ */
+const PREFETCH_DWELL_MS = 60;
+
+/**
+ * Debounced prefetch of what opening a feature row needs: the conversation's
+ * first page and layout (`preloadConversation`, the snapshot its workspace
+ * opens on), the git branch (per project) and the git stats. Wire onto
+ * `onMouseEnter` and `onFocus` so keyboard users get the same warm start (per
+ * `keyboard-shortcuts.md`), and its `cancel` onto `onMouseLeave` and `onBlur`.
  *
- * The 150 ms debounce stops a fast cursor sweep across the sidebar from
- * firing dozens of requests; a single prefetch lands once the user pauses
- * on a row.
+ * Each row has its own dwell: cancelling it when the pointer leaves is what
+ * stops a fast cursor sweep across the sidebar from firing one request per row
+ * crossed; a single prefetch lands once the user pauses on a row.
  */
 export function useFeaturePrefetch(
   featureId: number | undefined,
   projectId: number | undefined,
-): () => void {
+): DebouncedCallback<[]> {
   const queryClient = useQueryClient();
 
   return useDebouncedCallback(() => {
     if (featureId == null) return;
-    void queryClient.prefetchQuery({
-      queryKey: getGetFeatureAgentStateQueryKey(featureId),
-      queryFn: ({ signal }) => getFeatureAgentState(featureId, undefined, signal),
-    });
+    preloadConversation(featureId);
     // Match the mode ProjectFeatureRow / the Git tab use for working-tree stats
     // ("worktree") so the prefetch warms the same cache entry instead of a
     // separate mode-less key that never gets reused.
@@ -44,5 +43,5 @@ export function useFeaturePrefetch(
         queryFn: ({ signal }) => getBranch({ project_id: projectId }, signal),
       });
     }
-  }, 150);
+  }, PREFETCH_DWELL_MS);
 }

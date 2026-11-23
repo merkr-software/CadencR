@@ -3,6 +3,7 @@
  */
 
 import type { AgentBlockData } from "@/types/agent-block";
+import type { HistoryGap } from "@/types/agent-stream";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
@@ -129,6 +130,11 @@ export function createStreamHealth(): StreamHealth {
 // Per-session state
 // ---------------------------------------------------------------------------
 
+export interface HistoryLoadFailure {
+  message: string;
+  retrying: boolean;
+}
+
 export interface SessionEntry extends SessionConfigState {
   runtimeOverrides?: {
     model: string | null;
@@ -167,11 +173,19 @@ export interface SessionEntry extends SessionConfigState {
    */
   submittingPermissionRequestId: string | null;
   /**
-   * Actions (`interrupt`, `model.set`, …) of session commands sent and not yet
-   * settled by a correlated reply, an error, or their acknowledgement window.
-   * Drives "stopping…"-style sending states; see `ws-session-commands`.
+   * Session commands sent or waiting and not yet settled by a correlated
+   * reply, an error, or their acknowledgement window, by `commandKind`: the
+   * action (`interrupt`, `model.set`, …), or for a runtime override
+   * `runtime_overrides.set:<fields>`. Drives "stopping…"-style sending states;
+   * see `ws-session-commands`.
    */
   pendingCommandActions: readonly string[];
+  /**
+   * Settings still waiting in the outbound queue for the socket to reopen
+   * (changed while disconnected), by `commandKind`: the action, or for a
+   * runtime override `runtime_overrides.set:<fields>`.
+   */
+  queuedCommandActions: readonly string[];
   /** Stable idempotency keys retained while permission responses may be retried. */
   permissionResponseMessageUuids: Map<string, string>;
   pendingQuestions: AgentQuestion[];
@@ -197,8 +211,17 @@ export interface SessionEntry extends SessionConfigState {
   currentSelection: RuntimeSelection | null;
   runtimeSessionId: string;
   mcpServers: McpServerStatus[] | null;
+  /** Why the runtime could not report its MCP servers; `mcpServers` is then empty. */
+  mcpServersError: string | null;
   supportsPromptReceipts: boolean;
+  promptReceiptsAtSubmission: boolean;
   persistedLoaded: boolean;
+  /**
+   * Why the conversation's saved history failed to load, shown in the
+   * transcript with a retry; `retrying` while that retry is in flight. Null
+   * once a snapshot is applied.
+   */
+  historyLoadFailure: HistoryLoadFailure | null;
   contextUsage: ContextUsageState | null;
   hasFileChanges: boolean;
   slashCommands: SlashCommand[];
@@ -216,8 +239,11 @@ export interface SessionEntry extends SessionConfigState {
   worktreeBranch: string | null;
   worktreeSetupOutput: string[];
   worktreeError: string | null;
-  hasMore: boolean;
-  oldestMessageId: number | null;
+  /**
+   * Saved history not loaded yet, in database order (see `HistoryGap`). Each
+   * is a row of the transcript that loads its messages as it nears the view.
+   */
+  historyGaps: HistoryGap[];
   /**
    * Highest DB message id this client has hydrated. Cursor for the
    * reconnect resync: after the socket drops (e.g. mobile sleep) we fetch
@@ -263,6 +289,7 @@ export function createSessionEntry(): SessionEntry {
     pendingRequestId: "",
     submittingPermissionRequestId: null,
     pendingCommandActions: [],
+    queuedCommandActions: [],
     permissionResponseMessageUuids: new Map(),
     pendingQuestions: [],
     pendingQuestionToolInput: {},
@@ -280,8 +307,11 @@ export function createSessionEntry(): SessionEntry {
     ...createSessionConfigState(),
     currentProfile: undefined,
     mcpServers: null,
+    mcpServersError: null,
     supportsPromptReceipts: false,
+    promptReceiptsAtSubmission: false,
     persistedLoaded: false,
+    historyLoadFailure: null,
     contextUsage: null,
     hasFileChanges: false,
     slashCommands: [],
@@ -298,8 +328,7 @@ export function createSessionEntry(): SessionEntry {
     worktreeBranch: null,
     worktreeSetupOutput: [],
     worktreeError: null,
-    hasMore: false,
-    oldestMessageId: null,
+    historyGaps: [],
     lastAppliedMessageId: null,
     lastAppliedContentRevision: null,
     featureId: null,

@@ -39,7 +39,8 @@ pub async fn resolve_project_root(pool: &SqlitePool, project_id: i64) -> Result<
         .await?;
     let (path,) =
         row.ok_or_else(|| AppError::NotFound(format!("project {project_id} not found")))?;
-    std::fs::canonicalize(&path)
+    tokio::fs::canonicalize(&path)
+        .await
         .map_err(|e| AppError::BadRequest(format!("cannot resolve project {project_id} root: {e}")))
 }
 
@@ -66,7 +67,7 @@ pub async fn resolve_feature_editor_root(
                 .await
                 .map_err(|error| AppError::internal(error))?
         {
-            return std::fs::canonicalize(&path).map_err(|e| {
+            return tokio::fs::canonicalize(&path).await.map_err(|e| {
                 AppError::BadRequest(format!("cannot resolve feature {fid} worktree root: {e}"))
             });
         }
@@ -132,6 +133,23 @@ fn validate_plugin_id(target: ProjectAuthoringTarget, plugin_id: &str) -> Result
 /// the on-disk path, confirming it is an existing directory. Returns the
 /// trimmed name + canonical path string to persist.
 fn validate_new_project(name: &str, path: &str) -> Result<(String, String), AppError> {
+    let trimmed = validate_project_name(name)?;
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| AppError::BadRequest(format!("invalid project path: {e}")))?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| AppError::BadRequest(format!("cannot stat project path: {e}")))?;
+    if !meta.is_dir() {
+        return Err(AppError::BadRequest(
+            "project path must be an existing directory".into(),
+        ));
+    }
+
+    Ok((trimmed, canonical.to_string_lossy().into_owned()))
+}
+
+/// A project name, trimmed, in the shape the worktree layer can place on
+/// disk: worktrees live under a folder named after the project.
+pub(crate) fn validate_project_name(name: &str) -> Result<String, AppError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(AppError::BadRequest(
@@ -159,21 +177,7 @@ fn validate_new_project(name: &str, path: &str) -> Result<(String, String), AppE
             "project name must contain alphanumeric characters".into(),
         ));
     }
-
-    let canonical = std::fs::canonicalize(path)
-        .map_err(|e| AppError::BadRequest(format!("invalid project path: {e}")))?;
-    let meta = std::fs::metadata(&canonical)
-        .map_err(|e| AppError::BadRequest(format!("cannot stat project path: {e}")))?;
-    if !meta.is_dir() {
-        return Err(AppError::BadRequest(
-            "project path must be an existing directory".into(),
-        ));
-    }
-
-    Ok((
-        trimmed.to_string(),
-        canonical.to_string_lossy().into_owned(),
-    ))
+    Ok(trimmed.to_string())
 }
 
 pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<Vec<i64>, AppError> {

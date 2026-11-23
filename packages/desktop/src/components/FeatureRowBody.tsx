@@ -1,12 +1,5 @@
 import type { CSSProperties, ReactElement, ReactNode, RefObject } from "react";
 import { FeatureRowLanes } from "@/components/FeatureRowLanes";
-import type {
-  AllocatedPort,
-  Feature,
-  FeatureWorktreeInfo,
-  GitStats,
-  PrStatusSnapshot,
-} from "@/api/generated";
 import { FeatureRowTitleLine } from "@/components/FeatureRowTitleLine";
 import { FeatureRowMetaLine, type FeatureLabelEditing } from "@/components/ProjectFeatureRowParts";
 import { FeatureRowPreviewLine } from "@/components/FeatureRowSummaryParts";
@@ -16,7 +9,7 @@ import { useFeatureRowSummary } from "@/hooks/useFeatureRowSummary";
 import type { NextActionKind } from "@/lib/next-actions";
 import type { Attention } from "@/lib/sidebar-attention";
 import type { SidebarConfig } from "@/lib/sidebar-config";
-import { rowMetaOptions } from "@/lib/sidebar-row-meta";
+import { rowMetaOptions, type RowMetaInput } from "@/lib/sidebar-row-meta";
 import {
   fixedRowLineCount,
   rowLayout,
@@ -27,13 +20,11 @@ import { cn } from "@/lib/utils";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useShallow } from "zustand/react/shallow";
 
-export interface FeatureRowBodyProps {
-  feature: Feature;
+export interface FeatureRowBodyProps extends Omit<RowMetaInput, "summary"> {
   liveTitle: string | undefined;
   isAutoNaming: boolean;
   isArchived: boolean;
   hasWorktree: boolean;
-  worktree: FeatureWorktreeInfo | undefined;
   attention: Attention;
   isActive: boolean;
   badgeRef?: RefObject<HTMLSpanElement | null>;
@@ -42,12 +33,6 @@ export interface FeatureRowBodyProps {
   actions?: ReactNode;
   /** The next action, named on its own line under the title: only the "For me" block passes it. */
   nextAction?: NextActionKind;
-  prStatus: PrStatusSnapshot | undefined;
-  gitStats: GitStats | undefined;
-  shellCount: number;
-  browserCount: number;
-  downloadCount: number;
-  ports: readonly AllocatedPort[];
   labelEditor?: FeatureLabelEditing;
   onOpenPort: (port: number) => void;
   /** Show one of the conversation's pull requests in its Git tab (`null`: the current branch's). */
@@ -65,29 +50,23 @@ export interface FeatureRowBodyProps {
  * and the display options preview render the exact same row from their own
  * data.
  */
-export function FeatureRowBody({
-  feature,
-  liveTitle,
-  isAutoNaming,
-  isArchived,
-  hasWorktree,
-  worktree,
-  attention,
-  isActive,
-  badgeRef,
-  onOpenConversation,
-  actions,
-  nextAction,
-  prStatus,
-  gitStats,
-  shellCount,
-  browserCount,
-  downloadCount,
-  ports,
-  labelEditor,
-  onOpenPort,
-  onOpenPr,
-}: FeatureRowBodyProps): ReactElement {
+export function FeatureRowBody(props: FeatureRowBodyProps): ReactElement {
+  const {
+    feature,
+    liveTitle,
+    isAutoNaming,
+    isArchived,
+    hasWorktree,
+    worktree,
+    attention,
+    isActive,
+    badgeRef,
+    onOpenConversation,
+    actions,
+    nextAction,
+    prStatus,
+    labelEditor,
+  } = props;
   const options = useSidebarConfigStore(useShallow((state) => rowOptions(state.config)));
   const layout = rowLayout(options, attention.state, labelEditor !== undefined);
   const summary = useFeatureRowSummary(
@@ -96,20 +75,7 @@ export function FeatureRowBody({
     layout.showsPreview || layout.showsTodos,
   );
   // What both the meta line and a fixed row's lines (`FeatureRowLanes`) read their details from.
-  const meta = {
-    feature,
-    worktree,
-    prStatus,
-    gitStats,
-    shellCount,
-    browserCount,
-    downloadCount,
-    ports,
-    labelEditor,
-    onOpenPort,
-    onOpenPr,
-    summary,
-  };
+  const meta = buildRowMeta(props, summary);
   const details =
     layout.compact || (layout.fixed && !layout.foldMeta) ? null : (
       <FeatureRowMetaLine {...meta} inline={layout.foldMeta} />
@@ -165,6 +131,24 @@ export function FeatureRowBody({
       )}
     </div>
   );
+}
+
+function buildRowMeta(props: FeatureRowBodyProps, summary: RowSummary | undefined) {
+  return {
+    feature: props.feature,
+    worktree: props.worktree,
+    prStatus: props.prStatus,
+    gitStats: props.gitStats,
+    runningSubagentCount: props.runningSubagentCount,
+    shellCount: props.shellCount,
+    browserCount: props.browserCount,
+    downloadCount: props.downloadCount,
+    ports: props.ports,
+    labelEditor: props.labelEditor,
+    onOpenPort: props.onOpenPort,
+    onOpenPr: props.onOpenPr,
+    summary,
+  };
 }
 
 /** The lines under an auto-height row's title, each only when it has something to show. */

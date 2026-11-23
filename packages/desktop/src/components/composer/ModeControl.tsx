@@ -43,7 +43,7 @@ export const ModeControl = memo(function ModeControl({
   providerId,
   permissionMode,
   enabledOptInModes,
-  providerModes = [],
+  providerModes,
   onSelect,
   incompatibleReason,
   showShortcut = true,
@@ -58,7 +58,7 @@ export const ModeControl = memo(function ModeControl({
   if (!active || !onSelect) return null;
 
   const choose = (mode: ProviderMode): void => {
-    if (mode.id !== active.id) onSelect(mode.id);
+    if (mode.id !== permissionMode) onSelect(mode.id);
   };
 
   return (

@@ -4,6 +4,7 @@
 //! derivation from the database path, same per-test isolation. Production is
 //! `~/.cadencr/blobs`, alongside `database/` and `settings/`.
 
+use crate::shared::discard::KeepFirst;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -11,7 +12,7 @@ static BLOB_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Set the blob directory. Called once from `main`; later calls are ignored.
 pub fn init(dir: PathBuf) {
-    let _ = BLOB_DIR.set(dir);
+    BLOB_DIR.keep_first(dir);
 }
 
 /// The active blob directory. Uninitialized non-test builds fall back to a temp
@@ -35,18 +36,7 @@ pub fn blob_dir() -> PathBuf {
 /// test on its own OS thread, so this keeps store tests from colliding.
 #[cfg(test)]
 fn test_dir() -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    thread_local! {
-        static DIR: PathBuf = {
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir()
-                .join(format!("cadencr-blobs-test-{}-{n}", std::process::id()));
-            let _ = std::fs::create_dir_all(&dir);
-            dir
-        };
-    }
-    DIR.with(Clone::clone)
+    crate::shared::test_dirs::per_thread_dir("cadencr-blobs-test-")
 }
 
 /// Production DB layout is `<base>/database/<db>` → blobs live at

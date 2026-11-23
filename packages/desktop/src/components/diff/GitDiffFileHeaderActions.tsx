@@ -16,6 +16,7 @@ import {
   resolvedStageState,
 } from "./useGitDiffFileTreeModel";
 import { openGitFileInEditor } from "./gitFileEditorHandoff";
+import { displayGitPath } from "@/lib/git-display-path";
 
 interface GitDiffFileHeaderActionsProps {
   file: ChangedFile;
@@ -75,6 +76,7 @@ export function GitDiffFileHeaderActions({
   const pendingPath = indexActions?.pendingPath === file.file;
   const stagePending = pendingPath && indexActions?.pendingAction === "stage";
   const resetPending = pendingPath && indexActions?.pendingAction === "reset";
+  const shownPath = displayGitPath(file.file);
 
   return (
     <>
@@ -97,8 +99,8 @@ export function GitDiffFileHeaderActions({
         <HeaderActionButton
           label={
             deleteConflict
-              ? `Editor unavailable for deleted conflict ${file.file}`
-              : `Open ${file.file} in editor`
+              ? `Editor unavailable for deleted conflict ${shownPath}`
+              : `Open ${shownPath} in editor`
           }
           title={
             deleteConflict
@@ -112,7 +114,7 @@ export function GitDiffFileHeaderActions({
       ) : null}
       {indexActions && availability.canStage && !conflicted ? (
         <HeaderActionButton
-          label={deleteConflict ? `Stage deletion ${file.file}` : `Stage ${file.file}`}
+          label={deleteConflict ? `Stage deletion ${shownPath}` : `Stage ${shownPath}`}
           title={
             stagePending
               ? "Staging file…"
@@ -128,7 +130,7 @@ export function GitDiffFileHeaderActions({
       ) : null}
       {indexActions && availability.canReset ? (
         <HeaderActionButton
-          label={`Unstage ${file.file}; worktree content is preserved`}
+          label={`Unstage ${shownPath}; worktree content is preserved`}
           title={resetPending ? "Unstaging file…" : "Unstage file — keeps worktree changes intact"}
           disabled={indexActions.isPending}
           pending={resetPending}

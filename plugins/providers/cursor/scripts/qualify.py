@@ -91,6 +91,7 @@ def exercise(binary, fixture, version, scratch):
     check(model["currentValue"] == "composer-2.5", "cold model selection mismatch")
     integration = json.loads(command("host-integration", "--format", "cadencr-host-integration-v1"))
     check(".cursor/rules" in integration["worktreeConfigPaths"], "worktree integration missing")
+    check(integration["excludeLauncherPorts"] is True, "launcher ports must be excluded")
     host = Host(binary, env, scratch)
     try:
         initialized = host.request("initialize", {"protocolVersion": 1, "clientCapabilities": {}})

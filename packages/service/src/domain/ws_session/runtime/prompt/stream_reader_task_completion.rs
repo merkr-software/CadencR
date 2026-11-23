@@ -14,9 +14,7 @@ use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::{
     raw_event_with_agent_message_id, PersistedEventRef, WsSessionPersistence,
 };
-use crate::domain::ws_session::protocol::{
-    SessionEndedPayload, SessionErrorPayload, SessionMessagePayload, WsEnvelope,
-};
+use crate::domain::ws_session::protocol::{SessionEndedPayload, SessionErrorPayload, WsEnvelope};
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
@@ -41,9 +39,8 @@ impl StreamReaderTask {
         interrupted_generation: Option<u64>,
     ) -> Option<WsEnvelope> {
         if runtime_event.is_result() {
-            let failed = runtime_event.result_error().is_some();
             return self
-                .result_envelope(state, interrupted_generation, failed)
+                .result_envelope(state, interrupted_generation, runtime_event)
                 .await;
         }
         // Phase 3 migration seam: v1 index-based events are assigned stable
@@ -77,21 +74,14 @@ impl StreamReaderTask {
                 serde_json::Value::String(model.to_string()),
             );
         }
-        state.message_seq += 1;
-        Some(
-            WsEnvelope::session_event(&WsSessionEvent::Message(SessionMessagePayload {
-                blocks: vec![block],
-                seq: Some(state.message_seq),
-            }))
-            .expect("session event payload should serialize"),
-        )
+        Some(state.next_message_envelope(block))
     }
 
     async fn result_envelope(
         &self,
         state: &mut StreamReaderState,
         interrupted_generation: Option<u64>,
-        failed: bool,
+        event: &RuntimeEvent,
     ) -> Option<WsEnvelope> {
         state.canonical_projection.finish_turn();
         state.turn_state.mark_result();
@@ -111,31 +101,25 @@ impl StreamReaderTask {
         // resetting elapsed time to 0s. The resume turn's final `Result` arrives
         // with the set empty and ends the turn normally below.
         if interrupted_generation.is_none() && !state.live_background_agents.is_empty() {
+            // A provider can explicitly acknowledge this prompt while reporting
+            // outstanding work. Its later autonomous completion owns no receipts.
+            if !event.is_detached_reply_end() && event.background_agent_signal().is_some() {
+                self.settle_prompt_result(state, event.result_error().is_some())
+                    .await;
+            }
             self.record_running().await;
             return None;
         }
         if let Some(generation) = interrupted_generation {
-            return self.interrupted_result_envelope(state, generation).await;
+            return self
+                .interrupted_result_envelope(state, generation, event.is_detached_reply_end())
+                .await;
         }
 
         self.record_completed().await;
-        self.record_turn_outcome(
-            state,
-            if failed {
-                TurnOutcome::Failed
-            } else {
-                TurnOutcome::Completed
-            },
-        )
-        .await;
-        if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
-            &self.write_pool,
-            self.db_session_id,
-            "delivery_unknown",
-        )
-        .await
-        {
-            error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts at turn end");
+        let failed = event.result_error().is_some();
+        if !event.is_detached_reply_end() {
+            self.settle_prompt_result(state, failed).await;
         }
         if let Some(gate) = self.gate_left_pending().await {
             self.show_gate_left_pending(gate);
@@ -161,10 +145,32 @@ impl StreamReaderTask {
         )
     }
 
+    async fn settle_prompt_result(&self, state: &StreamReaderState, failed: bool) {
+        self.record_turn_outcome(
+            state,
+            if failed {
+                TurnOutcome::Failed
+            } else {
+                TurnOutcome::Completed
+            },
+        )
+        .await;
+        if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
+            &self.write_pool,
+            self.db_session_id,
+            "delivery_unknown",
+        )
+        .await
+        {
+            error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts at turn end");
+        }
+    }
+
     async fn interrupted_result_envelope(
         &self,
         state: &mut StreamReaderState,
         interrupted_generation: u64,
+        detached_reply: bool,
     ) -> Option<WsEnvelope> {
         if !self
             .app_state
@@ -172,7 +178,9 @@ impl StreamReaderTask {
             .is_current_generation(self.db_session_id, interrupted_generation)
             .await
         {
-            self.settle_followups(true, true).await;
+            if !detached_reply {
+                self.settle_followups(true, true).await;
+            }
             info!(
                 self.db_session_id,
                 interrupted_generation,
@@ -181,8 +189,10 @@ impl StreamReaderTask {
             return None;
         }
         self.record_completed().await;
-        self.record_turn_outcome(state, TurnOutcome::Interrupted)
-            .await;
+        if !detached_reply {
+            self.record_turn_outcome(state, TurnOutcome::Interrupted)
+                .await;
+        }
         // Both ways a stopped turn ends (its runtime's interrupted result, or
         // the runtime closing mid-interrupt) pass here exactly once.
         WsSessionPersistence::persist_turn_interrupted_static(&self.write_pool, self.db_session_id)
@@ -214,10 +224,7 @@ impl StreamReaderTask {
         error: RuntimeError,
     ) {
         self.record_turn_outcome(state, TurnOutcome::Failed).await;
-        let code = match &error {
-            RuntimeError::CompactFailed(_) => "COMPACT_ERROR",
-            _ => "SDK_ERROR",
-        };
+        let code = error.session_error_code();
         let mut message = error.to_string();
         error!(self.db_session_id, error = %message, "SDK stream error");
         let dump = state
@@ -298,8 +305,7 @@ impl StreamReaderTask {
             ..Default::default()
         }))
         .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(err_env).into()))
+        self.publish(Message::Text(String::from(err_env).into()))
             .await;
     }
 
@@ -342,13 +348,13 @@ impl StreamReaderTask {
             interrupted_generation, "agent turn stopped intentionally"
         );
         if let Some(end_env) = self
-            .interrupted_result_envelope(state, interrupted_generation)
+            .interrupted_result_envelope(state, interrupted_generation, false)
             .await
         {
-            let _ = self
-                .send_and_mirror(Message::Text(String::from(end_env).into()))
+            self.publish(Message::Text(String::from(end_env).into()))
                 .await;
         }
+        self.after_stopped_turn(interrupted_generation).await;
     }
 
     pub(in crate::domain::ws_session) async fn send_stream_closed(
@@ -361,8 +367,7 @@ impl StreamReaderTask {
             received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
         }))
         .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(end_env).into()))
+        self.publish(Message::Text(String::from(end_env).into()))
             .await;
     }
 }

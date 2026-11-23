@@ -24,6 +24,9 @@ pub struct ClaudeCodeSession {
     /// Claude config dir of the session's profile; user-level agent
     /// definitions resolve from it.
     pub(super) config_dir: Option<std::path::PathBuf>,
+    /// The profile catalog the runtime was spawned with: a live model switch
+    /// hands the CLI the same id a spawn on that model would.
+    pub(super) cli_models: super::cli_model::CliModelResolver,
     /// Sub-agents earlier runtimes launched, handed to the message pump.
     pub(super) known_subagents: Vec<KnownSubagent>,
     /// The message pump's output, where an escalated Stop reports itself.
@@ -42,6 +45,7 @@ impl ClaudeCodeSession {
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: std::path::PathBuf::new(),
             config_dir: None,
+            cli_models: Default::default(),
             known_subagents: Vec::new(),
             stop_escalation: None,
             processes: CliProcesses::untracked(),
@@ -336,7 +340,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {
         self.query
-            .set_model(model)
+            .set_model(&self.cli_models.resolve(model))
             .await
             .map_err(RuntimeError::from)
     }

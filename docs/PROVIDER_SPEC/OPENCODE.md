@@ -1,8 +1,8 @@
 # Provider status — OpenCode (ACP)
 
-> Reviewed against v0.13.0 source and release changes on 2026-10-13. This review
-> updates the earlier ACP migration audit; it is not a new end-to-end parity
-> certification of every OpenCode CLI version.
+> Reviewed against v0.13.0 source and release changes on 2026-10-13, with the
+> OpenCode 2.x path added against `@opencode/cli` 2.3.2. This is not an
+> end-to-end parity certification of every OpenCode CLI version.
 
 ![Current OpenCode settings](../../packages/landing/src/assets/docs/v0.13.0/provider-opencode.png)
 
@@ -11,10 +11,19 @@ The adapter lives in `packages/service/src/domain/agents/opencode/`. It launches
 JSON-RPC over stdio. OpenCode-specific hooks stay in `opencode/acp/`.
 The transport SDK lives in `packages/opencode-sdk-rs/`.
 
-ACP is the live conversation transport. Adapter-owned HTTP side channels still
-handle OpenCode questions, child-session events/permissions, native shell work,
-and point-in-time branching. This is separate from the removed legacy
-long-lived HTTP conversation runtime.
+Two CLI lines are supported. Both install an `opencode` binary and share the
+data directory and `opencode.db`; the discovery probe's `--version` picks the
+protocol (`opencode_sdk_rs::OpenCodeGeneration`, a version it cannot read keeps
+1.x):
+
+- **1.x** (npm `opencode-ai`): `opencode acp --cwd --hostname --port` also
+  serves an HTTP backend. Adapter-owned HTTP side channels handle OpenCode
+  questions, child-session events/permissions, native shell work, and
+  point-in-time branching (`opencode/acp/upstream_workaround/`).
+- **2.x** (npm `@opencode/cli`): see [OpenCode 2.x](#opencode-2x). Its
+  `opencode acp` speaks stdio only and keeps its server private.
+
+Neither path is the removed legacy long-lived HTTP conversation runtime.
 
 ## Coverage
 
@@ -125,6 +134,85 @@ then checks the live `initialize` response:
 Stable resume does not replay history. Legacy load may replay updates, which the
 host must reconcile. Graceful `session/close` is called when advertised.
 OpenCode runtime IDs are opaque nonempty IDs, not Claude UUIDs.
+
+OpenCode 1.x records the directory a session was created in and boots the
+session from it, so a session whose folder was renamed or moved opens but fails
+every prompt (`OpenCode service failure`, ENOENT on the old folder). Before
+restoring, `before_session_resume` (`opencode/acp/session_location.rs`) reads
+the session over the subprocess's HTTP server and, when its directory differs
+from the conversation's, moves it there
+(`POST /experimental/control-plane/move-session`), keeping its id and history.
+OpenCode 1.x refuses a directory that belongs to another project. A version
+without the route fails the restore with an explanation rather than run the
+agent in the recorded folder, which may be the original a copy to another disk
+left behind. Both calls time out after 10 seconds. 2.x moves sessions
+differently; see [OpenCode 2.x](#opencode-2x).
+
+## OpenCode 2.x
+
+`opencode/acp/v2/` owns the 2.x path. Nothing in it reaches an HTTP side
+channel: 2.x `opencode acp` starts a private server on a random port with a
+random password.
+
+**Wire translation.** `v2/wire/` sits on the ACP wire through the provider-neutral
+`acp::wire_transform` hook and turns 2.x extensions into standard ACP and the
+host conventions of `INSTALLED_ACP_PROVIDERS.md`:
+
+| 2.x | Host |
+| --- | --- |
+| `initialize` | adds `clientCapabilities.elicitation.form` and `_meta["opencode/child-session-updates"]` |
+| `elicitation/create` form (one `q<n>` property per question, `q<n>_custom` for free text) | `session/request_permission` for `AskUserQuestion`; the `_meta.updatedInput.answers` reply maps back to `{action: "accept", content}`, a refusal to `decline`, a dismissal to `cancel` |
+| `subagent` tool returning `rawOutput.metadata = {sessionID, status: "running"}` | `_meta.cadencr.subagent.background` on the launch acknowledgement |
+| `opencode/session/child_update` `status` `created` / `running` | binds the child to its launch: the only pending `subagent` call of its parent, otherwise the acknowledgement naming its `sessionID`; a child opening after the others finished keeps the hold |
+| `opencode/session/child_update` `update` | the child's tool calls with ids `<child>:<id>` and `parentToolCallId` = the launching call (held, up to 256, until the launch is known); its reply text is kept |
+| `opencode/session/child_update` `status` `completed` / `failed` / `interrupted` | `_meta.cadencr.subagent.status` with the reply (or error) as `summary` |
+| prompt ending `end_turn` with children running | `result._meta.cadencr.backgroundWorkPending` |
+| a reply streamed after the prompt (a finished child wakes the parent), which 2.x never closes | `usage_update` with `detachedReplyEnded` once `session_v2.time_idle` catches up with `time_busy` and the reply streamed nothing for 750 ms (read-only poll while one is pending); a `session_info_update` releasing the hold follows when no child runs (the host ends only replies that streamed text) or replaces it when no reply comes |
+| `$/cancel_request` for an elicitation | the same cancellation for the permission id the host was given |
+| file tools' relative `rawInput.path`, in updates and permission requests | absolute `filePath` |
+| text output only in `content` | `rawOutput.output` |
+
+Child permission requests already arrive as ordinary `session/request_permission`
+on the root session, with the prefixed tool-call id.
+
+**Session configuration.** `OPENCODE_CONFIG_CONTENT` carries Cadencr's
+instructions file and turns on 2.x's todo tool (`experimental.todo`, off by
+default there), unless the existing content already sets it.
+`OPENCODE_ENABLE_QUESTION_TOOL` does not exist in 2.x. Effort levels come from
+each model's variants in the catalog; ACP's `effort` option (category
+`thought_level`) applies them.
+
+**One-shot commands.** Each passes `--standalone`: without it 2.x starts its
+shared background service (`opencode serve --service`) and leaves it running.
+
+| Need | 1.x | 2.x |
+| --- | --- | --- |
+| Model catalog | `models --verbose` | `api --standalone GET /api/model`, `/api/model/default` |
+| Custom agents | `agent list` | `debug agents --standalone` (JSON) |
+| Resolved MCP config | `debug config` (one document, `mcp.<name>`) | `debug config --standalone` (array of sources, `mcp.servers.<name>`, `disabled`) |
+| Session move | `POST /experimental/control-plane/move-session` on the side channel | `api --standalone POST /api/session/{id}/move` |
+| Fork before a prompt | `POST /session/{id}/fork` on the side channel | `api --standalone POST /api/session/{id}/fork` with `before`, the cut found through `GET /api/session/{id}/message?type=user` |
+| User shell | native `POST /session/{id}/shell` | Cadencr-managed: runs in Cadencr, attached to the next prompt |
+| Update check | npm `opencode-ai@latest` | npm `@opencode/cli@latest` |
+
+`opencode api --standalone` serves the same database as the live ACP process,
+which sees what it writes. A failed request exits 1 with the error body on
+stdout and `HTTP <status>` on stderr.
+
+**Database.** 2.x migrates the 1.x tables into `session_v2` / `session_message`
+(same session and message ids) and keeps the 1.x tables, which then stop
+growing. Conversation import and token-history import read 2.x tables first and
+add 1.x rows 2.x does not hold yet. With `experimental.part_rows`, assistant
+items live in `session_part` (by `ordinal`, ahead of inline `content`). Token
+history counts `assistant` and `compaction` rows. A 1.x CLI refuses a database
+2.x created from scratch. Release builds use `opencode.db` (or `OPENCODE_DB`);
+the idle poll reads that file as the service's environment resolves it.
+
+**Resume.** 2.x refuses `session/resume` from any folder but the session's
+recorded one. `v2/session_location.rs` moves a session first; OpenCode applies a
+move at once when the recorded folder is gone (a renamed project) and otherwise
+queues it for the session's next turn there, so that case fails with an
+explanation.
 
 ## Rewind and Fork
 

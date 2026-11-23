@@ -21,6 +21,17 @@ export function makeTabHostKey(featureId: number, paneId: string): string {
   return `${featureId}:${paneId}`;
 }
 
+export function selectFeatureTabHosts(featureId: number) {
+  const prefix = makeTabHostKey(featureId, "");
+  return (state: TabHostRegistry): Record<string, HTMLElement> => {
+    const scoped: Record<string, HTMLElement> = {};
+    for (const [key, el] of Object.entries(state.hosts)) {
+      if (key.startsWith(prefix)) scoped[key] = el;
+    }
+    return scoped;
+  };
+}
+
 export const useTabHostRegistry = create<TabHostRegistry>((set) => ({
   hosts: {},
   registerHost: (key, el) =>

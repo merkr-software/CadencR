@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarDisplayOptionsButton } from "@/components/SidebarDisplayOptionsPopover";
@@ -23,8 +24,9 @@ interface SidebarProjectsHeaderProps {
  * "Projects" sidebar header: section label plus the display options, the
  * add-project and re-sort (manual refresh) actions. Refresh re-adopts the backend's
  * most-recent-user-message ordering for projects (see `useOrderedProjects`).
+ * Memoized: its props hold still while the open conversation changes.
  */
-export function SidebarProjectsHeader({
+export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
   onAddProject,
   isAddingProject,
   canAddProject,
@@ -82,4 +84,4 @@ export function SidebarProjectsHeader({
       </div>
     </div>
   );
-}
+});

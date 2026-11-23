@@ -1,11 +1,8 @@
-//! Short-lived `opencode models --verbose` probe for the live model catalog.
-//!
-//! The prior implementation spawned `opencode serve` and polled
-//! `/config/providers`. Current OpenCode builds make the CLI model catalog
-//! available directly through `opencode models --verbose`, avoiding an
-//! unrelated HTTP server startup path before the frontend can render models.
+//! Short-lived probe for the live model catalog: `opencode models --verbose`
+//! on 1.x, `opencode api --standalone GET /api/model` on 2.x (which dropped
+//! `--verbose`). Neither starts an agent session.
 
-use opencode_sdk_rs::{ConfigProvidersResponse, SdkError};
+use opencode_sdk_rs::{ConfigProvidersResponse, OpenCodeGeneration, SdkError};
 
 use crate::domain::agents::adapter::RuntimeError;
 use crate::shared::cli_stderr;
@@ -17,9 +14,16 @@ const PROBE_LOG_PREFIX: &str = "opencode models probe";
 /// Errors bubble up so the cache layer can log + fall back. The cache owns
 /// retries: at most one immediate retry on a cold cache, then a backoff.
 pub(super) async fn run() -> Result<ConfigProvidersResponse, RuntimeError> {
-    opencode_sdk_rs::list_models_from_cli()
+    let installation = opencode_sdk_rs::resolve_installation()
         .await
-        .map_err(probe_error)
+        .map_err(probe_error)?;
+    let response = match installation.generation {
+        OpenCodeGeneration::V1 => opencode_sdk_rs::list_models_from_cli().await,
+        OpenCodeGeneration::V2 => {
+            opencode_sdk_rs::list_models_from_api(&installation.path, None).await
+        }
+    };
+    response.map_err(probe_error)
 }
 
 /// A CLI that ran and failed says why, from the end of its stderr (bounded,

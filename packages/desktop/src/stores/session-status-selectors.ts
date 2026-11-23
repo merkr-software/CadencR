@@ -53,6 +53,16 @@ export function aggregateFeatureStatuses(
 }
 
 /**
+ * Whether the status book reflects the backend now: a connected socket has
+ * delivered a snapshot. Otherwise an absent session is unknown, not idle.
+ */
+export function isLiveStatusKnown(
+  state: Pick<SessionStatusState, "hasSnapshot" | "isConnected">,
+): boolean {
+  return state.isConnected && state.hasSnapshot;
+}
+
+/**
  * Whether the backend reports the session idle. The status book only holds
  * sessions that were busy or changed status during this run (snapshots omit
  * idle sessions), so an absent entry is idle, but only once a connected
@@ -62,7 +72,7 @@ export function isSessionIdle(
   state: Pick<SessionStatusState, "bySession" | "hasSnapshot" | "isConnected">,
   sessionDbId: number,
 ): boolean {
-  if (!state.isConnected || !state.hasSnapshot) return false;
+  if (!isLiveStatusKnown(state)) return false;
   return (state.bySession[sessionDbId]?.status ?? "idle") === "idle";
 }
 
@@ -132,6 +142,28 @@ export function useLiveActiveSessionIds(): readonly number[] {
       ids.sort((a, b) => a - b);
       return ids;
     }),
+  );
+}
+
+/** How many sub-agents are currently running across `featureId`'s sessions. */
+export function countFeatureRunningSubagents(
+  bySession: Record<number, SessionStatusEntry>,
+  featureId: number,
+): number {
+  let total = 0;
+  for (const id in bySession) {
+    const entry = bySession[Number(id)];
+    if (entry && entry.featureId === featureId && entry.runningSubagents) {
+      total += entry.runningSubagents;
+    }
+  }
+  return total;
+}
+
+/** Narrow primitive selector: re-renders a sidebar row only when its own count changes. */
+export function useFeatureRunningSubagentCount(featureId: number | null | undefined): number {
+  return useSessionStatusStore((s) =>
+    featureId == null ? 0 : countFeatureRunningSubagents(s.bySession, featureId),
   );
 }
 

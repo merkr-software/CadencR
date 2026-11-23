@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::domain::git::commands as git_commands;
 use crate::shared::git_cli::run_git_safe_refs;
+use crate::shared::path_rebase::same_folder;
 use crate::shared::worktree_paths::compute_worktree_path;
 
 /// Outcome of `attach_to_existing_branch`: whether the worktree was newly
@@ -41,7 +42,9 @@ pub async fn attach_to_existing_branch(
         .map_err(|e| format!("failed to list worktrees: {e}"))?;
 
     if let Some(existing) = attachments.get(branch) {
-        if is_same_path(existing, project_path) {
+        // `git worktree list` prints canonical paths; the project path comes
+        // from the database.
+        if same_folder(existing, project_path) {
             return Err(format!(
                 "Branch '{branch}' is checked out in the project folder, so a separate \
                  worktree can't be created for it. Switch the project to another branch, \
@@ -72,20 +75,6 @@ pub async fn attach_to_existing_branch(
         branch: branch.to_string(),
         was_already_attached: false,
     })
-}
-
-/// Whether two paths point at the same directory. `git worktree list` emits
-/// canonicalized paths while the project path comes from the DB, so canonicalize
-/// both before comparing; fall back to a trailing-slash-tolerant string compare
-/// when canonicalization fails (e.g. the path no longer exists).
-fn is_same_path(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(ca), Ok(cb)) => ca == cb,
-        _ => {
-            let norm = |p: &Path| p.to_string_lossy().trim_end_matches('/').to_string();
-            norm(a) == norm(b)
-        }
-    }
 }
 
 #[cfg(test)]

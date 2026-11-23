@@ -20,6 +20,8 @@ use crate::{operation_error, Diagnostic};
 
 mod server_archive;
 
+use server_archive::ServerUpdate;
+
 const LATEST_RELEASE_URL: &str =
     "https://api.github.com/repos/merkr-software/cadencr/releases/latest";
 
@@ -36,17 +38,16 @@ struct Asset {
 }
 
 pub(super) fn run(check: bool, archive: Option<&Path>) -> Result<Option<String>, Diagnostic> {
-    let installation = Installation::detect()?;
     if check {
-        return block_on(check_latest(&installed_version(&installation)?))?;
+        return block_on(check_latest(&installed_version(&Installation::detect()?)?))?;
     }
-    Connection::refuse_running("Stop `cadencr serve`, update, then start it again.")?;
-    match installation {
-        Installation::Server { root, version } => match archive {
-            Some(archive) => server_archive::install_local(&root, &version, archive),
-            None => block_on(update_server(&root, &version))?,
-        },
+    if let Some(update) = ServerUpdate::detect()? {
+        return run_server(update, archive);
+    }
+    match Installation::detect()? {
+        Installation::Server { root, .. } => run_server(ServerUpdate::begin(&root)?, archive),
         Installation::App { .. } | Installation::AppImage { .. } => {
+            Connection::refuse_running("Stop `cadencr serve`, update, then start it again.")?;
             if archive.is_some() {
                 return Err(usage("--archive only applies to a server installation"));
             }
@@ -56,6 +57,20 @@ pub(super) fn run(check: bool, archive: Option<&Path>) -> Result<Option<String>,
                     .to_string(),
             ))
         }
+    }
+}
+
+fn run_server(update: ServerUpdate, archive: Option<&Path>) -> Result<Option<String>, Diagnostic> {
+    Connection::refuse_running("Stop `cadencr serve`, update, then start it again.")?;
+    let current = update.prepare()?;
+    match archive {
+        Some(archive) => {
+            let installed = update.install_local(archive)?;
+            Ok(Some(format!(
+                "Replaced CadencR {current} with {installed}. Start it again with `cadencr serve`."
+            )))
+        }
+        None => block_on(update_server(&update, &current))?,
     }
 }
 
@@ -83,7 +98,7 @@ async fn check_latest(current: &str) -> Result<Option<String>, Diagnostic> {
     }))
 }
 
-async fn update_server(root: &Path, current: &str) -> Result<Option<String>, Diagnostic> {
+async fn update_server(update: &ServerUpdate, current: &str) -> Result<Option<String>, Diagnostic> {
     let client = client()?;
     let (release, latest) = latest_release(&client).await?;
     if !is_newer(&latest, current)? {
@@ -93,10 +108,9 @@ async fn update_server(root: &Path, current: &str) -> Result<Option<String>, Dia
     let archive = asset_url(&release, &name)?;
     let checksum = asset_url(&release, &format!("{name}.sha256"))?;
     let expected = parse_checksum(&fetch_text(&client, &checksum).await?, &name)?;
-    let download = server_archive::download(&client, &archive, root, &expected).await?;
-    let outcome = server_archive::install(root, &download.path, Some(&latest));
-    server_archive::remove_file(&download.path)?;
-    outcome?;
+    update
+        .install_remote(&client, &archive, &expected, &latest)
+        .await?;
     Ok(Some(format!(
         "Updated CadencR from {current} to {latest}. Start it again with `cadencr serve`."
     )))

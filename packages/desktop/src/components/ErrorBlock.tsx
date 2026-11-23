@@ -11,7 +11,8 @@
  * one click away for diagnosis.
  */
 import { memo, useState } from "react";
-import { AlertTriangleIcon, ChevronRight, Play, Repeat } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { AlertTriangleIcon, ChevronRight, Play, Repeat, Settings } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
 import { useIsLatestBlock } from "@/hooks/useIsLatestBlock";
 import { CONTINUE_PROMPT, presentAgentError } from "@/lib/agent-error-presentation";
@@ -61,6 +62,11 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-foreground">{presentation.title}</p>
         <p className="mt-0.5 text-muted-foreground">{presentation.hint}</p>
+        {presentation.showCause && (
+          <p className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/90">
+            {content}
+          </p>
+        )}
         {showActions && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {presentation.actions.includes("continue") && (
@@ -82,6 +88,12 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
                 <Repeat className="size-3" aria-hidden />
                 Switch model
               </button>
+            )}
+            {presentation.actions.includes("openSettings") && (
+              <Link to="/settings" className="composer-instrument gap-1.5 text-foreground">
+                <Settings className="size-3" aria-hidden />
+                Open Settings
+              </Link>
             )}
           </div>
         )}

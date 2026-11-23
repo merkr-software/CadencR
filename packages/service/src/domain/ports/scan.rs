@@ -1,8 +1,12 @@
 //! Raw OS process/socket enumeration.
 //!
-//! Everything here is a thin wrapper around `lsof` and `ps` plus the pure
-//! parsers for their output. Parsing is separated from spawning so the
-//! attribution logic can be tested without a live process tree.
+//! Listening sockets come from `lsof`, through a thin wrapper plus a pure
+//! parser so attribution logic can be tested without a live process tree.
+//! The process tree comes from `shared::process_table`, and process working
+//! directories are read directly from the kernel (`proc_pidinfo` on macOS,
+//! `/proc/<pid>/cwd` on Linux) to avoid a second `lsof` pass that can wedge
+//! on unreachable mounts. Other platforms have neither table, so port
+//! scanning reports an error there instead of falling back to `lsof`.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -18,14 +22,9 @@ pub struct ListenSocket {
     pub port: u16,
 }
 
-/// Cap on how many pids we hand to a single `lsof -p` invocation, so a machine
-/// with an unusual number of listeners can't build an over-long argv.
-const CWD_BATCH: usize = 256;
-
 /// `lsof` stats every mount it reports on and is known to wedge on an
-/// unreachable network or FUSE mount. The caller holds a process-wide lock
-/// across the scan, so a hang here would stall every future poll: give up
-/// instead and let the next scan try again.
+/// unreachable network or FUSE mount. Give up after a short timeout and let
+/// the cache's negative backoff protect the service until the next scan.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A required system tool is not installed (spawn failed with `NotFound`).
@@ -45,6 +44,21 @@ impl std::fmt::Display for MissingTool {
 
 impl std::error::Error for MissingTool {}
 
+/// A scan tool outlived [`COMMAND_TIMEOUT`] (typically `lsof` stuck on an
+/// unreachable mount). Kept distinct so the cache can back off from it.
+#[derive(Debug)]
+pub struct ScanTimeout {
+    pub program: String,
+}
+
+impl std::fmt::Display for ScanTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}` timed out after {COMMAND_TIMEOUT:?}", self.program)
+    }
+}
+
+impl std::error::Error for ScanTimeout {}
+
 pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
     let out = capture("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]).await?;
     Ok(parse_listen_sockets(&out))
@@ -52,51 +66,29 @@ pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
 
 /// Map of pid -> parent pid for every process on the machine.
 pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
-    Ok(process_links()
-        .await?
-        .into_iter()
-        .map(|(pid, links)| (pid, links.ppid))
-        .collect())
-}
-
-/// Where a process sits in the process tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProcessLinks {
-    pub ppid: i32,
-    pub pgid: i32,
-}
-
-/// Map of pid -> parent pid and process group for every process on the
-/// machine.
-pub async fn process_links() -> anyhow::Result<HashMap<i32, ProcessLinks>> {
-    let out = capture("ps", process_links_args(cfg!(target_os = "macos"))).await?;
-    Ok(parse_process_links(&out))
-}
-
-/// BSD `ps -ax` on macOS (unchanged); POSIX `-A` elsewhere, which procps-ng on
-/// Linux documents for "every process" without relying on BSD flag parsing.
-fn process_links_args(is_macos: bool) -> &'static [&'static str] {
-    if is_macos {
-        &["-axo", "pid=,ppid=,pgid="]
-    } else {
-        &["-Ao", "pid=,ppid=,pgid="]
-    }
+    crate::shared::process_table::parents()
+        .await
+        .map_err(|error| anyhow::anyhow!("could not read the process table: {error}"))
 }
 
 /// Working directory of each requested pid. Pids that have exited between the
-/// socket scan and this call are simply absent from the map.
+/// socket scan and this call (or belong to another user) are simply absent.
+/// Paths that are not UTF-8 are kept lossily: the feature directories they
+/// are matched against are UTF-8, and a lossy name below one still matches.
 pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
-    let mut cwds = HashMap::new();
-    for chunk in pids.chunks(CWD_BATCH) {
-        let list = chunk
-            .iter()
-            .map(i32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let out = capture("lsof", &["-a", "-d", "cwd", "-F", "pn", "-p", &list]).await?;
-        cwds.extend(parse_cwd_map(&out));
+    if pids.is_empty() {
+        return Ok(HashMap::new());
     }
-    Ok(cwds)
+    let paths = crate::shared::process_table::cwds(pids)
+        .await
+        .map_err(|error| anyhow::anyhow!("could not read process directories: {error}"))?;
+    Ok(paths
+        .into_iter()
+        .filter_map(|(pid, path)| {
+            let path = path.to_string_lossy().into_owned();
+            (!path.is_empty()).then_some((pid, path))
+        })
+        .collect())
 }
 
 /// Run a command and return stdout. `lsof` exits non-zero when nothing matched,
@@ -105,7 +97,7 @@ pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
 ///
 /// `kill_on_drop` matters as much as the timeout: without it, a child outlives
 /// the dropped future both on timeout and when a client disconnects mid-request.
-pub(crate) async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
+async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let run = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -113,7 +105,11 @@ pub(crate) async fn capture(program: &str, args: &[&str]) -> anyhow::Result<Stri
         .output();
     let output = tokio::time::timeout(COMMAND_TIMEOUT, run)
         .await
-        .map_err(|_| anyhow::anyhow!("`{program}` timed out after {COMMAND_TIMEOUT:?}"))?
+        .map_err(|_| {
+            anyhow::Error::from(ScanTimeout {
+                program: program.to_owned(),
+            })
+        })?
         .map_err(|error| spawn_error(program, error))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() && stdout.trim().is_empty() {
@@ -167,43 +163,6 @@ fn parse_listen_sockets(output: &str) -> Vec<ListenSocket> {
         }
     }
     sockets
-}
-
-/// Parse `lsof -d cwd -F pn` output into pid -> working directory.
-fn parse_cwd_map(output: &str) -> HashMap<i32, String> {
-    let mut cwds = HashMap::new();
-    let mut pid: Option<i32> = None;
-    for line in output.lines() {
-        let Some((tag, value)) = split_field(line) else {
-            continue;
-        };
-        match tag {
-            'p' => pid = value.trim().parse().ok(),
-            'n' => {
-                if let Some(pid) = pid {
-                    cwds.entry(pid).or_insert_with(|| value.to_owned());
-                }
-            }
-            _ => {}
-        }
-    }
-    cwds
-}
-
-/// Parse `ps -axo pid=,ppid=,pgid=` output into pid -> parent and group.
-fn parse_process_links(output: &str) -> HashMap<i32, ProcessLinks> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace().map(str::parse::<i32>);
-            match (fields.next(), fields.next(), fields.next()) {
-                (Some(Ok(pid)), Some(Ok(ppid)), Some(Ok(pgid))) => {
-                    Some((pid, ProcessLinks { ppid, pgid }))
-                }
-                _ => None,
-            }
-        })
-        .collect()
 }
 
 fn split_field(line: &str) -> Option<(char, &str)> {
@@ -272,16 +231,6 @@ mod tests {
     }
 
     #[test]
-    fn keeps_the_first_cwd_reported_for_a_pid() {
-        let out = "p11\nn/Users/me/work\np22\nn/tmp\nn/ignored\n";
-
-        let cwds = parse_cwd_map(out);
-
-        assert_eq!(cwds.get(&11).map(String::as_str), Some("/Users/me/work"));
-        assert_eq!(cwds.get(&22).map(String::as_str), Some("/tmp"));
-    }
-
-    #[test]
     fn missing_program_is_reported_as_a_missing_tool() {
         let error = spawn_error("lsof", std::io::Error::from(std::io::ErrorKind::NotFound));
         let missing = error
@@ -295,25 +244,19 @@ mod tests {
         assert!(other.downcast_ref::<MissingTool>().is_none());
     }
 
-    #[test]
-    fn process_links_arguments_per_platform() {
-        assert_eq!(process_links_args(true), ["-axo", "pid=,ppid=,pgid="]);
-        assert_eq!(process_links_args(false), ["-Ao", "pid=,ppid=,pgid="]);
-    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[tokio::test]
+    async fn cwd_map_resolves_current_process_cwd_and_skips_invalid_pids() {
+        let self_pid = i32::try_from(std::process::id()).unwrap();
+        let expected = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
 
-    #[test]
-    fn parses_ps_parent_and_group_columns() {
-        let links =
-            parse_process_links("  501     1   501\n  733   501   733\n  734 733\nbroken\n");
+        let cwds = cwd_map(&[self_pid, -1, 0]).await.unwrap();
 
-        assert_eq!(links.get(&501), Some(&ProcessLinks { ppid: 1, pgid: 501 }));
-        assert_eq!(
-            links.get(&733),
-            Some(&ProcessLinks {
-                ppid: 501,
-                pgid: 733
-            })
-        );
-        assert_eq!(links.len(), 2, "short and broken lines are skipped");
+        let resolved = cwds
+            .get(&self_pid)
+            .expect("current process cwd must resolve");
+        assert_eq!(std::fs::canonicalize(resolved).unwrap(), expected);
+        assert!(!cwds.contains_key(&-1));
+        assert!(!cwds.contains_key(&0));
     }
 }

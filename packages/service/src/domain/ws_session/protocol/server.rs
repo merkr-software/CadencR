@@ -59,6 +59,9 @@ pub struct SessionInitializedPayload {
     pub context_window: Option<u64>,
     #[serde(default)]
     pub supports_prompt_receipts: bool,
+    /// Keep provider-pending prompts in their submission order.
+    #[serde(default)]
+    pub prompt_receipts_at_submission: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -297,6 +300,8 @@ pub struct ProviderSetOkPayload {
     /// atomically and cannot accept a half-update.
     pub model: String,
     pub supports_prompt_receipts: bool,
+    #[serde(default)]
+    pub prompt_receipts_at_submission: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -485,7 +490,29 @@ mod tests {
     }
 
     #[test]
-    fn provider_set_ok_carries_the_active_model() {
+    fn session_initialized_carries_pending_prompt_placement_with_a_compatible_default() {
+        let mut wire = serde_json::json!({
+            "session_id": "12",
+            "runtime_overrides": {},
+            "supports_prompt_receipts": true,
+            "prompt_receipts_at_submission": true,
+        });
+        let negotiated: SessionInitializedPayload = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(negotiated).unwrap()["prompt_receipts_at_submission"],
+            true
+        );
+
+        wire.as_object_mut()
+            .unwrap()
+            .remove("prompt_receipts_at_submission");
+        let legacy: SessionInitializedPayload = serde_json::from_value(wire).unwrap();
+        assert!(legacy.supports_prompt_receipts);
+        assert!(!legacy.prompt_receipts_at_submission);
+    }
+
+    #[test]
+    fn provider_set_ok_carries_the_active_model_and_pending_prompt_placement() {
         let payload = ProviderSetOkPayload {
             provider: "opencode".to_string(),
             profile: None,
@@ -493,12 +520,14 @@ mod tests {
             thinking_effort: None,
             fast_mode: false,
             model: "lmstudio/qwen-3.6:35b-a3b".to_string(),
-            supports_prompt_receipts: false,
+            supports_prompt_receipts: true,
+            prompt_receipts_at_submission: true,
             codex_permission_mode: None,
             access_mode: None,
         };
 
         let value = serde_json::to_value(&payload).unwrap();
         assert_eq!(value["model"], "lmstudio/qwen-3.6:35b-a3b");
+        assert_eq!(value["prompt_receipts_at_submission"], true);
     }
 }

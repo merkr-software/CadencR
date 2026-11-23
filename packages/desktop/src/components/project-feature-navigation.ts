@@ -1,8 +1,17 @@
 import type { useNavigate } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { useWsSessionStore } from "@/stores/ws-session-store";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
-import { FeatureStatus, getListFeaturesQueryKey, type Feature } from "@/api/generated";
+import {
+  FeatureStatus,
+  getGetFeatureQueryKey,
+  getListActiveFeaturesQueryKey,
+  getListFeaturesQueryKey,
+  getListPinnedFeaturesQueryKey,
+  getListRecentFeaturesQueryKey,
+  type Feature,
+} from "@/api/generated";
 
 type NavigateFn = ReturnType<typeof useNavigate>;
 
@@ -10,10 +19,24 @@ export function closeFeatureSession(featureId: number): void {
   useWsSessionStore.getState().disconnect(wsSessionIdFromFeature(featureId));
 }
 
+/**
+ * A deleted conversation leaves every cached list that holds it (the project
+ * lists, pinned, active, recent) and its own feature query, so nothing reads it
+ * as existing (`conversationRoute`).
+ */
 export function removeFeatureFromCachedLists(queryClient: QueryClient, featureId: number): void {
-  queryClient.setQueriesData<Feature[]>({ queryKey: getListFeaturesQueryKey() }, (old) =>
-    removeFeatureFromList(old, featureId),
-  );
+  const listKeys = [
+    getListFeaturesQueryKey(),
+    getListPinnedFeaturesQueryKey(),
+    getListActiveFeaturesQueryKey(),
+    getListRecentFeaturesQueryKey(),
+  ];
+  for (const queryKey of listKeys) {
+    queryClient.setQueriesData<Feature[]>({ queryKey }, (old) =>
+      removeFeatureFromList(old, featureId),
+    );
+  }
+  queryClient.removeQueries({ queryKey: getGetFeatureQueryKey(featureId), exact: true });
 }
 
 export function archiveFeaturesInCachedLists(
@@ -103,6 +126,7 @@ export function navigateToFeatureOrHome(
   navigateToFeatureIdOrHome(navigate, projectId, feature?.id);
 }
 
+/** Open a conversation (`navigateToConversation`), or the home page without one. */
 export function navigateToFeatureIdOrHome(
   navigate: NavigateFn,
   projectId: number,
@@ -112,8 +136,5 @@ export function navigateToFeatureIdOrHome(
     void navigate({ to: "/" });
     return;
   }
-  void navigate({
-    to: "/projects/$projectId/features/$featureId",
-    params: { projectId: String(projectId), featureId: String(featureId) },
-  });
+  navigateToConversation(navigate, projectId, featureId);
 }

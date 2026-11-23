@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,7 +13,7 @@ import { useProjectExpansion } from "@/hooks/useProjectExpansion";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ProjectRowActions, ProjectRowContextMenu } from "./ProjectRowMenus";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -23,6 +23,7 @@ import { ProjectFeatures } from "./ProjectFeatures";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { ProjectRowButton, ProjectRowLabel } from "./ProjectRowButton";
 import { ProjectTreeDialogs } from "./ProjectTreeDialogs";
+import type { ProjectLocationTarget } from "./ProjectLocationDialog";
 import { FilteredProjectList } from "./FilteredProjectList";
 import type { ProjectFilterMatch } from "@/hooks/useSidebarFilterMatches";
 import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
@@ -72,8 +73,8 @@ function useProjectTreeMutations(
   const createSession = useCreateFeature({
     mutation: {
       onSuccess: (session) => {
-        void invalidateByUrlPrefix(queryClient, "/api/features");
         const projectId = pendingProjectIdRef.current;
+        void invalidateFeatureLists(queryClient, projectId);
         const project = projects.find((candidate) => candidate.id === projectId);
         void navigate({
           to: "/ws-session/$sessionId",
@@ -83,14 +84,19 @@ function useProjectTreeMutations(
       },
     },
   });
+  // The stable parts only: the mutation results are new objects every render,
+  // and the controller (with every project row memoized on it) follows this.
+  const { isPending: isArchivingSessions, mutateAsync: archiveSessions } = archiveProjectSessions;
+  const { mutate: createSessionMutate } = createSession;
+  const { mutate: deleteProjectMutate } = deleteProject;
   return useMemo(
     () => ({
-      archiveProjectSessions,
-      createSession,
-      deleteProject,
+      archiveProjectSessions: { isPending: isArchivingSessions, mutateAsync: archiveSessions },
+      createSession: { mutate: createSessionMutate },
+      deleteProject: { mutate: deleteProjectMutate },
       pendingProjectIdRef,
     }),
-    [archiveProjectSessions, createSession, deleteProject],
+    [archiveSessions, createSessionMutate, deleteProjectMutate, isArchivingSessions],
   );
 }
 
@@ -113,6 +119,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const [archiveSessionsProject, setArchiveSessionsProject] = useState<ProjectDialogTarget | null>(
     null,
   );
+  const [locationTarget, setLocationTarget] = useState<ProjectLocationTarget | null>(null);
   const startSession = useCallback(
     (projectId: number) => {
       setProjectExpanded(projectId, true);
@@ -143,12 +150,14 @@ function useProjectTreeController(props: ProjectTreeProps) {
       expansion,
       importProject,
       isAddingProject,
+      locationTarget,
       mutations,
       onboarding,
       ordered,
       setArchiveSessionsProject,
       setDeleteProject,
       setImportProject,
+      setLocationTarget,
       setSettingsProject,
       settingsProject,
       startSession,
@@ -160,6 +169,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       expansion,
       importProject,
       isAddingProject,
+      locationTarget,
       mutations,
       onboarding,
       ordered,
@@ -182,6 +192,8 @@ export function ProjectTree(props: ProjectTreeProps) {
   const showsSamples = useSidebarSamplePreview() !== null;
   const fold = useSidebarSectionFold("projects");
   const reorder = useSidebarSectionReorder("projects");
+  const { refresh } = controller.ordered;
+  const refreshProjects = useCallback(() => void refresh(), [refresh]);
   return (
     <div
       data-sidebar-section="projects"
@@ -194,11 +206,7 @@ export function ProjectTree(props: ProjectTreeProps) {
         onAddProject={controller.addProject}
         isAddingProject={controller.isAddingProject}
         canAddProject={isDesktopShell()}
-        onRefresh={
-          mode.kind !== "tree" || projectSort !== "frozen"
-            ? undefined
-            : () => void controller.ordered.refresh()
-        }
+        onRefresh={mode.kind !== "tree" || projectSort !== "frozen" ? undefined : refreshProjects}
         isRefreshing={controller.ordered.isRefreshing}
       />
       {!fold.expanded ? null : showsSamples ? (
@@ -245,7 +253,7 @@ function ProjectTreeRows({
             <ProjectTreeRow
               key={project.id}
               project={project}
-              props={props}
+              {...rowRouteProps(props, project.id)}
               controller={controller}
               filterMatch={match}
             />
@@ -256,7 +264,7 @@ function ProjectTreeRows({
           <ProjectTreeRow
             key={project.id}
             project={project}
-            props={props}
+            {...rowRouteProps(props, project.id)}
             controller={controller}
           />
         ))
@@ -268,55 +276,104 @@ function ProjectTreeRows({
   );
 }
 
-function ProjectTreeRow({
-  project,
-  props,
-  controller,
-  filterMatch,
-}: {
+/** Only the active project's row gets the active conversation, so a switch leaves the others alone. */
+function rowRouteProps(props: ProjectTreeProps, projectId: number) {
+  const isActive = props.activeProjectId === projectId;
+  return {
+    isActive,
+    activeFeatureId: isActive ? props.activeFeatureId : null,
+    onSelectFeature: props.onSelectFeature,
+  };
+}
+
+interface ProjectTreeRowProps {
   project: ProjectSummary;
-  props: ProjectTreeProps;
+  isActive: boolean;
+  activeFeatureId: number | null;
+  onSelectFeature: (featureId: number) => void;
   controller: ProjectTreeController;
   /** Set while the sidebar filter is active: the row is held open on its matches. */
   filterMatch?: ProjectFilterMatch;
-}) {
+}
+
+/**
+ * Memoized, like its header: a conversation switch re-renders the active
+ * project's conversation list, never the other projects or the menus.
+ */
+const ProjectTreeRow = memo(function ProjectTreeRow({
+  project,
+  isActive,
+  activeFeatureId,
+  onSelectFeature,
+  controller,
+  filterMatch,
+}: ProjectTreeRowProps) {
   const isFiltering = filterMatch !== undefined;
   const isExpanded = isFiltering || controller.expansion.expandedIds.has(project.id);
-  const isActive = props.activeProjectId === project.id;
-  const sticky = useSidebarOption("stickyHeaders") && isExpanded;
+  const { setExpanded } = controller.expansion;
   // Folding a project the filter holds open would silently flip its remembered state.
-  const toggle = (): void => {
-    if (!isFiltering) controller.expansion.setExpanded(project.id, !isExpanded);
-  };
+  const toggle = useCallback((): void => {
+    if (!isFiltering) setExpanded(project.id, !isExpanded);
+  }, [isExpanded, isFiltering, project.id, setExpanded]);
   return (
     <div>
-      {/* Held at the top while the project's conversations scroll under it. */}
-      <div
-        data-sidebar-sticky-header={sticky || undefined}
-        className={sticky ? STICKY_HEADER_CLASS : undefined}
-      >
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <ProjectRowButton projectId={project.id} isActive={isActive} onClick={toggle}>
-              <ProjectRowLabel projectId={project.id} name={project.name} expanded={isExpanded} />
-              {!isExpanded && <ProjectRowAttention projectId={project.id} />}
-              <ProjectRowActions project={project} controller={controller} />
-            </ProjectRowButton>
-          </ContextMenuTrigger>
-          <ProjectRowContextMenu project={project} controller={controller} />
-        </ContextMenu>
-      </div>
+      <ProjectTreeRowHeader
+        project={project}
+        isActive={isActive}
+        isExpanded={isExpanded}
+        controller={controller}
+        onToggle={toggle}
+      />
       {isExpanded && (
         <div className="sidebar-project-children" data-active={isActive || undefined}>
           <ProjectFeatures
             projectId={project.id}
             projectPath={project.path}
-            activeFeatureId={isActive ? props.activeFeatureId : null}
-            onSelectFeature={props.onSelectFeature}
+            activeFeatureId={activeFeatureId}
+            onSelectFeature={onSelectFeature}
             filterMatch={filterMatch}
           />
         </div>
       )}
     </div>
   );
-}
+});
+
+const ProjectTreeRowHeader = memo(function ProjectTreeRowHeader({
+  project,
+  isActive,
+  isExpanded,
+  controller,
+  onToggle,
+}: {
+  project: ProjectSummary;
+  isActive: boolean;
+  isExpanded: boolean;
+  controller: ProjectTreeController;
+  onToggle: () => void;
+}) {
+  const sticky = useSidebarOption("stickyHeaders") && isExpanded;
+  return (
+    /* Held at the top while the project's conversations scroll under it. */
+    <div
+      data-sidebar-sticky-header={sticky || undefined}
+      className={sticky ? STICKY_HEADER_CLASS : undefined}
+    >
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <ProjectRowButton projectId={project.id} isActive={isActive} onClick={onToggle}>
+            <ProjectRowLabel
+              projectId={project.id}
+              name={project.name}
+              expanded={isExpanded}
+              folderMissing={project.path_missing}
+            />
+            {!isExpanded && <ProjectRowAttention projectId={project.id} />}
+            <ProjectRowActions project={project} controller={controller} />
+          </ProjectRowButton>
+        </ContextMenuTrigger>
+        <ProjectRowContextMenu project={project} controller={controller} />
+      </ContextMenu>
+    </div>
+  );
+});

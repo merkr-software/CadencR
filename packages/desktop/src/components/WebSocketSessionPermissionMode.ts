@@ -4,8 +4,6 @@ import { nextProviderMode } from "@/lib/provider-modes";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import type { PermissionMode } from "@/types/permission-mode";
 
-export const EMPTY_PROVIDER_MODES: readonly RuntimeProviderModeOption[] = [];
-
 /**
  * Returns a handler that advances the session's permission mode through the
  * cycle of provider-specific modes plus the user's opt-in modes. Read from the
@@ -16,7 +14,7 @@ export function usePermissionModeToggle(
   sessionId: string,
   activeProviderId: string,
   enabledOptInModes: PermissionMode[],
-  providerModes: readonly RuntimeProviderModeOption[],
+  providerModes: readonly RuntimeProviderModeOption[] | undefined,
 ): () => void {
   return useCallback((): void => {
     const store = useWsSessionStore.getState();
@@ -26,7 +24,7 @@ export function usePermissionModeToggle(
       activeProviderId,
       session.permissionMode,
       enabledOptInModes,
-      providerModes ?? [],
+      providerModes,
     );
     if (next !== session.permissionMode) store.setPermissionMode(sessionId, next);
   }, [activeProviderId, enabledOptInModes, providerModes, sessionId]);

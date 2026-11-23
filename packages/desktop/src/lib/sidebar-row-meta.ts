@@ -29,6 +29,7 @@ export interface RowMetaInput {
   worktree: FeatureWorktreeInfo | undefined;
   prStatus: PrStatusSnapshot | undefined;
   gitStats: GitStats | undefined;
+  runningSubagentCount?: number;
   shellCount: number;
   browserCount: number;
   downloadCount: number;
@@ -38,6 +39,8 @@ export interface RowMetaInput {
 
 /** Which of a row's details show: the options switched on, and this row's data. */
 export interface RowMetaItems {
+  /** Running sub-agents: always shown when positive, ahead of every other detail. */
+  subagents: number;
   branch: string | null;
   label: string | null;
   /** "Logo + model": the logo keeps its title-line slot, the model reads with the details. */
@@ -57,6 +60,7 @@ export function hasTodoChip(summary: RowSummary | undefined): summary is RowSumm
 export function rowMetaItems(show: RowMetaOptions, input: RowMetaInput): RowMetaItems {
   const { feature, prStatus, gitStats } = input;
   return {
+    subagents: Math.max(0, input.runningSubagentCount ?? 0),
     branch: (show.branch && input.worktree?.worktree_branch) || null,
     label: show.label === "hidden" ? null : feature.label || null,
     model:
@@ -89,9 +93,10 @@ export function hasCodeItems(items: RowMetaItems): boolean {
   return items.branch != null || items.stats != null || items.pr;
 }
 
-/** Whether the activity details (label, todos, shells and tabs, ports, model) have anything to show. */
+/** Whether the activity details (running sub-agents, label, todos, shells and tabs, ports, model) have anything to show. */
 export function hasActivityItems(items: RowMetaItems): boolean {
   return (
+    items.subagents > 0 ||
     items.label != null ||
     items.model != null ||
     items.activity ||
@@ -106,7 +111,15 @@ export type RowMetaPart = "code" | "activity";
 /** The items of one part of the details; all of them without a part. */
 export function rowMetaPart(items: RowMetaItems, part: RowMetaPart | undefined): RowMetaItems {
   if (part === "code") {
-    return { ...items, label: null, model: null, activity: false, ports: false, todos: null };
+    return {
+      ...items,
+      subagents: 0,
+      label: null,
+      model: null,
+      activity: false,
+      ports: false,
+      todos: null,
+    };
   }
   if (part === "activity") return { ...items, branch: null, stats: null, pr: false };
   return items;

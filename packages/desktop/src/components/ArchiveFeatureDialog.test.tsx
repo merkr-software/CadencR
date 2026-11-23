@@ -370,6 +370,26 @@ describe("ArchiveFeatureDialog", () => {
     expect(onArchive).toHaveBeenCalledWith(1, request());
   });
 
+  it("does not eagerly fetch git status on modal open until Remove worktree is checked", async () => {
+    mockGitStatus.mockReturnValue({ data: dirtyStatus(), isLoading: false });
+    const user = userEvent.setup();
+    renderDialog({ hasLiveWorktree: true });
+
+    expect(mockGitStatus).toHaveBeenLastCalledWith(
+      { feature_id: 1 },
+      { query: { enabled: false, retry: false } },
+    );
+    expect(screen.queryByText(/permanently lose local changes/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Remove worktree"));
+
+    expect(mockGitStatus).toHaveBeenLastCalledWith(
+      { feature_id: 1 },
+      { query: { enabled: true, retry: false } },
+    );
+    expect(screen.getByText(/permanently lose local changes/i)).toBeInTheDocument();
+  });
+
   it("warns and force-removes dirty worktrees", async () => {
     mockGitStatus.mockReturnValue({ data: dirtyStatus(), isLoading: false });
     const user = userEvent.setup();

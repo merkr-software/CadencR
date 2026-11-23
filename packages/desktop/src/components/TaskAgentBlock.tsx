@@ -27,7 +27,7 @@ import {
   type SubagentView,
 } from "@/lib/subagents/subagent-presentation";
 import { subagentChildren, subagentReportFor } from "@/lib/subagents/subagent-report";
-import { buildToolResultMap } from "@/lib/tool-results";
+import { buildToolResultMap, type ToolResults } from "@/lib/tool-results";
 import { cn } from "@/lib/utils";
 
 /** Inset of a nested sub-agent card under its parent. */
@@ -106,6 +106,7 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
         <SubagentCardBody
           view={view}
           actions={actions}
+          toolResults={childResults}
           report={report}
           basePath={basePath}
           depth={depth}
@@ -117,6 +118,7 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
           report={compact ? null : report}
           basePath={basePath}
           toolResultMap={childResults}
+          live={view.status === "running"}
         />
       )}
     </section>
@@ -161,6 +163,7 @@ const SubagentCardHeader = memo(function SubagentCardHeader({
 interface CardContentProps {
   view: SubagentView;
   actions: AgentBlockData[];
+  toolResults: ToolResults;
   report: string | null;
   basePath?: string;
   depth: number;
@@ -171,6 +174,7 @@ interface CardContentProps {
 function SubagentCardBody({
   view,
   actions,
+  toolResults,
   report,
   basePath,
   depth,
@@ -183,6 +187,7 @@ function SubagentCardBody({
         <CardSection label={`Activity · ${actions.length}`}>
           <SubagentTimeline
             actions={actions}
+            toolResults={toolResults}
             basePath={basePath}
             depth={depth}
             description={view.description ?? view.title}

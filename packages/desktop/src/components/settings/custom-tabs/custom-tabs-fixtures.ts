@@ -47,7 +47,13 @@ export function stagedUpdateTab(overrides: Partial<PluginTabSummary> = {}): Plug
 }
 
 export function projectFixture(id: number, name: string): Project {
-  return { id, name, path: `/code/${name}`, created_at: "2026-10-01T00:00:00Z" };
+  return {
+    id,
+    name,
+    path: `/code/${name}`,
+    created_at: "2026-10-01T00:00:00Z",
+    path_missing: false,
+  };
 }
 
 /** An axios error carrying the service's `{error, code}` body. */

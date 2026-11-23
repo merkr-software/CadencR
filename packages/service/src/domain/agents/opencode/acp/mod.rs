@@ -17,6 +17,7 @@ pub(in crate::domain::agents) mod port;
 mod prompt_usage;
 mod question_sidecar;
 mod resolved_mcp;
+mod session_location;
 mod task_completion;
 mod tool_result_flatten;
 // Workarounds for ACP-wire limitations in upstream OpenCode. Anything
@@ -25,11 +26,14 @@ mod tool_result_flatten;
 // removal criteria. Distinct from the removed legacy OpenCode long-lived transport;
 // do not remove this workaround directory just because the old transport is gone.
 mod upstream_workaround;
+/// OpenCode 2.x: stdio-only ACP and its translated extensions.
+mod v2;
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::Arc;
 
+use opencode_sdk_rs::OpenCodeGeneration;
 use serde_json::Value;
 
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
@@ -77,6 +81,27 @@ pub(in crate::domain::agents::opencode) fn acp_command(
     )
 }
 
+/// A short-lived `opencode acp` for a probe that only needs ACP (no HTTP side
+/// channel), for either CLI line.
+pub(in crate::domain::agents::opencode) async fn spawn_acp_probe(
+    cwd: &OsStr,
+) -> Result<AcpClient, RuntimeError> {
+    let installation = opencode_sdk_rs::resolve_installation().await?;
+    if installation.generation == OpenCodeGeneration::V1 {
+        return spawn_headless_acp(cwd).await.map(|(client, _)| client);
+    }
+    AcpClient::spawn(
+        AcpSpawnOptions::builder()
+            .command(v2::acp_command(&installation.path, Path::new(cwd)))
+            .client_info(AcpClientInfo::default())
+            .build(),
+    )
+    .await
+    .map_err(|error| RuntimeError::new(error.to_string()))
+}
+
+/// A short-lived 1.x `opencode acp` whose HTTP backend listens on the
+/// returned port.
 pub(in crate::domain::agents::opencode) async fn spawn_headless_acp(
     cwd: &OsStr,
 ) -> Result<(AcpClient, u16), RuntimeError> {
@@ -102,12 +127,23 @@ pub(in crate::domain::agents::opencode) async fn spawn_headless_acp(
 /// supported OpenCode transport.
 pub(super) async fn spawn_acp_session(
     content: Value,
+    config: RuntimeSpawnConfig,
+) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
+    let installation = opencode_sdk_rs::resolve_installation().await?;
+    match installation.generation {
+        OpenCodeGeneration::V1 => spawn_v1_session(installation.path, content, config).await,
+        OpenCodeGeneration::V2 => v2::spawn_session(installation.path, content, config).await,
+    }
+}
+
+async fn spawn_v1_session(
+    binary: std::path::PathBuf,
+    content: Value,
     mut config: RuntimeSpawnConfig,
 ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
-    let binary = opencode_sdk_rs::process::resolve_binary().await?;
     let reserved_question_port = reserve_local_port()?;
     let question_port = reserved_question_port.port();
-    let instructions_dir = apply_instruction_config(&mut config)?;
+    let instructions_dir = apply_instruction_config(&mut config, false)?;
     let mut command = acp_command(&binary, config.cwd.as_os_str(), question_port);
     // Opt into OpenCode's interactive `question` tool. Disabled by default
     // in ACP mode (PR opencode#11379) because some clients can't render
@@ -154,6 +190,7 @@ pub(super) async fn spawn_acp_session(
         initial_content: content,
         context_window,
         hooks,
+        wire_transform: None,
     })
     .await
 }

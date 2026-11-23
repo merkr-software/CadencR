@@ -11,11 +11,12 @@
 //!   unique, and that is intentional: same name = same configuration file.
 //!
 //! Design notes:
-//! - Reads always go to disk (no in-memory cache) so external edits are picked
-//!   up immediately and there is no cache-invalidation surface to get wrong.
-//! - Writes are atomic (temp file + rename) under a process-wide async lock so
-//!   concurrent read-modify-write calls can't lose updates or expose a partial
-//!   file to a reader.
+//! - Reads use a watcher-invalidated in-memory cache while the settings dir
+//!   watcher is active, falling back to direct disk reads when no watcher is
+//!   running (tests, `mcp-serve`).
+//! - Writes are atomic (temp file + rename) offloaded to `spawn_blocking` under
+//!   a process-wide async lock so concurrent read-modify-write calls can't lose
+//!   updates or block Tokio worker threads.
 //! - The loader is defensive: unknown keys produce a non-blocking warning but
 //!   are preserved; values that fail type/enum validation fall back to the
 //!   in-code default (see `registry`).
@@ -23,6 +24,7 @@
 //! The SQLite tables are intentionally left intact as a backup — this module
 //! stops reading/writing them but never drops them.
 
+pub mod cache;
 pub mod dir;
 pub mod ephemeral;
 pub mod file;
@@ -36,12 +38,13 @@ pub mod store;
 pub mod validate;
 pub mod watcher;
 
+pub use cache::read_document;
 pub use dir::{global_dir, init};
 pub use paths::name_is_shared;
 pub use store::{
     global_get, global_get_nonempty, global_get_object, global_list, global_map,
-    global_modify_object, global_read_for_edit, global_set, global_set_many, global_snapshot,
-    global_write_content, project_get, project_list, project_map, project_path,
+    global_modify_object, global_read, global_read_for_edit, global_set, global_set_many,
+    global_snapshot, global_write_content, project_get, project_list, project_map, project_path,
     project_read_for_edit, project_rename, project_set, project_set_many, project_write_content,
 };
 

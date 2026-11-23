@@ -152,7 +152,9 @@ pub(in crate::domain::lsp) fn verify_reserved(
     }
     Ok(())
 }
-pub(in crate::domain::lsp) async fn node_candidate() -> Option<cli_discovery::Candidate> {
+/// `Ok(None)`: Node.js is not installed; `Err`: the search could not finish.
+pub(in crate::domain::lsp) async fn node_candidate(
+) -> Result<Option<cli_discovery::Candidate>, AppError> {
     let spec = cli_discovery::DiscoverySpec {
         bin_name: "node".into(),
         well_known_relative_to_home: vec![],
@@ -164,8 +166,8 @@ pub(in crate::domain::lsp) async fn node_candidate() -> Option<cli_discovery::Ca
         version_args: vec!["--version".into()],
         version_must_contain: None,
     };
-    let candidates = cli_discovery::discover_all(&spec, None).await;
-    cli_discovery::select_best(&candidates).cloned()
+    let candidates = cli_discovery::discover_all(&spec, None).await?;
+    Ok(cli_discovery::select_best(&candidates).cloned())
 }
 pub(in crate::domain::lsp) fn node_version_satisfies(
     version: Option<cli_discovery::VersionKey>,
@@ -177,7 +179,7 @@ pub(in crate::domain::lsp) fn node_version_satisfies(
     }
 }
 pub async fn node(minimum: &str) -> Result<PathBuf, AppError> {
-    require_node(node_candidate().await, minimum)
+    require_node(node_candidate().await?, minimum)
 }
 fn require_node(
     candidate: Option<cli_discovery::Candidate>,

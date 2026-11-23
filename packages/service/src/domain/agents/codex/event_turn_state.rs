@@ -35,6 +35,8 @@ pub(super) struct RootTurnTracker {
     /// multiplexed stream.
     pub root_thread_id: String,
     pub child_turn_ids: Arc<RwLock<std::collections::HashMap<String, Option<String>>>>,
+    /// Commands each turn of any thread started (see `turn_commands`).
+    pub commands: super::turn_commands::SharedTurnCommands,
 }
 
 pub(super) async fn update_turn_state(

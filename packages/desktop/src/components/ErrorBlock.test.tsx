@@ -23,4 +23,19 @@ describe("ErrorBlock", () => {
     // Outside a live session there is no turn to continue: no recovery buttons.
     expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
   });
+
+  it("shows an unreadable setting's cause up front, without a turn to continue", () => {
+    render(
+      <ErrorBlock
+        blockId="msg-10"
+        code="SETTINGS_READ_FAILED"
+        content="Cadencr could not read the settings file /p/qa.settings.json: Is a directory"
+      />,
+    );
+    expect(
+      screen.getByText("Cadencr couldn't read a setting this conversation needs"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/qa\.settings\.json: Is a directory/)).toBeInTheDocument();
+    expect(screen.queryByText(/ended its turn/)).not.toBeInTheDocument();
+  });
 });

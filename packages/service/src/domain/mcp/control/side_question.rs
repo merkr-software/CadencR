@@ -152,7 +152,7 @@ pub async fn ask_session_side_question(
         ));
     }
     let source = resolve_session_scope(&state.write_pool, session_id).await?;
-    let row = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+    let row = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Session not found".to_string()))?;
     let excerpt = conversation_excerpt(&state.read_pool, session_id).await?;

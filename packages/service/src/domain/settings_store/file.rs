@@ -32,7 +32,7 @@ pub fn object_section(
 /// Read raw file text. Returns `None` when the file does not exist.
 pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
     use std::io::Read;
-    let mut file = match crate::remote::secure_fs::open_owner_only(path, false) {
+    let mut file = match crate::remote::secure_fs::open_owner_only_read(path) {
         Ok(file) => file,
         Err(error)
             if error
@@ -41,59 +41,62 @@ pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
         {
             return Ok(None)
         }
-        Err(error) => return Err(AppError::internal(error.to_string())),
+        Err(error) => return Err(read_failed(path, error.root_cause())),
     };
     let mut text = String::new();
-    file.read_to_string(&mut text).map_err(|error| {
-        AppError::internal(format!(
-            "failed to read settings file {}: {error}",
-            path.display()
-        ))
-    })?;
+    file.read_to_string(&mut text)
+        .map_err(|error| read_failed(path, error))?;
     Ok(Some(text))
 }
 
-/// Parse a settings document into a flat `key -> string` map.
+/// Stable code of a settings file (or settings row) that exists but cannot be
+/// read. Requests that need the value fail with it instead of using a default.
+pub const SETTINGS_READ_FAILED: &str = "SETTINGS_READ_FAILED";
+
+/// A settings file that exists but cannot be read. A 4xx with its own code, so
+/// the path and the cause reach the user, who is the one able to fix the file.
+fn read_failed(path: &Path, cause: impl std::fmt::Display) -> AppError {
+    read_failed_from_message(format!(
+        "Cadencr could not read the settings file {}: {cause}",
+        path.display()
+    ))
+}
+
+pub(super) fn read_failed_from_message(message: String) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        SETTINGS_READ_FAILED,
+        message,
+    )
+}
+
+/// Project a parsed settings document into a flat `key -> string` map.
 ///
 /// Scalar JSON values are coerced to strings (the storage contract is flat
 /// strings, matching the legacy EAV tables): booleans/numbers stringify, `null`
-/// is treated as unset, and arrays/objects are skipped with a warning. An empty
-/// document is an empty map. Returns `Err` only when the top-level JSON is not a
-/// valid object — callers decide whether that's fatal (editor save) or just a
-/// surfaced warning (read-on-access).
-pub fn parse_object(
-    content: &str,
-) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), String> {
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        return Ok((BTreeMap::new(), Vec::new()));
-    }
-
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| format!("not valid JSON: {e}"))?;
-    let object = match value {
-        serde_json::Value::Object(map) => map,
-        _ => return Err("settings file must contain a JSON object".to_string()),
-    };
-
+/// is treated as unset, recognized structured sections are skipped silently,
+/// and other arrays/objects are skipped with a warning.
+pub fn scalars_from_document(
+    doc: &serde_json::Map<String, serde_json::Value>,
+) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
     let mut out = BTreeMap::new();
     let mut warnings = Vec::new();
-    for (key, val) in object {
+    for (key, val) in doc {
         match val {
             serde_json::Value::String(s) => {
-                out.insert(key, s);
+                out.insert(key.clone(), s.clone());
             }
             serde_json::Value::Bool(b) => {
-                out.insert(key, b.to_string());
+                out.insert(key.clone(), b.to_string());
             }
             serde_json::Value::Number(n) => {
-                out.insert(key, n.to_string());
+                out.insert(key.clone(), n.to_string());
             }
             serde_json::Value::Null => {}
             // Recognized nested sections (e.g. `profiles`) are preserved on
             // write and intentionally absent from the flat scalar map — not a
             // mistake, so don't warn.
-            serde_json::Value::Object(_) if is_structured_key(&key) => {}
+            serde_json::Value::Object(_) if is_structured_key(key) => {}
             serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
                 warnings.push(SettingWarning::new(
                     key.clone(),
@@ -102,7 +105,18 @@ pub fn parse_object(
             }
         }
     }
-    Ok((out, warnings))
+    (out, warnings)
+}
+
+/// Parse a settings document into a flat `key -> string` map.
+///
+/// An empty document is an empty map. Returns `Err` only when the top-level
+/// JSON is not a valid object — callers decide whether that's fatal (editor
+/// save) or just a surfaced warning (read-on-access).
+pub fn parse_object(
+    content: &str,
+) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), String> {
+    parse_document(content).map(|doc| scalars_from_document(&doc))
 }
 
 /// Serialize a settings map to pretty JSON with a trailing newline. Keys are

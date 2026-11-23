@@ -28,8 +28,7 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 
-use crate::domain::ports::scan::{process_links, ProcessLinks};
-use crate::domain::restart_continuations::process_identity;
+use crate::shared::process_table::{self, ProcessLinks};
 
 /// How long what the CLI left gets to exit on SIGTERM before SIGKILL.
 const STOP_GRACE: Duration = Duration::from_secs(2);
@@ -125,13 +124,13 @@ impl CliProcesses {
 }
 
 async fn note_child_groups(cli: u32, groups: &mut NotedGroups) -> anyhow::Result<()> {
-    let links = process_links().await?;
+    let links = process_table::links().await?;
     // A group that is gone may see its id reused from now on.
     let live: HashSet<i32> = links.values().map(|links| links.pgid).collect();
     groups.retain(|pgid, _| i32::try_from(*pgid).is_ok_and(|pgid| live.contains(&pgid)));
     for leader in child_group_leaders(cli, &links) {
         // Read again each time: a reused id is a new command.
-        match process_identity(leader).await {
+        match process_table::start_time(leader).await {
             Some(identity) => groups.insert(leader, identity),
             None => groups.remove(&leader),
         };
@@ -155,7 +154,7 @@ fn child_group_leaders(cli: u32, links: &HashMap<i32, ProcessLinks>) -> Vec<u32>
 /// `identity`. Once the leader has exited, the group's id may have been
 /// reused since it was noted, so a group without its leader is left alone.
 async fn still_the_noted_group(pgid: u32, identity: &str) -> bool {
-    group_alive(pgid) && process_identity(pgid).await.as_deref() == Some(identity)
+    group_alive(pgid) && process_table::start_time(pgid).await.as_deref() == Some(identity)
 }
 
 #[cfg(unix)]
@@ -188,10 +187,15 @@ async fn stop_group(_cli: u32, _pgid: u32) {}
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::os::unix::process::ExitStatusExt;
+    use std::path::Path;
     use std::process::Stdio;
 
     use super::*;
-    use crate::shared::test_processes::KillOnDrop;
+    use crate::shared::process_group::{lead_new_process_group, wait_bounded};
+    use crate::shared::test_processes::{
+        sleeping_child_command, wait_for_published_pid, KillOnDrop,
+    };
 
     #[test]
     fn only_children_leading_a_group_are_noted() {
@@ -230,16 +234,24 @@ mod tests {
     /// `sleep 30` leading a group of its own, as Claude Code starts a Bash
     /// command.
     fn group_leading_sleep() -> tokio::process::Child {
-        let mut command = tokio::process::Command::new("sleep");
-        command.arg("30").stdin(Stdio::null()).kill_on_drop(true);
-        crate::shared::process_group::lead_new_process_group(&mut command);
+        let mut command = sleeping_child_command();
+        lead_new_process_group(&mut command);
         command.spawn().unwrap()
     }
 
-    async fn exits(child: &mut tokio::process::Child) -> bool {
-        crate::shared::process_group::wait_bounded(child, Duration::from_secs(5))
-            .await
-            .is_ok()
+    /// A CLI with a child in its group. The shell publishes the child's PID
+    /// atomically, then stays alive until its stdin closes or it is killed.
+    fn cli_with_group_member(pid_file: &Path) -> tokio::process::Child {
+        let mut cli = tokio::process::Command::new("/bin/sh");
+        cli.args([
+            "-c",
+            r#"sleep 30 & echo $! > "$0.partial" && mv "$0.partial" "$0"; read -r _"#,
+        ])
+        .arg(pid_file)
+        .stdin(Stdio::piped())
+        .kill_on_drop(true);
+        lead_new_process_group(&mut cli);
+        cli.spawn().unwrap()
     }
 
     async fn gone(pid: u32) -> bool {
@@ -265,28 +277,34 @@ mod tests {
             .await
             .unwrap();
         assert!(groups.contains_key(&pid), "{groups:?}");
-        assert_eq!(groups.get(&pid), process_identity(pid).await.as_ref());
+        assert_eq!(
+            groups.get(&pid),
+            process_table::start_time(pid).await.as_ref()
+        );
     }
 
     #[tokio::test]
     async fn a_group_whose_leader_exited_is_left_alone() {
         let directory = tempfile::tempdir().unwrap();
         let pid_file = directory.path().join("member.pid");
-        let mut leader = tokio::process::Command::new("/bin/sh");
-        leader
-            .args(["-c", r#"sleep 30 & echo $! > "$0.tmp" && mv "$0.tmp" "$0""#])
-            .arg(&pid_file)
-            .stdin(Stdio::null())
-            .kill_on_drop(true);
-        crate::shared::process_group::lead_new_process_group(&mut leader);
-        let mut leader = leader.spawn().unwrap();
+        // The leader exits once its stdin closes: an exited leader (a zombie
+        // included) has no start time to note.
+        let mut leader = cli_with_group_member(&pid_file);
         let pgid = leader.id().unwrap();
         let _cleanup = KillOnDrop::default().group(pgid);
-        let identity = process_identity(pgid).await.unwrap();
+        let member = wait_for_published_pid(&pid_file, Duration::from_secs(5))
+            .await
+            .expect("the group member must publish its PID");
+        let identity = process_table::start_time(pgid).await.unwrap();
         assert!(still_the_noted_group(pgid, &identity).await);
 
-        leader.wait().await.unwrap();
-        assert!(group_alive(pgid), "its member still runs");
+        drop(leader.stdin.take());
+        wait_bounded(&mut leader, Duration::from_secs(5))
+            .await
+            .expect("the leader must exit when stdin closes");
+        // SAFETY: getpgid only reads the process table.
+        let member_group = unsafe { libc::getpgid(member) };
+        assert_eq!(member_group, pgid as libc::pid_t, "its member still runs");
         assert!(!still_the_noted_group(pgid, &identity).await);
     }
 
@@ -306,52 +324,47 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let pid_file = directory.path().join("mcp.pid");
         // A CLI leading its group with an MCP-like child in it.
-        let mut cli = tokio::process::Command::new("/bin/sh");
-        cli.args([
-            "-c",
-            r#"sleep 30 & echo $! > "$0.tmp" && mv "$0.tmp" "$0"; wait"#,
-        ])
-        .arg(&pid_file)
-        .stdin(Stdio::null())
-        .kill_on_drop(true);
-        crate::shared::process_group::lead_new_process_group(&mut cli);
-        let mut cli = cli.spawn().unwrap();
+        let mut cli = cli_with_group_member(&pid_file);
         let cli_pid = cli.id().unwrap();
+        let _cli_cleanup = KillOnDrop::default().group(cli_pid);
         let mut command = group_leading_sleep();
         let mut bystander = group_leading_sleep();
         let (command_pid, bystander_pid) = (command.id().unwrap(), bystander.id().unwrap());
         let _cleanup = KillOnDrop::default()
-            .group(cli_pid)
             .group(command_pid)
             .group(bystander_pid);
-        for _ in 0..250 {
-            if pid_file.exists() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        let mcp: u32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        let mcp = wait_for_published_pid(&pid_file, Duration::from_secs(5))
+            .await
+            .expect("the MCP child must publish its PID");
+        let mcp = u32::try_from(mcp).unwrap();
 
         let (exited_tx, exited_rx) = tokio::sync::oneshot::channel::<()>();
         let processes = CliProcesses::watch(Some(cli_pid), async move {
             let _ = exited_rx.await;
         });
         processes.notes.groups.lock().await.extend([
-            (command_pid, process_identity(command_pid).await.unwrap()),
+            (
+                command_pid,
+                process_table::start_time(command_pid).await.unwrap(),
+            ),
             // Noted once, then gone; its id now belongs to someone else.
             (bystander_pid, "Thu Jan  1 00:00:00 1970".to_string()),
         ]);
-        // Killed as `kill -9` would: nothing of what it started dies with it.
-        unsafe { libc::kill(cli_pid as libc::pid_t, libc::SIGKILL) };
-        cli.wait().await.unwrap();
+        assert!(
+            process_table::start_time(mcp).await.is_some(),
+            "the MCP child must be alive before the CLI is killed"
+        );
+        cli.start_kill().expect("send SIGKILL to the CLI");
+        let status = wait_bounded(&mut cli, Duration::from_secs(5))
+            .await
+            .expect("the killed CLI must exit");
+        assert_eq!(status.signal(), Some(libc::SIGKILL));
         assert!(command.try_wait().unwrap().is_none());
 
         exited_tx.send(()).unwrap();
-        assert!(exits(&mut command).await, "the background command survived");
+        wait_bounded(&mut command, Duration::from_secs(5))
+            .await
+            .expect("the background command must exit");
         assert!(gone(mcp).await, "the CLI's own group survived");
         assert!(
             bystander.try_wait().unwrap().is_none(),

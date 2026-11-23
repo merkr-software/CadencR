@@ -12,12 +12,12 @@ use self::persistence::{insert_message_link, persist_immediate_message, Immediat
 use self::send_audit::{audit_send_message, audit_send_message_error};
 use self::send_budget::ensure_send_budget;
 use super::generated_message::dispatch_generated_prompt;
-use super::message_queue::enqueue_message;
 use super::scope::resolve_session_scope;
 use super::send_message_modes::{delivery_mode, reply_mode, DeliveryMode, ReplyMode};
 use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::mcp::send_message_tool::SendMessageTool;
+use crate::domain::prompt_queue::acceptance::enqueue_agent_message;
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
 use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::PersistedUserMessage;
@@ -217,10 +217,10 @@ async fn queue_busy_message(
             "reply=on_turn_end is not yet supported with delivery=next_turn".to_string(),
         ));
     }
-    let queued = enqueue_message(
-        &request.state.write_pool,
+    let queued = enqueue_agent_message(
+        request.state,
         request.target.session_id,
-        Some(request.source.session_id),
+        request.source.session_id,
         request.message,
         request.message_uuid,
     )

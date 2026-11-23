@@ -28,7 +28,7 @@ The provider-neutral `SessionBranching::truncate_before` contract lives in
 | Provider | Context cut | Important limit |
 | --- | --- | --- |
 | Claude Code | New transcript containing the prefix before the real user-prompt ordinal | Tool results/meta/compact summaries are excluded from prompt counting |
-| Codex | Profile-resolved app server reads/forks the thread and rolls back whole native turns | Refuses a cut inside a turn with several user messages |
+| Codex | Profile-resolved app server reads and forks the thread, cuts the fork before the native turn holding the prompt (`thread/revert`; `thread/rollback` on app-servers without it, older than Codex 0.167), then rereads it to check the cut | Refuses a cut inside a turn with several user messages; a fork the app-server did not cut aborts |
 | OpenCode | Adapter-owned headless ACP/HTTP fork before a provider message ID, with ordinal fallback | Requires available native session/message history |
 | Cursor / generic local ACP | No registered point-in-time branching implementation | Do not infer support from ordinary resume or a similarly named CLI command |
 
@@ -36,6 +36,10 @@ A cut before the first prompt keeps no previous context and starts fresh. If no
 provider runtime ID was ever produced, there is likewise no provider history to
 retain. For a nonempty native history, unsupported or failed branching aborts;
 there is no successful-looking fallback that resumes the full uncut context.
+A provider that no longer has the source conversation (Codex answers a thread
+it has no rollout of) aborts with `PROVIDER_CONVERSATION_MISSING` rather than
+`BRANCH_SURGERY_FAILED`; the desktop toast then names the provider from the
+catalog ("Codex no longer has this conversation, so it can't be forked.").
 
 ## Checkpoints and restore ordering
 

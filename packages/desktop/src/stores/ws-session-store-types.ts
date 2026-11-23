@@ -1,6 +1,8 @@
 import type { AgentQuestionAnswers } from "@/types/agent-question";
 import type { PermissionDecisionValue } from "@/types/agent-permission";
 import type { DisplayRowMode } from "@/types/agent-stream";
+import type { HistoryGapFillDirection } from "./ws-history-gaps";
+import type { FillHistoryGapOptions } from "./ws-session-history-fill";
 import type {
   GateCloseReason,
   PromptDispatchOptions,
@@ -112,10 +114,16 @@ export interface WsSessionStore {
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;
   setFastMode: (sessionId: string, enabled: boolean) => Promise<void>;
   setProfile: (sessionId: string, profile: string) => void;
+  /** A request: resolves once the backend answers (fast mode waits on it). */
   setRuntimeOverrides: (
     sessionId: string,
     patch: import("@/lib/ws-envelope").RuntimeConfigOverridePatch,
   ) => Promise<void>;
+  /** A model or effort override, sent like `model.set`: it waits for a reconnect. */
+  queueRuntimeOverride: (
+    sessionId: string,
+    setting: import("@/lib/ws-envelope").RuntimeSettingOverride,
+  ) => void;
   setPermissionMode: (sessionId: string, mode: PermissionMode) => void;
   setAccessMode: (sessionId: string, mode: AccessMode) => void;
   approvePlan: (sessionId: string) => void;
@@ -128,7 +136,8 @@ export interface WsSessionStore {
     value: RuntimeSessionConfigValue,
   ) => Promise<void>;
 
-  sendRequest: (sessionId: string, envelope: WsEnvelope) => Promise<unknown>;
+  /** Resolves with the correlated reply, or null after `timeoutMs` (default `WS_REPLY_TIMEOUT_MS`). */
+  sendRequest: (sessionId: string, envelope: WsEnvelope, timeoutMs?: number) => Promise<unknown>;
 
   retryWorktreeSetup: (sessionId: string) => void;
   requestSlashCommands: (
@@ -138,14 +147,30 @@ export interface WsSessionStore {
     profile?: string,
   ) => void;
 
+  /** Settle the history gate: there is no saved history to apply. */
   markPersistedLoaded: (sessionId: string) => void;
+  /** Settle the history gate with a visible failure (`historyLoadFailure`). */
+  failPersistedLoad: (sessionId: string, message: string) => void;
+  /** Re-open the history gate so the snapshot is fetched again. */
+  retryPersistedLoad: (sessionId: string) => void;
   setPersistedState: (sessionId: string, options: PersistedStatePayload) => void;
   /**
-   * Loads older messages for a session. Resolves with the number of blocks
-   * prepended to the conversation. The store also increments
-   * `historyPrependDisplayOffset` by the rendered row count for Virtuoso.
+   * Apply a snapshot fetched ahead of the conversation being opened: creates
+   * the entry when the session was never connected, then settles the history
+   * gate (`null`: the conversation has no saved history).
    */
-  loadOlderMessages: (sessionId: string, displayMode?: DisplayRowMode) => Promise<number>;
+  hydratePersistedState: (sessionId: string, snapshot: PersistedStatePayload | null) => void;
+  /**
+   * Loads a history gap's messages from the reader's side, a page at a time
+   * until a visible row appears or the gap closes. Rejects with the reason a
+   * page failed; the gap is left as it was.
+   */
+  fillHistoryGap: (
+    sessionId: string,
+    gapId: string,
+    direction: HistoryGapFillDirection,
+    options?: FillHistoryGapOptions,
+  ) => Promise<void>;
   /**
    * Loads one prompt sitting in unloaded history together with the start of
    * its turn (message navigator). Resolves with whether the prompt is now in

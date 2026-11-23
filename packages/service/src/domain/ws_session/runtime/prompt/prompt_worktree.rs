@@ -32,7 +32,12 @@ pub(in crate::domain::ws_session) async fn prepare_branch_provisioning(
     config: &mut SessionConfig,
     options: &mut RuntimeSpawnConfig,
 ) -> Result<bool, String> {
-    let use_worktree = payload.use_worktree.unwrap_or(false);
+    // A worktree chosen on an earlier prompt whose provisioning failed is
+    // provisioned now: the project root is never a substitute for it.
+    let use_worktree = payload.use_worktree.unwrap_or(false)
+        || worktree::provisioning_unfinished(&app_state.read_pool, feature_id)
+            .await
+            .map_err(|e| e.to_string())?;
     let new_project_branch = payload.new_project_branch.as_ref();
     if !use_worktree && new_project_branch.is_none() {
         return Ok(false);
@@ -214,7 +219,7 @@ async fn apply_worktree_for_project(
     )
     .await?;
     info!(feature_id, path = %worktree_path.display(), "worktree created for session");
-    maybe_spawn_setup_commands(app_state, write_pool, sender, feature_id, &worktree_path).await;
+    maybe_spawn_setup_commands(app_state, write_pool, sender, feature_id, &worktree_path).await?;
     options.cwd = worktree_path.clone();
     config.canonical_cwd = permissions::canonicalize_worktree(&worktree_path);
     config.cwd = worktree_path;
@@ -227,14 +232,15 @@ async fn maybe_spawn_setup_commands(
     sender: &WsSender,
     feature_id: i64,
     worktree_path: &std::path::Path,
-) {
+) -> Result<(), String> {
     if app_state.worktree_setup_runs.is_owned(feature_id) {
-        return;
+        return Ok(());
     }
-    let setup_step =
-        worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step").await;
+    let setup_step = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step")
+        .await
+        .map_err(|e| e.to_string())?;
     if setup_step.as_deref() == Some("ready") {
-        return;
+        return Ok(());
     }
     let read_pool = app_state.read_pool.clone();
     let write_pool = write_pool.clone();
@@ -252,4 +258,61 @@ async fn maybe_spawn_setup_commands(
         )
         .await;
     });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::make_active_handle;
+    use crate::shared::migrate::{run_migrations, MigrationContext};
+
+    /// After a failed first prompt, the next one no longer carries
+    /// `use_worktree`. It used to skip provisioning and run the agent in the
+    /// project root; the chosen worktree is provisioned again instead, and a
+    /// provisioning that fails again stops the prompt.
+    #[tokio::test]
+    async fn a_chosen_worktree_left_unprovisioned_is_never_replaced_by_the_project_root() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        run_migrations(&MigrationContext::pool_only(&pool))
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool.clone());
+        // Not a git repository: attaching the reused branch fails.
+        let project = tempfile::tempdir().unwrap();
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'QA', ?)")
+            .bind(project.path().to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'Shared')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (key, value) in [
+            ("worktree_mode", "reuse"),
+            ("worktree_reuse_branch", "feat/donor"),
+        ] {
+            worktree::set_setting(&pool, 1, key, value).await.unwrap();
+        }
+        let payload: PromptSendPayload =
+            serde_json::from_value(serde_json::json!({"session_id": "1", "text": "pwd"})).unwrap();
+        let mut config = make_active_handle(1, None).config;
+        let mut options = RuntimeSpawnConfig::default();
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let provisioned = prepare_branch_provisioning(
+            &state,
+            &pool,
+            &sender,
+            &payload,
+            1,
+            &mut config,
+            &mut options,
+        )
+        .await;
+
+        assert!(provisioned.is_err(), "{provisioned:?}");
+        assert_ne!(options.cwd, project.path());
+    }
 }

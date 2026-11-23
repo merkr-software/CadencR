@@ -6,6 +6,8 @@ mod options;
 mod question;
 mod stream;
 
+use crate::domain::agents::adapter::RuntimeEffectiveConfig;
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -27,9 +29,11 @@ use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::session_permissions::{
-    is_plan_approval_request_id, permission_kind_for_request_id, take_pending,
+    is_plan_approval_request_id, permission_kind_for_request_id, take_pending, unanswered_close,
+    UnansweredClose,
 };
 use super::timeouts::with_probe_timeout;
+use super::turn_commands::SharedTurnCommands;
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
@@ -47,6 +51,10 @@ pub(super) struct CodexSession {
     /// Interrupt fallback when `active_turn_id` is None — see `event_turn_state`.
     last_root_turn_id: Arc<RwLock<Option<String>>>,
     child_turn_ids: Arc<RwLock<HashMap<String, Option<String>>>>,
+    /// Commands each running turn started, for Stop to end.
+    turn_commands: SharedTurnCommands,
+    /// Held while `turn/start` has not given the new turn's id; Stop waits.
+    turn_start: Mutex<()>,
     model: Arc<RwLock<Option<String>>>,
     effort: Arc<RwLock<Option<String>>>,
     effective_model: Arc<RwLock<Option<String>>>,
@@ -56,6 +64,8 @@ pub(super) struct CodexSession {
     effective_effort: Arc<RwLock<Option<String>>>,
     summary: Option<String>,
     fast_mode: Arc<RwLock<Option<bool>>>,
+    native_fast_mode: bool,
+    delivered_controls: RwLock<RuntimeEffectiveConfig>,
     permission_mode: Arc<RwLock<Option<RuntimePermissionMode>>>,
     access_mode: Arc<RwLock<Option<RuntimeAccessMode>>>,
     cwd: PathBuf,
@@ -90,6 +100,8 @@ impl CodexSession {
             active_turn_id: Arc::new(RwLock::new(None)),
             last_root_turn_id: Arc::new(RwLock::new(None)),
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
+            turn_commands: SharedTurnCommands::default(),
+            turn_start: Mutex::new(()),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
             turn_model: Arc::new(RwLock::new(options.effective_model.clone())),
@@ -97,6 +109,8 @@ impl CodexSession {
             effective_effort: Arc::new(RwLock::new(options.effective_effort)),
             summary: options.summary,
             fast_mode: Arc::new(RwLock::new(options.fast_mode)),
+            native_fast_mode: options.native_fast_mode,
+            delivered_controls: RwLock::default(),
             permission_mode: Arc::new(RwLock::new(options.permission_mode)),
             access_mode: Arc::new(RwLock::new(options.access_mode)),
             cwd: options.cwd,
@@ -128,7 +142,7 @@ impl CodexSession {
             self.context_window,
             self.mcp_servers.read().await.clone(),
         );
-        let _ = self.local_tx.send(Ok(event));
+        self.local_tx.send(Ok(event)).ignore_closed();
     }
 
     pub(super) async fn start_initial_turn(&self, content: Value) -> Result<(), RuntimeError> {
@@ -148,6 +162,11 @@ impl CodexSession {
         *self.turn_model.write().await = collaboration_model.clone();
         let collaboration_effort = self.effective_effort.read().await.clone();
         let fast_mode = *self.fast_mode.read().await;
+        let controls = RuntimeEffectiveConfig {
+            model: collaboration_model.clone(),
+            thinking_effort: collaboration_effort.clone(),
+            fast_mode: fast_mode.unwrap_or(self.native_fast_mode),
+        };
         let permission_mode = self.permission_mode.read().await.clone();
         let access_mode = self.access_mode.read().await.clone();
         let mut params = turn_start_params(
@@ -168,7 +187,9 @@ impl CodexSession {
         if let Some(client_message_id) = client_message_id {
             params["clientUserMessageId"] = Value::String(client_message_id.to_string());
         }
+        let _starting = self.turn_start.lock().await;
         let turn = self.client.turn_start(params).await?;
+        *self.delivered_controls.write().await = controls;
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);
         Ok(())
@@ -177,6 +198,10 @@ impl CodexSession {
 
 #[async_trait]
 impl AgentRuntimeSession for CodexSession {
+    async fn delivered_turn_config(&self) -> Option<RuntimeEffectiveConfig> {
+        Some(self.delivered_controls.read().await.clone())
+    }
+
     fn context_window(&self) -> Option<u64> {
         self.context_window
     }
@@ -204,6 +229,7 @@ impl AgentRuntimeSession for CodexSession {
                 last_root_turn_id: Arc::clone(&self.last_root_turn_id),
                 root_thread_id: self.thread_id.clone(),
                 child_turn_ids: Arc::clone(&self.child_turn_ids),
+                commands: Arc::clone(&self.turn_commands),
             })
             .model(Arc::clone(&self.turn_model))
             .closing(Arc::clone(&self.closing))
@@ -292,32 +318,7 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
-        self.interrupts.fetch_add(1, Ordering::SeqCst);
-        // Snapshot before awaiting RPCs; completion events keep updating the tracker.
-        let children = self.child_turn_ids.read().await.clone();
-        let root_turn = self.active_turn_id.read().await.clone();
-        let root_fallback = self.last_root_turn_id.read().await.clone();
-        let mut targets = Vec::with_capacity(children.len() + 1);
-        let fallback = root_turn.is_none();
-        if let Some(turn) = root_turn.or(root_fallback) {
-            targets.push(interrupt::InterruptTarget {
-                thread: self.thread_id.clone(),
-                turn: Some(turn),
-                fallback,
-            });
-        }
-        targets.extend(
-            children
-                .into_iter()
-                .map(|(thread, turn)| interrupt::InterruptTarget {
-                    thread,
-                    turn,
-                    fallback: false,
-                }),
-        );
-        interrupt::interrupt_turns(&self.client, targets).await?;
-        self.async_questions.lock().await.clear();
-        Ok(())
+        self.interrupt_session().await
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {
@@ -381,11 +382,14 @@ impl AgentRuntimeSession for CodexSession {
     }
 
     async fn dismiss_nonblocking_request(&self, request_id: &str) -> Result<bool, RuntimeError> {
-        if !super::async_questions::is_async_question(request_id) {
-            return Ok(false);
+        match unanswered_close(request_id) {
+            UnansweredClose::DropPlan => Ok(true),
+            UnansweredClose::WithdrawQuestion => {
+                self.dismiss_async_question(request_id).await?;
+                Ok(true)
+            }
+            UnansweredClose::Blocking => Ok(false),
         }
-        self.dismiss_async_question(request_id).await?;
-        Ok(true)
     }
 
     fn pid(&self) -> Option<u32> {

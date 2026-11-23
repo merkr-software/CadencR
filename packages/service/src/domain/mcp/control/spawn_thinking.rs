@@ -23,7 +23,7 @@ pub(super) async fn resolve(
     let Some(model) = model else {
         return Ok(None);
     };
-    Ok(settings::target_thinking_effort(&state.read_pool, effective_provider, &model).await)
+    settings::target_thinking_effort(&state.read_pool, effective_provider, &model).await
 }
 
 #[cfg(test)]
@@ -47,7 +47,9 @@ mod tests {
         .unwrap();
 
         let selected =
-            settings::thinking_effort_model_default(&pool, "target-provider", "target-model").await;
+            settings::thinking_effort_model_default(&pool, "target-provider", "target-model")
+                .await
+                .unwrap();
 
         assert_eq!(selected.as_deref(), Some("high"));
     }

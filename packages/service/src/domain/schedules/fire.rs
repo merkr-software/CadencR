@@ -26,6 +26,9 @@ pub enum FireOutcome {
     Passed,
     /// The target's agent was still working, so the command wasn't run.
     Busy,
+    /// The schedule was paused (by the user, or by archiving its conversation)
+    /// while its command ran: nothing is sent.
+    Paused,
 }
 
 /// Fire `schedule` once.
@@ -88,6 +91,12 @@ async fn fire_gated(
             Err(error)
         }
         Evaluation::Failed { exit_code, output } => {
+            // The command can run for minutes, long enough for the schedule to
+            // be paused — archiving its conversation does — after the claim
+            // read it armed.
+            if skip_when_busy && !still_armed(state, schedule.id).await? {
+                return Ok(FireOutcome::Paused);
+            }
             // Recorded before delivery: once the prompt is out, a failed write
             // must not be able to fail the run, or its retry would send the
             // prompt a second time.
@@ -162,6 +171,15 @@ async fn condition_cwd(state: &AppState, schedule: &Schedule) -> Result<PathBuf,
                 .map_err(|error| error.to_string())
         }
     }
+}
+
+async fn still_armed(state: &AppState, schedule_id: i64) -> Result<bool, String> {
+    sqlx::query_scalar("SELECT enabled FROM schedules WHERE id = ?")
+        .bind(schedule_id)
+        .fetch_optional(&state.read_pool)
+        .await
+        .map(|enabled| enabled.unwrap_or(false))
+        .map_err(|error| format!("could not read whether the schedule is paused: {error}"))
 }
 
 /// Whether the targeted conversation's agent is mid-turn or waiting on the
@@ -268,6 +286,28 @@ mod tests {
 
         let outcome = fire(&state, &schedule, "occurrence", true).await;
         assert!(matches!(outcome, FireOutcome::Busy));
+    }
+
+    // Archiving pauses the schedule while the claimed run evaluates its
+    // command: the prompt must not reach the archived conversation.
+    #[tokio::test]
+    async fn a_schedule_paused_mid_check_sends_nothing() {
+        let (pool, _, feature_id) = fixture().await;
+        let (state, schedule) = conditional(&pool, feature_id, "exit 1").await;
+        sqlx::query("UPDATE schedules SET enabled = 0 WHERE id = ?")
+            .bind(schedule.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let outcome = fire(&state, &schedule, "occurrence", true).await;
+        assert!(matches!(outcome, FireOutcome::Paused));
+        assert!(get(&pool, schedule.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .last_check
+            .is_none());
     }
 
     #[tokio::test]

@@ -7,6 +7,7 @@ import contextlib
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ MAX_TREE = 64 * 1024 * 1024
 # LSP archives may reach the core 64 MiB ceiling; one bounded 16 MiB lock accompanies them.
 MAX_LSP_FILE = 64 * 1024 * 1024
 MAX_LSP_TREE = 80 * 1024 * 1024
+PREPARATION_ERRORS = (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError)
 
 
 def git(repo, *args):
@@ -195,6 +197,76 @@ def metadata(repo, commit, entry, version):
     return package, identity
 
 
+def load_cli(mode, work, diagnostics):
+    root = pathlib.Path(os.environ["ROOT"])
+    home = work / "home"
+    home.mkdir()
+    tmp = work / "tmp"
+    tmp.mkdir()
+    env = {"PATH": os.environ["PATH"], "HOME": str(home), "TMPDIR": str(tmp)}
+    pin = "scripts/cli-qualification.env" if mode == "qualification" else "tooling/marketplace-registry/ci/released-cli.env"
+    cli = subprocess.check_output(["sh", str(root / "tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh"),
+                                   str(root / pin), str(work / "cli")], env=env, timeout=300).decode().strip()
+
+    def run(*args):
+        label = args[0] + " " + args[1]
+
+        def retain(data):
+            diagnostics.extend(label.encode() + b"\n" + data[:16384] + b"\n")
+            del diagnostics[:-65536]
+
+        try:
+            completed = subprocess.run([cli, *args], env=env, timeout=60,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        except OSError as error:
+            retain(str(error).encode())
+            fail("official plugin " + label + " failed (CLI_START_FAILED)")
+        except subprocess.TimeoutExpired as error:
+            retain(error.stderr or b"")
+            fail("official plugin " + label + " timed out")
+        retain(completed.stderr)
+        if completed.returncode != 0:
+            match = re.search(rb"error\[([A-Z][A-Z0-9_]{0,79})\]", completed.stderr)
+            code = match.group(1).decode() if match else "CLI_OPERATION_FAILED"
+            fail("official plugin " + label + " failed (" + code + ")")
+        return completed.stdout
+
+    return run
+
+
+def report_diagnostics(out, diagnostics):
+    if not diagnostics:
+        return
+    log = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="official-plugin-diagnostics-", suffix=".log",
+                                         dir=out.parent, delete=False) as log:
+            log.write(diagnostics)
+    except OSError:
+        if log is None:
+            print("Could not save private CLI diagnostics beside the requested output.", file=sys.stderr)
+        else:
+            print("Private CLI diagnostics may be incomplete: " + log.name, file=sys.stderr)
+    else:
+        print("Private CLI diagnostics: " + log.name, file=sys.stderr)
+
+
+def write_release(out, work, release, metadata_file):
+    archives = release["archives"]
+    out.mkdir(mode=0o700)
+    try:
+        for archive in archives:
+            name = archive["name"]
+            shutil.copyfile(work / name, out / name)
+        (out / "package.json").write_bytes(metadata_file)
+        shutil.copyfile(work / "submission.json", out / "submission.json")
+        (out / "SHA256SUMS").write_text("".join(a["sha256"] + "  " + a["name"] + "\n" for a in archives))
+        (out / "release.json").write_bytes(json_bytes(release))
+    except BaseException:
+        shutil.rmtree(out)
+        raise
+
+
 def prepare(mode, repo, commit, tag, output):
     if mode not in ("production", "qualification", "author-approved"):
         fail("invalid preparation mode")
@@ -221,72 +293,43 @@ def prepare(mode, repo, commit, tag, output):
     if not out.is_absolute() or out.exists() or out.is_symlink() or out.parent.resolve() != out.parent:
         fail("output must be new absolute canonical path")
     package, _ = metadata(repo, commit, entry, version)
-    work = pathlib.Path(tempfile.mkdtemp(prefix="official-plugin-"))
-    print("Private preparation scratch retained: " + str(work), file=sys.stderr)
-    stages = {}
-    payloads = entry.get("payloads")
-    if not isinstance(payloads, dict) or not payloads:
-        fail("reviewed payload targets are PENDING")
-    for index, (target, specification) in enumerate(sorted(payloads.items())):
-        parent = work / ("payload-" + str(index))
-        parent.mkdir()
-        stage = parent / (entry["id"] if entry["kind"] == "tab" else "stage")
-        stage_payload(repo, commit, entry, target, specification, stage)
-        stages[target] = stage
-    root = pathlib.Path(os.environ["ROOT"])
-    home = work / "home"
-    home.mkdir()
-    env = {"PATH": os.environ["PATH"], "HOME": str(home)}
-    pin = "scripts/cli-qualification.env" if mode == "qualification" else "tooling/marketplace-registry/ci/released-cli.env"
-    cli = subprocess.check_output(["sh", str(root / "tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh"),
-                                   str(root / pin), str(work / "cli")], env=env, timeout=300).decode().strip()
-    def run(*args):
-        label = args[0] + " " + args[1]
-        diagnostics = work / "cli-diagnostics.log"
-        def retain(data):
-            previous = diagnostics.read_bytes() if diagnostics.exists() else b""
-            diagnostics.write_bytes((previous + label.encode() + b"\n" + data[:16384] + b"\n")[-65536:])
-            diagnostics.chmod(0o600)
-        try:
-            completed = subprocess.run([cli, *args], env=env, timeout=60,
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        except OSError as error:
-            retain(str(error).encode())
-            fail("official plugin " + label + " failed (CLI_START_FAILED); private CLI diagnostics retained in scratch")
-        except subprocess.TimeoutExpired as error:
-            retain(error.stderr or b"")
-            fail("official plugin " + label + " timed out; private CLI diagnostics retained in scratch")
-        retain(completed.stderr)
-        if completed.returncode != 0:
-            match = re.search(rb"error\[([A-Z][A-Z0-9_]{0,79})\]", completed.stderr)
-            code = match.group(1).decode() if match else "CLI_OPERATION_FAILED"
-            fail("official plugin " + label + " failed (" + code + "); private CLI diagnostics retained in scratch")
-        return completed.stdout
-    archives = pack(run, work, entry, package, stages, tag, version)
-    submission = {"schema_version": 2, "package": package,
-                  "source": {"repository": "https://github.com/" + REPOSITORY, "commit": commit, "tag": tag},
-                  "changelog": "Official plugin release " + tag}
-    submission_file = work / "submission.json"
-    submission_file.write_bytes(json_bytes(submission))
-    # Existing Rust submission and publication validators are authoritative.
-    run("registry", "plan-publication", "--submission", str(submission_file),
-        "--repository", REPOSITORY, "--output", str(work / "plan.json"))
-    metadata_file = json_bytes(package)
-    release = {"schema_version": 2, "plugin": plugin, "version": version, "source_repository": REPOSITORY,
-               "source_commit": commit, "source_path": entry["source_path"], "tag": tag,
-               "archives": archives, "package": {"name": "package.json", "sha256": digest(metadata_file), "size": len(metadata_file)},
-               "publication": policy["publication"], "authority": mode}
-    out.mkdir(mode=0o700)
-    for archive in archives:
-        (out / archive["name"]).write_bytes((work / archive["name"]).read_bytes())
-    (out / "package.json").write_bytes(metadata_file)
-    (out / "submission.json").write_bytes(submission_file.read_bytes())
-    (out / "SHA256SUMS").write_text("".join(a["sha256"] + "  " + a["name"] + "\n" for a in archives))
-    (out / "release.json").write_bytes(json_bytes(release))
+    diagnostics = bytearray()
+    try:
+        with tempfile.TemporaryDirectory(prefix="official-plugin-") as scratch:
+            work = pathlib.Path(scratch)
+            stages = {}
+            payloads = entry.get("payloads")
+            if not isinstance(payloads, dict) or not payloads:
+                fail("reviewed payload targets are PENDING")
+            for index, (target, specification) in enumerate(sorted(payloads.items())):
+                parent = work / ("payload-" + str(index))
+                parent.mkdir()
+                stage = parent / (entry["id"] if entry["kind"] == "tab" else "stage")
+                stage_payload(repo, commit, entry, target, specification, stage)
+                stages[target] = stage
+            run = load_cli(mode, work, diagnostics)
+            archives = pack(run, work, entry, package, stages, tag, version)
+            submission = {"schema_version": 2, "package": package,
+                          "source": {"repository": "https://github.com/" + REPOSITORY, "commit": commit, "tag": tag},
+                          "changelog": "Official plugin release " + tag}
+            submission_file = work / "submission.json"
+            submission_file.write_bytes(json_bytes(submission))
+            # Existing Rust submission and publication validators are authoritative.
+            run("registry", "plan-publication", "--submission", str(submission_file),
+                "--repository", REPOSITORY, "--output", str(work / "plan.json"))
+            metadata_file = json_bytes(package)
+            release = {"schema_version": 2, "plugin": plugin, "version": version, "source_repository": REPOSITORY,
+                       "source_commit": commit, "source_path": entry["source_path"], "tag": tag,
+                       "archives": archives, "package": {"name": "package.json", "sha256": digest(metadata_file), "size": len(metadata_file)},
+                       "publication": policy["publication"], "authority": mode}
+            write_release(out, work, release, metadata_file)
+    except (SystemExit, *PREPARATION_ERRORS):
+        report_diagnostics(out, diagnostics)
+        raise
 
 
 if __name__ == "__main__":
     try:
         prepare(*sys.argv[1:])
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        fail("official plugin preparation failed; inspect reviewed inputs and retained scratch privately")
+    except PREPARATION_ERRORS:
+        fail("official plugin preparation failed; inspect reviewed inputs")

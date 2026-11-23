@@ -35,8 +35,11 @@ pub async fn run_mcp_stdio(
     // control client, so this process never competes for the write lock nor
     // changes state without the service broadcasting it.
     let read_pool = db::create_read_pool(db_path).await?;
+    let context = McpContext::builder();
+    #[cfg(unix)]
+    let context = context.maybe_connection_reporter(super::connection::Reporter::from_env());
     let ctx = Arc::new(
-        McpContext::builder()
+        context
             .read_pool(read_pool)
             .feature_id(feature_id)
             .maybe_source_session_id(source_session_id)

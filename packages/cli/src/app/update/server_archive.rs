@@ -3,23 +3,66 @@
 //! The archive (`cadencr-server-<version>-<platform>.tar.gz`) holds one
 //! `cadencr-server/` folder. It is unpacked beside the installation and
 //! checked, then swapped in with two renames; the replaced folder is kept as
-//! `<installation>.previous` until the next update.
+//! `.<installation>.previous` until the next update.
 
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use sha2::{Digest as _, Sha256};
 
 use super::parse_version;
 use crate::app::hex;
-use crate::app::install::{read_server_manifest, SERVER_MANIFEST};
+use crate::app::install::read_server_manifest;
 use crate::{operation_error, Diagnostic};
+
+mod transaction;
+
+pub(super) use transaction::ServerUpdate;
+use transaction::{file_error, manifest_path, swap};
 
 const ARCHIVE_ROOT: &str = "cadencr-server";
 
-pub(super) struct Download {
-    pub(super) path: PathBuf,
+impl ServerUpdate {
+    /// `cadencr update --archive`: an archive the user downloaded themselves.
+    pub(super) fn install_local(&self, archive: &Path) -> Result<String, Diagnostic> {
+        let workspace = self.workspace()?;
+        let outcome = self.install(workspace.path(), archive, None);
+        finish(workspace, outcome)
+    }
+
+    pub(super) async fn install_remote(
+        &self,
+        client: &reqwest::Client,
+        url: &str,
+        checksum: &str,
+        version: &str,
+    ) -> Result<(), Diagnostic> {
+        let workspace = self.workspace()?;
+        let archive = workspace.path().join("archive.tar.gz");
+        let outcome = async {
+            download(client, url, &archive, checksum).await?;
+            self.install(workspace.path(), &archive, Some(version))
+                .map(drop)
+        }
+        .await;
+        finish(workspace, outcome)
+    }
+
+    /// Unpacks, checks and swaps in `archive`; returns the installed version.
+    fn install(
+        &self,
+        workspace: &Path,
+        archive: &Path,
+        expected_version: Option<&str>,
+    ) -> Result<String, Diagnostic> {
+        let staging = workspace.join("staging");
+        unpack(archive, &staging)?;
+        let replacement = staging.join(ARCHIVE_ROOT);
+        let installed = check(&replacement, expected_version)?;
+        swap(self, &replacement)?;
+        Ok(installed)
+    }
 }
 
 /// The release asset for this machine.
@@ -44,15 +87,13 @@ fn host_platform() -> Result<&'static str, Diagnostic> {
     }
 }
 
-/// Streams the archive next to the installation, checking its SHA-256. A
-/// failed or corrupt download is removed.
-pub(super) async fn download(
+/// Streams the archive into the attempt's workspace and checks its SHA-256.
+async fn download(
     client: &reqwest::Client,
     url: &str,
-    root: &Path,
+    path: &Path,
     expected_sha256: &str,
-) -> Result<Download, Diagnostic> {
-    let path = sibling(root, "download.tar.gz")?;
+) -> Result<(), Diagnostic> {
     let failed = |error: &dyn std::fmt::Display| {
         operation_error("CLI_UPDATE_FAILED", format!("{url}: {error}"))
     };
@@ -63,15 +104,13 @@ pub(super) async fn download(
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|error| failed(&error))?;
-    let outcome = match save(response, &path, &failed).await {
-        Ok(actual) if actual == expected_sha256 => return Ok(Download { path }),
-        Ok(actual) => failed(&format!(
+    let actual = save(response, path, &failed).await?;
+    if actual != expected_sha256 {
+        return Err(failed(&format!(
             "SHA-256 mismatch (expected {expected_sha256}, got {actual})"
-        )),
-        Err(error) => error,
-    };
-    remove_file(&path)?;
-    Err(outcome)
+        )));
+    }
+    Ok(())
 }
 
 /// Writes the response body to `path`; returns its SHA-256.
@@ -91,31 +130,26 @@ async fn save(
     Ok(hex(&hasher.finalize()))
 }
 
-/// `cadencr update --archive`: an archive the user downloaded themselves.
-pub(super) fn install_local(
-    root: &Path,
-    current: &str,
-    archive: &Path,
-) -> Result<Option<String>, Diagnostic> {
-    let installed = install(root, archive, None)?;
-    Ok(Some(format!(
-        "Replaced CadencR {current} with {installed}. Start it again with `cadencr serve`."
-    )))
-}
-
-/// Unpacks, checks and swaps in `archive`; returns the installed version.
-pub(super) fn install(
-    root: &Path,
-    archive: &Path,
-    expected_version: Option<&str>,
-) -> Result<String, Diagnostic> {
-    let staging = sibling(root, "update")?;
-    remove_dir(&staging)?;
-    let outcome = unpack(archive, &staging)
-        .and_then(|()| check(&staging.join(ARCHIVE_ROOT), expected_version))
-        .and_then(|installed| swap(root, &staging.join(ARCHIVE_ROOT)).map(|()| installed));
-    remove_dir(&staging)?;
-    outcome
+fn finish<T>(
+    workspace: tempfile::TempDir,
+    outcome: Result<T, Diagnostic>,
+) -> Result<T, Diagnostic> {
+    let path = workspace.path().to_path_buf();
+    let Err(cleanup) = workspace.close() else {
+        return outcome;
+    };
+    let cleanup = format!("Could not remove {}: {cleanup}", path.display());
+    match outcome {
+        Ok(_) => Err(operation_error(
+            "CLI_UPDATE_FAILED",
+            format!("Update applied. {cleanup}"),
+        )),
+        Err(mut error) => {
+            error.message.push('\n');
+            error.message.push_str(&cleanup);
+            Err(error)
+        }
+    }
 }
 
 fn unpack(archive: &Path, destination: &Path) -> Result<(), Diagnostic> {
@@ -148,7 +182,7 @@ fn check(unpacked: &Path, expected_version: Option<&str>) -> Result<String, Diag
             return Err(invalid(&format!("no {ARCHIVE_ROOT}/{required}")));
         }
     }
-    let manifest = read_server_manifest(&unpacked.join("lib").join(SERVER_MANIFEST))?;
+    let manifest = read_server_manifest(&manifest_path(unpacked))?;
     let host = host_platform()?;
     if manifest.platform.as_deref() != Some(host) {
         return Err(invalid(&format!(
@@ -172,63 +206,13 @@ fn check(unpacked: &Path, expected_version: Option<&str>) -> Result<String, Diag
     Ok(manifest.version)
 }
 
-fn swap(root: &Path, replacement: &Path) -> Result<(), Diagnostic> {
-    let previous = sibling(root, "previous")?;
-    remove_dir(&previous)?;
-    std::fs::rename(root, &previous).map_err(|error| file_error(root, error))?;
-    if let Err(error) = std::fs::rename(replacement, root) {
-        let restored = std::fs::rename(&previous, root);
-        return Err(operation_error(
-            "CLI_UPDATE_FAILED",
-            match restored {
-                Ok(()) => format!("{}: {error}; the installation is unchanged", root.display()),
-                Err(restore) => format!(
-                    "{}: {error}; restoring it from {} also failed: {restore}",
-                    root.display(),
-                    previous.display()
-                ),
-            },
-        ));
-    }
-    Ok(())
-}
-
-/// `<parent>/.<installation name>.<suffix>`: same filesystem, so the renames
-/// are atomic.
-fn sibling(root: &Path, suffix: &str) -> Result<PathBuf, Diagnostic> {
-    let name = root.file_name().and_then(|name| name.to_str());
-    match (root.parent(), name) {
-        (Some(parent), Some(name)) => Ok(parent.join(format!(".{name}.{suffix}"))),
-        _ => Err(operation_error(
-            "CLI_UPDATE_FAILED",
-            format!("cannot update an installation at {}", root.display()),
-        )),
-    }
-}
-
-pub(super) fn remove_file(path: &Path) -> Result<(), Diagnostic> {
-    match std::fs::remove_file(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(file_error(path, error)),
-        _ => Ok(()),
-    }
-}
-
-fn remove_dir(path: &Path) -> Result<(), Diagnostic> {
-    match std::fs::remove_dir_all(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(file_error(path, error)),
-        _ => Ok(()),
-    }
-}
-
-fn file_error(path: &Path, error: impl std::fmt::Display) -> Diagnostic {
-    operation_error("CLI_UPDATE_FAILED", format!("{}: {error}", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
 
-    fn server_tree(dir: &Path, version: &str) -> PathBuf {
+    pub(super) fn server_tree(dir: &Path, version: &str) -> PathBuf {
         let root = dir.join(ARCHIVE_ROOT);
         for file in [
             "bin/cadencr",
@@ -260,6 +244,18 @@ mod tests {
         builder.into_inner().unwrap().finish().unwrap();
     }
 
+    fn install(
+        root: &Path,
+        archive: &Path,
+        expected_version: Option<&str>,
+    ) -> Result<String, Diagnostic> {
+        let update = ServerUpdate::begin(root)?;
+        update.prepare()?;
+        let workspace = update.workspace()?;
+        let outcome = update.install(workspace.path(), archive, expected_version);
+        finish(workspace, outcome)
+    }
+
     #[test]
     fn an_archive_replaces_the_installation_and_keeps_the_previous_one() {
         let dir = tempfile::tempdir().unwrap();
@@ -281,9 +277,17 @@ mod tests {
             std::fs::read_to_string(previous.join("bin/cadencr")).unwrap(),
             "1.0.0"
         );
-        assert!(!installed
-            .with_file_name(format!(".{ARCHIVE_ROOT}.update"))
-            .exists());
+        let backup_update = ServerUpdate::from_executable(&previous.join("bin/cadencr"))
+            .unwrap()
+            .unwrap();
+        let error = backup_update.prepare().unwrap_err();
+        assert!(error.message.contains(
+            &fs::canonicalize(&installed)
+                .unwrap()
+                .join("bin/cadencr")
+                .display()
+                .to_string()
+        ));
     }
 
     #[test]

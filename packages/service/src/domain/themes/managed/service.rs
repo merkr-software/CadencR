@@ -423,7 +423,11 @@ pub(super) mod tests {
             result = install_with_stage(&body, false, staging) => panic!("unexpected staging result: {result:?}"),
             result = async {
                 receiver.await.unwrap();
-                tokio::time::timeout(std::time::Duration::from_secs(1), lock().lock()).await
+                // A staging that held the lock would hold it forever (it never
+                // ends here), so any bound catches that. The lock is
+                // process-wide: other theme tests running alongside take it
+                // for their durable writes, up to ~1.3 s each under load.
+                tokio::time::timeout(std::time::Duration::from_secs(30), lock().lock()).await
             } => { assert!(result.is_ok(), "network staging must not lock other themes"); }
         }
     }

@@ -1,5 +1,6 @@
 //! Official ACP SDK connection setup for [`AcpClient`].
 
+use crate::shared::discard::{cleanup, IgnoreClosed, SendIgnoreClosed};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,6 +20,8 @@ use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpEventHub;
 use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+use crate::domain::agents::acp::wire_transform::interpose;
+use crate::domain::ports::provider_processes::{ProviderProcess, ProviderProcessScope};
 
 mod stderr;
 
@@ -61,7 +64,10 @@ impl Inner {
         for slot in [&self.connection_task, &self.stderr_task, &self.reaper_task] {
             let task = slot.lock().ok().and_then(|mut task| task.take());
             if let Some(task) = task {
-                let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+                cleanup(
+                    tokio::time::timeout(Duration::from_secs(2), task).await,
+                    "wait for an ACP client task to stop",
+                );
             }
         }
     }
@@ -74,6 +80,12 @@ impl Drop for Inner {
         send_once(&self.shutdown_tx);
         send_once(&self.kill_tx);
     }
+}
+
+struct SpawnedProcess {
+    child: Child,
+    control: ProcessTreeControl,
+    port_exclusion: Option<ProviderProcess>,
 }
 
 pub(super) async fn spawn_acp_subprocess(
@@ -97,14 +109,17 @@ pub(super) async fn spawn_acp_subprocess(
         .command
         .spawn()
         .map_err(|error| AcpError::Spawn(error.to_string()))?;
+    let port_exclusion = child
+        .id()
+        .filter(|_| options.exclude_launcher_ports)
+        .and_then(|pid| ProviderProcess::register(pid, ProviderProcessScope::Launcher));
     if let Err(error) = process_tree.attach(&child) {
-        let _ = child.start_kill();
-        let _ = child.wait().await;
+        cleanup(child.start_kill(), "kill the uncontained ACP agent");
+        cleanup(child.wait().await, "reap the uncontained ACP agent");
         return Err(AcpError::Spawn(format!(
             "process containment unavailable: {error}"
         )));
     }
-    let pid = child.id();
     let stdin = child
         .stdin
         .take()
@@ -118,16 +133,18 @@ pub(super) async fn spawn_acp_subprocess(
         .take()
         .ok_or_else(|| AcpError::Protocol("missing ACP stderr".to_string()))?;
 
-    assemble(
-        stdin,
-        stdout,
-        stderr,
-        Some(child),
-        pid,
-        options,
-        Some(process_tree),
-    )
-    .await
+    let process = Some(SpawnedProcess {
+        child,
+        control: process_tree,
+        port_exclusion,
+    });
+    match options.wire_transform.take() {
+        Some(transform) => {
+            let wire = interpose(stdin, stdout, transform);
+            assemble(wire.stdin, wire.stdout, stderr, process, options).await
+        }
+        None => assemble(stdin, stdout, stderr, process, options).await,
+    }
 }
 
 #[cfg(test)]
@@ -145,17 +162,15 @@ where
         .command(tokio::process::Command::new("/bin/false"))
         .client_info(client_info)
         .build();
-    assemble(stdin, stdout, stderr, None, None, options, None).await
+    assemble(stdin, stdout, stderr, None, options).await
 }
 
 async fn assemble<W, R, E>(
     stdin: W,
     stdout: R,
     stderr: E,
-    child: Option<Child>,
-    pid: Option<u32>,
+    process: Option<SpawnedProcess>,
     options: AcpSpawnOptions,
-    process_tree: Option<ProcessTreeControl>,
 ) -> Result<AcpClient, AcpError>
 where
     W: AsyncWrite + Send + Unpin + 'static,
@@ -186,17 +201,15 @@ where
         max_line_bytes,
         options.stderr_policy.exposes_contents(),
     );
-    let reaper_task = if let Some(child) = child {
-        let process_tree = process_tree
-            .ok_or_else(|| AcpError::Protocol("missing ACP process-tree control".to_string()))?;
+    let pid = process.as_ref().and_then(|process| process.child.id());
+    let reaper_task = if let Some(process) = process {
         Some(spawn_reaper(
-            child,
+            process,
             kill_rx,
             events.clone(),
             Arc::clone(&exit_sent),
             Arc::clone(&server_responders),
             Arc::clone(&closed),
-            process_tree,
         ))
     } else {
         drop(kill_rx);
@@ -246,8 +259,8 @@ where
             .name("cadencr")
             .with_handler(EventDispatchHandler::new(events, server_responders))
             .connect_with(transport, async move |connection| {
-                let _ = connection_tx.send(connection.clone());
-                let _ = shutdown_rx.await;
+                connection_tx.send_ignore_closed(connection.clone());
+                shutdown_rx.await.ignore_closed();
                 Ok(())
             })
             .await;
@@ -270,15 +283,19 @@ where
 }
 
 fn spawn_reaper(
-    mut child: Child,
+    process: SpawnedProcess,
     mut kill_rx: oneshot::Receiver<()>,
     events: AcpEventHub,
     exit_sent: Arc<AtomicBool>,
     server_responders: ServerResponders,
     closed: Arc<watch::Sender<bool>>,
-    process_tree: ProcessTreeControl,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        let SpawnedProcess {
+            mut child,
+            control: process_tree,
+            port_exclusion,
+        } = process;
         let pid = child.id();
         let status = tokio::select! {
             status = child.wait() => {
@@ -291,6 +308,7 @@ fn spawn_reaper(
                 .terminate(&mut child, Duration::from_secs(1))
                 .await,
         };
+        drop(port_exclusion);
         match status {
             Ok(status) => send_process_exited(
                 &events,
@@ -352,7 +370,7 @@ fn send_process_exited(
 fn send_once(slot: &StdMutex<Option<oneshot::Sender<()>>>) {
     if let Ok(mut slot) = slot.lock() {
         if let Some(tx) = slot.take() {
-            let _ = tx.send(());
+            tx.send_ignore_closed(());
         }
     }
 }

@@ -163,21 +163,29 @@ export function SubagentCardPeek({
   report,
   basePath,
   toolResultMap,
+  live = false,
 }: {
   actions: AgentBlockData[];
   report: string | null;
   basePath?: string;
   /** Results of the agent's calls: a failed latest action is marked. */
   toolResultMap?: ToolResults;
+  /** The agent still works: its latest action keeps one line. */
+  live?: boolean;
 }): ReactElement | null {
   const latest = actions.some(hasCompactLine);
   if (!latest && !report) return null;
   return (
     <SubagentCardPeekFrame>
       {latest && (
-        <div className="flex h-6 min-w-0 items-center text-xs">
+        <div className="flex min-h-6 min-w-0 items-center text-xs">
           <span className="sr-only">Latest action: </span>
-          <CompactLatestStep blocks={actions} basePath={basePath} toolResultMap={toolResultMap} />
+          <CompactLatestStep
+            blocks={actions}
+            basePath={basePath}
+            toolResultMap={toolResultMap}
+            live={live}
+          />
         </div>
       )}
       {report && (

@@ -17,6 +17,7 @@ mod blob_shas;
 mod branch_name;
 mod changed_files;
 mod diff;
+mod diff_side;
 mod files;
 mod graph;
 mod graph_refs;
@@ -39,16 +40,19 @@ pub use branch_name::build_branch_name;
 pub use changed_files::get_changed_files;
 pub(crate) use changed_files::get_uncommitted_entries;
 pub use diff::{get_commit_diff, get_diff, get_file_diff, get_stats};
-pub use files::{get_file_bytes, get_file_content_batch, list_files};
+pub(crate) use diff_side::ensure_worktree_side_is_a_file;
+pub use files::{get_diff_side_bytes, get_file_bytes, get_file_content_batch, list_files};
 pub use graph::get_commit_graph;
 pub use index::{reset_file, stage_file};
 pub use log::{get_commit_log, get_recent_commits};
+pub(crate) use merge::origin_head;
 pub use merge::{get_current_branch, get_original_branch};
 pub use merge_ops::{check_merge_conflicts, force_delete_branch, is_branch_merged, unmerged_paths};
 pub use pty::{commit_streaming, push_args, push_streaming};
 pub use pty_input::SensitiveInput;
 pub(crate) use stash::commit_diff::untracked_parent as stash_untracked_parent;
 pub use stash::{apply_stash, drop_stash, list_stashes, pop_stash, push_stash};
+pub(crate) use util::content_read_error;
 pub use worktree_health::{
     canonical_dir, get_worktree_info, is_live_worktree, live_worktree_root,
     registered_worktree_for_feature_path, WorktreeRoots,

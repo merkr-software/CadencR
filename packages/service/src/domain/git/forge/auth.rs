@@ -9,7 +9,8 @@ use crate::domain::git::host::GitHost;
 use crate::error::AppError;
 
 mod cli;
-use cli::{cli_output, parse_glab_token_output, stdout_token};
+use cli::cached_cli_token;
+pub(crate) use cli::invalidate_cli_token;
 
 pub const FORGE_HOSTS_SETTING: &str = "forge_hosts";
 
@@ -54,6 +55,21 @@ impl ForgeAuthStore {
         })
     }
 
+    pub async fn has_any_stored_tokens(&self) -> Result<bool, ForgeError> {
+        if let Some(document) = self.document.read().await.as_ref() {
+            return Ok(!document.tokens.is_empty());
+        }
+        let path = self.path()?.to_path_buf();
+        let mut cached = self.document.write().await;
+        if let Some(document) = cached.as_ref() {
+            return Ok(!document.tokens.is_empty());
+        }
+        let loaded = read_document_async(path).await?;
+        let has_tokens = !loaded.tokens.is_empty();
+        *cached = Some(loaded);
+        Ok(has_tokens)
+    }
+
     pub async fn stored_credentials(
         &self,
         hostname: &str,
@@ -84,27 +100,32 @@ impl ForgeAuthStore {
                 "Forge token cannot be empty".into(),
             ));
         }
-        let path = self.path()?;
+        let path = self.path()?.to_path_buf();
         let mut cached = self.document.write().await;
-        let document = load_document(path, &mut cached)?;
-        document.tokens.insert(
+        let mut next = load_document_cloned(&path, &mut cached).await?;
+        next.tokens.insert(
             hostname,
             StoredCredential {
                 token: token.to_string(),
                 username: normalized_optional(username),
             },
         );
-        write_document(path, document)
+        // Persist before updating the in-memory cache so a failed write never
+        // leaves memory ahead of disk.
+        write_document_async(path, next.clone()).await?;
+        *cached = Some(next);
+        Ok(())
     }
 
     pub async fn delete(&self, hostname: &str) -> Result<bool, ForgeError> {
         let hostname = normalize_hostname(hostname)?;
-        let path = self.path()?;
+        let path = self.path()?.to_path_buf();
         let mut cached = self.document.write().await;
-        let document = load_document(path, &mut cached)?;
-        let removed = document.tokens.remove(&hostname).is_some();
+        let mut next = load_document_cloned(&path, &mut cached).await?;
+        let removed = next.tokens.remove(&hostname).is_some();
         if removed {
-            write_document(path, document)?;
+            write_document_async(path, next.clone()).await?;
+            *cached = Some(next);
         }
         Ok(removed)
     }
@@ -113,9 +134,9 @@ impl ForgeAuthStore {
         if let Some(document) = self.document.read().await.as_ref() {
             return Ok(document.clone());
         }
-        let path = self.path()?;
+        let path = self.path()?.to_path_buf();
         let mut cached = self.document.write().await;
-        Ok(load_document(path, &mut cached)?.clone())
+        load_document_cloned(&path, &mut cached).await
     }
 }
 
@@ -151,45 +172,17 @@ pub async fn resolve_credentials(
     if !config.is_some_and(|value| value.use_cli_auth) {
         return Ok(None);
     }
-    let token = match kind {
-        GitHost::GitHub => {
-            let output = cli_output("gh", &["auth", "token", "--hostname", hostname]).await?;
-            stdout_token("gh", &output)?
-        }
-        GitHost::GitLab => {
-            let output = cli_output(
-                "glab",
-                &["auth", "status", "--hostname", hostname, "--show-token"],
-            )
-            .await?;
-            parse_glab_token_output(&output).ok_or_else(|| {
-                ForgeError::Authentication(
-                    "glab authenticated successfully but did not expose a token".into(),
-                )
-            })?
-        }
-        GitHost::Bitbucket => {
-            return Err(ForgeError::Configuration(
-                "Bitbucket has no supported CLI token source; enter an API token".into(),
-            ))
-        }
-        GitHost::Other => {
-            return Err(ForgeError::Configuration(
-                "Choose a forge kind for this self-hosted remote".into(),
-            ))
-        }
-    };
-    if token.trim().is_empty() {
+    let Some(token) = cached_cli_token(kind, hostname).await? else {
         return Ok(None);
-    }
+    };
     Ok(Some(ForgeCredentials {
-        token: token.trim().to_string(),
+        token,
         username: config.and_then(|value| value.username.clone()),
         source: ForgeAuthSource::Cli,
     }))
 }
 
-pub fn normalize_hostname(hostname: &str) -> Result<String, ForgeError> {
+pub(super) fn normalize_hostname(hostname: &str) -> Result<String, ForgeError> {
     let hostname = hostname.trim().trim_end_matches('.').to_ascii_lowercase();
     let invalid = hostname.is_empty()
         || hostname.contains('/')
@@ -216,9 +209,35 @@ pub fn forge_to_app_error(error: ForgeError) -> AppError {
         AppError::BadRequest(error.to_string())
     } else if matches!(error, ForgeError::Refused(_)) {
         AppError::Conflict(error.to_string())
+    } else if matches!(error, ForgeError::Timeout(_)) {
+        AppError::ServiceUnavailable(error.to_string())
     } else {
         AppError::internal(error.to_string())
     }
+}
+
+async fn load_document_cloned(
+    path: &Path,
+    cached: &mut Option<TokenDocument>,
+) -> Result<TokenDocument, ForgeError> {
+    if let Some(document) = cached.as_ref() {
+        return Ok(document.clone());
+    }
+    let loaded = read_document_async(path.to_path_buf()).await?;
+    *cached = Some(loaded.clone());
+    Ok(loaded)
+}
+
+async fn read_document_async(path: PathBuf) -> Result<TokenDocument, ForgeError> {
+    tokio::task::spawn_blocking(move || read_document(&path))
+        .await
+        .map_err(|error| ForgeError::Configuration(format!("read forge token file: {error}")))?
+}
+
+async fn write_document_async(path: PathBuf, document: TokenDocument) -> Result<(), ForgeError> {
+    tokio::task::spawn_blocking(move || write_document(&path, &document))
+        .await
+        .map_err(|error| ForgeError::Configuration(format!("write forge token file: {error}")))?
 }
 
 fn read_document(path: &Path) -> Result<TokenDocument, ForgeError> {
@@ -231,16 +250,6 @@ fn read_document(path: &Path) -> Result<TokenDocument, ForgeError> {
         .map_err(|error| ForgeError::Configuration(format!("read forge token file: {error}")))?;
     serde_json::from_slice(&bytes)
         .map_err(|error| ForgeError::Configuration(format!("parse forge token file: {error}")))
-}
-
-fn load_document<'a>(
-    path: &Path,
-    cached: &'a mut Option<TokenDocument>,
-) -> Result<&'a mut TokenDocument, ForgeError> {
-    if cached.is_none() {
-        *cached = Some(read_document(path)?);
-    }
-    Ok(cached.as_mut().expect("forge token document initialized"))
 }
 
 fn write_document(path: &Path, document: &TokenDocument) -> Result<(), ForgeError> {
@@ -272,6 +281,15 @@ pub(super) fn normalized_optional(value: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_cli_timeout_is_a_retryable_503_not_a_login_prompt() {
+        let error = forge_to_app_error(ForgeError::Timeout("gh did not answer".into()));
+        assert!(
+            matches!(&error, AppError::ServiceUnavailable(message) if message == "gh did not answer"),
+            "{error:?}"
+        );
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_keeps_tokens_under_the_legacy_root() {
@@ -299,7 +317,9 @@ mod tests {
     async fn token_store_round_trips_and_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let store = ForgeAuthStore::new(dir.path().join("forge/tokens.json"));
+        assert!(!store.has_any_stored_tokens().await.unwrap());
         store.save("GitHub.COM", "secret", None).await.unwrap();
+        assert!(store.has_any_stored_tokens().await.unwrap());
         let credentials = store
             .stored_credentials("github.com")
             .await
@@ -308,8 +328,44 @@ mod tests {
         assert_eq!(credentials.token, "secret");
         assert_eq!(credentials.source, ForgeAuthSource::Stored);
         assert!(store.delete("github.com").await.unwrap());
+        assert!(!store.has_any_stored_tokens().await.unwrap());
         assert!(store
             .stored_credentials("github.com")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn failed_write_does_not_corrupt_in_memory_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("forge/tokens.json");
+        let store = ForgeAuthStore::new(path.clone());
+        store
+            .save("github.com", "original-token", None)
+            .await
+            .unwrap();
+
+        // Replace the token file with a directory so subsequent atomic writes
+        // to `path` fail while the in-memory document is already warm.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+
+        assert!(store
+            .save("github.com", "corrupted-token", None)
+            .await
+            .is_err());
+        assert!(store.save("gitlab.com", "new-token", None).await.is_err());
+        assert!(store.delete("github.com").await.is_err());
+
+        let stored = store
+            .stored_credentials("github.com")
+            .await
+            .unwrap()
+            .expect("original credential must remain intact");
+        assert_eq!(stored.token, "original-token");
+        assert!(store
+            .stored_credentials("gitlab.com")
             .await
             .unwrap()
             .is_none());

@@ -2,7 +2,8 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent } from "@pierre/trees";
 import type { FileTreeMutations } from "@/hooks/useFileTreeMutations";
-import { fromPierrePath } from "@/components/file-tree/CadencrFileTree";
+import { fromPierrePath, toPierrePath } from "@/components/file-tree/CadencrFileTree";
+import { typedEntryName } from "@/components/file-tree/cadencrFileTreeModel";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { validateSimpleName } from "@/lib/validate-name";
 
@@ -43,8 +44,8 @@ function useRenameHandler({
       const pierreSource = event.sourcePath;
       const pierreDest = event.destinationPath;
       const fsSource = fromPierrePath(pierreSource);
-      const fsDest = fromPierrePath(pierreDest);
-      const newName = basenameOf(fsDest);
+      const newName = typedEntryName(pierreDest, basenameOf(fsSource));
+      const fsDest = fsSource.slice(0, fsSource.lastIndexOf("/") + 1) + newName;
 
       const validationError = validateSimpleName(newName);
       if (validationError) {
@@ -116,8 +117,8 @@ export function useFileTreeEntryActions({
             // source so they follow the file/folder.
             onSuccess: () => renameFilePath(fsSource, fsDest),
             onError: () => {
-              const trailing = pierreSource.endsWith("/") ? "/" : "";
-              model.move(`${fsDest}${trailing}`, pierreSource);
+              const isDir = pierreSource.endsWith("/");
+              model.move(toPierrePath({ path: fsDest, is_dir: isDir }), pierreSource);
             },
           },
         );

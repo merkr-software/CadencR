@@ -37,8 +37,8 @@ afterEach(() => {
 });
 
 describe("useFeaturePorts live snapshots", () => {
-  it("waits for a new scan instead of displaying a cached snapshot on mount", async () => {
-    client.setQueryData(queryKey, snapshot);
+  it("waits for a new scan instead of displaying a stale cached snapshot on mount", async () => {
+    client.setQueryData(queryKey, snapshot, { updatedAt: Date.now() - 5_000 });
     server.use(http.get("*/api/features/ports", () => HttpResponse.json([])));
 
     const { result } = renderHook(useFeaturePorts, { wrapper });
@@ -46,6 +46,24 @@ describe("useFeaturePorts live snapshots", () => {
     expect(result.current.size).toBe(0);
     await waitFor(() => expect(client.getQueryData(queryKey)).toEqual([]));
     expect(result.current.size).toBe(0);
+  });
+
+  it("shares a fresh snapshot across newly mounted callers without refetching", async () => {
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        return HttpResponse.json(snapshot);
+      }),
+    );
+
+    const first = renderHook(useFeaturePorts, { wrapper });
+    await waitFor(() => expect(first.result.current.size).toBe(2));
+
+    const second = renderHook(useFeaturePorts, { wrapper });
+    expect(second.result.current.size).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(requests).toHaveBeenCalledOnce();
   });
 
   it("removes terminal and agent ports when the next scan no longer finds them", async () => {
@@ -91,15 +109,35 @@ describe("useFeaturePorts live snapshots", () => {
     expect(result.current.size).toBe(0);
   });
 
-  it("rescans immediately when the window becomes visible again", async () => {
+  it("suppresses focus refetches while fresh and rescans on focus once stale", async () => {
+    const requests = vi.fn();
+    let payload: FeaturePorts[] = snapshot;
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        return HttpResponse.json(payload);
+      }),
+    );
+
     const { result } = renderHook(useFeaturePorts, { wrapper });
     await waitFor(() => expect(result.current.size).toBe(2));
-    act(() => focusManager.setFocused(false));
-    server.use(http.get("*/api/features/ports", () => HttpResponse.json([])));
+    expect(requests).toHaveBeenCalledOnce();
 
+    // Window focus while data is still fresh within staleTime suppresses a redundant scan.
+    payload = [];
+    act(() => focusManager.setFocused(false));
+    act(() => focusManager.setFocused(true));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(requests).toHaveBeenCalledOnce();
+    expect(result.current.size).toBe(2);
+
+    // Once stale, focusing the window immediately rescans.
+    client.setQueryData(queryKey, snapshot, { updatedAt: Date.now() - 5_000 });
+    act(() => focusManager.setFocused(false));
     act(() => focusManager.setFocused(true));
 
     await waitFor(() => expect(result.current.size).toBe(0));
+    expect(requests).toHaveBeenCalledTimes(2);
   });
 
   it("cannot revive a pre-disconnect scan that completes after reconnect", async () => {
@@ -134,5 +172,71 @@ describe("useFeaturePorts live snapshots", () => {
     expect(result.current.size).toBe(0);
     await act(async () => releaseNewScan());
     await waitFor(() => expect([...result.current.keys()]).toEqual([8]));
+  });
+
+  it("keeps badges shown after mount once the shared snapshot turns stale", async () => {
+    // Fetched 3.2 s ago by another section: fresh (4 s) when this one mounts.
+    client.setQueryData(queryKey, snapshot, { updatedAt: Date.now() - 3_200 });
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        return HttpResponse.json(snapshot);
+      }),
+    );
+
+    const { result } = renderHook(useFeaturePorts, { wrapper });
+    expect(result.current.size).toBe(2);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(result.current.size).toBe(2);
+    expect(requests).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient failure once without surfacing it", async () => {
+    client = new QueryClient({
+      defaultOptions: { queries: { retryDelay: 10, gcTime: 0, staleTime: 30_000 } },
+    });
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        if (requests.mock.calls.length === 1) {
+          return HttpResponse.json(
+            { error: "The database is busy", code: "DATABASE_BUSY" },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(snapshot);
+      }),
+    );
+
+    const { result } = renderHook(useFeaturePorts, { wrapper });
+
+    await waitFor(() => expect(result.current.size).toBe(2));
+    expect(requests).toHaveBeenCalledTimes(2);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a scan the backend is backing off from", async () => {
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: 2, retryDelay: 10, gcTime: 0, staleTime: 30_000 } },
+    });
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        return HttpResponse.json(
+          { error: "lsof timed out", code: "PORT_SCAN_TIMEOUT" },
+          { status: 503 },
+        );
+      }),
+    );
+
+    renderHook(useFeaturePorts, { wrapper });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(requests).toHaveBeenCalledOnce();
   });
 });

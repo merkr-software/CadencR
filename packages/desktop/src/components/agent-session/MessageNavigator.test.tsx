@@ -81,8 +81,8 @@ function setup({
   // Each turn load stays pending until the test settles it.
   const settleTurn = new Map<number, (found: boolean) => void>();
   const controls = {
-    startJump: vi.fn((run: () => () => void) => {
-      const cancel = run();
+    startJump: vi.fn((run: (settled: () => void) => () => void) => {
+      const cancel = run(() => {});
       jumpCancels.push(cancel);
       return cancel;
     }),

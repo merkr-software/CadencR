@@ -154,8 +154,7 @@ pub(super) async fn resolve_diff_refs(
         return Ok((explicit, Some("HEAD".to_string())));
     }
     let base = crate::domain::git::workflow_service::resolve_target_branch(state, feature_id, path)
-        .await
-        .unwrap_or_else(|_| "main".to_string());
+        .await?;
     Ok((base, Some("HEAD".to_string())))
 }
 
@@ -193,37 +192,40 @@ pub async fn get_file_content(
     .await?;
 
     if new_ref.is_none() {
-        if let Ok(metadata) = tokio::fs::symlink_metadata(path.join(&params.file_path)).await {
-            if !metadata.file_type().is_file() {
-                return Err(AppError::BadRequest(
-                    "Unsupported worktree file type cannot be opened as text".into(),
-                ));
-            }
-        }
+        commands::ensure_worktree_side_is_a_file(&path.join(&params.file_path)).await?;
     }
 
-    let (old_content, new_content) = tokio::join!(
-        commands::get_file_bytes(path, &params.file_path, Some(&old_ref), usize::MAX),
-        commands::get_file_bytes(path, &params.file_path, new_ref.as_deref(), usize::MAX),
+    // A side absent from its tree is an addition or deletion; any other read
+    // failure is an error rather than that false diff.
+    let sides = tokio::try_join!(
+        commands::get_diff_side_bytes(path, &params.file_path, Some(&old_ref)),
+        commands::get_diff_side_bytes(path, &params.file_path, new_ref.as_deref()),
     );
-    // A missing Git-ref side is an addition/deletion. A missing worktree
-    // Result stays an explicit error so the UI can offer deletion guidance.
-    let old_content = old_content.unwrap_or_default();
-    let (new_content, new_missing) = match (new_ref.is_some(), new_content) {
-        (true, result) => (result.unwrap_or_default(), false),
-        (false, Ok(content)) => (content, false),
-        (false, Err(AppError::NotFound(_))) => (Vec::new(), true),
-        (false, Err(error)) => return Err(error),
+    let (old_content, new_content) = match sides {
+        Ok(sides) => sides,
+        Err(error) => {
+            return Err(commands::content_read_error(
+                path,
+                &old_ref,
+                &new_ref,
+                &params.commit_sha,
+                error,
+            )
+            .await)
+        }
     };
+    // A file deleted from the working tree keeps `new_content: None` so the UI
+    // can offer deletion guidance.
+    let worktree_missing = new_ref.is_none() && new_content.is_none();
 
     let mut content: FileContent = classify_content_bytes(
         params.file_path,
-        old_content,
-        new_content,
+        old_content.unwrap_or_default(),
+        new_content.unwrap_or_default(),
         /* keep_large_content */ true,
     )
     .into();
-    if new_missing {
+    if worktree_missing {
         content.new_content = None;
     }
     Ok(content)
@@ -252,7 +254,18 @@ pub async fn get_file_content_batch(
     )
     .await?;
 
-    commands::get_file_content_batch(path, &body.file_paths, &old_ref, new_ref.as_deref()).await
+    let batch =
+        commands::get_file_content_batch(path, &body.file_paths, &old_ref, new_ref.as_deref())
+            .await;
+    match batch {
+        Ok(items) => Ok(items),
+        Err(error) => {
+            Err(
+                commands::content_read_error(path, &old_ref, &new_ref, &body.commit_sha, error)
+                    .await,
+            )
+        }
+    }
 }
 
 pub async fn get_commit_log(
@@ -290,8 +303,7 @@ pub async fn get_commit_log(
     // `origin/main`, not silently fall back to local `main` here.
     let base_branch =
         crate::domain::git::workflow_service::resolve_target_branch(state, params.feature_id, path)
-            .await
-            .unwrap_or_else(|_| "main".to_string());
+            .await?;
 
     let head_rev = &scope.revision;
 

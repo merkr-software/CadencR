@@ -21,6 +21,7 @@
 //! Each provider owns its cache and its probe; the probe is a parameter so
 //! tests inject a counting closure instead of spawning a CLI.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::hash::Hash;
@@ -51,10 +52,36 @@ const MAX_CACHED_KEYS: usize = 16;
 
 /// The provider a cache serves, for the entries it builds without a probe.
 pub(crate) struct CatalogProvider {
-    pub(crate) id: &'static str,
-    pub(crate) label: &'static str,
+    pub(crate) id: Cow<'static, str>,
+    pub(crate) label: Cow<'static, str>,
     /// How failure messages name the provider ("OpenCode", "Codex").
-    pub(crate) name: &'static str,
+    pub(crate) name: Cow<'static, str>,
+}
+
+impl CatalogProvider {
+    pub(crate) const fn borrowed(
+        id: &'static str,
+        label: &'static str,
+        name: &'static str,
+    ) -> Self {
+        Self {
+            id: Cow::Borrowed(id),
+            label: Cow::Borrowed(label),
+            name: Cow::Borrowed(name),
+        }
+    }
+
+    pub(crate) fn owned(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: Cow::Owned(id.into()),
+            label: Cow::Owned(label.into()),
+            name: Cow::Owned(name.into()),
+        }
+    }
 }
 
 /// One cached catalog, plus provider data probed alongside it (`X`). Both are
@@ -184,7 +211,7 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
                     && !matches!(error, RuntimeError::CliNotFound { .. }) =>
             {
                 tracing::warn!(
-                    provider = self.provider.id,
+                    provider = %self.provider.id,
                     error = %error,
                     "live catalog probe failed; retrying",
                 );
@@ -207,7 +234,7 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
             .min(CATALOG_TTL);
         let Some(last_known) = previous.filter(CachedCatalog::is_known) else {
             tracing::warn!(
-                provider = self.provider.id,
+                provider = %self.provider.id,
                 error = %error,
                 "live catalog probe failed; marking provider unavailable until the retry",
             );
@@ -215,7 +242,7 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
             return self.unavailable(message, ttl, failures);
         };
         tracing::warn!(
-            provider = self.provider.id,
+            provider = %self.provider.id,
             error = %error,
             "live catalog probe failed; keeping the last known catalog until the retry",
         );
@@ -238,8 +265,8 @@ impl<K: Eq + Hash + Clone, X: Default> LiveCatalogCache<K, X> {
             ttl,
             failures,
             catalog: Arc::new(ProviderCatalogEntry::unavailable(
-                self.provider.id,
-                self.provider.label,
+                self.provider.id.as_ref(),
+                self.provider.label.as_ref(),
                 message,
             )),
             extra: Arc::new(X::default()),
@@ -296,7 +323,7 @@ where
     /// catalog, or the last known one with `refresh_error`) is what the next
     /// read sees.
     pub(crate) async fn get_or_revalidate<F, Fut>(
-        &'static self,
+        self: &Arc<Self>,
         key: K,
         probe: F,
     ) -> CachedCatalog<X>
@@ -307,27 +334,21 @@ where
         match self.cached(&key).await {
             Some(entry) if entry.is_fresh() => entry,
             Some(entry) if entry.is_servable_while_stale() => {
-                self.revalidate(key, probe);
+                if self.revalidating_keys().insert(key.clone()) {
+                    let revalidation = Revalidation {
+                        cache: Arc::clone(self),
+                        key,
+                    };
+                    tokio::spawn(async move {
+                        // The outcome is stored, and a failure logged, by `get_with`.
+                        revalidation.cache.get_with(&revalidation.key, probe).await;
+                        drop(revalidation);
+                    });
+                }
                 entry
             }
             _ => self.get_with(&key, probe).await,
         }
-    }
-
-    fn revalidate<F, Fut>(&'static self, key: K, probe: F)
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<(ProviderCatalogEntry, X), RuntimeError>> + Send + 'static,
-    {
-        if !self.revalidating_keys().insert(key.clone()) {
-            return;
-        }
-        let revalidation = Revalidation { cache: self, key };
-        tokio::spawn(async move {
-            // The outcome is stored, and a failure logged, by `get_with`.
-            self.get_with(&revalidation.key, probe).await;
-            drop(revalidation);
-        });
     }
 
     fn revalidating_keys(&self) -> std::sync::MutexGuard<'_, HashSet<K>> {
@@ -344,7 +365,7 @@ struct Revalidation<
     K: Eq + Hash + Clone + Send + Sync + 'static,
     X: Default + Send + Sync + 'static,
 > {
-    cache: &'static LiveCatalogCache<K, X>,
+    cache: Arc<LiveCatalogCache<K, X>>,
     key: K,
 }
 
@@ -361,18 +382,16 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
 
-    const PROVIDER: CatalogProvider = CatalogProvider {
-        id: "test_provider",
-        label: "Test Provider",
-        name: "Test",
-    };
+    const PROVIDER: CatalogProvider =
+        CatalogProvider::borrowed("test_provider", "Test Provider", "Test");
 
     fn cache() -> LiveCatalogCache<(), u32> {
         LiveCatalogCache::new(PROVIDER)
     }
 
     fn sample() -> (ProviderCatalogEntry, u32) {
-        let mut catalog = ProviderCatalogEntry::unavailable(PROVIDER.id, PROVIDER.label, "");
+        let mut catalog =
+            ProviderCatalogEntry::unavailable(PROVIDER.id.as_ref(), PROVIDER.label.as_ref(), "");
         catalog.status = ProviderStatus::Available;
         catalog.status_message = None;
         catalog.default_model = Some("model".to_string());
@@ -546,13 +565,8 @@ mod tests {
         assert_eq!(recovered.catalog.refresh_error, None);
     }
 
-    /// `get_or_revalidate` needs a cache that outlives its background task.
-    fn leaked_cache() -> &'static LiveCatalogCache<(), u32> {
-        Box::leak(Box::new(cache()))
-    }
-
     /// Wait for the background refresh of `()` to finish.
-    async fn revalidated(cache: &'static LiveCatalogCache<(), u32>) {
+    async fn revalidated(cache: &LiveCatalogCache<(), u32>) {
         for _ in 0..200 {
             if !cache.revalidating_keys().contains(&()) {
                 return;
@@ -564,7 +578,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_known_catalog_is_served_at_once_and_refreshed_in_the_background() {
-        let cache = leaked_cache();
+        let cache = Arc::new(cache());
         let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
         cache.force_expire_for_test(&()).await;
 
@@ -594,7 +608,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one background refresh");
 
         release.notify_one();
-        revalidated(cache).await;
+        revalidated(&cache).await;
         let fresh = cache.get_or_revalidate((), probe).await;
         assert!(fresh.is_fresh());
         assert_eq!(fresh.catalog.default_model.as_deref(), Some("refreshed"));
@@ -604,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_background_refresh_records_why_on_the_last_known_catalog() {
-        let cache = leaked_cache();
+        let cache = Arc::new(cache());
         let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
         cache.force_expire_for_test(&()).await;
 
@@ -614,7 +628,7 @@ mod tests {
             })
             .await;
         assert_eq!(stale.catalog.refresh_error, None, "nothing failed yet");
-        revalidated(cache).await;
+        revalidated(&cache).await;
 
         let entry = cache.cached(&()).await.expect("entry kept");
         assert!(entry.is_fresh());
@@ -628,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_catalog_stale_for_too_long_waits_for_the_probe() {
-        let cache = leaked_cache();
+        let cache = Arc::new(cache());
         let _ = cache.get_with(&(), || async { Ok(sample()) }).await;
         cache
             .age_past_ttl_for_test(&(), MAX_STALE + Duration::from_secs(1))
@@ -648,7 +662,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_known_catalog_a_stale_read_waits_for_the_probe() {
-        let cache = leaked_cache();
+        let cache = Arc::new(cache());
         // An empty cache waits.
         let first = cache
             .get_or_revalidate((), || async { Err(RuntimeError::new("boom")) })

@@ -21,6 +21,7 @@ describe("provider-modes catalog", () => {
       "acceptEdits",
       "plan",
       "bypassPermissions",
+      "default",
     ]);
     expect(PROVIDER_MODES[PROVIDER_IDS.OPENCODE].map((m) => m.id)).toEqual(["acceptEdits", "plan"]);
     expect(PROVIDER_MODES[PROVIDER_IDS.CODEX_CLI].map((m) => m.id)).toEqual(["default", "plan"]);
@@ -31,6 +32,18 @@ describe("provider-modes catalog", () => {
     expect(findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "auto")?.optIn).toBeFalsy();
     expect(findProviderMode(PROVIDER_IDS.CODEX_CLI, "bypassPermissions")).toBeNull();
     expect(findProviderMode(PROVIDER_IDS.CODEX_CLI, "default")?.optIn).toBeFalsy();
+  });
+
+  it("knows Claude's manual default mode without ever offering it", () => {
+    const held = findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "default");
+    expect(held).toMatchObject({ id: "default", label: "Default", risk: "ask", heldOnly: true });
+    expect(providerAcceptsMode(PROVIDER_IDS.CLAUDE_CODE, "default")).toBe(true);
+    expect(
+      getVisibleModes(PROVIDER_IDS.CLAUDE_CODE, ["bypassPermissions"]).map((m) => m.id),
+    ).not.toContain("default");
+    // Shift+Tab leaves it for the head of the usual cycle; new sessions never start in it.
+    expect(nextProviderMode(PROVIDER_IDS.CLAUDE_CODE, "default", [])).toBe("auto");
+    expect(defaultEditModeFor(PROVIDER_IDS.CLAUDE_CODE)).toBe("auto");
   });
 
   it("returns an empty list for unknown provider ids so the chip hides", () => {
@@ -93,6 +106,27 @@ describe("getVisibleModes", () => {
     ]);
     expect(modes[0].description).toBe("Full tools.");
     expect(modes[1].description).toBe("Plan");
+  });
+
+  it("uses declared accents without changing host risk or other providers' colors", () => {
+    const modes = [
+      { id: "default", label: "Default", accent: "blue" },
+      { id: "acceptEdits", label: "Accept edits", accent: "green" },
+      { id: "auto", label: "Auto", accent: "yellow" },
+      { id: "plan", label: "Plan", accent: "violet" },
+    ] as const;
+    setProviderCatalogMetadata([
+      { id: "acme", label: "Acme", modes },
+      { id: "example", label: "Example", modes: [{ id: "plan", label: "Plan" }] },
+    ]);
+
+    expect(getVisibleModes("acme", []).map(({ risk, tone }) => [risk, tone])).toEqual([
+      ["ask", "var(--chip-blue-fg)"],
+      ["edits", "var(--acc-green)"],
+      ["auto", "var(--acc-yellow)"],
+      ["read", "var(--chip-violet-fg)"],
+    ]);
+    expect(findProviderMode("example", "plan")?.tone).toBe("var(--acc-yellow)");
   });
 
   it("never gates catalog bypass modes behind an opt-in", () => {

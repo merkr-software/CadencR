@@ -28,6 +28,7 @@ import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
 import { registerCliIpc, type CliController } from "./cli-ipc";
 import { focusForCliRequest, registerSecondInstance } from "./second-instance";
 import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
+import { beforeQuitStep, QuitIntentRecording, recordQuitIntent } from "./shutdown-intent";
 import { createPackagedService } from "./packaged-service";
 import { RendererHealth } from "./renderer-health";
 import { registerBrowserIpc } from "./browser-ipc";
@@ -45,6 +46,7 @@ import { registerPluginTabIpc } from "./plugin-tabs/plugin-tab-ipc";
 import type { PluginTabManager } from "./plugin-tabs/plugin-tab-manager";
 import { windowIconOption } from "./app-icon";
 import {
+  QUIT_WITHOUT_ASKING,
   RESUME_AGENTS,
   type AppCloseChoice,
   type AppCloseRequest,
@@ -57,6 +59,9 @@ let allowClose = false;
 let closeChoice: AppCloseChoice = RESUME_AGENTS;
 /** The service was told to keep the agents stopped when it stops. */
 let stopIntentRecorded = false;
+/** The quit underway has its intent (dialog, update, or recorded unasked). */
+let quitAnswered = false;
+const quitRecording = new QuitIntentRecording();
 let ipcRegistered = false;
 let themeEventsRegistered = false;
 let powerRegistered = false;
@@ -191,11 +196,10 @@ function createWindow(): BrowserWindow {
 
 function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
   allowClose = true;
-  closeChoice = choice;
   const closingWindow = mainWindow;
   // The choice goes first, while the window is still up to show a failure:
   // closing the last window quits on Linux.
-  void recordCloseChoice()
+  void recordCloseChoice(request, choice)
     .then(() =>
       request.quitting
         ? stopSidecarThenQuit()
@@ -204,11 +208,17 @@ function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
     .catch(handleShutdownFailure);
 }
 
-/** Tell the service to keep the agents stopped, when that is the choice. */
-async function recordCloseChoice(): Promise<void> {
-  if (closeChoice.resumeAgents || !sidecar) return;
-  await sidecar.setShutdownIntent(closeChoice);
-  stopIntentRecorded = true;
+/**
+ * Tell the service to keep the agents (or their background work) stopped.
+ * A quit is answered from here on (a window that only closes answers none).
+ */
+function recordCloseChoice(request: AppCloseRequest, choice: AppCloseChoice): Promise<void> {
+  closeChoice = choice;
+  if (request.quitting) quitAnswered = true;
+  const recording = recordQuitIntent(sidecar, request, closeChoice, (message) =>
+    dialog.showErrorBox("Cadencr may resume background work on its next start", message),
+  ).then((recorded) => void (stopIntentRecorded ||= recorded));
+  return quitRecording.track(recording);
 }
 
 function wireMainProcess(): void {
@@ -357,18 +367,19 @@ app
   });
 
 app.on("before-quit", (event) => {
-  if (!allowClose && mainWindow) {
-    event.preventDefault();
-    requestQuit();
-    return;
-  }
-  if (!shutdownReady) {
-    event.preventDefault();
-    void stopSidecarThenQuit().catch(handleShutdownFailure);
-  }
+  const hasWindow = mainWindow !== null;
+  const step = beforeQuitStep({ allowClose, hasWindow, quitAnswered, shutdownReady });
+  if (step === "quit") return;
+  event.preventDefault();
+  if (step === "ask-window") return requestQuit();
+  // Nobody was asked: main answers for the user (failing to record that never
+  // blocks the quit). A quit already answered waits for that recording.
+  const unasked = () => recordCloseChoice({ quitting: true }, QUIT_WITHOUT_ASKING);
+  void quitRecording.stopWhenReady(step, unasked, stopSidecarThenQuit).catch(handleShutdownFailure);
 });
 
 async function prepareForUpdateInstall(): Promise<void> {
+  quitAnswered = true;
   await prepareBrowserShutdown();
   allowClose = true;
   closeCoordinator.cancel();
@@ -403,6 +414,7 @@ async function prepareBrowserWindowClose(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
+  quitAnswered = false;
   closeChoice = RESUME_AGENTS;
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);

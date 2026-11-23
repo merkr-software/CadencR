@@ -2,15 +2,17 @@
 //! derives from the project name (see `paths::project_file`).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
+use tokio::sync::MutexGuard;
 
 use crate::domain::projects::models::ProjectSetting;
 use crate::error::AppError;
+use crate::shared::no_replace_rename::rename_no_replace;
 
-use super::super::{dir, lock, paths, Scope, SettingWarning};
-use super::{load, read_for_edit, set_value, set_values, write_content};
+use super::super::{cache, dir, lock, paths, Scope, SettingWarning};
+use super::{load, load_key, read_for_edit, set_value, set_values, write_content};
 
 pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<PathBuf, AppError> {
     paths::project_file(&dir::global_dir(), pool, project_id).await
@@ -31,7 +33,8 @@ pub async fn project_get(
     project_id: i64,
     key: &str,
 ) -> Result<Option<String>, AppError> {
-    Ok(project_map(pool, project_id).await?.1.remove(key))
+    let path = project_path(pool, project_id).await?;
+    Ok(load_key(&path, Scope::Project, key))
 }
 
 pub async fn project_list(
@@ -66,7 +69,9 @@ pub async fn project_set_many(
     entries: &BTreeMap<String, Option<String>>,
 ) -> Result<BTreeMap<String, Option<String>>, AppError> {
     let path = project_path(pool, project_id).await?;
-    set_values(&path, entries).await
+    set_values(&path, entries)
+        .await
+        .map(|(previous, _)| previous)
 }
 
 pub async fn project_write_content(
@@ -76,6 +81,34 @@ pub async fn project_write_content(
 ) -> Result<Vec<SettingWarning>, AppError> {
     let path = project_path(pool, project_id).await?;
     write_content(&path, Scope::Project, content).await
+}
+
+/// Keep settings writes serialized until the database has accepted the name
+/// or the settings move has been undone.
+#[must_use = "hold the settings lock until the database rename finishes"]
+pub struct ProjectSettingsRename {
+    moved: Option<(PathBuf, PathBuf)>,
+    _guard: MutexGuard<'static, ()>,
+}
+
+impl ProjectSettingsRename {
+    /// Restore only a document that this rename moved. Copies are kept because
+    /// their source is already intact and the destination can be shared.
+    pub fn undo(self) -> Result<(), AppError> {
+        let Some((from, to)) = self.moved else {
+            return Ok(());
+        };
+        rename_no_replace(&to, &from).map_err(|e| {
+            AppError::internal(format!(
+                "failed to move project settings back from {} to {}: {e}",
+                to.display(),
+                from.display()
+            ))
+        })?;
+        cache::invalidate_path(&from);
+        cache::invalidate_path(&to);
+        Ok(())
+    }
 }
 
 /// Carry a project's settings document over to the name it is about to have.
@@ -94,21 +127,55 @@ pub async fn project_rename(
     pool: &SqlitePool,
     project_id: i64,
     new_name: &str,
-) -> Result<(), AppError> {
-    let from = project_path(pool, project_id).await?;
-    let to = paths::project_file_for_name(&dir::global_dir(), new_name);
+) -> Result<ProjectSettingsRename, AppError> {
+    let guard = lock::write_lock().lock().await;
+    // Resolve the settings dir on the calling thread before `spawn_blocking`
+    // so `cfg(test)`'s thread-local test dir stays intact.
+    let dir = dir::global_dir();
+    let old_name = paths::project_name(pool, project_id).await?;
+    let from = paths::project_file_for_name(&dir, &old_name);
+    let to = paths::project_file_for_name(&dir, new_name);
     if from == to {
-        return Ok(());
+        return Ok(ProjectSettingsRename {
+            moved: None,
+            _guard: guard,
+        });
     }
-    let shared = paths::name_is_shared(pool, project_id).await?;
-    let _guard = lock::write_lock().lock().await;
+    let shared = paths::name_is_shared_for(pool, project_id, &old_name).await?;
+    let from_owned = from.clone();
+    let to_owned = to.clone();
+    // The guard rides along with the move and comes back with its result, so
+    // a dropped caller cannot free the lock while the file is being moved.
+    let (guard, did_move) = tokio::task::spawn_blocking(move || {
+        let moved = move_document(&from_owned, &to_owned, shared);
+        (guard, moved)
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("settings rename task failed: {error}")))?;
+    let mut rename = ProjectSettingsRename {
+        moved: None,
+        _guard: guard,
+    };
+    if did_move? {
+        cache::invalidate_path(&from);
+        cache::invalidate_path(&to);
+        if !shared {
+            rename.moved = Some((from, to));
+        }
+    }
+    Ok(rename)
+}
+
+/// Copy (when the old name is still in use) or move a project's settings
+/// document; `false` when there is nothing to carry or the target exists.
+fn move_document(from: &Path, to: &Path, shared: bool) -> Result<bool, AppError> {
     if !from.exists() || to.exists() {
-        return Ok(());
+        return Ok(false);
     }
     let moved = if shared {
-        std::fs::copy(&from, &to).map(|_| ())
+        std::fs::copy(from, to).map(|_| ())
     } else {
-        std::fs::rename(&from, &to)
+        std::fs::rename(from, to)
     };
     moved.map_err(|e| {
         AppError::internal(format!(
@@ -116,7 +183,8 @@ pub async fn project_rename(
             from.display(),
             to.display()
         ))
-    })
+    })?;
+    Ok(true)
 }
 
 pub async fn project_read_for_edit(
@@ -135,7 +203,7 @@ mod tests {
     /// The rename is applied to the row afterwards, exactly as the caller does
     /// it — the document has to move first, while the old name still resolves.
     async fn rename(pool: &SqlitePool, project_id: i64, to: &str) {
-        project_rename(pool, project_id, to).await.expect("renames");
+        let _settings_rename = project_rename(pool, project_id, to).await.expect("renames");
         sqlx::query("UPDATE projects SET name = ? WHERE id = ?")
             .bind(to)
             .bind(project_id)

@@ -6,6 +6,7 @@ use crate::error::AppError;
 
 use super::attribution::{attribute, resolve, unresolved_pids, ProcessRoots};
 use super::models::{FeaturePorts, PortSource};
+use super::provider_processes::ProviderProcessScan;
 use super::repository;
 use super::scan;
 
@@ -16,14 +17,22 @@ pub async fn feature_ports(state: &AppState) -> Result<Vec<FeaturePorts>, AppErr
 
 async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
     let service_pid = std::process::id() as i32;
-    let (sockets, parents) = tokio::try_join!(scan::listening_sockets(), scan::parent_map())
+    let provider_processes = ProviderProcessScan::begin();
+    let sockets = scan::listening_sockets()
+        .await
         .map_err(|error| scan_error("Failed to inspect listening processes", error))?;
     if sockets.is_empty() {
         return Ok(Vec::new());
     }
 
+    // Read parents after lsof so processes that started during its scan are
+    // visible to attribution too.
+    let parents = scan::parent_map()
+        .await
+        .map_err(|error| scan_error("Failed to inspect listening processes", error))?;
+    let provider_processes = provider_processes.finish();
     let roots = process_roots(state).await;
-    let resolved = resolve(&sockets, &parents, &roots, service_pid);
+    let resolved = resolve(&sockets, &parents, &roots, &provider_processes, service_pid);
 
     // Only sockets no live terminal or agent explains need a directory, and the
     // worktree list is worth loading only if there is something to match it
@@ -43,26 +52,39 @@ async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
     Ok(attribute(resolved, &cwds, &feature_dirs))
 }
 
-/// A missing `lsof`/`ps` is an install problem the user can fix, so it gets a
-/// stable code and an actionable message; anything else stays internal.
+/// Stable code of a scan that timed out; the scan cache backs off from it.
+pub(super) const PORT_SCAN_TIMEOUT: &str = "PORT_SCAN_TIMEOUT";
+/// Stable code of a scan whose tool is not installed.
+pub(super) const PORT_SCAN_TOOL_MISSING: &str = "PORT_SCAN_TOOL_MISSING";
+
+/// A missing `lsof` is an install problem the user can fix, so it gets a
+/// stable code and an actionable message; a timeout gets its own retryable
+/// code; anything else stays internal.
 #[track_caller]
 fn scan_error(context: &str, error: anyhow::Error) -> AppError {
+    if let Some(timeout) = error.downcast_ref::<scan::ScanTimeout>() {
+        return AppError::coded(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            PORT_SCAN_TIMEOUT,
+            format!("{context}: {timeout}. Ports will be checked again shortly."),
+        );
+    }
     match error.downcast_ref::<scan::MissingTool>() {
-        Some(missing) => AppError::Coded {
-            status: axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            code: "PORT_SCAN_TOOL_MISSING",
-            message: format!(
+        Some(missing) => AppError::coded(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            PORT_SCAN_TOOL_MISSING,
+            format!(
                 "{missing}. Install `{}` with your package manager (for example \
                  `sudo apt install {0}`, `sudo dnf install {0}` or `sudo pacman -S {0}`) \
                  to see the servers your features are running.",
                 missing.program
             ),
-        },
+        ),
         None => AppError::internal(format!("{context}: {error}")),
     }
 }
 
-/// Every pid that names a feature outright. Terminals are registered first so a
+/// Every pid that names a feature outright. Terminals are registered last so a
 /// shell keeps its own feature even when an agent started it — the terminal is
 /// the more specific claim.
 async fn process_roots(state: &AppState) -> ProcessRoots {
@@ -92,6 +114,20 @@ mod tests {
             AppError::Coded { code, message, .. } => {
                 assert_eq!(code, "PORT_SCAN_TOOL_MISSING");
                 assert!(message.contains("sudo apt install lsof"), "{message}");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_scan_timeout_maps_to_a_retryable_coded_error() {
+        let error = anyhow::Error::from(scan::ScanTimeout {
+            program: "lsof".into(),
+        });
+        match scan_error("ctx", error) {
+            AppError::Coded { status, code, .. } => {
+                assert_eq!(code, PORT_SCAN_TIMEOUT);
+                assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
             }
             other => panic!("unexpected {other:?}"),
         }

@@ -5,9 +5,31 @@
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::TodoProgress;
-use super::feature_state_fetch::fetch_latest_todos;
-use super::latest_todos_query::TODO_TOOL_NAMES_SQL;
+use super::latest_todos::fetch_latest_todos;
+use super::latest_todos_query::{TODO_TOOLS_INDEX, TODO_TOOL_NAMES_SQL};
 use crate::error::AppError;
+
+/// The feature's session whose last todo call is the most recent. `INDEXED BY`
+/// pins the one-row seek on the partial todo index (see [`TODO_TOOLS_INDEX`]);
+/// `MATERIALIZED` keeps SQLite from re-running the lookup for the filter and
+/// the sort.
+fn latest_todo_session_sql() -> String {
+    format!(
+        "WITH latest AS MATERIALIZED ( \
+             SELECT s.id AS session_id, \
+                    (SELECT m.id FROM agent_messages m INDEXED BY {TODO_TOOLS_INDEX} \
+                     WHERE m.session_id = s.id \
+                       AND m.message_type = 'tool_call' \
+                       AND m.tool_name IN {TODO_TOOL_NAMES_SQL} \
+                     ORDER BY m.id DESC LIMIT 1) AS last_todo_id \
+             FROM agent_sessions s \
+             WHERE s.feature_id = ? \
+         ) \
+         SELECT session_id FROM latest \
+         WHERE last_todo_id IS NOT NULL \
+         ORDER BY last_todo_id DESC LIMIT 1"
+    )
+}
 
 /// Progress of the todo list the feature's agents touched last, or `None`
 /// when none of its sessions ever wrote one.
@@ -17,16 +39,10 @@ pub async fn latest_todo_progress(
 ) -> Result<Option<TodoProgress>, AppError> {
     // A conversation can hold several sessions; the list that counts is the
     // one written most recently.
-    let session_id: Option<i64> = sqlx::query_scalar(AssertSqlSafe(format!(
-        "SELECT session_id FROM agent_messages \
-         WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?) \
-           AND message_type = 'tool_call' \
-           AND tool_name IN {TODO_TOOL_NAMES_SQL} \
-         ORDER BY id DESC LIMIT 1"
-    )))
-    .bind(feature_id)
-    .fetch_optional(pool)
-    .await?;
+    let session_id: Option<i64> = sqlx::query_scalar(AssertSqlSafe(latest_todo_session_sql()))
+        .bind(feature_id)
+        .fetch_optional(pool)
+        .await?;
     let Some(session_id) = session_id else {
         return Ok(None);
     };
@@ -123,5 +139,44 @@ mod tests {
         insert_message(&pool, session_id, "text", "hello", None, None, None).await;
 
         assert_eq!(latest_todo_progress(&pool, 7).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn latest_todo_progress_uses_partial_todo_index_on_migrated_db() {
+        use crate::shared::test_query_plan::{
+            assert_no_full_scan, forge_index_stats, migrated_pool, plan_details,
+        };
+        let pool = migrated_pool().await;
+        forge_index_stats(
+            &pool,
+            "agent_messages",
+            super::super::latest_todos_query::PLAIN_INDEX_FAVOURED_STATS,
+        )
+        .await;
+
+        let explain_sql = format!("EXPLAIN QUERY PLAN {}", latest_todo_session_sql());
+        let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(explain_sql))
+            .bind(1_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let details = plan_details(&plan);
+
+        assert!(
+            details.contains("USING INDEX idx_agent_messages_session_todo_tools (session_id=?)"),
+            "expected partial index idx_agent_messages_session_todo_tools:\n{details}"
+        );
+        assert_eq!(
+            details
+                .matches("idx_agent_messages_session_todo_tools")
+                .count(),
+            1,
+            "the lookup must run once per session, not again for the filter and sort:\n{details}"
+        );
+        assert!(
+            details.contains("idx_agent_sessions_feature_id"),
+            "expected the feature's sessions through idx_agent_sessions_feature_id:\n{details}"
+        );
+        assert_no_full_scan(&details, &["latest"]);
     }
 }

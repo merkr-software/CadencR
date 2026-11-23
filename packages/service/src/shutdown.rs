@@ -14,6 +14,7 @@
 //! 3. Flush tracked provider-usage writes after the drain and teardown have
 //!    finished, including a final write detached from a cancelled stream task.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::future::Future;
 use std::time::Duration;
 
@@ -50,7 +51,7 @@ pub async fn stop_admitting_on_signal(
         None => wait_for_signal().await,
     }
     tracing::info!("Shutdown signal received, shutting down gracefully...");
-    let _ = drain_started.send(());
+    drain_started.send_ignore_closed(());
 }
 
 /// Serve until shutdown while tearing down background work alongside the

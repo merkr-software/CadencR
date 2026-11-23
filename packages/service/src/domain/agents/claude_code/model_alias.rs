@@ -13,6 +13,8 @@
 //! Mapping a stored alias to the same concrete id the picker would use makes
 //! sessions match the CLI without relying on `ANTHROPIC_DEFAULT_*` overrides.
 
+use std::collections::HashMap;
+
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
 /// Translate a requested model id against the active profile's catalog.
@@ -64,9 +66,41 @@ pub(super) fn resolve_model_alias(model: &str, catalog: &[ModelCatalogEntry]) ->
         .unwrap_or_else(|| model.to_string())
 }
 
+/// Model ids that stand for more than one concrete model: `default` follows
+/// the account's default, `opusplan` plans on Opus and runs on Sonnet.
+const MULTI_MODEL_ALIASES: [&str; 2] = ["default", "opusplan"];
+
+/// The concrete id the CLI resolves `model` to, when `model` is an alias
+/// that stands for exactly one model.
+///
+/// The CLI treats the bare `haiku` setting specially: in plan mode it plans
+/// on Sonnet ("haiku plan upgrade", like `opusplan`). Passing the id the alias
+/// resolves to runs the same model without that swap. `resolved` is the CLI's
+/// own `value → resolvedModel` table for the session's profile, so the id is
+/// the one the alias would have reached under that backend (Anthropic,
+/// Bedrock, Vertex, a proxy) — never one Cadencr builds. Aliases with no
+/// single equivalent keep their meaning: [`MULTI_MODEL_ALIASES`], and `[1m]`
+/// context variants, on either side.
+pub(super) fn pin_model_alias<'a>(
+    model: &str,
+    resolved: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    let multi_model = MULTI_MODEL_ALIASES
+        .iter()
+        .any(|alias| model.eq_ignore_ascii_case(alias));
+    if multi_model || model.contains('[') {
+        return None;
+    }
+    let concrete = resolved.get(model)?;
+    (!concrete.is_empty() && concrete != model && !concrete.contains('['))
+        .then_some(concrete.as_str())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_model_alias;
+    use std::collections::HashMap;
+
+    use super::{pin_model_alias, resolve_model_alias};
     use crate::domain::agents::runtime::ModelCatalogEntry;
 
     /// Catalog shape the CLI returns under a Bedrock profile: concrete ids with
@@ -214,6 +248,55 @@ mod tests {
             resolve_model_alias("my-gateway/custom-model", &bedrock_catalog()),
             "my-gateway/custom-model"
         );
+    }
+
+    fn cli_resolutions() -> HashMap<String, String> {
+        [
+            ("haiku", "claude-haiku-5-5"),
+            ("opus", "claude-opus-5-5"),
+            ("default", "claude-haiku-5-5"),
+            ("opusplan", "claude-opus-5-5"),
+            ("opus[1m]", "claude-opus-5-5[1m]"),
+            ("sonnet", "claude-sonnet-5-5[1m]"),
+            ("claude-opus-4-8", "claude-opus-4-8"),
+            (
+                "us.anthropic.claude-sonnet-4-6",
+                "us.anthropic.claude-sonnet-4-6",
+            ),
+        ]
+        .into_iter()
+        .map(|(alias, model)| (alias.to_string(), model.to_string()))
+        .collect()
+    }
+
+    #[test]
+    fn pins_a_family_alias_to_the_model_the_cli_resolves_it_to() {
+        let resolved = cli_resolutions();
+        assert_eq!(
+            pin_model_alias("haiku", &resolved),
+            Some("claude-haiku-5-5")
+        );
+        assert_eq!(pin_model_alias("opus", &resolved), Some("claude-opus-5-5"));
+    }
+
+    #[test]
+    fn leaves_aliases_that_stand_for_more_than_one_model() {
+        let resolved = cli_resolutions();
+        // `default` follows the account, `opusplan` switches with the mode and
+        // `[1m]` picks a context window, on either side of the resolution.
+        for alias in ["default", "Default", "opusplan", "opus[1m]", "sonnet"] {
+            assert_eq!(pin_model_alias(alias, &resolved), None, "{alias}");
+        }
+    }
+
+    #[test]
+    fn leaves_concrete_ids_and_unresolved_models_alone() {
+        let resolved = cli_resolutions();
+        for model in ["claude-opus-4-8", "us.anthropic.claude-sonnet-4-6", "fable"] {
+            assert_eq!(pin_model_alias(model, &resolved), None, "{model}");
+        }
+        // A catalog that is not loaded yet resolves nothing.
+        assert_eq!(pin_model_alias("haiku", &HashMap::new()), None);
     }
 
     #[test]

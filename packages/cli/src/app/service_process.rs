@@ -66,33 +66,14 @@ impl ServiceProcess {
         token: &str,
     ) -> Result<Self, Diagnostic> {
         let signals = StopSignals::listen()?;
-        let mut command = Command::new(&resources.service);
-        command
-            .arg("--db-path")
-            .arg(&paths.database)
-            .arg("--settings-dir")
-            .arg(&paths.settings)
-            .arg("--port")
-            .arg(SERVICE_PORT.to_string())
-            .arg("--remote-port")
-            .arg(options.remote_port.to_string())
-            .arg("--renderer-dir")
-            .arg(&resources.renderer)
-            .arg("--exit-with-parent")
-            .env("CADENCR_AUTH_TOKEN", token)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true);
-        if let Some(version) = &resources.app_version {
-            command.arg("--app-version").arg(version);
-        }
-        let mut child = command.spawn().map_err(|error| {
-            operation_error(
-                "CLI_SERVICE_START_FAILED",
-                format!("cannot start {}: {error}", resources.service.display()),
-            )
-        })?;
+        let mut child = service_command(options, resources, paths, token)
+            .spawn()
+            .map_err(|error| {
+                operation_error(
+                    "CLI_SERVICE_START_FAILED",
+                    format!("cannot start {}: {error}", resources.service.display()),
+                )
+            })?;
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(forward_output(stdout));
         }
@@ -178,6 +159,39 @@ impl ServiceProcess {
     }
 }
 
+fn service_command(
+    options: &Options,
+    resources: &ServiceResources,
+    paths: &DataPaths,
+    token: &str,
+) -> Command {
+    let mut command = Command::new(&resources.service);
+    command
+        .arg("--db-path")
+        .arg(&paths.database)
+        .arg("--settings-dir")
+        .arg(&paths.settings)
+        .arg("--port")
+        .arg(SERVICE_PORT.to_string())
+        .arg("--remote-port")
+        .arg(options.remote_port.to_string())
+        .arg("--renderer-dir")
+        .arg(&resources.renderer)
+        .arg("--exit-with-parent")
+        .env("CADENCR_AUTH_TOKEN", token)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    if !options.remote {
+        command.arg("--skip-remote-restore");
+    }
+    if let Some(version) = &resources.app_version {
+        command.arg("--app-version").arg(version);
+    }
+    command
+}
+
 fn stopped_error(status: ExitStatus) -> Diagnostic {
     operation_error(
         "CLI_SERVICE_STOPPED",
@@ -211,6 +225,43 @@ async fn forward_output(stdout: tokio::process::ChildStdout) {
                 }
                 break;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::install::Installation;
+
+    #[test]
+    fn only_no_remote_skips_restoration_in_the_child() {
+        let root = tempfile::tempdir().unwrap();
+        let lib = root.path().join("lib");
+        std::fs::create_dir_all(lib.join("renderer")).unwrap();
+        std::fs::write(lib.join("renderer/index.html"), "").unwrap();
+        std::fs::write(lib.join("cadencr-service"), "").unwrap();
+        let resources = ServiceResources::locate(Installation::Server {
+            root: root.path().to_owned(),
+            version: "0.0.0".to_owned(),
+        })
+        .unwrap();
+        let paths = DataPaths {
+            database: root.path().join("test.db"),
+            settings: root.path().join("settings"),
+        };
+
+        for remote in [false, true] {
+            let options = Options {
+                remote_port: 0,
+                remote,
+            };
+            let command = service_command(&options, &resources, &paths, "test-token");
+            let skip_restore = command
+                .as_std()
+                .get_args()
+                .any(|arg| arg == "--skip-remote-restore");
+            assert_eq!(skip_restore, !remote);
         }
     }
 }

@@ -27,6 +27,8 @@ pub(super) struct MutableBlock {
     pub(super) has_child_slots: bool, // Task/Agent get child slots
     pub(super) child_indices: Vec<usize>,
     pub(super) truncated_content: Option<bool>,
+    /// The last row joined into this one (`AgentBlock::last_message_id`).
+    pub(super) last_message_id: Option<i64>,
 }
 
 /// Push `block` and link it to its parent (or root) list. Returns the
@@ -77,6 +79,7 @@ fn push_or_merge_streaming(
     if should_merge {
         let last_idx = last_idx_opt.unwrap();
         all[last_idx].content.push_str(&msg.content);
+        all[last_idx].last_message_id = Some(msg.id);
         return;
     }
     push_block(
@@ -104,6 +107,7 @@ fn push_or_merge_streaming(
             has_child_slots: false,
             child_indices: Vec::new(),
             truncated_content: None,
+            last_message_id: None,
         },
         parent_idx,
         all,
@@ -145,6 +149,7 @@ fn make_simple_block(
         has_child_slots: false,
         child_indices: Vec::new(),
         truncated_content: None,
+        last_message_id: None,
     }
 }
 
@@ -301,6 +306,9 @@ mod tests {
         let blocks = build_blocks(&msgs);
         assert_eq!(blocks.len(), 1, "consecutive text blocks should merge");
         assert_eq!(blocks[0].content, "hello world");
+        assert_eq!(blocks[0].last_message_id, Some(2));
+        let wire = serde_json::to_value(&blocks[0]).unwrap();
+        assert!(wire.get("last_message_id").is_none(), "server-side only");
     }
 
     #[test]

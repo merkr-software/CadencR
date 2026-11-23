@@ -83,11 +83,21 @@ pub(super) fn prune(db_path: &Path, just_written: &Path) -> usize {
     let Some(dir) = db_path.parent() else {
         return 0;
     };
-    let Ok(canonical_dir) = std::fs::canonicalize(dir) else {
-        return 0;
+    // Pruning is housekeeping: a failure keeps old backups on disk, so it is
+    // logged for the user who wonders where the space went.
+    let canonical_dir = match std::fs::canonicalize(dir) {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::warn!(dir = %dir.display(), %error, "cannot prune database backups");
+            return 0;
+        }
     };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(dir = %dir.display(), %error, "cannot list database backups to prune");
+            return 0;
+        }
     };
 
     // Resolve protected paths only for identity comparison. Candidate paths stay

@@ -66,23 +66,6 @@ async fn seed_armed_reply_wait(app_state: &AppState, responder_session_id: i64) 
     .unwrap();
 }
 
-fn message_start() -> RuntimeEvent {
-    RuntimeEvent::new(
-        RuntimeEventMetadata {
-            session_id: Some("cli".into()),
-            raw: serde_json::json!({ "type": "stream_event" }),
-            ..RuntimeEventMetadata::default()
-        },
-        RuntimeEventKind::StreamEvent {
-            event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
-                model: Some("claude-sonnet".into()),
-                input_tokens: None,
-            },
-            parent_tool_use_id: None,
-        },
-    )
-}
-
 fn interrupted_error_result() -> RuntimeEvent {
     RuntimeEvent::new(
         RuntimeEventMetadata {
@@ -202,7 +185,10 @@ async fn intentional_stop_with_stream_close_is_benign_and_keeps_parent_wait_arme
     setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
 
     let (msg_tx, msg_rx) = mpsc::channel(1);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     drop(msg_tx);
     spawn_test_stream_reader(
         &app_state,
@@ -231,7 +217,10 @@ async fn a_stop_that_had_to_kill_the_runtime_is_shown() {
     setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
 
     let (msg_tx, msg_rx) = mpsc::channel(2);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     msg_tx
         .send(Err(RuntimeError::stop_escalated(
             "The agent did not stop within 15s after Stop; its process was terminated.",
@@ -408,8 +397,6 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
     let app_state = make_test_app_state().await;
     let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
-    sqlx::raw_sql("CREATE TABLE agent_session_message_queue (id INTEGER, target_session_id INTEGER, status TEXT, error TEXT, claim_token TEXT, claimed_at TEXT, attempt_count INTEGER, source_session_id INTEGER, content TEXT, message_uuid TEXT);")
-        .execute(&app_state.write_pool).await.unwrap();
     let session_id = 616;
     sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, pending_permission) VALUES (?, 1, 'awaiting_user', ?)")
         .bind(session_id)
@@ -439,7 +426,10 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
     )
     .await;
     let (msg_tx, msg_rx) = mpsc::channel(2);
-    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Ok(message_start("claude-sonnet")))
+        .await
+        .unwrap();
     msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
     spawn_test_stream_reader(
         &app_state,
@@ -457,4 +447,140 @@ async fn closing_question_marks_stopped_turn_and_keeps_parent_wait_armed() {
         .any(|(action, payload)| action == "ended" && payload["reason"] == "turn_interrupted"));
     assert!(actions.iter().all(|(action, _)| action != "error"));
     assert_benign_stop_state(&app_state, session_id).await;
+}
+
+/// Memory `codex-async-question-stale-status`: a Stop read the turn as running,
+/// but the turn ended before the Stop marked it; the runtime accepted the
+/// interrupt with no turn left to end, so no result consumed the mark. The
+/// next turn must still end normally instead of having its result taken for
+/// the stopped turn's and dropped, which left the session `running`.
+#[tokio::test]
+async fn a_stop_marked_after_its_turn_ended_does_not_swallow_the_next_turns_result() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let session_id = 616;
+    sqlx::query("INSERT INTO agent_sessions (id, feature_id, status) VALUES (?, 1, 'running')")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+    let runtime = make_active_handle(1, Some("cli".into()));
+    let QueryState::Active { query, .. } = &runtime.state else {
+        unreachable!()
+    };
+    let query = query.clone();
+    sdk_sessions.lock().await.insert(session_id, runtime);
+    let turns = &app_state.active_turns;
+    turns.begin_turn(session_id, &sdk_sessions).await;
+    let (msg_tx, msg_rx) = mpsc::channel(4);
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions.clone(),
+        DEFAULT_PROVIDER,
+    );
+
+    // 1. Turn N ends.
+    msg_tx.send(Ok(result_event())).await.unwrap();
+    let first = drain_actions(&mut ws_rx).await;
+    assert!(
+        first.iter().any(|(action, _)| action == "ended"),
+        "{first:?}"
+    );
+    // 2. The Stop's mark lands after that end.
+    turns.request_interruption(session_id, &query).await;
+    // 3. The user's next prompt starts turn N+1, and it ends.
+    turns.begin_turn(session_id, &sdk_sessions).await;
+    sqlx::query("UPDATE agent_sessions SET status = 'running' WHERE id = ?")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+    msg_tx.send(Ok(result_event())).await.unwrap();
+
+    let second = drain_actions(&mut ws_rx).await;
+    assert!(
+        second
+            .iter()
+            .any(|(action, payload)| action == "ended" && payload["reason"] == "turn_complete"),
+        "{second:?}"
+    );
+    assert_eq!(db_status(&app_state, session_id).await, "completed");
+}
+
+async fn queue_one_prompt(app_state: &AppState, session_id: i64) {
+    sqlx::query("INSERT INTO agent_session_prompt_queue (session_id, content) VALUES (?, 'next')")
+        .bind(session_id)
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+}
+
+async fn queued_prompt_status(app_state: &AppState, session_id: i64) -> String {
+    sqlx::query_scalar("SELECT status FROM agent_session_prompt_queue WHERE session_id = ?")
+        .bind(session_id)
+        .fetch_one(&app_state.read_pool)
+        .await
+        .unwrap()
+}
+
+async fn end_interrupted_turn(app_state: &AppState, sdk_sessions: SdkSessions, session_id: i64) {
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let (msg_tx, msg_rx) = mpsc::channel(1);
+    msg_tx.send(Ok(interrupted_error_result())).await.unwrap();
+    drop(msg_tx);
+    spawn_test_stream_reader(
+        app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+    let actions = drain_actions(&mut ws_rx).await;
+    assert!(actions
+        .iter()
+        .any(|(action, payload)| { action == "ended" && payload["reason"] == "turn_interrupted" }));
+}
+
+/// A gate closed with "Reject & Stop" (or a plan reject over the API) stops
+/// the turn it held; the queued prompt used to stay pending once that turn
+/// ended, because the close tried to deliver it while the turn still ran.
+#[tokio::test]
+async fn a_turn_stopped_by_closing_its_gate_lets_the_queue_go_on() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = 616;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+    app_state.active_turns.queue_after_stop(session_id, 1).await;
+    queue_one_prompt(&app_state, session_id).await;
+
+    end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
+
+    assert_ne!(
+        queued_prompt_status(&app_state, session_id).await,
+        "pending"
+    );
+}
+
+/// A plain Stop keeps the queue waiting, as before: the user stopped the agent.
+#[tokio::test]
+async fn a_plain_stop_keeps_the_queue_waiting() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = 617;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+    queue_one_prompt(&app_state, session_id).await;
+
+    end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
+
+    assert_eq!(
+        queued_prompt_status(&app_state, session_id).await,
+        "pending"
+    );
 }

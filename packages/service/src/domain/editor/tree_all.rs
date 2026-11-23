@@ -15,6 +15,7 @@ use super::routes::FileTreeEntry;
 use super::service;
 use crate::error::AppError;
 use crate::shared::env_file;
+use crate::shared::ignore_watch::{editor_tree_walker, GitIgnoreRules};
 
 /// Build the recursive entry list for the `tree-all` endpoint. Runs the
 /// blocking filesystem walk, so call it from `spawn_blocking`.
@@ -24,8 +25,8 @@ pub fn build_entries(
 ) -> Result<Vec<FileTreeEntry>, AppError> {
     // Always build the matcher so the env-file pass can mark files correctly
     // even when the walk skipped gitignored entries.
-    let gitignore_matcher = service::build_gitignore(project_root);
-    let mut entries = walk_entries(project_root, exclude_gitignored, gitignore_matcher.as_ref())?;
+    let ignore_rules = service::ignore_rules(project_root);
+    let mut entries = walk_entries(project_root, exclude_gitignored, &ignore_rules)?;
 
     if exclude_gitignored {
         // The walk pruned every ignored path. Re-surface the ones sitting at
@@ -34,7 +35,7 @@ pub fn build_entries(
         add_boundary_ignored_entries(&mut entries, project_root)?;
     }
 
-    append_env_files(&mut entries, project_root, gitignore_matcher.as_ref());
+    append_env_files(&mut entries, project_root, &ignore_rules);
 
     // Directories first, then case-insensitive name. Pierre re-sorts
     // internally, but a stable order avoids hydration jitter and keeps the
@@ -55,23 +56,12 @@ pub fn build_entries(
 fn walk_entries(
     project_root: &Path,
     exclude_gitignored: bool,
-    gitignore_matcher: Option<&ignore::gitignore::Gitignore>,
+    ignore_rules: &GitIgnoreRules,
 ) -> Result<Vec<FileTreeEntry>, AppError> {
-    // The walk loop only needs a matcher when it's walking gitignored
+    // The walk loop only needs the rules when it's walking gitignored
     // entries too; otherwise the helper short-circuits to `false`.
-    let gitignore_for_walk = if exclude_gitignored {
-        None
-    } else {
-        gitignore_matcher
-    };
-
-    let mut walker = ignore::WalkBuilder::new(project_root);
-    walker
-        .hidden(false)
-        .git_ignore(exclude_gitignored)
-        .git_global(exclude_gitignored)
-        .git_exclude(exclude_gitignored)
-        .filter_entry(|entry| entry.file_name() != ".git");
+    let rules_for_walk = (!exclude_gitignored).then_some(ignore_rules);
+    let walker = editor_tree_walker(project_root, exclude_gitignored);
 
     let mut entries: Vec<FileTreeEntry> = Vec::new();
     for result in walker.build() {
@@ -83,7 +73,7 @@ fn walk_entries(
 
         let path = entry.path();
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        entries.push(make_entry(project_root, path, is_dir, gitignore_for_walk)?);
+        entries.push(make_entry(project_root, path, is_dir, rules_for_walk)?);
     }
 
     Ok(entries)
@@ -152,7 +142,7 @@ fn add_boundary_ignored_entries(
 fn append_env_files(
     entries: &mut Vec<FileTreeEntry>,
     project_root: &Path,
-    gitignore_matcher: Option<&ignore::gitignore::Gitignore>,
+    ignore_rules: &GitIgnoreRules,
 ) {
     let mut seen = existing_paths(entries);
     for rel in env_file::find_env_files(project_root) {
@@ -164,7 +154,7 @@ fn append_env_files(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| rel.clone());
-        let is_gitignored = service::is_gitignored(gitignore_matcher, &full, false);
+        let is_gitignored = ignore_rules.is_ignored(&full, false);
         entries.push(FileTreeEntry {
             name,
             path: rel.clone(),
@@ -186,7 +176,7 @@ fn make_entry(
     project_root: &Path,
     path: &Path,
     is_dir: bool,
-    gitignore_matcher: Option<&ignore::gitignore::Gitignore>,
+    ignore_rules: Option<&GitIgnoreRules>,
 ) -> Result<FileTreeEntry, AppError> {
     let relative = path
         .strip_prefix(project_root)
@@ -197,7 +187,7 @@ fn make_entry(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| relative.clone());
-    let is_gitignored = service::is_gitignored(gitignore_matcher, path, is_dir);
+    let is_gitignored = ignore_rules.is_some_and(|rules| rules.is_ignored(path, is_dir));
     Ok(FileTreeEntry {
         name,
         path: relative,

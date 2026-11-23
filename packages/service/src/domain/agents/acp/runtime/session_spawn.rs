@@ -3,11 +3,12 @@
 //! end-to-end spawn flow: subprocess + handshake + struct assembly + event
 //! loop + initial-prompt detach.
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 
 use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::{
@@ -18,12 +19,15 @@ use crate::domain::agents::adapter::{
     RuntimeInitEvent, RuntimeSpawnConfig,
 };
 
+#[cfg(unix)]
+use crate::domain::mcp::connection::Connections;
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 use super::events_stream_blocks::EventIndexer;
 use super::lifecycle::{negotiate_session, NegotiatedSession};
 use super::permissions::PendingPermissions;
 use super::prompt_receipts::PendingPromptReceipts;
+use super::prompt_turn_lock::PromptTurns;
 use super::provider_hooks::AcpProviderHooks;
 use super::server_requests::{spawn_event_loop, EventLoopConfig};
 use super::session::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
@@ -46,6 +50,9 @@ pub struct AcpRuntimeSpawnArgs {
     /// Provider-resolved context window for the negotiated model.
     pub context_window: Option<u64>,
     pub hooks: Arc<dyn AcpProviderHooks>,
+    /// Provider translation of the wire (see `acp::wire_transform`).
+    pub wire_transform:
+        Option<Arc<dyn crate::domain::agents::acp::wire_transform::AcpWireTransform>>,
 }
 
 /// End-to-end spawn for a generic ACP subprocess: client + handshake +
@@ -64,6 +71,7 @@ pub async fn spawn_acp_runtime_session(
         initial_content,
         context_window,
         hooks,
+        wire_transform,
     } = args;
     // `session/new` carries the workspace root, and every ACP path also sets it
     // as the child's working directory. An empty one would reach the agent as a
@@ -80,11 +88,23 @@ pub async fn spawn_acp_runtime_session(
             .client_info(client_info)
             .stderr_policy(stderr_policy)
             .process_tree_policy(process_tree_policy)
+            .exclude_launcher_ports(hooks.exclude_launcher_ports())
             .maybe_spawn_guard(spawn_guard)
+            .maybe_wire_transform(wire_transform)
             .build(),
     )
     .await
     .map_err(|e| RuntimeError::new(format!("failed to spawn ACP subprocess: {e}")))?;
+    #[cfg(unix)]
+    let (config, mcp_connections) = {
+        let mut config = config;
+        let connections = if hooks.observe_attached_mcp_connections() {
+            Connections::attach(config.mcp_servers.as_mut())
+        } else {
+            Connections::default()
+        };
+        (config, connections)
+    };
     let pid = client.pid();
     let mut event_rx = client.subscribe_reliable();
     // Overlaps the handshake: OpenCode lists its own MCP config to decide.
@@ -131,7 +151,18 @@ pub async fn spawn_acp_runtime_session(
     apply_initial_model(&session, &negotiated, &config).await?;
     apply_initial_thinking_effort(&session, &negotiated, &config).await?;
 
+    #[cfg(unix)]
+    let negotiated = {
+        let mut negotiated = negotiated;
+        session.mcp_connections = mcp_connections;
+        session
+            .mcp_connections
+            .apply_initial(&mut negotiated.mcp_servers);
+        negotiated
+    };
     emit_init_event(&tx, &negotiated).await;
+    #[cfg(unix)]
+    session.mcp_connections.publish_changes(&tx);
     if negotiated.may_replay_history {
         let drained = drain_resume_backlog(&mut event_rx);
         if drained > 0 {
@@ -155,6 +186,7 @@ pub async fn spawn_acp_runtime_session(
             terminals: Arc::clone(&session.terminals),
             hooks: hooks.clone(),
             indexer: Arc::clone(&session.indexer),
+            prompt_turn_lock: Arc::clone(&session.prompt_turn_lock),
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
             browser_trust,
@@ -228,7 +260,7 @@ fn spawn_initial_prompt(
             .call()
             .await
         {
-            let _ = local_tx.send(Err(error)).await;
+            local_tx.send(Err(error)).await.ignore_closed();
         }
     });
 }
@@ -281,6 +313,8 @@ impl AcpRuntimeSession {
             pid,
             cwd,
             context_window: negotiated.context_window,
+            #[cfg(unix)]
+            mcp_connections: Default::default(),
             configured_mcp_servers: negotiated.mcp_servers.clone(),
             mcp_servers: Arc::new(RwLock::new(negotiated.mcp_servers.clone())),
             message_rx: Some(rx),
@@ -292,7 +326,7 @@ impl AcpRuntimeSession {
             indexer,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
-            prompt_turn_lock: Arc::new(AsyncMutex::new(())),
+            prompt_turn_lock: Arc::new(PromptTurns::new(negotiated.supports_prompt_steering)),
             prompt_cancel,
         }
     }

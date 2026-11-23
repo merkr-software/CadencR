@@ -199,7 +199,7 @@ impl ServerHandler for WorkspaceServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(super::tool_list_result(tools())))
+        std::future::ready(Ok(super::tool_list_result(&self.ctx, tools())))
     }
 
     async fn call_tool(

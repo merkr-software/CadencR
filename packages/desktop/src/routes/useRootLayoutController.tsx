@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useCreateFeature, useDeleteFeature, type Feature } from "@/api/generated";
-import { customInstance } from "@/api/client";
+import {
+  getListFeaturesQueryOptions,
+  useCreateFeature,
+  useDeleteFeature,
+  type Feature,
+} from "@/api/generated";
 import type { ConfirmFeatureAction } from "@/components/RootOverlays";
 import {
   closeFeatureSession,
@@ -24,6 +28,7 @@ import { useThemeSync } from "@/hooks/useTheme";
 import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { useAppZoom } from "@/hooks/useZoom";
+import { navigateToConversation } from "@/lib/conversation-route";
 import { resolveFeatureArchiveAction } from "@/lib/feature-archive-decision";
 import {
   initNotificationPermission,
@@ -32,7 +37,7 @@ import {
   listenForNotificationFallbacks,
 } from "@/lib/notify-agent-done";
 import { forgetFeatureProject } from "@/lib/plugin-tabs/feature-projects";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { listenForPushNavigation } from "@/lib/remote/push-register";
 import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 import { toastError } from "@/lib/api-errors";
@@ -69,59 +74,72 @@ function useRootEnvironment(isMobile: boolean) {
   useEffect(() => listenForPushNavigation(navigate, queryClient), [navigate, queryClient]);
 }
 
-function useRootRoute(closeMobileDrawer: () => void) {
-  const routerState = useRouterState();
-  const pathname = routerState.location.pathname;
-  const search = routerState.location.search as Record<string, unknown> | undefined;
-  const { projectId: activeProjectId, featureId: activeFeatureId } = useRouteFeatureIds();
+/**
+ * Navigating closes the mobile drawer. A leaf of its own: it follows the
+ * pathname, which the root layout itself never needs to render for.
+ */
+export const MobileDrawerRouteCloser = memo(function MobileDrawerRouteCloser({
+  close,
+}: {
+  close: () => void;
+}): null {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  useEffect(() => {
+    close();
+  }, [close, pathname]);
+  return null;
+});
+
+/**
+ * Remembers the last meaningful screen. A leaf of its own: it reads the search
+ * params too, which change on every tab focus, and must not re-render the root.
+ */
+export function LastScreenTracker(): null {
+  const { pathname, search } = useRouterState({ select: (state) => state.location });
   useEffect(() => {
     if (!isMeaningfulScreenPath(pathname)) return;
-    useLastScreenStore.getState().setLastScreen({ pathname, search: search ?? {} });
+    useLastScreenStore
+      .getState()
+      .setLastScreen({ pathname, search: (search as Record<string, unknown> | undefined) ?? {} });
   }, [pathname, search]);
-  useEffect(() => {
-    closeMobileDrawer();
-  }, [closeMobileDrawer, pathname]);
-  return useMemo(
-    () => ({ activeFeatureId, activeProjectId, pathname, routerState }),
-    [activeFeatureId, activeProjectId, pathname, routerState],
-  );
+  return null;
 }
 
-type RootRouteState = ReturnType<typeof useRootRoute>;
+interface RootRouteIds {
+  activeProjectId: number | null;
+  activeFeatureId: number | null;
+}
 
-function useRootFeatureActions(route: RootRouteState) {
+function useRootFeatureActions(route: RootRouteIds) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirmAction, setConfirmAction] = useState<ConfirmFeatureAction | null>(null);
   const [archiveActiveFeatures, setArchiveActiveFeatures] = useState<Feature[]>([]);
   const deleteNavTargetRef = useRef<number | null>(null);
-  const invalidateFeatures = useCallback(
-    () => void invalidateByUrlPrefix(queryClient, "/api/features"),
-    [queryClient],
-  );
+  const createSessionPendingRef = useRef(false);
   const createSessionMutation = useCreateFeature({
     mutation: {
-      onSuccess: (session) => {
-        invalidateFeatures();
+      onSuccess: (session, variables) => {
+        void invalidateFeatureLists(queryClient, variables.data.project_id);
         if (route.activeProjectId == null) return;
-        void navigate({
-          to: "/projects/$projectId/features/$featureId",
-          params: {
-            projectId: String(route.activeProjectId),
-            featureId: String(session.id),
-          },
+        navigateToConversation(navigate, route.activeProjectId, session.id, {
+          featureKnown: true,
         });
+      },
+      onError: (error) => toastError(error, "Failed to create conversation"),
+      onSettled: () => {
+        createSessionPendingRef.current = false;
       },
     },
   });
-  const deleteMutation = useDeleteFeature({
+  const { mutate: deleteFeatureMutate } = useDeleteFeature({
     mutation: {
       onError: () => toast.error("Failed to delete feature"),
       onSuccess: (_data, variables) => {
         removeFeatureFromCachedLists(queryClient, variables.id);
         closeFeatureSession(variables.id);
         forgetFeatureProject(variables.id);
-        invalidateFeatures();
+        void invalidateFeatureLists(queryClient, route.activeProjectId);
         if (route.activeProjectId == null) return;
         const targetId = deleteNavTargetRef.current;
         deleteNavTargetRef.current = null;
@@ -135,25 +153,39 @@ function useRootFeatureActions(route: RootRouteState) {
     projectId: route.activeProjectId,
   });
   const deleteFeature = useCallback(
-    (featureId: number): void => deleteMutation.mutate({ id: featureId }),
-    [deleteMutation],
+    (featureId: number): void => deleteFeatureMutate({ id: featureId }),
+    [deleteFeatureMutate],
   );
   const appClose = useAppClose(queryClient, route.activeFeatureId);
-  return {
-    appClose,
-    archiveFeature,
-    confirmAction,
-    createSessionMutation,
-    deleteFeature,
-    deleteNavTargetRef,
-    setConfirmAction,
-    setArchiveActiveFeatures,
-  };
+  const { mutate: createSessionMutate } = createSessionMutation;
+  const createSession = useCallback(
+    (projectId: number): void => {
+      if (createSessionPendingRef.current) return;
+      createSessionPendingRef.current = true;
+      createSessionMutate({ data: { project_id: projectId, type: "ws-session" } });
+    },
+    [createSessionMutate],
+  );
+  // Stable across navigations: RootOverlays is memoized on these.
+  return useMemo(
+    () => ({
+      appClose,
+      archiveFeature,
+      confirmAction,
+      createSession,
+      deleteFeature,
+      deleteNavTargetRef,
+      setConfirmAction,
+      setArchiveActiveFeatures,
+    }),
+    [appClose, archiveFeature, confirmAction, createSession, deleteFeature],
+  );
 }
 
 type RootFeatureActions = ReturnType<typeof useRootFeatureActions>;
 
 async function prepareFeatureAction(
+  queryClient: QueryClient,
   projectId: number,
   featureId: number,
 ): Promise<{
@@ -161,10 +193,11 @@ async function prepareFeatureAction(
   confirmAction: ConfirmFeatureAction;
   targetId: number | null;
 } | null> {
-  const features = await customInstance<Feature[]>({
-    method: "GET",
-    url: `/api/features?project_id=${projectId}&include_archived=true`,
+  const listOptions = getListFeaturesQueryOptions({
+    project_id: projectId,
+    include_archived: true,
   });
+  const features = await queryClient.ensureQueryData({ ...listOptions, retry: false });
   const feature = features.find((candidate) => candidate.id === featureId);
   if (!feature) return null;
   const activeFeatures = features.filter((candidate) => candidate.status === "active");
@@ -173,18 +206,19 @@ async function prepareFeatureAction(
   const target = index > 0 ? activeFeatures[index - 1] : (remaining[0] ?? null);
   return {
     activeFeatures,
-    confirmAction: { action: await resolveFeatureArchiveAction(feature), feature },
+    confirmAction: { action: await resolveFeatureArchiveAction(feature, queryClient), feature },
     targetId: target?.id ?? null,
   };
 }
 
 function useRootShortcuts(
-  route: RootRouteState,
+  route: RootRouteIds,
   sidebar: SidebarController,
   features: RootFeatureActions,
   setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>,
 ) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   useShortcut("toggle-sidebar", (event) => {
     event.preventDefault();
     sidebar.setCollapsed(!sidebar.collapsed);
@@ -214,10 +248,8 @@ function useRootShortcuts(
     "new-session",
     (event) => {
       event.preventDefault();
-      if (route.activeProjectId == null) return;
-      features.createSessionMutation.mutate({
-        data: { project_id: route.activeProjectId, type: "ws-session" },
-      });
+      if (event.repeat || route.activeProjectId == null) return;
+      features.createSession(route.activeProjectId);
     },
     { enabled: route.activeProjectId != null },
   );
@@ -227,7 +259,11 @@ function useRootShortcuts(
     const toastId = `feature-archive-check-${route.activeFeatureId}`;
     toast.loading("Checking conversation…", { id: toastId });
     try {
-      const prepared = await prepareFeatureAction(route.activeProjectId, route.activeFeatureId);
+      const prepared = await prepareFeatureAction(
+        queryClient,
+        route.activeProjectId,
+        route.activeFeatureId,
+      );
       if (!prepared) return;
       features.deleteNavTargetRef.current = prepared.targetId;
       features.setArchiveActiveFeatures(prepared.activeFeatures);
@@ -244,18 +280,26 @@ export function useRootLayoutController() {
   const isMobile = useIsMobile();
   useRootEnvironment(isMobile);
   const sidebar = useSidebarController(isMobile);
-  const route = useRootRoute(sidebar.closeMobileDrawer);
-  const features = useRootFeatureActions(route);
+  // Ids, not the location: the root renders once per conversation switch for
+  // these, and its memoized children (shell, hosts, routed page) bail out.
+  const { projectId: activeProjectId, featureId: activeFeatureId } = useRouteFeatureIds();
+  const routeIds = useMemo(
+    () => ({ activeProjectId, activeFeatureId }),
+    [activeFeatureId, activeProjectId],
+  );
+  const features = useRootFeatureActions(routeIds);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  useRootShortcuts(route, sidebar, features, setCommandPaletteOpen);
+  useRootShortcuts(routeIds, sidebar, features, setCommandPaletteOpen);
   const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
-  return {
-    commandPaletteOpen,
-    features,
-    isMobile,
-    openCommandPalette,
-    route,
-    setCommandPaletteOpen,
-    sidebar,
-  };
+  return useMemo(
+    () => ({
+      commandPaletteOpen,
+      features,
+      isMobile,
+      openCommandPalette,
+      setCommandPaletteOpen,
+      sidebar,
+    }),
+    [commandPaletteOpen, features, isMobile, openCommandPalette, sidebar],
+  );
 }

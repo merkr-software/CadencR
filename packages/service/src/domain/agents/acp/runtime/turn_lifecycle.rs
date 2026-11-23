@@ -1,21 +1,25 @@
 //! Prompt-turn lifecycle helpers.
 
+use crate::shared::discard::IgnoreClosed;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
-use serde_json::{json, Value};
-use tokio::sync::{mpsc, Mutex as AsyncMutex, Notify, RwLock};
+use serde_json::Value;
+use tokio::sync::{mpsc, oneshot, Notify, RwLock};
 
+use crate::domain::agents::acp::types::AcpEventBarrier;
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeUsage};
 
+use super::detached_replies::DetachedReply;
 use super::events_stream_blocks::{message_start_for, EventIndexer};
+use super::prompt_settlement::CompletePrompt;
 use super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::provider_hooks::AcpProviderHooks;
-use super::turn_result::emit_turn_result;
+use super::turn_result::{accounting_token_usage, turn_result};
 
-pub type PromptTurnLock = Arc<AsyncMutex<()>>;
+pub use super::prompt_turn_lock::PromptTurnLock;
 
 /// How long a cancelled `session/prompt` may take to settle (ACP: the agent
 /// answers with stop reason `cancelled`) before the process is terminated.
@@ -30,6 +34,7 @@ pub struct PromptCancel {
     /// Set by a cancel, cleared when the next prompt is dispatched: tool calls
     /// the agent fails in between were interrupted, not broken.
     interrupted: Arc<AtomicBool>,
+    escalated: Arc<AtomicBool>,
     grace: Duration,
 }
 
@@ -39,6 +44,7 @@ impl Default for PromptCancel {
             epoch: Arc::default(),
             notify: Arc::default(),
             interrupted: Arc::default(),
+            escalated: Arc::default(),
             grace: DEFAULT_CANCEL_GRACE,
         }
     }
@@ -69,6 +75,13 @@ impl PromptCancel {
         self.epoch.load(Ordering::Relaxed)
     }
 
+    pub(super) fn begin_prompt(&self) -> u64 {
+        let epoch = self.current_epoch();
+        self.interrupted.store(false, Ordering::Relaxed);
+        self.escalated.store(false, Ordering::Relaxed);
+        epoch
+    }
+
     /// The cancel count now, to tell later whether a cancel came since.
     pub fn cancels(&self) -> u64 {
         self.current_epoch()
@@ -95,16 +108,30 @@ impl PromptCancel {
     }
 }
 
-/// Wait until the event loop has handled every event received before the
-/// prompt response. No deadline: the barrier is never skipped (lossless
-/// queue), and a loop that stops drops it, which fails this wait.
-pub async fn await_event_loop_barrier(client: &AcpClient) -> Result<(), RuntimeError> {
-    let released = client
-        .enqueue_event_barrier()
-        .map_err(|error| RuntimeError::new(format!("could not fence ACP events: {error}")))?;
-    released
-        .await
-        .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))
+pub(super) struct PromptReply {
+    body: Result<Value, RuntimeError>,
+    fence_reached: oneshot::Receiver<()>,
+    resume_updates: oneshot::Sender<()>,
+}
+
+impl PromptReply {
+    /// Wait for events ahead of the wire response. The caller keeps the sender
+    /// through result publication and releases the prompt lock before dropping it.
+    pub(super) async fn after_prior_events(
+        self,
+    ) -> Result<(Value, oneshot::Sender<()>), RuntimeError> {
+        let (body, resumed) = self.ordered().await?;
+        Ok((body?, resumed))
+    }
+
+    pub(super) async fn ordered(
+        self,
+    ) -> Result<(Result<Value, RuntimeError>, oneshot::Sender<()>), RuntimeError> {
+        self.fence_reached
+            .await
+            .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
+        Ok((self.body, self.resume_updates))
+    }
 }
 
 #[bon::builder]
@@ -121,7 +148,7 @@ pub async fn drive_initial_prompt(
     prompt_turn_lock: &PromptTurnLock,
     prompt_cancel: &PromptCancel,
 ) -> Result<(), RuntimeError> {
-    let _guard = prompt_turn_lock.lock().await;
+    let (turn_guard, admission, first) = prompt_turn_lock.begin().await;
     let session_id = session_id_lock
         .read()
         .await
@@ -131,7 +158,9 @@ pub async fn drive_initial_prompt(
     hooks.validate_prompt_blocks(&prompt)?;
     let model = current_model_lock.read().await.clone();
     let effort = current_effort_lock.read().await.clone();
-    start_turn_on_model(tx, indexer, &session_id, model.clone()).await;
+    if first {
+        start_turn_on_model(tx, indexer, &session_id, model.clone()).await;
+    }
     let params = build_prompt_params(
         &session_id,
         prompt,
@@ -139,23 +168,31 @@ pub async fn drive_initial_prompt(
         effort.as_deref(),
         false,
     );
-    let response = request_prompt_with_cancel(client, params, prompt_cancel, tx).await?;
-    if agent_was_terminated(&response) {
-        return Ok(());
-    }
-    await_event_loop_barrier(client).await?;
-    if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
-        finalize_turn(
-            tx,
-            indexer,
-            Some(session_id),
-            context_window,
-            hooks.prompt_response_usage(&response),
-            reason,
-            &response,
-        )
+    let epoch = if first {
+        prompt_cancel.begin_prompt()
+    } else {
+        prompt_cancel.cancels()
+    };
+    let response_id = prompt_turn_lock
+        .supports_steering()
+        .then(|| uuid::Uuid::new_v4().to_string());
+    let reply =
+        request_registered_prompt(client, params, prompt_cancel, tx, epoch, || drop(admission))
+            .await;
+    CompletePrompt::builder()
+        .tx(tx)
+        .indexer(indexer)
+        .session_id(&session_id)
+        .maybe_context_window(context_window)
+        .hooks(hooks)
+        .request(turn_guard)
+        .first_in_turn(first)
+        .cancel(prompt_cancel)
+        .epoch(epoch)
+        .maybe_response_id(response_id.as_deref())
+        .build()
+        .complete_initial(reply)
         .await;
-    }
     Ok(())
 }
 
@@ -168,14 +205,15 @@ pub async fn start_turn_on_model(
     session_id: &str,
     model: Option<String>,
 ) {
-    indexer
-        .lock()
-        .expect("EventIndexer poisoned")
-        .latch_turn_model(model.clone());
+    {
+        let mut guard = indexer.lock().expect("EventIndexer poisoned");
+        guard.detached_reply = DetachedReply::Inactive;
+        guard.latch_turn_model(model.clone());
+    }
     if model.is_some() {
-        let _ = tx
-            .send(Ok(message_start_for(Some(session_id), model.as_deref())))
-            .await;
+        tx.send(Ok(message_start_for(Some(session_id), model.as_deref())))
+            .await
+            .ignore_closed();
     }
 }
 
@@ -184,29 +222,53 @@ pub async fn start_turn_on_model(
 /// protocol state — the caller already sent `session/cancel`, and the agent
 /// should answer with stop reason `cancelled`. Only when it does not settle
 /// within the cancel grace is the process terminated, visibly.
-pub async fn request_prompt_with_cancel(
+pub(super) async fn request_prompt_with_cancel(
     client: &AcpClient,
     params: Value,
     prompt_cancel: &PromptCancel,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
-) -> Result<Value, RuntimeError> {
-    let start_epoch = prompt_cancel.current_epoch();
-    prompt_cancel.interrupted.store(false, Ordering::Relaxed);
-    let prompt = client.request_until_closed("session/prompt", params);
+) -> Result<Option<PromptReply>, RuntimeError> {
+    let epoch = prompt_cancel.begin_prompt();
+    match request_registered_prompt(client, params, prompt_cancel, tx, epoch, || {}).await {
+        Err(error) if error.is_stop_escalation() => Ok(None),
+        reply => reply.map(Some),
+    }
+}
+
+pub(super) async fn request_registered_prompt(
+    client: &AcpClient,
+    params: Value,
+    prompt_cancel: &PromptCancel,
+    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+    start_epoch: u64,
+    submitted: impl FnOnce() + Send,
+) -> Result<PromptReply, RuntimeError> {
+    let (resume_updates, paused) = oneshot::channel();
+    let (barrier, fence_reached) = AcpEventBarrier::new(Some(paused));
+    let prompt = client.request_prompt_with_event_barrier(params, barrier, submitted);
     tokio::pin!(prompt);
 
-    tokio::select! {
-        result = &mut prompt => prompt_result(result),
+    let body = tokio::select! {
+        result = &mut prompt => result,
         _ = prompt_cancel.wait_for_cancel_after(start_epoch) => {
             match tokio::time::timeout(prompt_cancel.grace, &mut prompt).await {
-                Ok(result) => prompt_result_after_cancel(result),
+                Ok(result) => result,
                 Err(_) => {
-                    escalate_unresponsive_cancel(client, prompt_cancel.grace, tx).await;
-                    Ok(terminated_prompt_response())
+                    if !prompt_cancel.escalated.swap(true, Ordering::Relaxed) {
+                        escalate_unresponsive_cancel(client, prompt_cancel.grace, tx).await;
+                    }
+                    return Err(RuntimeError::stop_escalated(unresponsive_cancel_message(prompt_cancel.grace)));
                 }
             }
         }
-    }
+    }.map_err(|error| RuntimeError::new(format!("session/prompt failed: {error}")))?;
+    Ok(PromptReply {
+        body: body.map_err(|error| {
+            RuntimeError::request_rejected(format!("session/prompt failed: {error}"))
+        }),
+        fence_reached,
+        resume_updates,
+    })
 }
 
 async fn escalate_unresponsive_cancel(
@@ -241,34 +303,6 @@ fn unresponsive_cancel_message(grace: Duration) -> String {
     )
 }
 
-fn prompt_result(
-    result: Result<Value, crate::domain::agents::acp::error::AcpError>,
-) -> Result<Value, RuntimeError> {
-    result.map_err(|e| RuntimeError::new(format!("session/prompt failed: {e}")))
-}
-
-fn prompt_result_after_cancel(
-    result: Result<Value, crate::domain::agents::acp::error::AcpError>,
-) -> Result<Value, RuntimeError> {
-    Ok(result.unwrap_or_else(|_| cancelled_prompt_response()))
-}
-
-fn cancelled_prompt_response() -> Value {
-    json!({ "stopReason": "cancelled", "cadencrSynthetic": true })
-}
-
-fn terminated_prompt_response() -> Value {
-    json!({ "stopReason": "cancelled", "cadencrSynthetic": true, "cadencrTerminated": true })
-}
-
-/// Whether the prompt ended by killing the agent after an ignored Stop. Its
-/// event loop is gone and the reader already got the escalation error, so the
-/// caller neither fences events nor finalizes the turn: either would only add
-/// a second, misleading error.
-pub fn agent_was_terminated(response: &Value) -> bool {
-    response.get("cadencrTerminated") == Some(&Value::Bool(true))
-}
-
 /// Drain open streaming blocks, then emit the per-turn `Result` envelope.
 pub async fn finalize_turn(
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
@@ -279,9 +313,38 @@ pub async fn finalize_turn(
     stop_reason: &str,
     response: &Value,
 ) {
-    let drained = {
+    let pending = if stop_reason == "end_turn" {
+        super::background_work::pending(response)
+    } else {
+        Some(false)
+    };
+    let event = turn_result(
+        session_id,
+        context_window,
+        prompt_response_usage,
+        stop_reason,
+        response,
+    )
+    .with_token_usage(accounting_token_usage(response, None));
+    publish_prompt_boundary(tx, indexer, stop_reason, pending, event).await;
+}
+
+pub(super) async fn publish_prompt_boundary(
+    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+    indexer: &StdMutex<EventIndexer>,
+    stop_reason: &str,
+    pending: Option<bool>,
+    event: RuntimeEvent,
+) {
+    let (drained, background) = {
         let mut guard = indexer.lock().expect("EventIndexer poisoned");
-        guard.drain_open_blocks(session_id.as_deref())
+        let background = guard.background_work.observe(pending);
+        guard.detached_reply = if guard.background_work.is_pending() {
+            DetachedReply::Awaiting
+        } else {
+            DetachedReply::after_prompt(stop_reason)
+        };
+        (guard.drain_open_blocks(event.session_id()), background)
     };
     for event in drained {
         if tx.send(Ok(event)).await.is_err() {
@@ -289,22 +352,16 @@ pub async fn finalize_turn(
             return;
         }
     }
-    emit_turn_result(
-        tx,
-        session_id,
-        context_window,
-        prompt_response_usage,
-        stop_reason,
-        response,
-    )
-    .await;
+    tx.send(Ok(event.with_background_agent(background)))
+        .await
+        .ignore_closed();
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        await_event_loop_barrier, drive_initial_prompt, finalize_turn, request_prompt_with_cancel,
-        start_turn_on_model, EventIndexer, PromptCancel, PromptTurnLock, DEFAULT_CANCEL_GRACE,
+        drive_initial_prompt, finalize_turn, request_prompt_with_cancel, start_turn_on_model,
+        EventIndexer, PromptCancel, PromptReply, PromptTurnLock, DEFAULT_CANCEL_GRACE,
     };
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::acp::runtime::test_support::spawn_event_barrier_acker;
@@ -314,7 +371,7 @@ mod tests {
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
-    use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
+    use tokio::sync::{mpsc, RwLock};
 
     struct NoUsageHooks;
 
@@ -466,7 +523,7 @@ mod tests {
     }
 
     fn make_lock() -> PromptTurnLock {
-        Arc::new(AsyncMutex::new(()))
+        PromptTurnLock::default()
     }
 
     #[tokio::test]
@@ -573,7 +630,9 @@ mod tests {
                 crate::domain::agents::adapter::RuntimeError,
             >,
         >,
-    ) -> tokio::task::JoinHandle<Result<Value, crate::domain::agents::adapter::RuntimeError>> {
+    ) -> tokio::task::JoinHandle<
+        Result<Option<PromptReply>, crate::domain::agents::adapter::RuntimeError>,
+    > {
         let (client, cancel, tx) = (client.clone(), cancel.clone(), tx.clone());
         tokio::spawn(async move {
             request_prompt_with_cancel(&client, json!({"sessionId": "s-1"}), &cancel, &tx).await
@@ -596,7 +655,13 @@ mod tests {
             "Stop must wait for the agent to unwind"
         );
         reply_with_stop(&mut agent_stdout, request["id"].clone(), "cancelled").await;
-        let response = prompt.await.unwrap().expect("cancelled turn settles");
+        let response = prompt
+            .await
+            .unwrap()
+            .expect("cancelled turn settles")
+            .expect("native cancellation response")
+            .body
+            .unwrap();
         assert_eq!(response["stopReason"], "cancelled");
         assert!(response.get("cadencrSynthetic").is_none());
         assert!(rx.try_recv().is_err(), "no escalation error");
@@ -622,14 +687,13 @@ mod tests {
         let prompt = spawn_prompt(&client, &cancel, &tx).await;
         read_one_request(&mut agent_stdin).await;
         cancel.cancel_current_turn();
-        let response = tokio::time::timeout(Duration::from_secs(5), prompt)
+        let reply = tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
             .expect("escalation settles the turn")
             .unwrap()
             .unwrap();
-        assert_eq!(response["stopReason"], "cancelled");
         assert!(
-            super::agent_was_terminated(&response),
+            reply.is_none(),
             "callers must not fence or finalize a killed agent"
         );
         let error = rx.recv().await.unwrap().expect_err("visible escalation");
@@ -664,32 +728,30 @@ mod tests {
         assert!(rx.recv().await.unwrap().is_ok(), "earlier event first");
         let error = rx.recv().await.unwrap().expect_err("visible escalation");
         assert!(error.is_stop_escalation(), "{error:?}");
-        let response = tokio::time::timeout(Duration::from_secs(5), prompt)
+        let reply = tokio::time::timeout(Duration::from_secs(5), prompt)
             .await
             .expect("escalation settles the turn")
             .unwrap()
             .unwrap();
-        assert_eq!(response["stopReason"], "cancelled");
+        assert!(reply.is_none());
     }
 
     #[tokio::test]
     async fn barrier_fails_fast_without_an_event_loop() {
-        // Previously this waited 2 s and then failed the turn.
-        let (client, _agent_stdout, _agent_stdin) = build_in_memory_client().await;
-        let error = tokio::time::timeout(
-            Duration::from_millis(200),
-            await_event_loop_barrier(&client),
-        )
-        .await
-        .expect("no hidden deadline")
-        .expect_err("no loop to drain events");
-        assert!(error.to_string().contains("could not fence"), "{error}");
-        let receiver = client.subscribe_reliable();
-        let released = client.enqueue_event_barrier().expect("queued");
-        drop(receiver);
-        tokio::time::timeout(Duration::from_secs(1), released)
-            .await
-            .expect("a dropped loop releases the waiter")
-            .expect_err("barrier was never reached");
+        for subscribed in [false, true] {
+            let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+            let receiver = subscribed.then(|| client.subscribe_reliable());
+            let (tx, _rx) = mpsc::channel(4);
+            let prompt = spawn_prompt(&client, &PromptCancel::new(), &tx).await;
+            let request = read_one_request(&mut agent_stdin).await;
+            reply_with_stop(&mut agent_stdout, request["id"].clone(), "end_turn").await;
+            let reply = prompt.await.unwrap().unwrap().unwrap();
+            drop(receiver);
+            let error = tokio::time::timeout(Duration::from_secs(1), reply.after_prior_events())
+                .await
+                .expect("a missing or dropped loop releases the waiter")
+                .expect_err("barrier was never reached");
+            assert!(error.to_string().contains("stopped before turn completion"));
+        }
     }
 }

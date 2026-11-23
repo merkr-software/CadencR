@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::domain::agents::adapter::{RuntimeSessionHandle, RuntimeSessionWeakHandle};
+use crate::shared::keyed_locks::KeyedLocks;
 
 use super::followup_stops::FollowupStops;
 use super::state::{QueryState, SdkHandle, SdkSessions};
@@ -26,6 +27,14 @@ struct ActiveTurn {
     /// report that normal control action as an error result or a closed stream;
     /// the stream reader consumes this marker and treats it as benign.
     interrupted_turn: Option<InterruptedTurn>,
+    /// Whether this generation's turn already ended (its stream reader wrote
+    /// the end, and saw no turn start since). A stop mark of an ended turn is
+    /// never carried into the next one: no result would answer it there.
+    ended: bool,
+    /// Generation whose stop should let the queue go on once it ends: a gate
+    /// closed with "Reject & Stop" ends the turn the gate held, and the next
+    /// queued prompt runs, as after a turn that ended by itself.
+    queue_after_stop: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -38,6 +47,8 @@ struct InterruptedTurn {
 #[derive(Default)]
 pub struct ActiveTurnRegistry {
     turns: Mutex<HashMap<i64, ActiveTurn>>,
+    generation_changes: KeyedLocks<i64>,
+    followup_delivery: KeyedLocks<i64>,
     followups: FollowupStops,
 }
 
@@ -51,18 +62,37 @@ impl ActiveTurnRegistry {
         &self.followups
     }
 
+    /// Serialize follow-up prompts for the same session in FIFO order without
+    /// holding the runtime's `turn_control_guard` (so `stop_session` and sleep
+    /// pause are never blocked behind a pre-turn git checkpoint).
+    pub(crate) async fn lock_followup_delivery(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+        self.followup_delivery
+            .lock_for(&db_session_id)
+            .await
+            .lock_owned()
+            .await
+    }
+
+    /// Tasks holding or waiting for the session's follow-up order lock.
+    #[cfg(test)]
+    pub(crate) async fn followup_delivery_holders(&self, db_session_id: i64) -> usize {
+        Arc::strong_count(&self.followup_delivery.lock_for(&db_session_id).await) - 1
+    }
+
     /// Record a new logical turn for `db_session_id` in its runtime cell.
     /// Called at every turn start (`mark_agent_running`); a mid-turn respawn
     /// keeps the same owner map, so it does not need to touch the registry.
     pub(crate) async fn begin_turn(&self, db_session_id: i64, owner: &SdkSessions) {
+        let _generation = self.lock_turn_generation(db_session_id).await;
         let mut turns = self.turns.lock().await;
+        // A stop of a turn still ending is carried, so that turn's late result
+        // is not taken for this one's; the mark of a turn that already ended
+        // would only swallow this turn's result.
         let (generation, interrupted_turn) = turns
             .get(&db_session_id)
             .map(|turn| {
-                (
-                    turn.generation.saturating_add(1),
-                    turn.interrupted_turn.clone(),
-                )
+                let carried = turn.interrupted_turn.clone().filter(|_| !turn.ended);
+                (turn.generation.saturating_add(1), carried)
             })
             .unwrap_or((1, None));
         turns.insert(
@@ -71,8 +101,43 @@ impl ActiveTurnRegistry {
                 owner: Arc::downgrade(owner),
                 generation,
                 interrupted_turn,
+                ended: false,
+                queue_after_stop: None,
             },
         );
+    }
+
+    /// Keep the generation stable across a detached completion's status and
+    /// transcript writes. Other sessions can still begin their own turns.
+    pub(super) async fn lock_turn_generation(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+        self.generation_changes
+            .lock_for(&db_session_id)
+            .await
+            .lock_owned()
+            .await
+    }
+
+    /// The current turn ended (completed, stopped, failed or paused). A stop
+    /// mark of it left now came after its end: no result will consume it.
+    pub(crate) async fn end_turn(&self, db_session_id: i64) {
+        if let Some(turn) = self.turns.lock().await.get_mut(&db_session_id) {
+            turn.ended = true;
+            if turn
+                .interrupted_turn
+                .as_ref()
+                .is_some_and(|mark| mark.generation == turn.generation)
+            {
+                turn.interrupted_turn = None;
+            }
+        }
+    }
+
+    /// The runtime started a turn on its own (no prompt began one): it can be
+    /// stopped again.
+    pub(crate) async fn resume_turn(&self, db_session_id: i64) {
+        if let Some(turn) = self.turns.lock().await.get_mut(&db_session_id) {
+            turn.ended = false;
+        }
     }
 
     /// Mark the current logical turn as intentionally interrupted. Returns its
@@ -90,6 +155,29 @@ impl ActiveTurnRegistry {
             runtime: Arc::downgrade(runtime),
         });
         Some(turn.generation)
+    }
+
+    /// Once the stopped turn `generation` ends, its stream reader delivers the
+    /// next queued prompt (see [`Self::take_queue_after_stop`]).
+    pub(crate) async fn queue_after_stop(&self, db_session_id: i64, generation: u64) {
+        if let Some(turn) = self.turns.lock().await.get_mut(&db_session_id) {
+            if turn.generation == generation {
+                turn.queue_after_stop = Some(generation);
+            }
+        }
+    }
+
+    /// Whether the stop that ended `generation` asked for the queue to go on.
+    pub(crate) async fn take_queue_after_stop(&self, db_session_id: i64, generation: u64) -> bool {
+        let mut turns = self.turns.lock().await;
+        let Some(turn) = turns.get_mut(&db_session_id) else {
+            return false;
+        };
+        if turn.queue_after_stop != Some(generation) {
+            return false;
+        }
+        turn.queue_after_stop = None;
+        true
     }
 
     /// Consume the one-shot interruption marker only from the stream reader
@@ -272,6 +360,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_detached_completion_only_blocks_a_new_turn_in_its_own_session() {
+        let reg = ActiveTurnRegistry::new();
+        let owner = empty_sessions();
+        reg.begin_turn(42, &owner).await;
+        let completing = reg.lock_turn_generation(42).await;
+        let new_turn = reg.begin_turn(42, &owner);
+        tokio::pin!(new_turn);
+        assert!(futures::poll!(new_turn.as_mut()).is_pending());
+
+        reg.begin_turn(43, &owner).await;
+        assert_eq!(reg.current_generation(42).await, Some(1));
+        assert_eq!(reg.current_generation(43).await, Some(1));
+        drop(completing);
+
+        new_turn.await;
+        assert_eq!(reg.current_generation(42).await, Some(2));
+    }
+
+    #[tokio::test]
     async fn interruption_survives_a_racing_new_turn_but_stays_scoped_to_the_old_one() {
         let reg = ActiveTurnRegistry::new();
         let owner = empty_sessions();
@@ -286,6 +393,67 @@ mod tests {
             Some(interrupted)
         );
         assert!(!reg.is_current_generation(42, interrupted).await);
+    }
+
+    #[tokio::test]
+    async fn a_stop_of_a_turn_that_ended_is_not_carried_into_the_next() {
+        let reg = ActiveTurnRegistry::new();
+        let owner = empty_sessions();
+        let runtime = runtime_session();
+        reg.begin_turn(42, &owner).await;
+        reg.end_turn(42).await;
+
+        assert!(reg.request_interruption(42, &runtime).await.is_some());
+        reg.begin_turn(42, &owner).await;
+        assert_eq!(
+            reg.take_interruption(42, &Arc::downgrade(&runtime)).await,
+            None
+        );
+    }
+
+    /// A turn the CLI opens itself after the last one ended (no prompt began
+    /// it): a Stop during it is marked and its interrupted result consumes it,
+    /// even after a prompt queued meanwhile began the next generation.
+    #[tokio::test]
+    async fn a_stop_of_a_turn_the_runtime_opened_itself_still_counts() {
+        let reg = ActiveTurnRegistry::new();
+        let owner = empty_sessions();
+        let runtime = runtime_session();
+        reg.begin_turn(42, &owner).await;
+        reg.end_turn(42).await;
+        reg.resume_turn(42).await;
+
+        let stopped = reg.request_interruption(42, &runtime).await;
+        reg.begin_turn(42, &owner).await;
+        assert_eq!(
+            reg.take_interruption(42, &Arc::downgrade(&runtime)).await,
+            stopped
+        );
+    }
+
+    /// The mark landed between the reader's look for one at the result and the
+    /// turn's end: neither the next turn nor a later result may consume it.
+    /// A turn the runtime starts on its own can be stopped again.
+    #[tokio::test]
+    async fn a_mark_left_by_a_turn_that_ended_is_dropped() {
+        let reg = ActiveTurnRegistry::new();
+        let owner = empty_sessions();
+        let runtime = runtime_session();
+        reg.begin_turn(42, &owner).await;
+        reg.request_interruption(42, &runtime).await.unwrap();
+        reg.end_turn(42).await;
+        assert_eq!(
+            reg.take_interruption(42, &Arc::downgrade(&runtime)).await,
+            None
+        );
+
+        reg.resume_turn(42).await;
+        let stopped = reg.request_interruption(42, &runtime).await;
+        assert!(stopped.is_some());
+        assert_eq!(
+            reg.take_interruption(42, &Arc::downgrade(&runtime)).await,
+            stopped
+        );
     }
 
     #[tokio::test]

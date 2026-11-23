@@ -30,9 +30,9 @@ class FakeSocket implements WebSocketLike {
     this.readyState = 1;
     this.fire("open");
   }
-  drop(code: number): void {
+  drop(code: number, reason = ""): void {
     this.readyState = 3;
-    this.fire("close", { code });
+    this.fire("close", { code, reason });
   }
 }
 
@@ -176,5 +176,36 @@ describe("openLifecycleSocket", () => {
     sockets[1].drop(1001);
     await vi.advanceTimersByTimeAsync(1_100);
     expect(sockets).toHaveLength(3);
+  });
+
+  it("isolates 1013 overloaded backpressure to the dropped socket without global rate-limiting", async () => {
+    const { sockets, connect } = setup();
+    connect();
+    sockets[0].open();
+    sockets[0].drop(1013, "overloaded");
+
+    expect(isRateLimited()).toBe(false);
+    expect(status()).toEqual({
+      status: "reconnecting",
+      reason: "Test WebSocket overloaded; reconnecting",
+    });
+
+    // Uses normal per-socket backoff (~1s) rather than the 5s global rate-limit floor.
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("still applies the global rate-limit hold for 1013 rate-limited closes", async () => {
+    const { sockets, connect } = setup();
+    connect();
+    sockets[0].open();
+    sockets[0].drop(1013, "rate-limited");
+
+    expect(isRateLimited()).toBe(true);
+    expect(status()?.reason).toContain("rate limited");
+    await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS - 100);
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(sockets).toHaveLength(2);
   });
 });

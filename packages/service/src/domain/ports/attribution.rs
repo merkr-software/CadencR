@@ -9,9 +9,11 @@
 use std::collections::HashMap;
 
 use super::models::{AllocatedPort, FeaturePorts, PortSource};
+use super::provider_processes::ProviderProcesses;
 use super::scan::ListenSocket;
 
-/// Guard against a corrupt or racing `ps` snapshot producing a parent cycle.
+/// Guard against a process table snapshot, read while processes come and go,
+/// producing a parent cycle.
 const MAX_ANCESTRY_DEPTH: usize = 64;
 
 /// A feature's worktree directory. Only worktree paths are used for
@@ -38,24 +40,34 @@ pub struct ResolvedSocket<'a> {
     owner: Option<(i64, PortSource)>,
 }
 
-/// Claim every socket a live terminal or agent can account for. The chain is
-/// kept so the directory pass can reuse it without walking `ps` a second time.
-pub fn resolve<'a>(
+/// Claim sockets a live terminal or agent can account for. Drop infrastructure
+/// listeners here so the directory fallback cannot claim them. Keep the chain
+/// for every other socket so the directory pass can reuse it.
+pub(super) fn resolve<'a>(
     sockets: &'a [ListenSocket],
     parents: &HashMap<i32, i32>,
     roots: &ProcessRoots,
+    provider_processes: &ProviderProcesses,
     service_pid: i32,
 ) -> Vec<ResolvedSocket<'a>> {
     sockets
         .iter()
-        .map(|socket| {
+        .filter_map(|socket| {
             let chain = ancestry(socket.pid, parents, service_pid);
+            let excluded = chain.iter().enumerate().any(|(depth, pid)| {
+                provider_processes
+                    .get(pid)
+                    .is_some_and(|scope| scope.includes(depth))
+            });
+            if excluded {
+                return None;
+            }
             let owner = chain.iter().find_map(|pid| roots.get(pid).copied());
-            ResolvedSocket {
+            Some(ResolvedSocket {
                 socket,
                 chain,
                 owner,
-            }
+            })
         })
         .collect()
 }
@@ -188,6 +200,7 @@ fn is_within_dir(path: &str, dir: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ports::provider_processes::ProviderProcessScope;
 
     fn socket(pid: i32, port: u16) -> ListenSocket {
         ListenSocket {
@@ -204,6 +217,7 @@ mod tests {
         parents: HashMap<i32, i32>,
         cwds: HashMap<i32, String>,
         roots: ProcessRoots,
+        provider_processes: ProviderProcesses,
         dirs: Vec<FeatureDir>,
     }
 
@@ -219,7 +233,13 @@ mod tests {
         }
 
         fn attribute(&self, sockets: &[ListenSocket]) -> Vec<FeaturePorts> {
-            let resolved = resolve(sockets, &self.parents, &self.roots, 100);
+            let resolved = resolve(
+                sockets,
+                &self.parents,
+                &self.roots,
+                &self.provider_processes,
+                100,
+            );
             attribute(resolved, &self.cwds, &self.dirs)
         }
     }
@@ -229,7 +249,7 @@ mod tests {
         // service(100) -> shell(200) -> npm(300) -> node(400)
         let machine = Machine {
             parents: HashMap::from([(200, 100), (300, 200), (400, 300)]),
-            roots: ProcessRoots::from([(200, (42_i64, PortSource::Terminal))]),
+            roots: ProcessRoots::from([(200, (42, PortSource::Terminal))]),
             ..Machine::with_feature_a()
         };
 
@@ -248,7 +268,7 @@ mod tests {
         // conversation this belongs to.
         let machine = Machine {
             parents: HashMap::from([(500, 100), (550, 500), (600, 550)]),
-            roots: ProcessRoots::from([(500, (42_i64, PortSource::Agent))]),
+            roots: ProcessRoots::from([(500, (42, PortSource::Agent))]),
             cwds: HashMap::from([(600, "/repo".to_string())]),
             ..Machine::with_feature_a()
         };
@@ -258,6 +278,89 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].feature_id, 42);
         assert_eq!(result[0].ports[0].source, PortSource::Agent);
+    }
+
+    #[test]
+    fn opted_in_agent_hides_its_launchers_and_keeps_command_descendants() {
+        // service -> connector -> native CLI -> server. The CLI and server can
+        // share an executable name (e.g. node) and worktree.
+        let machine = Machine {
+            parents: HashMap::from([(500, 100), (550, 500), (600, 550)]),
+            roots: ProcessRoots::from([(500, (42, PortSource::Agent))]),
+            provider_processes: ProviderProcesses::from([(500, ProviderProcessScope::Launcher)]),
+            cwds: HashMap::from([
+                (500, "/w/feature-a".to_string()),
+                (550, "/w/feature-a".to_string()),
+                (600, "/w/feature-a".to_string()),
+            ]),
+            ..Machine::with_feature_a()
+        };
+
+        let result = machine.attribute(&[socket(500, 9000), socket(550, 9001), socket(600, 4321)]);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].feature_id, 42);
+        assert_eq!(result[0].ports.len(), 1);
+        assert_eq!(result[0].ports[0].port, 4321);
+        assert_eq!(result[0].ports[0].source, PortSource::Agent);
+    }
+
+    #[test]
+    fn concurrent_provider_processes_stay_out_of_the_directory_fallback() {
+        // No active runtime is visible while it starts. Worktree ownership
+        // still applies to the runtime's server and the unrelated orphan.
+        let machine = Machine {
+            parents: HashMap::from([
+                (500, 100),
+                (550, 500),
+                (600, 550),
+                (700, 100),
+                (750, 700),
+                (800, 750),
+                (900, 1),
+            ]),
+            provider_processes: ProviderProcesses::from([
+                (500, ProviderProcessScope::Launcher),
+                (700, ProviderProcessScope::CommandTree),
+            ]),
+            cwds: [500, 550, 600, 700, 750, 800, 900]
+                .map(|pid| (pid, "/w/feature-a".to_string()))
+                .into(),
+            ..Machine::with_feature_a()
+        };
+        let sockets =
+            [500, 550, 600, 700, 750, 800, 900].map(|pid| socket(pid, pid.try_into().unwrap()));
+
+        let result = machine.attribute(&sockets);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].feature_id, 7);
+        let visible: Vec<_> = result[0]
+            .ports
+            .iter()
+            .map(|port| (port.pid, port.source))
+            .collect();
+        assert_eq!(
+            visible,
+            [(600, PortSource::Workspace), (900, PortSource::Workspace)]
+        );
+    }
+
+    #[test]
+    fn generic_agents_keep_listeners_at_every_depth() {
+        let machine = Machine {
+            parents: HashMap::from([(500, 100), (550, 500)]),
+            roots: ProcessRoots::from([(500, (42, PortSource::Agent))]),
+            ..Machine::default()
+        };
+
+        let result = machine.attribute(&[socket(500, 4321), socket(550, 4322)]);
+
+        assert_eq!(result[0].ports.len(), 2);
+        assert!(result[0]
+            .ports
+            .iter()
+            .all(|port| port.source == PortSource::Agent));
     }
 
     #[test]
@@ -333,7 +436,7 @@ mod tests {
     fn a_terminal_that_left_the_worktree_still_belongs_to_its_feature() {
         let machine = Machine {
             parents: HashMap::from([(200, 100), (400, 200)]),
-            roots: ProcessRoots::from([(200, (42_i64, PortSource::Terminal))]),
+            roots: ProcessRoots::from([(200, (42, PortSource::Terminal))]),
             cwds: HashMap::from([(400, "/w/feature-a".to_string())]),
             ..Machine::with_feature_a()
         };
@@ -370,7 +473,7 @@ mod tests {
     fn collapses_the_dual_stack_sockets_of_one_server() {
         let machine = Machine {
             parents: HashMap::from([(200, 100), (400, 200)]),
-            roots: ProcessRoots::from([(200, (42_i64, PortSource::Terminal))]),
+            roots: ProcessRoots::from([(200, (42, PortSource::Terminal))]),
             ..Machine::with_feature_a()
         };
 
@@ -384,12 +487,18 @@ mod tests {
         // service(100) -> shell(200) -> node(300), plus an orphan(900).
         let machine = Machine {
             parents: HashMap::from([(200, 100), (300, 200), (900, 1)]),
-            roots: ProcessRoots::from([(200, (42_i64, PortSource::Terminal))]),
+            roots: ProcessRoots::from([(200, (42, PortSource::Terminal))]),
             ..Machine::with_feature_a()
         };
         let sockets = [socket(300, 3000), socket(900, 5000)];
 
-        let resolved = resolve(&sockets, &machine.parents, &machine.roots, 100);
+        let resolved = resolve(
+            &sockets,
+            &machine.parents,
+            &machine.roots,
+            &machine.provider_processes,
+            100,
+        );
 
         assert_eq!(unresolved_pids(&resolved), vec![900]);
     }

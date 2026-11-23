@@ -62,7 +62,12 @@ impl BrowserBridgeConfig {
     pub fn from_env() -> Option<Self> {
         let url = std::env::var(BROWSER_BRIDGE_URL_ENV).ok()?;
         let token = std::env::var(BROWSER_BRIDGE_TOKEN_ENV).ok()?;
-        Self::from_raw(&url, &token).ok()
+        // The messages name the problem, never the token.
+        Self::from_raw(&url, &token)
+            .inspect_err(|error| {
+                tracing::warn!(%error, "ignoring the browser bridge configured in the environment");
+            })
+            .ok()
     }
 
     pub fn as_env(&self) -> [(String, String); 2] {
@@ -216,6 +221,9 @@ pub struct AppState {
     /// The archive cleanup running for a conversation (`features::archive_cleanup`).
     /// Unarchiving cancels it between two steps.
     pub archive_cleanup_runs: Arc<FeatureRunRegistry>,
+    /// The folder change running for a project (`projects::relocation`),
+    /// keyed by project id: one at a time per project.
+    pub project_relocations: Arc<FeatureRunRegistry>,
     /// Pending LSP session reservations. The renderer POSTs
     /// `/api/lsp/sessions` to reserve, then upgrades
     /// `/api/lsp/sessions/{id}/connect`; this map is the bridge between the
@@ -351,6 +359,7 @@ impl AppState {
             session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
+            project_relocations: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),
@@ -444,6 +453,7 @@ impl AppState {
             session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             archive_cleanup_runs: Arc::new(FeatureRunRegistry::new()),
+            project_relocations: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
             import_jobs: ImportJobRegistry::new(),

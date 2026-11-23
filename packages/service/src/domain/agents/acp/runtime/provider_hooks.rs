@@ -73,6 +73,12 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
+    /// Installed connectors negotiate receipt support with the live process.
+    /// Adapters that implement receipts independently keep their own policy.
+    fn uses_negotiated_prompt_receipts(&self) -> bool {
+        false
+    }
+
     /// Observe live session config options (retain aliases for later set_config_option).
     fn observe_session_config_options(&self, _options: &[SessionConfigOption]) {}
 
@@ -140,6 +146,12 @@ pub trait AcpProviderHooks: Send + Sync {
         None
     }
 
+    /// Installed ACP packages have no native health API for host-injected MCP servers.
+    #[cfg(unix)]
+    fn observe_attached_mcp_connections(&self) -> bool {
+        false
+    }
+
     /// Provider opt-in: refine the MCP server statuses negotiated at
     /// spawn. Generic ACP only knows the configured catalog, so providers
     /// with their own status mechanism can replace it here.
@@ -155,6 +167,23 @@ pub trait AcpProviderHooks: Send + Sync {
     /// newly spawned subprocess via `session/resume` or legacy `session/load`.
     fn supports_durable_resume(&self) -> bool {
         false
+    }
+
+    /// Whether the ACP process and its immediate children are launchers whose
+    /// own listeners should stay out of the conversation's port list.
+    fn exclude_launcher_ports(&self) -> bool {
+        false
+    }
+
+    /// Runs before `session/resume` or `session/load` restores `session_id`
+    /// in `cwd`. A provider whose sessions keep the folder they were created
+    /// in moves a session whose folder moved, so it resumes in `cwd`.
+    async fn before_session_resume(
+        &self,
+        _session_id: &str,
+        _cwd: &Path,
+    ) -> Result<(), RuntimeError> {
+        Ok(())
     }
 
     /// How long Stop waits for `session/prompt` to settle after

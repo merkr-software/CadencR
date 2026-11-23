@@ -297,7 +297,9 @@ mod session_archiving_tests {
         WsSessionPersistence::persist_runtime_session_id_only(&pool, id, "cli-sess-resume-test")
             .await;
 
-        WsSessionPersistence::cleanup_stale_sessions(&pool).await;
+        WsSessionPersistence::cleanup_stale_sessions(&pool)
+            .await
+            .unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT status FROM agent_sessions WHERE id = ?")
             .bind(id)

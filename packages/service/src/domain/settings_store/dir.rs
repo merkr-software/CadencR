@@ -1,5 +1,6 @@
 //! Process-wide settings directory, set once at startup.
 
+use crate::shared::discard::KeepFirst;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -21,7 +22,7 @@ pub fn secure(dir: &Path) -> anyhow::Result<()> {
 /// Set the settings directory. Called once from `main` after the path is
 /// resolved. Subsequent calls are ignored (the first one wins).
 pub fn init(dir: PathBuf) {
-    let _ = SETTINGS_DIR.set(dir);
+    SETTINGS_DIR.keep_first(dir);
 }
 
 /// The active settings directory. In production this is always initialized by
@@ -140,18 +141,7 @@ fn relocated_sibling(
 /// Unique, per-test-thread settings directory (test builds only).
 #[cfg(test)]
 fn test_dir() -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    thread_local! {
-        static DIR: PathBuf = {
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let dir = std::env::temp_dir()
-                .join(format!("cadencr-settings-test-{}-{n}", std::process::id()));
-            let _ = std::fs::create_dir_all(&dir);
-            dir
-        };
-    }
-    DIR.with(Clone::clone)
+    crate::shared::test_dirs::per_thread_dir("cadencr-settings-test-")
 }
 
 /// Resolve the settings directory from CLI/env config, falling back to a layout

@@ -8,6 +8,7 @@ import { useSidebarPointedFeatureStore } from "@/stores/sidebar-pointed-feature-
 import { PinnedConversationRow } from "./PinnedConversationRow";
 
 const mocks = vi.hoisted(() => ({
+  prefetch: Object.assign(vi.fn(), { cancel: vi.fn() }),
   title: { title: null as string | null, isAutoNaming: false },
   actions: null as null | {
     togglePin: ReturnType<typeof vi.fn>;
@@ -17,12 +18,14 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 beforeEach(() => {
+  mocks.prefetch.mockClear();
+  mocks.prefetch.cancel.mockClear();
   mocks.title = { title: null, isAutoNaming: false };
   mocks.actions = null;
 });
 
 vi.mock("@/components/ProjectBadge", () => ({ ProjectBadge: () => <span>Project</span> }));
-vi.mock("@/hooks/useFeaturePrefetch", () => ({ useFeaturePrefetch: () => vi.fn() }));
+vi.mock("@/hooks/useFeaturePrefetch", () => ({ useFeaturePrefetch: () => mocks.prefetch }));
 vi.mock("@/hooks/useFeatureTitle", () => ({
   useFeatureTitle: () => mocks.title,
 }));
@@ -51,7 +54,7 @@ describe("pinned sidebar identity", () => {
       <ShortcutHintsProvider enabled>
         <PinnedConversationRow
           feature={feature}
-          activeFeatureId={null}
+          isActive={false}
           onNavigate={onNavigate}
           showUnpin
         />
@@ -73,7 +76,7 @@ describe("pointed conversation", () => {
   afterEach(() => useSidebarPointedFeatureStore.getState().setPointedFeature(null));
 
   it("lights the row up while its conversation is pointed at elsewhere", () => {
-    render(<PinnedConversationRow feature={feature} activeFeatureId={null} onNavigate={vi.fn()} />);
+    render(<PinnedConversationRow feature={feature} isActive={false} onNavigate={vi.fn()} />);
     const row = screen.getByRole("button", { name: /Pinned conversation/ });
     expect(row).not.toHaveAttribute("data-sidebar-pointed");
 
@@ -90,7 +93,7 @@ function renderRow(activeFeatureId: number | null = null) {
   const view = render(
     <PinnedConversationRow
       feature={feature}
-      activeFeatureId={activeFeatureId}
+      isActive={activeFeatureId === feature.id}
       onNavigate={onNavigate}
       showUnpin
     />,
@@ -145,6 +148,23 @@ describe("PinnedConversationRow", () => {
   it("offers no unpin button outside the sidebar", () => {
     renderRow();
     expect(screen.queryByRole("button", { name: "Unpin" })).not.toBeInTheDocument();
+  });
+});
+
+describe("PinnedConversationRow prefetch", () => {
+  it("starts on hover and focus, and is dropped when the pointer or focus leaves", () => {
+    render(<PinnedConversationRow feature={feature} isActive={false} onNavigate={vi.fn()} />);
+    const row = screen.getByRole("button", { name: /Pinned conversation/ });
+
+    fireEvent.mouseEnter(row);
+    fireEvent.mouseLeave(row);
+    expect(mocks.prefetch).toHaveBeenCalledTimes(1);
+    expect(mocks.prefetch.cancel).toHaveBeenCalledTimes(1);
+
+    fireEvent.focus(row);
+    fireEvent.blur(row);
+    expect(mocks.prefetch).toHaveBeenCalledTimes(2);
+    expect(mocks.prefetch.cancel).toHaveBeenCalledTimes(2);
   });
 });
 

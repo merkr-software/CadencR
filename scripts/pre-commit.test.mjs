@@ -11,6 +11,7 @@ import {
   parseNameStatus,
   runPlan,
 } from "./pre-commit.mjs";
+import { parseWorkspaceMembers } from "./cargo-workspace.mjs";
 
 const plan = (paths, options) =>
   buildPrecommitPlan(
@@ -314,4 +315,22 @@ test("the runner stops at the first failing step and returns its exit code", () 
   });
   assert.equal(status, 3);
   assert.equal(existsSync(marker), false);
+});
+
+test("every Cargo workspace member routes to the Rust checks", () => {
+  for (const path of [
+    "packages/registry-publisher/src/github/discovery/deadline.rs",
+    "packages/registry-core/src/lib.rs",
+    "packages/cli/src/main.rs",
+    "packages/plugin-core/Cargo.toml",
+  ]) {
+    assert.ok(classifyPath(path).includes("rust"), `${path} must run the Rust checks`);
+    assert.deepEqual(commands(plan([path])).slice(-3), RUST, path);
+  }
+  const manifest = readFileSync(new URL("../Cargo.toml", import.meta.url), "utf8");
+  for (const member of parseWorkspaceMembers(manifest)) {
+    const source = member.startsWith("plugins/") ? `${member}/src/lib.rs` : `${member}/src/x.rs`;
+    assert.ok(classifyPath(source).includes("rust"), `${member} is a workspace member`);
+  }
+  assert.ok(!classifyPath("packages/clipboard/src/x.ts").includes("rust"), "prefix, not substring");
 });

@@ -4,6 +4,7 @@ mod background_agents;
 mod branching;
 mod bypass_permissions;
 mod catalog;
+mod cli_model;
 mod cli_processes;
 pub(crate) mod config_dir;
 mod context_windows;
@@ -17,6 +18,7 @@ mod profile_adapter;
 pub mod profiles;
 mod prompt_receipts;
 pub(crate) mod question_answers;
+pub(crate) mod relocation;
 pub mod routes;
 mod runtime_error;
 mod scheduled_wakeup;
@@ -59,6 +61,9 @@ pub struct ClaudeCodeAdapter {
     /// same profile wait for its answer instead of spawning their own CLI.
     model_probe_flights:
         std::sync::OnceLock<crate::shared::keyed_locks::KeyedLocks<catalog::ModelProbeCacheKey>>,
+    /// Per profile env, the concrete model each catalog id resolves to, as the
+    /// last successful probe of that profile reported it (see `cli_model`).
+    resolved_models: std::sync::OnceLock<cli_model::ResolvedModels>,
     /// Cache of CLI built-in slash commands. Cwd-invariant, so one cache
     /// serves every session; per-cwd filesystem entries are scanned fresh.
     /// Same process-lifetime semantics as `cached_models` / `probe_state`.
@@ -91,6 +96,7 @@ pub static CLAUDE_CODE_ADAPTER: ClaudeCodeAdapter = ClaudeCodeAdapter {
         failure_message: None,
     }),
     model_probe_flights: std::sync::OnceLock::new(),
+    resolved_models: std::sync::OnceLock::new(),
     cached_slash_commands: std::sync::OnceLock::new(),
     slash_commands_probe_state: tokio::sync::Mutex::const_new(ProbeState {
         live: false,
@@ -127,6 +133,7 @@ mod test_support {
             cached_models: std::sync::OnceLock::new(),
             probe_state: tokio::sync::Mutex::new(ProbeState::default()),
             model_probe_flights: std::sync::OnceLock::new(),
+            resolved_models: std::sync::OnceLock::new(),
             cached_slash_commands: std::sync::OnceLock::new(),
             slash_commands_probe_state: tokio::sync::Mutex::new(ProbeState::default()),
             cached_context_windows: std::sync::OnceLock::new(),

@@ -84,11 +84,13 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
         initial_content: Value::String("hello".to_string()),
         context_window: Some(1000),
         hooks: Arc::new(SpawnHooks),
+        wire_transform: None,
     })
     .await
     .unwrap();
 
     let mut rx = session.take_message_rx();
+    assert_eq!(session.negotiated_prompt_steering(), None);
     let init = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
         .await
         .unwrap()
@@ -141,6 +143,7 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
         initial_content: Value::String("remain in flight".to_string()),
         context_window: None,
         hooks: Arc::new(SpawnHooks),
+        wire_transform: None,
     })
     .await
     .unwrap();
@@ -165,11 +168,17 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
     .await
     .expect("initial prompt did not start");
 
-    tokio::time::timeout(std::time::Duration::from_secs(2), session.close())
+    // The agent never answers `session/close`: close gives it 1 s, then the
+    // client waits up to 2 s for each of its three tasks. Under load that
+    // passes the 2 s stream-reader deadline, which production tolerates (it
+    // retries the close); that the 1 s stays below it is checked at compile
+    // time in `session/close.rs`. Waiting on the silent agent would never end.
+    tokio::time::timeout(std::time::Duration::from_secs(10), session.close())
         .await
-        .expect("runtime close exceeded the process-wide shutdown deadline")
+        .expect("runtime close waited on the silent agent")
         .unwrap();
-    tokio::time::timeout(std::time::Duration::from_millis(100), async {
+    // The runtime dropped its sender: only buffered events remain to drain.
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while runtime_rx.recv().await.is_some() {}
     })
     .await
@@ -198,6 +207,7 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
         supports_session_close: false,
+        supports_prompt_steering: false,
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
@@ -261,6 +271,209 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
 }
 
 #[tokio::test]
+async fn negotiated_steering_submits_before_the_earlier_response_and_finishes_once() {
+    use std::time::Duration;
+    use tokio::sync::Mutex;
+
+    let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+    spawn_event_barrier_acker(&client);
+    let negotiated = NegotiatedSession {
+        session_id: "s-steer".into(),
+        model: None,
+        mcp_servers: Vec::new(),
+        context_window: None,
+        current_mode: None,
+        session_config: Default::default(),
+        supports_session_close: false,
+        supports_prompt_steering: true,
+        may_replay_history: false,
+    };
+    let (tx, rx) = mpsc::channel(16);
+    let mut session = AcpRuntimeSession::assemble()
+        .client(&client)
+        .negotiated(&negotiated)
+        .cwd(std::env::temp_dir())
+        .rx(rx)
+        .local_tx(tx)
+        .hooks(Arc::new(SpawnHooks))
+        .indexer(Arc::new(StdMutex::new(EventIndexer::default())))
+        .call();
+    session.prompt_cancel = session
+        .prompt_cancel
+        .with_cancel_grace(Duration::from_secs(1));
+    let mut events = session.take_message_rx();
+    let session = Arc::new(session);
+    let delivery_order = Arc::new(Mutex::new(()));
+    let submit = |id: &'static str| {
+        let session = Arc::clone(&session);
+        let delivery_order = Arc::clone(&delivery_order);
+        tokio::spawn(async move {
+            let mut order = Some(delivery_order.lock_owned().await);
+            session
+                .stream_input_with_delivery_order(json!(id), Some(id.into()), &mut order)
+                .await
+        })
+    };
+    for stop_reason in ["end_turn", "cancelled"] {
+        let mut outstanding = Vec::new();
+        // Read every request before replying to any of them. No second or
+        // third request could get here if dispatch still held the host order.
+        for id in ["first", "second", "third"] {
+            let task = submit(id);
+            let request = tokio::time::timeout(Duration::from_secs(3), read_request(&mut stdin))
+                .await
+                .unwrap();
+            assert_eq!(request["method"], "session/prompt");
+            assert_eq!(request["params"]["sessionId"], "s-steer");
+            assert_eq!(request["params"]["messageId"], id);
+            outstanding.push((id, request["id"].clone(), task));
+        }
+        if stop_reason == "cancelled" {
+            let confirmed = session
+                .pending_prompt_receipts
+                .acknowledge_from_session_update(&json!({
+                    "update":{"sessionUpdate":"user_message_chunk","messageId":"third",
+                        "content":{"type":"text","text":"third"}}
+                }))
+                .unwrap();
+            assert_eq!(confirmed.prompt_received_client_message_id(), Some("third"));
+            session.interrupt().await.unwrap();
+            let cancel = read_request(&mut stdin).await;
+            assert_eq!(cancel["method"], "session/cancel");
+        }
+        for (id, rpc_id, task) in outstanding {
+            assert!(!task.is_finished());
+            send_response(
+                &mut stdout,
+                rpc_id,
+                json!({
+                    "stopReason":stop_reason, "usage":{"inputTokens":10,"outputTokens":1},
+                }),
+            )
+            .await;
+            let delivery = tokio::time::timeout(Duration::from_secs(3), task)
+                .await
+                .unwrap()
+                .unwrap();
+            if stop_reason == "cancelled" && id == "second" {
+                assert!(
+                    delivery.is_err(),
+                    "unconfirmed cancellation must fail delivery"
+                );
+            } else {
+                delivery.unwrap();
+                if stop_reason != "cancelled" || id != "third" {
+                    assert_eq!(
+                        events
+                            .try_recv()
+                            .unwrap()
+                            .unwrap()
+                            .prompt_received_client_message_id(),
+                        Some(id)
+                    );
+                }
+            }
+            let event = events.try_recv().unwrap().unwrap();
+            assert!(event.token_usage().is_some());
+            if id == "third" {
+                assert!(event.is_result());
+                assert_eq!(event.raw_json()["stop_reason"], stop_reason);
+            } else {
+                assert!(event.is_usage_accounting());
+            }
+            assert!(events.try_recv().is_err());
+        }
+    }
+
+    let original = submit("original");
+    let first = read_request(&mut stdin).await;
+    let rejected = submit("rejected");
+    let steer = read_request(&mut stdin).await;
+    send_response(
+        &mut stdout,
+        first["id"].clone(),
+        json!({
+            "stopReason":"end_turn", "usage":{"inputTokens":12,"outputTokens":1},
+            "_meta":{"cadencr":{"backgroundWorkPending":true}},
+        }),
+    )
+    .await;
+    original.await.unwrap().unwrap();
+    assert_eq!(
+        events
+            .try_recv()
+            .unwrap()
+            .unwrap()
+            .prompt_received_client_message_id(),
+        Some("original")
+    );
+    assert!(events.try_recv().unwrap().unwrap().is_usage_accounting());
+    let pending = events.try_recv().unwrap().unwrap();
+    assert!(pending.background_agent_signal().is_some() && !pending.is_result());
+    write_json_frame(
+        &mut stdout,
+        json!({
+            "jsonrpc":"2.0", "id":steer["id"], "error":{"code":-32602,"message":"steer rejected"}
+        }),
+    )
+    .await;
+    assert!(rejected.await.unwrap().is_err());
+    let boundary = events
+        .try_recv()
+        .expect("the earlier result must settle the turn")
+        .unwrap();
+    assert!(boundary.is_result());
+    assert!(boundary.token_usage().is_none());
+    assert!(boundary.background_agent_signal().is_some());
+
+    let cancelled = submit("cancelled-by-agent");
+    let wire = read_request(&mut stdin).await;
+    send_response(
+        &mut stdout,
+        wire["id"].clone(),
+        json!({"stopReason":"cancelled"}),
+    )
+    .await;
+    assert!(cancelled.await.unwrap().is_err());
+    let boundary = events.try_recv().unwrap().unwrap();
+    assert!(boundary.is_result() && boundary.result_error().is_some());
+    assert!(events.try_recv().is_err());
+
+    let original = submit("before-force-stop");
+    let first = read_request(&mut stdin).await;
+    let stopped = submit("unconfirmed-at-stop");
+    let _pending = read_request(&mut stdin).await;
+    send_response(
+        &mut stdout,
+        first["id"].clone(),
+        json!({"stopReason":"end_turn"}),
+    )
+    .await;
+    original.await.unwrap().unwrap();
+    assert_eq!(
+        events
+            .try_recv()
+            .unwrap()
+            .unwrap()
+            .prompt_received_client_message_id(),
+        Some("before-force-stop")
+    );
+    session.interrupt().await.unwrap();
+    assert_eq!(read_request(&mut stdin).await["method"], "session/cancel");
+    let error = tokio::time::timeout(Duration::from_secs(5), stopped)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert!(error.is_stop_escalation());
+    assert!(events.try_recv().unwrap().unwrap_err().is_stop_escalation());
+    assert!(
+        events.try_recv().is_err(),
+        "an unresponsive killed prompt cannot acknowledge delivery"
+    );
+}
+
+#[tokio::test]
 async fn prompt_receipt_waits_for_user_message_echo() {
     let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
     let negotiated = NegotiatedSession {
@@ -271,6 +484,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
         supports_session_close: false,
+        supports_prompt_steering: false,
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
@@ -304,6 +518,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
             browser_trust: Default::default(),
             indexer: Arc::clone(&session.indexer),
+            prompt_turn_lock: Arc::clone(&session.prompt_turn_lock),
         },
     );
     let mut runtime_rx = session.take_message_rx();
@@ -393,6 +608,7 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
         supports_session_close: false,
+        supports_prompt_steering: false,
         may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);

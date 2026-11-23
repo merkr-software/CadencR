@@ -357,3 +357,15 @@ it, then rolls the new thread back to the turn before the cut.
 The cut must be the first user message in its native turn. A cut inside a turn
 with several user messages is refused instead of moving the cut silently. See
 [Rewind & Fork](../REWIND_AND_FORK.md) for shared checkpoint and draft behavior.
+
+## Moved project folders
+
+Codex keeps rollouts globally by thread id, and `thread/resume` takes the
+current cwd, so a conversation resumes in a renamed or moved project folder by
+itself. The folder's trust level lives under `[projects."<path>"]` in
+`config.toml`; left behind, Codex treats the moved folder as untrusted. When a
+project folder is renamed or moved, `CodexRelocator` (`codex/relocation.rs`,
+registered as the provider's relocator) re-keys the entries of the folder and
+its subfolders in the default `config.toml` and every profile's, editing the
+document in place (`toml_edit`) so comments and layout survive. Entries the new
+folder already has stay where they are and are reported.

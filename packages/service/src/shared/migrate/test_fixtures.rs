@@ -110,11 +110,15 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
 
 /// The sub-agent registry migration (20261030120000) references
 /// `agent_sessions` and indexes `agent_messages` carriers by their tool
-/// columns and creation time, which late-baselined fixtures omit or declare
-/// without them.
+/// columns and creation time, and the feature-activity index migration
+/// (20261122020000) indexes `features(project_id, status)` and
+/// `agent_messages(session_id, role, created_at)`, and the session feature
+/// index migration (20261123120000) indexes `agent_sessions(feature_id, id)`,
+/// which late-baselined fixtures omit or declare without all baseline columns.
 pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     sqlx::raw_sql(
-        "CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+        "CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT);
+         CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
          CREATE TABLE IF NOT EXISTS agent_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL
@@ -124,6 +128,20 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     .await
     .unwrap();
     for (column, ddl_type) in [
+        ("project_id", "INTEGER NOT NULL DEFAULT 1"),
+        ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ] {
+        ensure_column(pool, "features", column, ddl_type).await;
+    }
+    ensure_column(
+        pool,
+        "agent_sessions",
+        "feature_id",
+        "INTEGER NOT NULL DEFAULT 1",
+    )
+    .await;
+    for (column, ddl_type) in [
+        ("role", "TEXT NOT NULL DEFAULT 'assistant'"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
         ("tool_name", "TEXT"),
         ("tool_use_id", "TEXT"),
@@ -132,6 +150,17 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     ] {
         ensure_column(pool, "agent_messages", column, ddl_type).await;
     }
+}
+
+/// The restart background-work migration (20261120143700) adds a column to
+/// `restart_continuations`, which fixtures baselined after its creating
+/// migration (20261026230000) omit. Never call it from a fixture baselined
+/// earlier: that migration must create the real table.
+pub(crate) async fn ensure_restart_continuations_prerequisites(pool: &SqlitePool) {
+    sqlx::raw_sql("CREATE TABLE IF NOT EXISTS restart_continuations (id INTEGER PRIMARY KEY)")
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 /// The unified custom-action schedules migration (20261029100000) copies
@@ -383,4 +412,53 @@ pub(super) async fn create_pre_agent_message_index_schema(pool: &SqlitePool) {
     .execute(pool)
     .await
     .unwrap();
+}
+
+/// Declare the two queues the unified session queue migration (20261122010000)
+/// merges, in their shape just before it, for fixtures baselined after the
+/// migrations that gave them that shape. Earlier fixtures get the tables from
+/// those migrations, which would fail on columns declared here ahead of time.
+pub(crate) async fn ensure_session_queue_prerequisites(pool: &SqlitePool, baseline: i64) {
+    if baseline > 20260713121500 {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS agent_session_message_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_session_id INTEGER NOT NULL,
+                source_session_id INTEGER,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                error TEXT,
+                message_uuid TEXT,
+                claim_token TEXT,
+                claimed_at TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    if baseline > 20261026210000 {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS agent_session_prompt_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered_at TEXT,
+                source_message_uuid TEXT,
+                message_uuid TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_queue_source_message
+            ON agent_session_prompt_queue(session_id, source_message_uuid);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
 }

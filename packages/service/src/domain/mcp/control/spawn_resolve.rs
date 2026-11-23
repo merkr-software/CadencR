@@ -169,7 +169,8 @@ pub(super) async fn resolve_spawn_runtime(
     let effective_provider = match &provider {
         Some(provider) => provider.clone(),
         None => {
-            let raw_provider = effective_spawn_provider(state, source, target_project, body).await;
+            let raw_provider =
+                effective_spawn_provider(state, source, target_project, body).await?;
             canonical_provider_or_error(&raw_provider)
                 .map_err(|error| AppError::BadRequest(error.to_string()))?
         }
@@ -251,7 +252,7 @@ pub(super) async fn codex_permission_mode_for_spawn(
         return canonical_codex_permission_mode(&raw_mode).map(Some);
     }
 
-    let configured = configured_codex_access_mode(&state.read_pool).await;
+    let configured = configured_codex_access_mode(&state.read_pool).await?;
     canonical_codex_permission_mode(&configured).map(Some)
 }
 
@@ -260,9 +261,9 @@ async fn effective_spawn_provider(
     source: &super::scope::SessionScope,
     target_project: &TargetProject,
     body: &SpawnSessionRequest,
-) -> String {
+) -> Result<String, AppError> {
     if let Some(provider) = trimmed_optional(body.provider.as_deref()) {
-        return provider;
+        return Ok(provider);
     }
     // Only inherit the caller's feature-level override when spawning inside the
     // same project; otherwise the workspace's last-used provider applies.
@@ -276,7 +277,11 @@ async fn effective_spawn_provider(
     )
     .await
     {
-        Ok(selection) => selection.provider_id,
+        Ok(selection) => Ok(selection.provider_id),
+        // A settings level that cannot be read must not pick another agent.
+        Err(error @ crate::domain::agents::SelectionError::SettingsUnreadable(_)) => {
+            Err(AppError::internal(error.to_string()))
+        }
         Err(error) => {
             // The provider may have resolved fine while its catalog is empty;
             // keep the user's configured provider only when the whole
@@ -286,7 +291,7 @@ async fn effective_spawn_provider(
                 %error,
                 "selection resolution failed for spawn; falling back to the default provider"
             );
-            default_provider_id().to_string()
+            Ok(default_provider_id().to_string())
         }
     }
 }

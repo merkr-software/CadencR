@@ -19,6 +19,7 @@
 //! text — keep them in lock-step here so a change to the envelope shape
 //! (e.g. adding a field) lands on both surfaces simultaneously.
 
+use crate::shared::discard::{cleanup, IgnoreClosed};
 use std::future::Future;
 
 use axum::extract::ws::Message;
@@ -79,12 +80,12 @@ where
     // clicks Commit/Push, even if the real command takes a moment to emit
     // anything. Doubles as a smoke signal: missing header in the terminal
     // pane means the WS pipeline is broken, not the PTY reader.
-    let _ = output_tx.send(("stdout".into(), header));
+    output_tx.send(("stdout".into(), header)).ignore_closed();
 
     let result = run(output_tx).await;
     // `run` owns the only sender clone we keep alive — once it returns,
     // dropping it makes the fanout receiver hit `None` and exit cleanly.
-    let _ = fanout.await;
+    cleanup(fanout.await, "wait for the output fan-out task");
 
     StreamedOperation {
         success: result.is_ok(),

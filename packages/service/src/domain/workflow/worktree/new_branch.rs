@@ -20,11 +20,15 @@ pub(super) async fn ensure_new_branch_name(
     feature_id: i64,
     project_id: i64,
 ) -> Result<String, String> {
-    if let Some(b) = get_setting(read_pool, feature_id, "worktree_branch").await {
+    if let Some(b) = get_setting(read_pool, feature_id, "worktree_branch")
+        .await
+        .map_err(|e| e.to_string())?
+    {
         return Ok(b);
     }
     let name = derive_branch_name(read_pool, feature_id, project_id).await?;
-    let _ = set_setting(write_pool, feature_id, "worktree_branch", &name).await;
+    // Unsaved, a retry would derive a new branch and orphan this one.
+    set_setting(write_pool, feature_id, "worktree_branch", &name).await?;
     Ok(name)
 }
 
@@ -113,6 +117,30 @@ pub(super) async fn add_new_worktree(
     }
 }
 
+/// [`add_new_worktree`], adopting the worktree an earlier attempt already
+/// created for `branch` (outside the project folder itself) when its record
+/// could not be saved: retrying `git worktree add` there can only fail. The
+/// branch is this feature's own (persisted, with a random suffix), so no other
+/// feature's worktree can match. Returns the worktree path.
+pub(super) async fn add_or_adopt_worktree(
+    project_dir: &Path,
+    branch: &str,
+    path_str: String,
+    base: Option<&str>,
+) -> Result<String, String> {
+    let attachments = crate::domain::git::commands::list_worktree_branches(project_dir)
+        .await
+        .map_err(|e| format!("failed to list worktrees: {e}"))?;
+    if let Some(existing) = attachments
+        .get(branch)
+        .filter(|existing| !crate::shared::path_rebase::same_folder(existing, project_dir))
+    {
+        return Ok(existing.to_string_lossy().into_owned());
+    }
+    add_new_worktree(&project_dir.to_string_lossy(), branch, &path_str, base).await?;
+    Ok(path_str)
+}
+
 /// Run `git checkout -b <branch> [<base>]` in the project directory itself —
 /// the worktree-free "From branch" path (new branch, no worktree). When `base`
 /// is set the new branch forks from that ref; otherwise from the current HEAD.
@@ -194,6 +222,32 @@ mod tests {
             .status()
             .await
             .unwrap();
+    }
+
+    /// A first attempt created the worktree, then failed to record it. The
+    /// retry used to run `git worktree add` again and fail forever.
+    #[tokio::test]
+    async fn a_retry_adopts_the_worktree_an_earlier_attempt_created() {
+        let project = tempfile::tempdir().unwrap();
+        let worktrees = tempfile::tempdir().unwrap();
+        init_repo(project.path()).await;
+        let path = worktrees.path().join("feat-a");
+        let path_str = path.to_string_lossy().into_owned();
+        add_new_worktree(
+            &project.path().to_string_lossy(),
+            "feat/a-1234",
+            &path_str,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let adopted = add_or_adopt_worktree(project.path(), "feat/a-1234", path_str, None)
+            .await
+            .unwrap();
+
+        let adopted = std::fs::canonicalize(adopted).unwrap();
+        assert_eq!(adopted, std::fs::canonicalize(&path).unwrap());
     }
 
     #[tokio::test]

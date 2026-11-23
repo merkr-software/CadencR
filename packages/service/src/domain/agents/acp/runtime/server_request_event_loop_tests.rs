@@ -106,6 +106,7 @@ pub(super) fn event_loop_config(cwd: PathBuf) -> EventLoopConfig {
         pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
         browser_trust: Default::default(),
         indexer: Arc::new(StdMutex::new(EventIndexer::default())),
+        prompt_turn_lock: Default::default(),
     }
 }
 

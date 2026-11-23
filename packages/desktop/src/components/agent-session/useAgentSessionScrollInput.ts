@@ -6,8 +6,8 @@ import {
   canScrollStream,
   findStreamItemList,
   isVerticalScrollbarPointer,
-  HISTORY_SCROLL_TOP_PX,
   type ScrollRef,
+  USER_SCROLL_EVENTS,
 } from "./agent-session-scroll-utils";
 import type { ScrollAnchorGuard } from "./stream-scroll-anchor";
 import type { StreamScrollWriter } from "./stream-scroll-writer";
@@ -20,13 +20,18 @@ interface ScrollInputParams {
   writer: StreamScrollWriter;
   /** Attached to the scroller alongside the height-pin observer. */
   anchorGuard: Pick<ScrollAnchorGuard, "attach" | "detach">;
-  historyLoadArmedRef: React.MutableRefObject<boolean>;
   lastScrollTopRef: React.MutableRefObject<number>;
   userScrollIntentRef: React.MutableRefObject<boolean>;
   suppressScrollIntentRef: React.MutableRefObject<boolean>;
-  armUserScrollIntent: () => void;
   setAutoScrollEnabled: (enabled: boolean) => void;
-  requestOlderHistory: () => void;
+  /** Any scroll of the transcript: a history gap may have come near the view. */
+  onScrollActivity: () => void;
+  /** The reader's own input (wheel, touch, pointer, key) reached the transcript. */
+  onUserInput: () => void;
+}
+
+interface Disconnectable {
+  disconnect: () => void;
 }
 
 interface ScrollContainerRefParams {
@@ -35,7 +40,8 @@ interface ScrollContainerRefParams {
   writer: ScrollInputParams["writer"];
   anchorGuard: ScrollInputParams["anchorGuard"];
   lastScrollTopRef: ScrollInputParams["lastScrollTopRef"];
-  growthObserverRef: React.MutableRefObject<MutationObserver | null>;
+  growthObserverRef: React.MutableRefObject<Disconnectable | null>;
+  onUserInput: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
   onPointerDown: (event: PointerEvent) => void;
   onWheel: (event: WheelEvent) => void;
@@ -57,6 +63,7 @@ function useScrollContainerRef({
   anchorGuard,
   lastScrollTopRef,
   growthObserverRef,
+  onUserInput,
   onKeyDown,
   onPointerDown,
   onWheel,
@@ -75,6 +82,7 @@ function useScrollContainerRef({
         previous.removeEventListener("scroll", onScroll);
         previous.removeEventListener("touchstart", onTouchStart);
         previous.removeEventListener("touchmove", onTouchMove);
+        for (const type of USER_SCROLL_EVENTS) previous.removeEventListener(type, onUserInput);
       }
       growthObserverRef.current?.disconnect();
       growthObserverRef.current = null;
@@ -89,8 +97,11 @@ function useScrollContainerRef({
         element.addEventListener("scroll", onScroll, { passive: true });
         element.addEventListener("touchstart", onTouchStart, { passive: true });
         element.addEventListener("touchmove", onTouchMove, { passive: true });
+        for (const type of USER_SCROLL_EVENTS) {
+          element.addEventListener(type, onUserInput, { passive: true });
+        }
         writer.attach(element);
-        observeListGrowth(element, stickRef, writer, growthObserverRef);
+        growthObserverRef.current = observeListGrowth(element, stickRef, writer);
         anchorGuard.attach(element, writer);
       }
     },
@@ -103,6 +114,7 @@ function useScrollContainerRef({
       onScroll,
       onTouchMove,
       onTouchStart,
+      onUserInput,
       onWheel,
       scrollerElRef,
       stickRef,
@@ -112,8 +124,8 @@ function useScrollContainerRef({
 }
 
 /**
- * Owns the raw DOM input listeners that disengage bottom-stick and arm
- * history loading. Split out of `useAgentSessionScroll` to keep that file
+ * Owns the raw DOM input listeners that disengage bottom-stick and wake the
+ * history gap filler. Split out of `useAgentSessionScroll` to keep that file
  * under the 400-line cap. Synchronous `wheel`/`touchmove`-up disengage fires
  * before the browser repaints, so a streaming-token re-anchor in the same
  * commit can't undo the user's scroll. We only disengage when the viewport
@@ -125,16 +137,18 @@ export function useAgentSessionScrollInput({
   stickRef,
   writer,
   anchorGuard,
-  historyLoadArmedRef,
   lastScrollTopRef,
   userScrollIntentRef,
   suppressScrollIntentRef,
-  armUserScrollIntent,
   setAutoScrollEnabled,
-  requestOlderHistory,
+  onScrollActivity,
+  onUserInput,
 }: ScrollInputParams): ScrollRef {
   const touchStartYRef = useRef(0);
-  const growthObserverRef = useRef<MutationObserver | null>(null);
+  const growthObserverRef = useRef<Disconnectable | null>(null);
+  const armUserScrollIntent = useCallback((): void => {
+    userScrollIntentRef.current = true;
+  }, [userScrollIntentRef]);
 
   const onWheel = useCallback(
     (e: WheelEvent): void => {
@@ -142,19 +156,17 @@ export function useAgentSessionScrollInput({
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el)) return;
       armUserScrollIntent();
-      historyLoadArmedRef.current = true;
       setAutoScrollEnabled(false);
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent, setAutoScrollEnabled],
+    [scrollerElRef, armUserScrollIntent, setAutoScrollEnabled],
   );
   const onPointerDown = useCallback(
     (e: PointerEvent): void => {
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el) || !isVerticalScrollbarPointer(el, e)) return;
-      historyLoadArmedRef.current = true;
       armUserScrollIntent();
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent],
+    [scrollerElRef, armUserScrollIntent],
   );
   const onKeyDown = useCallback(
     (e: KeyboardEvent): void => {
@@ -173,14 +185,14 @@ export function useAgentSessionScrollInput({
       const el = scrollerElRef.current;
       if (!el || !canScrollStream(el)) return;
       armUserScrollIntent();
-      historyLoadArmedRef.current = true;
       setAutoScrollEnabled(false);
     },
-    [scrollerElRef, historyLoadArmedRef, armUserScrollIntent, setAutoScrollEnabled],
+    [scrollerElRef, armUserScrollIntent, setAutoScrollEnabled],
   );
   const onScroll = useCallback((): void => {
     const el = scrollerElRef.current;
     if (!el) return;
+    onScrollActivity();
     const currentScrollTop = el.scrollTop;
     const previousScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = currentScrollTop;
@@ -188,18 +200,13 @@ export function useAgentSessionScrollInput({
     if (suppressScrollIntentRef.current || !canScrollStream(el)) return;
     if (!userScrollIntentRef.current) return;
     const isScrollingUp = currentScrollTop < previousScrollTop - 1;
-    if (!isScrollingUp) return;
-
-    historyLoadArmedRef.current = true;
-    setAutoScrollEnabled(false);
-    if (currentScrollTop <= HISTORY_SCROLL_TOP_PX) requestOlderHistory();
+    if (isScrollingUp) setAutoScrollEnabled(false);
   }, [
     scrollerElRef,
     lastScrollTopRef,
+    onScrollActivity,
     suppressScrollIntentRef,
     userScrollIntentRef,
-    historyLoadArmedRef,
-    requestOlderHistory,
     setAutoScrollEnabled,
   ]);
 
@@ -210,6 +217,7 @@ export function useAgentSessionScrollInput({
     anchorGuard,
     lastScrollTopRef,
     growthObserverRef,
+    onUserInput,
     onKeyDown,
     onPointerDown,
     onWheel,
@@ -222,23 +230,25 @@ export function useAgentSessionScrollInput({
 /**
  * Glue the view to the bottom in the SAME frame the conversation grows.
  *
- * When the agent streams a new line, React commits the taller DOM but
- * react-virtuoso's `followOutput` only re-pins `scrollTop` on the *next*
- * frame, so the growth frame paints with the new content pushed below the
- * fold — a visible one-frame "jump down, then up" on the trailing "Working…"
- * cursor and any not-yet-received message. A `ResizeObserver` can't fix it:
+ * When the agent streams a new line, React commits the taller DOM, but a pin
+ * from Virtuoso's own callbacks (its measurement runs in the next animation
+ * frame) only lands on the *next* frame, so the growth frame paints with the
+ * new content pushed below the fold — a visible one-frame "jump down, then up"
+ * on the trailing "Working…" cursor and any not-yet-received message. A `ResizeObserver` can't fix it:
  * its callback for the growth is delivered a frame late, after the bad frame
  * has already painted (measured: gap still spikes ~86px). A `MutationObserver`
  * fires as a microtask right after the DOM mutation — before layout and paint
  * — so pinning `scrollTop` there closes the gap in the same frame the content
  * grows. MutationObserver coalesces a commit's mutations into one callback, so
- * this reads layout once per streamed chunk, not per character.
+ * this reads layout once per streamed chunk, not per character. The pin goes
+ * through `followBottom`, which glides the rows up when animations are on.
  *
  * Only pins while bottom-stick is engaged, not suppressed (recap-toggle height
  * animations), and not mid split-pane resize (the `resize-coordinator` owns
  * scroll during a drag), so it never fights a scrolled-up reader or a resize.
- * Degrades to the (one-frame-late) `followOutput` behaviour if Virtuoso's DOM
- * contract changes and the item list can't be found.
+ * Degrades to the (one-frame-late) `onTotalListHeightChanged` pin if
+ * Virtuoso's DOM contract changes and the item list can't be found; the
+ * viewport-shrink pin does not depend on it.
  *
  * ## Never on iOS
  *
@@ -255,13 +265,19 @@ export function useAgentSessionScrollInput({
 function observeListGrowth(
   scroller: HTMLElement,
   stickRef: React.MutableRefObject<boolean>,
-  writer: Pick<StreamScrollWriter, "pinToBottom">,
-  observerRef: React.MutableRefObject<MutationObserver | null>,
-): void {
-  if (isIos()) return;
+  writer: Pick<StreamScrollWriter, "followBottom" | "pinToBottom">,
+): Disconnectable | null {
+  if (isIos()) return null;
+  const mayPin = (): boolean => stickRef.current && !isAutoScrollPinSuppressed() && !isResizing();
+  const viewportObserver = observeViewportShrink(scroller, mayPin, writer);
   const list = findStreamItemList(scroller);
-  if (!list) return;
+  if (!list) return viewportObserver;
   let lastScrollHeight = scroller.scrollHeight;
+  // Virtuoso's footer wrapper, holding the working cursor and its timer. It
+  // sits beside the list, so it is observed too: the cursor appearing at turn
+  // start grows the transcript without touching a row.
+  const footer = list.nextElementSibling instanceof HTMLElement ? list.nextElementSibling : null;
+  let lastFooterHeight = footer?.offsetHeight ?? 0;
   const observer = new MutationObserver(() => {
     // Cheap guards before any geometry: this fires on every mutation batch, and
     // reading `scrollHeight` forces a synchronous layout of the whole
@@ -269,16 +285,55 @@ function observeListGrowth(
     // times a second and must not pay for it. Bailing before the read also
     // leaves `lastScrollHeight` behind, so growth that lands mid-suppression is
     // still pending and the first eligible mutation catches up.
-    if (!stickRef.current || isAutoScrollPinSuppressed() || isResizing()) return;
+    if (!mayPin()) return;
     // Growth is the only thing worth re-pinning for. Reacting to every mutation
     // instead would fight a scroll that has not disengaged bottom-stick yet —
     // Virtuoso re-renders on scroll, and that re-render is itself a mutation.
     const scrollHeight = scroller.scrollHeight;
     const grew = scrollHeight > lastScrollHeight;
     lastScrollHeight = scrollHeight;
+    const footerHeight = footer?.offsetHeight ?? 0;
+    const footerGrew = footerHeight > lastFooterHeight;
+    lastFooterHeight = footerHeight;
     if (!grew) return;
+    // The footer grows in place, under the rows: gliding the rows down over
+    // it would clip the end of the message the cursor just appeared under.
+    if (footerGrew) writer.pinToBottom();
+    else writer.followBottom();
+  });
+  const observed = { childList: true, subtree: true, characterData: true };
+  observer.observe(list, observed);
+  if (footer) observer.observe(footer, observed);
+  return {
+    disconnect: () => {
+      observer.disconnect();
+      viewportObserver.disconnect();
+    },
+  };
+}
+
+/**
+ * The viewport shrinking (the composer growing a line) hides the bottom
+ * without any list mutation, and Virtuoso no longer follows that off iOS (see
+ * `followOutput`), so re-pin here. A growing viewport is clamped to the bottom
+ * by the browser on its own. A shrink that lands while pins stand down stays
+ * pending, like the growth observer's, and the next eligible resize catches up.
+ */
+function observeViewportShrink(
+  scroller: HTMLElement,
+  mayPin: () => boolean,
+  writer: Pick<StreamScrollWriter, "pinToBottom">,
+): Disconnectable {
+  let lastViewport = scroller.clientHeight;
+  let shrinkPending = false;
+  const observer = new ResizeObserver(() => {
+    const viewport = scroller.clientHeight;
+    if (viewport < lastViewport) shrinkPending = true;
+    lastViewport = viewport;
+    if (!shrinkPending || !mayPin()) return;
+    shrinkPending = false;
     writer.pinToBottom();
   });
-  observer.observe(list, { childList: true, subtree: true, characterData: true });
-  observerRef.current = observer;
+  observer.observe(scroller);
+  return observer;
 }

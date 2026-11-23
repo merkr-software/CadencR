@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/api/generated";
 import {
   selectGitCurrentBranch,
+  selectGitMissingTargetBranch,
   selectGitTargetBranch,
   useGitStatusStore,
 } from "./useGitStatusStore";
@@ -152,6 +153,22 @@ describe("selectGitTargetBranch", () => {
 
     expect(result.current).toBe("develop");
     expect(renderCount).toBe(1);
+  });
+});
+
+describe("selectGitMissingTargetBranch", () => {
+  it("names the target only when the snapshot says it resolves to nothing", () => {
+    // The service omits `target_resolved` when it is false.
+    useGitStatusStore.getState().setStatus(snap({ target_branch: "main" }));
+    expect(selectGitMissingTargetBranch(1)(useGitStatusStore.getState())).toBe("main");
+
+    useGitStatusStore
+      .getState()
+      .setStatus(
+        snap({ target_branch: "main", target_resolved: true, computed_at: 1_700_000_000_001 }),
+      );
+    expect(selectGitMissingTargetBranch(1)(useGitStatusStore.getState())).toBeUndefined();
+    expect(selectGitMissingTargetBranch(2)(useGitStatusStore.getState())).toBeUndefined();
   });
 });
 

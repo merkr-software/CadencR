@@ -67,10 +67,9 @@ impl StoredPreferences {
 
 /// Unreadable or malformed preferences fail closed; missing fields use channel defaults.
 pub(super) fn read(path: &Path) -> Result<StoredPreferences, AppError> {
-    let Some(text) = settings_store::file::read_file(path)? else {
+    let Some(doc) = settings_store::read_document(path)? else {
         return Ok(StoredPreferences::default());
     };
-    let doc = settings_store::file::parse_document(&text).map_err(AppError::BadRequest)?;
     match doc.get("telemetry") {
         None => Ok(StoredPreferences::default()),
         Some(value) => serde_json::from_value(value.clone()).map_err(|_| {

@@ -187,10 +187,12 @@ export function useFeatureBlockTabs(args: {
   refs: ReturnType<typeof useSessionRefs>;
   agentVisible: boolean;
   tabReady: NonAgentTabReadiness;
+  pluginTabsReady: boolean;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
   openAgentFileInEditor: OpenDiffInEditor;
   pluginTabsEnabled: boolean;
+  openingPreview: boolean;
 }): ReturnType<typeof useSessionTabs> {
   return useSessionTabs({
     sessionId: args.sessionId,
@@ -202,10 +204,12 @@ export function useFeatureBlockTabs(args: {
     refs: args.refs,
     agentVisible: args.agentVisible,
     tabReady: args.tabReady,
+    pluginTabsReady: args.pluginTabsReady,
     hotkeysEnabled: args.hotkeysEnabled,
     sendFromGitTab: args.sendFromGitTab,
     openAgentFileInEditor: args.openAgentFileInEditor,
     pluginTabsEnabled: args.pluginTabsEnabled,
+    openingPreview: args.openingPreview,
   });
 }
 

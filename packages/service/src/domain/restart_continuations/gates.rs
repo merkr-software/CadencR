@@ -18,15 +18,15 @@ pub(super) async fn clear_dead_gate(
     session_id: i64,
     feature_id: i64,
 ) -> Result<bool, sqlx::Error> {
-    let Some(row) =
-        WsSessionPersistence::try_get_session_row(&state.write_pool, session_id).await?
+    let Some(row) = WsSessionPersistence::get_session_row(&state.write_pool, session_id).await?
     else {
         return Ok(false);
     };
     let Some((_, payload)) = row.pending_gate_payload() else {
         return Ok(false);
     };
-    WsSessionPersistence::clear_all_pending_user_input_static(&state.write_pool, session_id).await;
+    WsSessionPersistence::try_clear_all_pending_user_input_static(&state.write_pool, session_id)
+        .await?;
     state
         .pending_gates
         .complete(session_id, &payload.request_id)
@@ -38,21 +38,28 @@ pub(super) async fn clear_dead_gate(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::domain::restart_continuations::store::tests::session;
     use crate::domain::schedules::repository::test_support::fixture;
+
+    pub(in crate::domain::restart_continuations) async fn seed_pending_question(
+        pool: &sqlx::SqlitePool,
+        session_id: i64,
+    ) {
+        sqlx::query("UPDATE agent_sessions SET pending_questions = ? WHERE id = ?")
+            .bind(r#"{"request_id":"q-1","tool_name":"AskUserQuestion","tool_input":{}}"#)
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn a_dead_question_is_cleared_once() {
         let (pool, _, feature_id) = fixture().await;
         let session_id = session(&pool, feature_id, "paused").await;
-        sqlx::query("UPDATE agent_sessions SET pending_questions = ? WHERE id = ?")
-            .bind(r#"{"request_id":"q-1","tool_name":"AskUserQuestion","tool_input":{}}"#)
-            .bind(session_id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        seed_pending_question(&pool, session_id).await;
         let state = AppState::with_pool(pool.clone());
 
         assert!(clear_dead_gate(&state, session_id, feature_id)

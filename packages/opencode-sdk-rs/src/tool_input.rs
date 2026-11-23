@@ -1,14 +1,16 @@
 use serde_json::{json, Value};
 
-pub(crate) fn canonical_tool_name(name: String) -> String {
+/// OpenCode's tool names (1.x and 2.x) as the host's canonical names.
+pub fn canonical_tool_name(name: String) -> String {
     match name.as_str() {
-        "bash" => "Bash".to_string(),
+        // 2.x renamed `bash` to `shell` and `task` to `subagent`.
+        "bash" | "shell" => "Bash".to_string(),
         "read" => "Read".to_string(),
         "write" => "Write".to_string(),
         "edit" => "Edit".to_string(),
         "glob" => "Glob".to_string(),
         "grep" => "Grep".to_string(),
-        "task" => "Task".to_string(),
+        "task" | "subagent" => "Task".to_string(),
         "agent" => "Agent".to_string(),
         "apply_patch" => "ApplyPatch".to_string(),
         "todowrite" => "TodoWrite".to_string(),

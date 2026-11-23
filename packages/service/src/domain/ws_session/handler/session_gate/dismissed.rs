@@ -7,18 +7,19 @@ use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::protocol::GateCloseReason;
 use crate::domain::ws_session::runtime::application::clear_answered_gate;
 
-use super::{send_gate_closed, WsSender};
+use super::{send_gate_closed, GateClosed};
+use crate::domain::ws_session::runtime::output::OutputTarget;
 
 /// Clear the dismissed gate, keeping one the runtime raised meanwhile (the
 /// next queued question), and ack it. `None` when the session does not exist;
 /// otherwise whether queued prompts may run now.
 pub(super) async fn clear_dismissed_gate(
-    sender: &WsSender,
+    sender: &impl OutputTarget,
     app_state: &AppState,
     db_session_id: i64,
     request_id: &str,
     reason: GateCloseReason,
-    envelope_id: &str,
+    ref_id: Option<&str>,
 ) -> Result<Option<bool>, sqlx::Error> {
     let Some(cleared) =
         clear_answered_gate(&app_state.write_pool, db_session_id, request_id).await?
@@ -37,13 +38,14 @@ pub(super) async fn clear_dismissed_gate(
         status,
         cleared.remaining,
     );
-    send_gate_closed(
-        sender,
+    let closed = GateClosed {
         db_session_id,
-        Some(request_id),
+        feature_id: cleared.feature_id,
+        request_id: Some(request_id),
         reason,
-        Some(envelope_id),
-    );
+        ref_id,
+    };
+    send_gate_closed(sender, app_state, closed).await;
     // A turn that already ended let nothing queued run while the gate was
     // open. The drain checks again that the session is free to take a prompt.
     Ok(Some(nothing_pending && status == AgentStatus::Idle))

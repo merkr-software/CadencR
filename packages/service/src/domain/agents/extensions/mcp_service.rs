@@ -43,7 +43,7 @@ async fn list_everything(read_pool: &SqlitePool) -> McpInventoryResponse {
         .hosts(read_pool)
         .await
         .into_iter()
-        .filter(|host| host.cli.is_some() && !host.support().mcp_transports.is_empty())
+        .filter(|host| !host.is_missing() && !host.support().mcp_transports.is_empty())
         .collect();
     let reports = futures::future::join_all(hosts.iter().map(|host| async move {
         let listed = match host.runner() {

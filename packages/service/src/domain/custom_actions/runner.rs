@@ -1,3 +1,4 @@
+use crate::shared::discard::cleanup;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -203,7 +204,7 @@ async fn run_and_finalize(ctx: RunContext, prepared: Prepared) {
 
     // Stop the flusher and drain the readers so the final write is complete.
     stop.notify_one();
-    let _ = flusher.await;
+    cleanup(flusher.await, "wait for the output flusher task");
     let drain_deadline = drain.map(|limit| tokio::time::Instant::now() + limit);
     for reader in [stdout_reader, stderr_reader].into_iter().flatten() {
         drain_reader(reader, drain_deadline).await;

@@ -46,7 +46,11 @@ export function createWsSessionTransportActions(deps: TransportActionDeps): Tran
 
     send: sendRaw,
 
-    sendRequest(sessionId: string, envelope: WsEnvelope): Promise<unknown> {
+    sendRequest(
+      sessionId: string,
+      envelope: WsEnvelope,
+      timeoutMs = WS_REPLY_TIMEOUT_MS,
+    ): Promise<unknown> {
       return new Promise((resolve) => {
         const session = get().sessions[sessionId];
         if (!session) {
@@ -66,7 +70,7 @@ export function createWsSessionTransportActions(deps: TransportActionDeps): Tran
           // reach the backend on the next onOpen.
           ctx.transport.unqueue(sessionId, envelope.id);
           resolve(null);
-        }, WS_REPLY_TIMEOUT_MS);
+        }, timeoutMs);
         transport.pendingWsRequests.set(envelope.id, (payload) => {
           clearTimeout(timer);
           resolve(payload);

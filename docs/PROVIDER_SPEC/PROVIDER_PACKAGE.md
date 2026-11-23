@@ -135,6 +135,11 @@ Updating the native CLI never touches the immutable managed package payload.
 
 ## `models` output
 
+On failure the connector exits non-zero. It can write `{"code":"CLI_NOT_FOUND"}`
+or `{"code":"AUTHENTICATION_REQUIRED"}` to stdout to request a host-provided
+installation or sign-in hint. Cadencr displays these hints during marketplace
+conformance and catalog discovery. Diagnostic text stays on stderr.
+
 The output is a JSON array of ACP v1 `SessionConfigOption` objects. It must
 contain a non-empty `select` option whose `category` is `model`.
 
@@ -190,6 +195,9 @@ plain ACP options; the mapping lives in `_meta.cadencr` on each select value.
 - **Mode selector** — the first option with `"category": "mode"`. A value may
   carry `_meta.cadencr.permissionMode`, one of the host wire ids `default`,
   `acceptEdits`, `plan`, `ask`, `auto`, `bypassPermissions`, `dontAsk`.
+  A value can also declare `_meta.cadencr.modeAccent` as `blue`, `green`,
+  `yellow`, or `violet`. Cadencr renders this through its theme palette.
+  Missing or unknown accents fall back to the host mode's default color.
 - **Access-mode selector** — the first option whose option-level
   `_meta.cadencr.role` is `"access_mode"` (its ACP `category` is free). A value
   may carry `_meta.cadencr.accessMode`, one of `default`, `fullAccess`,
@@ -234,7 +242,8 @@ Rules:
   ignored rather than rejected.
 - The host's catalog lists the mapped values as `modes` /
   `access_modes` (`{id: <host id>, label: <value name>, description}`), and its
-  permission-mode gate accepts exactly the listed modes for the provider. How a
+  permission-mode gate accepts exactly the listed modes for the provider. Entries
+  in `modes` can also include the optional theme `accent`. How a
   mapped value is applied to a live session is specified in
   [`INSTALLED_ACP_PROVIDERS.md`](./INSTALLED_ACP_PROVIDERS.md#host-conventions-for-modes-and-access-modes).
 
@@ -252,21 +261,27 @@ object on `stdout`; every field is optional and unknown fields are ignored:
 {
   "compactCommand": "compress",
   "worktreeConfigPaths": [".cursor/rules", ".cursor/commands", ".cursor/mcp.json"],
-  "resumeCommand": { "program": "agent", "args": ["--resume", "{session_id}"] }
+  "resumeCommand": { "program": "agent", "args": ["--resume", "{session_id}"] },
+  "excludeLauncherPorts": true
 }
 ```
 
-| Field                 | Rule                                                                                                                                                                                | Host use                                                                                                                                    |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `compactCommand`      | Slash-command name without `/`: 1-64 characters of `[A-Za-z0-9._:-]`.                                                                                                               | `/compact` becomes a host action: the live session receives `session/prompt` with text `/<compactCommand>`, marked as a manual compaction.  |
-| `worktreeConfigPaths` | At most 32 entries; each 1-256 bytes, relative, already normalized (`a/b`; never `./a`, `a//b`, `a/`, `..`, a root or a drive prefix), `/` separators, no control characters.       | Copied from the project into every new worktree when present and not already there.                                                         |
-| `resumeCommand`       | `program`: bare executable name, 1-64 characters of `[A-Za-z0-9._-]` (no path separators). `args`: at most 16 entries of at most 256 bytes; `{session_id}` is the only placeholder. | "Resume in terminal": the desktop quotes each element itself and substitutes the session id. Never interpreted by a shell on the host side. |
+| Field                  | Rule                                                                                                                                                                                | Host use                                                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compactCommand`       | Slash-command name without `/`: 1-64 characters of `[A-Za-z0-9._:-]`.                                                                                                               | `/compact` becomes a host action: the live session receives `session/prompt` with text `/<compactCommand>`, marked as a manual compaction.  |
+| `worktreeConfigPaths`  | At most 32 entries; each 1-256 bytes, relative, already normalized (`a/b`; never `./a`, `a//b`, `a/`, `..`, a root or a drive prefix), `/` separators, no control characters.       | Copied from the project into every new worktree when present and not already there.                                                         |
+| `resumeCommand`        | `program`: bare executable name, 1-64 characters of `[A-Za-z0-9._-]` (no path separators). `args`: at most 16 entries of at most 256 bytes; `{session_id}` is the only placeholder. | "Resume in terminal": the desktop quotes each element itself and substitutes the session id. Never interpreted by a shell on the host side. |
+| `excludeLauncherPorts` | Boolean, defaults to `false`. Set it when the connector and its immediate children are dedicated to runtime infrastructure.                                                         | Hides listeners owned by the connector and its immediate children. Deeper descendants retain normal attribution.                            |
 
 The command runs with the same direct-exec, process-policy, 1 MiB output
 bounds as `models`, with a 10-second timeout, from the user's home directory.
 The host runs it once per installation for the life of the process (and again
 after a successful connector `update`), at startup in the background and
 before the first catalog read or spawn that needs it.
+
+Listening ports opened by one-shot provider commands such as `models`
+are excluded from conversation port badges, including when the command
+runs inside a conversation worktree.
 
 - **Invalid output** (not an object, or any field breaking its rule) rejects
   the whole declaration: the provider runs without host integration and the
@@ -307,7 +322,8 @@ process policy and 1 MiB output bound, a 10-second timeout, and the
 conversation's directory both as `--cwd` and as the process working
 directory (the explicit argument mirrors `models`, so a package never has to
 trust its inherited cwd). It must not prompt (stdin is closed) and should not
-start a live agent session.
+start a live agent session. When a valid catalog exceeds the output bound, the
+Rust SDK shortens long descriptions to keep every command in the menu.
 
 - **A valid list** is cached per directory for 30 seconds (at most 16
   directories per installation). The cache entry is dropped when a live
@@ -329,7 +345,8 @@ directories). Its entries that the package did not list — commands only the
 agent's backend knows, or everything for a package without the command — are
 appended after the package's list, so community packages without
 `slash-commands` still get a pre-session menu after their first session. In
-a live session, `available_commands_update` replaces the menu as before. An
+a live session, `available_commands_update` replaces the provider entries.
+Host commands and CadencR orchestration skills keep their names and precedence. An
 `availableCommands` entry may carry `_meta.cadencr.kind: "skill"` (SDK:
 `meta::slash_command_kind_meta`) so live entries group like listed ones.
 

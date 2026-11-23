@@ -9,6 +9,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
 use super::super::models::*;
+use super::latest_todos_query::{TODO_TOOLS_INDEX, TODO_TOOL_NAMES_SQL};
 
 pub(super) async fn setup_test_db() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -94,6 +95,32 @@ pub(super) async fn setup_test_db() -> SqlitePool {
     .await
     .unwrap();
 
+    // Mirrors the migrated schema the repository relies on: todo reads name
+    // this partial index with `INDEXED BY`, and hydration always reads origins.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE INDEX {TODO_TOOLS_INDEX} ON agent_messages(session_id, id) \
+         WHERE message_type = 'tool_call' AND tool_name IN {TODO_TOOL_NAMES_SQL}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS agent_message_origins (
+            message_id INTEGER PRIMARY KEY,
+            origin_kind TEXT NOT NULL,
+            source_session_id INTEGER,
+            source_feature_id INTEGER,
+            source_project_id INTEGER,
+            source_message_id INTEGER,
+            note TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query(
         "CREATE TRIGGER agent_messages_content_revision
          AFTER UPDATE OF content ON agent_messages
@@ -110,6 +137,13 @@ pub(super) async fn setup_test_db() -> SqlitePool {
     .unwrap();
 
     pool
+}
+
+pub(super) async fn insert_feature(pool: &SqlitePool) -> i64 {
+    sqlx::query_scalar("INSERT INTO features (title) VALUES ('f') RETURNING id")
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 pub(super) async fn insert_session(pool: &SqlitePool, feature_id: i64, status: &str) -> i64 {
@@ -213,6 +247,7 @@ pub(super) fn make_root_block(id_num: i64) -> AgentBlock {
         model: None,
         truncated_content: None,
         full_content_bytes: None,
+        last_message_id: None,
         origin: None,
     }
 }

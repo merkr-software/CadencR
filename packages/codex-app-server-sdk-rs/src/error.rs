@@ -8,13 +8,17 @@ pub enum SdkError {
     CliNotFound { searched: Vec<PathBuf> },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// The search for the `codex` binary could not finish; unlike
+    /// `CliNotFound`, the CLI may well be installed.
+    #[error(transparent)]
+    Discovery(#[from] cli_discovery::DiscoveryError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("request timed out: {0}")]
     Timeout(&'static str),
     #[error("app-server protocol error: {0}")]
     Protocol(String),
-    #[error("app-server returned error {code}: {message}")]
+    #[error("app-server returned error {code}: {}", rpc_message_summary(message))]
     Rpc { code: i64, message: String },
     #[error("app-server process exited")]
     ProcessExited,
@@ -22,11 +26,120 @@ pub enum SdkError {
     ResponseClosed,
 }
 
+/// What a JSON-RPC error code says about a failed request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RpcErrorKind {
+    /// -32700: the app-server could not parse the request.
+    ParseError,
+    /// -32600: the app-server refused the request. Codex uses it for an
+    /// unknown method, missing or mistyped params, an unknown thread or turn,
+    /// and a request the thread's state does not allow.
+    InvalidRequest,
+    /// -32601: no such method.
+    MethodNotFound,
+    /// -32602: the params do not match the method.
+    InvalidParams,
+    /// -32603: the app-server failed while handling the request.
+    Internal,
+    /// -32001: the app-server's request queue is full ("Server overloaded;
+    /// retry later.").
+    Overloaded,
+    /// Any other code.
+    Other,
+}
+
+impl RpcErrorKind {
+    pub fn from_code(code: i64) -> Self {
+        match code {
+            -32700 => Self::ParseError,
+            -32600 => Self::InvalidRequest,
+            -32601 => Self::MethodNotFound,
+            -32602 => Self::InvalidParams,
+            -32603 => Self::Internal,
+            -32001 => Self::Overloaded,
+            _ => Self::Other,
+        }
+    }
+
+    /// The app-server turned the request down without running it.
+    pub fn is_rejection(self) -> bool {
+        matches!(
+            self,
+            Self::ParseError | Self::InvalidRequest | Self::MethodNotFound | Self::InvalidParams
+        )
+    }
+}
+
+/// How Codex (0.167) words a request on a thread it does not have.
+const UNKNOWN_THREAD_PREFIXES: [&str; 3] = [
+    "no rollout found for thread id ",
+    "thread not loaded: ",
+    "thread not found: ",
+];
+
+/// An unknown-method error lists every method the app-server knows (well
+/// over a hundred); only what precedes that list says what went wrong.
+fn rpc_message_summary(message: &str) -> &str {
+    message
+        .split_once(", expected one of `")
+        .map_or(message, |(summary, _)| summary)
+}
+
 impl SdkError {
+    /// How the app-server classified a JSON-RPC error; `None` for any other
+    /// failure.
+    pub fn rpc_kind(&self) -> Option<RpcErrorKind> {
+        match self {
+            Self::Rpc { code, .. } => Some(RpcErrorKind::from_code(*code)),
+            _ => None,
+        }
+    }
+
+    /// Whether the app-server does not know `method`: JSON-RPC's
+    /// method-not-found, or Codex's invalid request naming it as an unknown
+    /// variant. Tells a capability the installed app-server lacks.
+    pub fn is_unknown_method(&self, method: &str) -> bool {
+        let Self::Rpc { code, message } = self else {
+            return false;
+        };
+        match RpcErrorKind::from_code(*code) {
+            RpcErrorKind::MethodNotFound => true,
+            RpcErrorKind::InvalidRequest => {
+                message.contains(&format!("unknown variant `{method}`"))
+            }
+            _ => false,
+        }
+    }
+
+    /// Codex no longer has the thread: no rollout of it on disk (`thread/fork`,
+    /// `thread/resume`) or no such thread (`thread/read`; on a fresh
+    /// app-server, Codex 0.167 reads a thread it has a rollout of and answers
+    /// "thread not loaded" only for one it has none of). Codex sends these as
+    /// -32600, the code it also uses for an unknown method, a bad param or a
+    /// refused state, with no `data`: only the message tells them apart.
+    pub fn is_unknown_thread(&self) -> bool {
+        let Self::Rpc { code, message } = self else {
+            return false;
+        };
+        RpcErrorKind::from_code(*code) == RpcErrorKind::InvalidRequest
+            && UNKNOWN_THREAD_PREFIXES
+                .iter()
+                .any(|prefix| message.starts_with(prefix))
+    }
+
     pub fn is_no_active_turn_to_steer(&self) -> bool {
         matches!(
             self,
             Self::Rpc { message, .. } if message == "no active turn to steer"
+        )
+    }
+
+    /// Codex's answer to `turn/interrupt` for a turn that is not running: it
+    /// ended, or it is not the thread's running turn.
+    pub fn is_no_active_turn_to_interrupt(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc { message, .. } if message == "no active turn to interrupt"
         )
     }
 
@@ -46,7 +159,74 @@ impl SdkError {
 
 #[cfg(test)]
 mod tests {
-    use super::SdkError;
+    use super::{RpcErrorKind, SdkError};
+
+    fn rpc(code: i64, message: &str) -> SdkError {
+        SdkError::Rpc {
+            code,
+            message: message.to_string(),
+        }
+    }
+
+    /// Codex 0.167 answers a method it dropped with -32600 and the list of
+    /// every method it knows, `account/rateLimits/read` included.
+    const UNKNOWN_ROLLBACK: &str = "Invalid request: unknown variant `thread/rollback`, expected one of `initialize`, `thread/start`, `account/rateLimits/read`";
+
+    #[test]
+    fn an_unknown_method_names_only_the_method() {
+        let error = rpc(-32600, UNKNOWN_ROLLBACK);
+
+        assert_eq!(
+            error.to_string(),
+            "app-server returned error -32600: Invalid request: unknown variant `thread/rollback`"
+        );
+        assert!(error.is_unknown_method("thread/rollback"));
+        assert!(!error.is_unknown_method("thread/revert"));
+        assert!(rpc(-32601, "Method not found").is_unknown_method("thread/revert"));
+        assert!(!rpc(-32600, "thread not found: x").is_unknown_method("thread/revert"));
+    }
+
+    /// Codex 0.167's answers for a thread id it has no rollout of.
+    #[test]
+    fn detects_a_thread_codex_no_longer_has() {
+        for message in [
+            "no rollout found for thread id 0199a000-0000-7000-8000-000000000000",
+            "thread not loaded: 0199a000-0000-7000-8000-000000000000",
+            "thread not found: 0199a000-0000-7000-8000-000000000000",
+        ] {
+            assert!(rpc(-32600, message).is_unknown_thread(), "{message}");
+            // Only a request Codex refused; an internal failure that quotes it is not.
+            assert!(!rpc(-32603, message).is_unknown_thread(), "{message}");
+        }
+        assert!(!rpc(-32600, UNKNOWN_ROLLBACK).is_unknown_thread());
+        assert!(!rpc(-32600, "Invalid request: missing field `beforeTurnId`").is_unknown_thread());
+        assert!(!SdkError::ProcessExited.is_unknown_thread());
+    }
+
+    #[test]
+    fn detects_no_active_turn_to_interrupt() {
+        assert!(rpc(-32600, "no active turn to interrupt").is_no_active_turn_to_interrupt());
+        assert!(!rpc(-32600, "no active turn to steer").is_no_active_turn_to_interrupt());
+        assert!(!SdkError::Timeout("turn/interrupt").is_no_active_turn_to_interrupt());
+    }
+
+    #[test]
+    fn json_rpc_codes_classify_the_failure() {
+        for (code, kind, rejection) in [
+            (-32700, RpcErrorKind::ParseError, true),
+            (-32600, RpcErrorKind::InvalidRequest, true),
+            (-32601, RpcErrorKind::MethodNotFound, true),
+            (-32602, RpcErrorKind::InvalidParams, true),
+            (-32603, RpcErrorKind::Internal, false),
+            (-32001, RpcErrorKind::Overloaded, false),
+            (-32000, RpcErrorKind::Other, false),
+        ] {
+            let error = rpc(code, "x");
+            assert_eq!(error.rpc_kind(), Some(kind), "{code}");
+            assert_eq!(kind.is_rejection(), rejection, "{code}");
+        }
+        assert_eq!(SdkError::ProcessExited.rpc_kind(), None);
+    }
 
     #[test]
     fn detects_no_active_turn_to_steer_rpc_error() {

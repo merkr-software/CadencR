@@ -1,12 +1,13 @@
 use super::super::{send_error, QueryState, SdkSessions, WsSender};
 use super::prompt_send::build_followup_context;
-use super::prompt_send_entry::{report_prompt_result, PromptedSelection};
+use super::prompt_send_entry::report_prompt_result;
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 use crate::domain::ws_session::runtime::prompt::prompt_followup::handle_followup_prompt;
 use crate::domain::ws_session::runtime::prompt::prompt_pending::{
     handle_pending_prompt, PendingPromptContext,
 };
+use crate::domain::ws_session::runtime::prompt::user_selection::PromptedSelection;
 use tracing::{debug, info};
 
 /// First prompt (or respawn after a config change): take the stored spawn
@@ -37,7 +38,6 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
         );
         return;
     };
-    let selection = PromptedSelection::of(handle);
     let spawned_model = handle.desired_model.clone();
     let spawned_thinking_effort = handle.desired_thinking_effort.clone();
     let config = handle.config.clone();
@@ -48,6 +48,7 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
         QueryState::Active { query, .. } => {
             let context = build_followup_context()
                 .query(query.clone())
+                .selection(PromptedSelection::active(handle))
                 .delivery_lease(handle.identity.begin_delivery())
                 .feature_id(feature_id)
                 .db_session_id(db_session_id)
@@ -60,7 +61,7 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
             drop(sessions);
             drop(spawn_claim);
             let result = handle_followup_prompt(context, payload).await;
-            report_prompt_result(sender, &envelope.id, selection, result);
+            report_prompt_result(sender, &envelope.id, result);
             return;
         }
     };
@@ -93,13 +94,14 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
         permission_tx: None,
         internal_replay: false,
         wait_for_delivery: false,
+        remember_selection: true,
         spawn_claim: Some(spawn_claim),
         handle_identity: handle.identity.clone(),
     };
     drop(sessions);
     // Persist user message in the pending helper after releasing sdk_sessions.
     let result = handle_pending_prompt(context).await;
-    report_prompt_result(sender, &envelope.id, selection, result);
+    report_prompt_result(sender, &envelope.id, result);
 }
 
 async fn session_still_exists(
@@ -108,7 +110,7 @@ async fn session_still_exists(
     sender: &WsSender,
     correlation_id: &str,
 ) -> bool {
-    match crate::domain::ws_session::persistence::WsSessionPersistence::try_get_session_row(
+    match crate::domain::ws_session::persistence::WsSessionPersistence::get_session_row(
         &app_state.read_pool,
         db_session_id,
     )

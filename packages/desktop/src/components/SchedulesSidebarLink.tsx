@@ -17,8 +17,8 @@ import { cn } from "@/lib/utils";
  * inflate a count the user reads as a promise.
  */
 export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactElement {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const active = pathname === "/schedules";
+  // A boolean, so navigating between other pages doesn't re-render the link.
+  const active = useRouterState({ select: (state) => state.location.pathname === "/schedules" });
   // Shares the schedules query cache with the page, so opening Schedules costs
   // no extra request and the badge updates from the same poll. A badge only
   // reads, so it takes the query without the mutation half.

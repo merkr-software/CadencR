@@ -6,6 +6,7 @@
 //! sync with the database. Custom actions are scheduled here too (a
 //! `custom_action` target), not on timers of their own.
 
+use crate::shared::discard::IgnoreClosed;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -32,6 +33,7 @@ const MAX_RUNS_PER_TICK: usize = 25;
 pub fn spawn(state: AppState) {
     info!("starting schedule dispatcher");
     tokio::spawn(async move {
+        pause_schedules_of_archived_conversations(&state).await;
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -41,6 +43,28 @@ pub fn spawn(state: AppState) {
             }
         }
     });
+}
+
+/// Archiving pauses a conversation's schedules, but conversations archived
+/// before it did may still have armed ones. Pausing them before the first
+/// tick keeps them from firing into a conversation nobody is looking at. A
+/// failure is logged and the loop starts anyway: these schedules have always
+/// fired, and holding back every other schedule would be worse.
+async fn pause_schedules_of_archived_conversations(state: &AppState) {
+    match repository::pause_for_archived_features(&state.write_pool).await {
+        Ok(paused) if !paused.is_empty() => {
+            info!(
+                count = paused.len(),
+                "paused the schedules of archived conversations"
+            );
+            super::service::announce_changed(state, &paused);
+        }
+        Ok(_) => {}
+        Err(error) => warn!(
+            error = %error,
+            "could not pause the schedules of archived conversations"
+        ),
+    }
 }
 
 async fn tick(state: &AppState) -> Result<(), AppError> {
@@ -108,9 +132,12 @@ async fn run_claimed(state: &AppState, claimed: ClaimedSchedule) {
     // Announced only after the row is durable, so a client refetching on this
     // cue can't read back the pre-run state. Every outcome is broadcast, not
     // just `sent`: a failed, skipped or held run still advanced the rule.
-    let _ = state.schedule_events_tx.send(ScheduleRanEvent {
-        schedule_id: schedule.id,
-    });
+    state
+        .schedule_events_tx
+        .send(ScheduleRanEvent {
+            schedule_id: schedule.id,
+        })
+        .ignore_closed();
 }
 
 async fn record(
@@ -121,6 +148,17 @@ async fn record(
     next_run_at: Option<String>,
 ) -> Result<(), AppError> {
     let outcome = match outcome {
+        // Paused mid-check: keep the claimed instant, as pausing does, so a
+        // one-off still has its time when it is resumed.
+        FireOutcome::Paused => {
+            return repository::release_claim(
+                &state.write_pool,
+                schedule.id,
+                claim_token,
+                schedule.next_run_at.as_deref(),
+            )
+            .await;
+        }
         FireOutcome::Passed | FireOutcome::Busy => {
             return repository::release_claim(
                 &state.write_pool,
@@ -154,5 +192,43 @@ fn skipped(next_run_at: Option<String>) -> RunOutcome {
         ),
         feature_id: None,
         next_run_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::schedules::repository::test_support::{fixture, once_into_conversation};
+    use crate::domain::schedules::repository::{get, insert};
+
+    // A one-off paused mid-check (its conversation was archived) must keep its
+    // instant: releasing it with the rolled-forward slot — `None` for a
+    // one-off — would mark it completed and lose the message for good.
+    #[tokio::test]
+    async fn a_one_off_paused_mid_check_keeps_its_instant() {
+        let (pool, _, feature_id) = fixture().await;
+        let body = once_into_conversation(feature_id, "2099-01-01T09:00:00Z");
+        let schedule = insert(&pool, body).await.unwrap();
+        sqlx::query("UPDATE schedules SET claim_token = 'token', enabled = 0 WHERE id = ?")
+            .bind(schedule.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool.clone());
+
+        record(&state, &schedule, "token", FireOutcome::Paused, None)
+            .await
+            .unwrap();
+
+        let after = get(&pool, schedule.id).await.unwrap().unwrap();
+        assert_eq!(after.next_run_at.as_deref(), Some("2099-01-01T09:00:00Z"));
+        assert!(after.last_run.is_none());
+        let token: Option<String> =
+            sqlx::query_scalar("SELECT claim_token FROM schedules WHERE id = ?")
+                .bind(schedule.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(token, None);
     }
 }

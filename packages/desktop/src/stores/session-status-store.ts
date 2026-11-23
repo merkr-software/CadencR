@@ -71,6 +71,8 @@ export interface SessionStatusEntry {
   model?: string | null;
   /** The provider is compacting the conversation's context. */
   compacting?: boolean;
+  /** Sub-agents currently running in this session. */
+  runningSubagents?: number;
 }
 export interface SessionStatusState {
   /** Changes on every confirmed connection, including a batched drop/reconnect. */

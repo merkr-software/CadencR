@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { buildToolResultMap } from "@/lib/tool-results";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildDisplayItems, filterRenderableBlocks } from "@/lib/agent-stream-display";
-import type { DisplayItem } from "@/types/agent-stream";
+import type { DisplayItem, HistoryGap } from "@/types/agent-stream";
+import { NO_HISTORY_GAPS } from "@/stores/ws-history-gaps";
 import { collapseTurnsToSummary } from "@/lib/agent-stream-summary";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
 
@@ -41,6 +42,7 @@ export function useAgentDisplayItems(
   turnActive: boolean | undefined,
   isStreaming: boolean | undefined,
   verbosityMode: AgentVerbosityMode,
+  historyGaps: readonly HistoryGap[] = NO_HISTORY_GAPS,
 ): { displayBlocks: AgentBlockData[]; displayItems: DisplayItem[] } {
   const displayBlocks = useMemo(() => {
     const filtered = filterRenderableBlocks(rootBlocks);
@@ -50,8 +52,12 @@ export function useAgentDisplayItems(
     });
   }, [isStreaming, rootBlocks, summaryMode, turnActive]);
   const displayItems = useMemo(
-    () => buildDisplayItems(displayBlocks, { compact: verbosityMode === "compact" }),
-    [displayBlocks, verbosityMode],
+    () =>
+      buildDisplayItems(displayBlocks, {
+        compact: verbosityMode === "compact",
+        gaps: historyGaps,
+      }),
+    [displayBlocks, historyGaps, verbosityMode],
   );
   return useMemo(() => ({ displayBlocks, displayItems }), [displayBlocks, displayItems]);
 }

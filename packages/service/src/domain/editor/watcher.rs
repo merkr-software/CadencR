@@ -1,17 +1,14 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use ignore::gitignore::Gitignore;
-use notify_debouncer_mini::notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebouncedEventKind, Debouncer};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::debug;
 
-use crate::domain::editor::service::{
-    build_gitignore, clear_gitignore_cache, is_gitignored_or_ancestor,
-};
+use crate::domain::editor::service::{clear_ignore_rules, ignore_file_changed, ignore_rules};
+use crate::shared::ignore_watch::{GitIgnoreRules, IgnoreAwareWatcher};
 use crate::shared::watch_limits::describe_watch_error;
 
 mod changed_documents;
@@ -51,7 +48,7 @@ impl FileChangeEvent {
 /// the watch.
 #[derive(Default)]
 pub struct FileWatcher {
-    debouncer: Option<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>>,
+    watcher: Option<IgnoreAwareWatcher>,
     watched_path: Option<PathBuf>,
     /// Ping sender feeding the churn-cap emit task. Dropping it (via `stop`)
     /// closes the channel and lets the task exit.
@@ -64,8 +61,10 @@ impl FileWatcher {
     /// Any previous watcher is stopped first.
     ///
     /// Two layers keep this from flooding the frontend on a churny monorepo:
-    ///  - gitignored paths (`node_modules/`, `target/`, `dist/`, …) and `.git`
-    ///    internals are filtered out before an emission is ever scheduled;
+    ///  - [`IgnoreAwareWatcher`] prunes gitignored directories (avoiding
+    ///    inotify watch exhaustion on Linux and skipping read-only access
+    ///    events) while a lightweight file-level gitignore check drops noisy
+    ///    ignored files (like `*.log`) and `.git` internals;
     ///  - a churn-cap emit task collapses sustained bursts to ~1 emission/sec.
     pub fn start(
         &mut self,
@@ -88,11 +87,10 @@ impl FileWatcher {
         };
         let emit_task = spawn_emit_task(tx, source, ping_rx);
 
-        let gitignore = Arc::new(Mutex::new(build_gitignore(&canonical)));
-        let debouncer = build_debouncer(canonical.clone(), gitignore, documents, ping_tx.clone())?;
+        let watcher = build_watcher(canonical.clone(), documents, ping_tx.clone())?;
 
         debug!(path = %canonical.display(), "file watcher started");
-        self.debouncer = Some(debouncer);
+        self.watcher = Some(watcher);
         self.watched_path = Some(canonical);
         self.ping_tx = Some(ping_tx);
         self.emit_task = Some(emit_task);
@@ -103,21 +101,28 @@ impl FileWatcher {
     pub fn stop(&mut self) {
         if let Some(path) = self.watched_path.take() {
             debug!(path = %path.display(), "file watcher stopped");
-            clear_gitignore_cache(&path);
+            clear_ignore_rules(&path);
         }
-        // Drop the debouncer (its callback holds one ping sender) and our own
-        // ping sender, closing the channel so the emit task exits.
-        self.debouncer = None;
+        // Drop the watcher (sending Stop to its maintenance thread without
+        // blocking) and our own ping sender so the emit task exits.
+        self.watcher = None;
         self.ping_tx = None;
         if let Some(task) = self.emit_task.take() {
             task.abort();
         }
     }
+
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn watch_count(&self) -> usize {
+        self.watcher
+            .as_ref()
+            .map_or(0, IgnoreAwareWatcher::watch_count)
+    }
 }
 
 /// [`FileWatcher::start`] off the async runtime: starting walks the tree for
-/// `.gitignore`s and registers the recursive watch, which can take seconds on
-/// a large repository.
+/// `.gitignore`s and registers the watch, which can take seconds on a large
+/// repository.
 pub async fn start_off_runtime(
     root: &Path,
     feature_id: Option<i64>,
@@ -140,71 +145,44 @@ impl Drop for FileWatcher {
     }
 }
 
-/// Build the `notify-debouncer-mini` and start the recursive watch. The
-/// callback filters `.git` internals and gitignored paths, then pings the
-/// emit task for any remaining relevant change.
-fn build_debouncer(
+/// Start an [`IgnoreAwareWatcher`] for the editor root. Directory pruning and
+/// debouncing run on its dedicated maintenance thread; `on_change` filters
+/// file-level gitignore noise (e.g. `*.log`) with the rules the file tree
+/// uses, has a changed `.gitignore` read again (its directory only: the watch
+/// already re-walks the tree for it), records previewable documents, and
+/// pings the churn-cap emit task.
+fn build_watcher(
     canonical: PathBuf,
-    gitignore: Arc<Mutex<Option<Gitignore>>>,
     documents: Arc<ChangedDocuments>,
     ping_tx: mpsc::UnboundedSender<()>,
-) -> Result<Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>, String> {
-    let project_root = Arc::new(canonical.clone());
-    let mut debouncer = new_debouncer(
+) -> Result<IgnoreAwareWatcher, String> {
+    let project_root = canonical.clone();
+    IgnoreAwareWatcher::start(
+        canonical,
+        Vec::new(),
         Duration::from_millis(500),
-        move |result: Result<Vec<notify_debouncer_mini::DebouncedEvent>, _>| {
-            let events = match result {
-                Ok(events) => events,
-                Err(e) => {
-                    warn!("file watcher error: {e:?}");
-                    return;
+        move |paths| {
+            for path in &paths {
+                if !is_git_path(path) && is_gitignore_file(path) {
+                    ignore_file_changed(&project_root, path);
                 }
-            };
-            let mut relevant_gitignore_changed = false;
-            let relevant: Vec<&Path> = match gitignore.lock() {
-                Ok(matcher) => events
-                    .iter()
-                    .filter(|e| e.kind == DebouncedEventKind::Any)
-                    .filter(|e| !is_noise(matcher.as_ref(), &e.path))
-                    .map(|e| e.path.as_path())
-                    .collect(),
-                Err(_) => events
-                    .iter()
-                    .filter(|e| e.kind == DebouncedEventKind::Any && !is_git_path(&e.path))
-                    .map(|e| e.path.as_path())
-                    .collect(),
-            };
-            for path in &relevant {
-                relevant_gitignore_changed |= is_gitignore_file(path);
+            }
+            let rules = ignore_rules(&project_root);
+
+            let mut has_relevant = false;
+            for path in &paths {
+                if is_noise(&rules, path) {
+                    continue;
+                }
+                has_relevant = true;
                 documents.record(path);
             }
-            let has_relevant = !relevant.is_empty();
-            if relevant_gitignore_changed {
-                refresh_gitignore_cache(project_root.clone(), gitignore.clone());
-            }
             if has_relevant {
-                let _ = ping_tx.send(());
+                ping_tx.send(()).ignore_closed();
             }
         },
     )
-    .map_err(|e| describe_watch_error("Failed to create watcher", &e))?;
-
-    debouncer
-        .watcher()
-        .watch(&canonical, RecursiveMode::Recursive)
-        .map_err(|e| describe_watch_error("Failed to watch directory", &e))?;
-
-    Ok(debouncer)
-}
-
-fn refresh_gitignore_cache(project_root: Arc<PathBuf>, gitignore: Arc<Mutex<Option<Gitignore>>>) {
-    clear_gitignore_cache(&project_root);
-    std::thread::spawn(move || {
-        let matcher = build_gitignore(&project_root);
-        if let Ok(mut current) = gitignore.lock() {
-            *current = matcher;
-        }
-    });
+    .map_err(|e| describe_watch_error("Failed to watch directory", &e))
 }
 
 /// What every emission of one watcher carries besides the change itself.
@@ -233,11 +211,12 @@ fn spawn_emit_task(
                 while ping_rx.try_recv().is_ok() {}
             }
             last_emit_ms = now_ms();
-            let _ = tx.send(FileChangeEvent {
+            tx.send(FileChangeEvent {
                 project_path: source.project_path.clone(),
                 feature_id: source.feature_id,
                 documents: source.documents.drain(),
-            });
+            })
+            .ignore_closed();
         }
     })
 }
@@ -255,8 +234,8 @@ fn emit_delay_ms(last_emit_ms: i64, now_ms: i64) -> i64 {
 
 /// A change we should ignore: `.git` internals, or anything gitignored
 /// (including files nested under an ignored directory like `node_modules/`).
-fn is_noise(gitignore: Option<&Gitignore>, path: &Path) -> bool {
-    is_git_path(path) || is_gitignored_or_ancestor(gitignore, path, false)
+fn is_noise(rules: &GitIgnoreRules, path: &Path) -> bool {
+    is_git_path(path) || rules.is_ignored_or_ancestor(path, false)
 }
 
 /// Check if a path is inside a `.git` directory.
@@ -300,8 +279,8 @@ mod tests {
         std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
 
-        let matcher = build_gitignore(root);
-        let m = matcher.as_ref();
+        let rules = GitIgnoreRules::new();
+        let m = &rules;
 
         // A file nested deep inside an ignored directory must be filtered.
         assert!(is_noise(m, &root.join("node_modules/pkg/index.js")));
@@ -323,8 +302,8 @@ mod tests {
         std::fs::create_dir_all(root.join("packages/app/src")).unwrap();
         std::fs::write(root.join("packages/app/.gitignore"), "node_modules/\n").unwrap();
 
-        let matcher = build_gitignore(root);
-        let m = matcher.as_ref();
+        let rules = GitIgnoreRules::new();
+        let m = &rules;
 
         assert!(is_noise(
             m,
@@ -335,13 +314,43 @@ mod tests {
 
     #[test]
     fn is_noise_without_gitignore_only_filters_git() {
-        // No matcher (project without a `.gitignore`): only `.git` is noise.
-        assert!(is_noise(None, &PathBuf::from("/project/.git/index")));
-        assert!(!is_noise(
-            None,
-            &PathBuf::from("/project/node_modules/x.js")
-        ));
-        assert!(!is_noise(None, &PathBuf::from("/project/src/main.rs")));
+        // Outside a repository nothing is ignored: only `.git` is noise.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        let rules = GitIgnoreRules::new();
+        assert!(is_noise(&rules, &root.join(".git/index")));
+        assert!(!is_noise(&rules, &root.join("node_modules/x.js")));
+        assert!(!is_noise(&rules, &root.join("src/main.rs")));
+    }
+
+    /// The tree and the watcher share one rule, Git's: a directory the
+    /// global excludes file lists (`core.excludesFile`) is dimmed in the tree
+    /// and its churn is noise, as `node_modules/` is. Runs in a child process
+    /// with an isolated `HOME`, where the global rules come from.
+    #[test]
+    fn global_excludes_are_noise_and_ignored_in_the_tree() {
+        use crate::shared::test_env::{home_with_global_excludes, is_rerun_child, rerun_in_child};
+        if !is_rerun_child() {
+            let home = home_with_global_excludes(".vscode/\n");
+            rerun_in_child(
+                concat!(
+                    module_path!(),
+                    "::global_excludes_are_noise_and_ignored_in_the_tree"
+                ),
+                &[("HOME", home.path().as_os_str())],
+                &["XDG_CONFIG_HOME"],
+            );
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tmp.path()).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join(".vscode")).unwrap();
+        let rules = ignore_rules(&root);
+        assert!(rules.is_ignored(&root.join(".vscode"), true));
+        assert!(is_noise(&rules, &root.join(".vscode/settings.json")));
+        assert!(!is_noise(&rules, &root.join("src/main.rs")));
+        clear_ignore_rules(&root);
     }
 
     #[tokio::test]
@@ -357,8 +366,34 @@ mod tests {
 
         watcher.stop();
         assert!(watcher.watched_path.is_none());
-        assert!(watcher.debouncer.is_none());
+        assert!(watcher.watcher.is_none());
         assert!(watcher.ping_tx.is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn watch_budget_skips_node_modules_and_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".gitignore"), "node_modules/\ntarget/\n").unwrap();
+        std::fs::create_dir_all(root.join("src/lib")).unwrap();
+        for pkg in 0..50 {
+            std::fs::create_dir_all(root.join(format!("node_modules/pkg{pkg}/dist"))).unwrap();
+        }
+        std::fs::create_dir_all(root.join("target/debug/build")).unwrap();
+
+        let (tx, _rx) = broadcast::channel(16);
+        let mut watcher = FileWatcher::default();
+        watcher.start(root.to_str().unwrap(), None, tx).unwrap();
+
+        // Only root, src, src/lib should be watched (3 directories), never node_modules/target/.git.
+        assert_eq!(
+            watcher.watch_count(),
+            3,
+            "expected only non-ignored directories to consume inotify watches"
+        );
+        watcher.stop();
     }
 
     #[tokio::test]

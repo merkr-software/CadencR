@@ -1,4 +1,5 @@
 import { ClipboardList, Shield, ShieldCheck, ShieldOff, type LucideIcon } from "lucide-react";
+import { MODE_ACCENTS } from "@/lib/provider-mode-accents";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { findProviderMode, type ProviderMode } from "@/lib/provider-modes";
 import type { PermissionMode } from "@/types/permission-mode";
@@ -70,8 +71,7 @@ export const ACCESS_MODE_DEFINITIONS: AccessModeDefinition[] = [
     description: "Workspace-write sandbox with user-reviewed approvals.",
     longDescription:
       "Runs in the workspace-write sandbox. Codex asks you to review command, network, or file access when approval is needed.",
-    chipClass:
-      "bg-[var(--chip-blue-bg)]/15 text-[var(--chip-blue-fg)] hover:bg-[var(--chip-blue-bg)]/25",
+    chipClass: MODE_ACCENTS.blue.chipClass,
     textClass: "text-[var(--chip-blue-fg)]",
     icon: Shield,
   },
@@ -91,7 +91,7 @@ export const ACCESS_MODE_DEFINITIONS: AccessModeDefinition[] = [
     description: "Workspace-write sandbox with Codex auto-reviewing approval requests.",
     longDescription:
       "Keeps the workspace-write sandbox, but lets Codex automatically review approval requests instead of routing each one to you.",
-    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
+    chipClass: MODE_ACCENTS.yellow.chipClass,
     textClass: "text-[var(--acc-yellow)]",
     icon: ShieldCheck,
   },

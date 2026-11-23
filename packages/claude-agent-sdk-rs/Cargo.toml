@@ -1,6 +1,6 @@
 [package]
 name = "claude-agent-sdk-rs"
-version = "0.16.2"
+version = "0.16.3"
 edition = "2021"
 license.workspace = true
 

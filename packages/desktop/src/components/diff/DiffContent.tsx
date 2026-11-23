@@ -47,7 +47,7 @@ interface DiffContentProps {
   targetBranch?: string;
   selectedCommit: string | null;
   diffMode: "unified" | "split";
-  collapsedFiles: Set<string>;
+  collapsedFiles: ReadonlySet<string>;
   activeFilePath: string | null;
   viewedFilesSet: Set<string>;
   isViewedPending: boolean;

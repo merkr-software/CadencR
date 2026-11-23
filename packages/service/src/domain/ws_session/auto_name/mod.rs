@@ -1,4 +1,5 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
+use crate::shared::discard::IgnoreClosed;
 
 use std::path::PathBuf;
 
@@ -61,7 +62,9 @@ fn send_autonaming(senders: &[mpsc::UnboundedSender<Message>], feature_id: i64, 
 
 fn send_to_all(senders: &[mpsc::UnboundedSender<Message>], json: String) {
     for sender in senders {
-        let _ = sender.send(Message::Text(json.clone().into()));
+        sender
+            .send(Message::Text(json.clone().into()))
+            .ignore_closed();
     }
 }
 
@@ -304,6 +307,7 @@ async fn build_spawn_config(
     Ok(RuntimeSpawnConfig {
         cwd: PathBuf::from(cwd),
         permission_mode: Some(RuntimePermissionMode::Plan),
+        validate_restored_permission_mode: false,
         access_mode: None,
         model: Some(model_id.to_string()),
         thinking_effort: None,

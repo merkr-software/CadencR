@@ -165,7 +165,7 @@ pub const GENERATED: [&str; 5] = [
 /// binary the check command points at. The user's history stays about their
 /// colors.
 ///
-/// Appended rather than written, and only the entries actually missing:
+/// Appended rather than rewritten, and only the entries actually missing:
 /// `.git/info/exclude` may hold entries the user put there, and a later release
 /// adding another file must not re-list the ones already there.
 async fn exclude_from_git(dir: &Path) -> Result<(), AppError> {
@@ -176,36 +176,71 @@ async fn exclude_from_git(dir: &Path) -> Result<(), AppError> {
         return Ok(());
     }
     let path = git.join("info").join("exclude");
-    let existing = fs::read_to_string(&path).await.unwrap_or_default();
+    // Only a file that is not there yet reads as empty. Any other read error
+    // stops here: treating it as empty would drop the user's own rules.
+    let existing = match fs::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            return Err(AppError::internal(format!(
+                "failed to read {}: {error}",
+                path.display()
+            )))
+        }
+    };
+    let listed = |name: &str| {
+        existing
+            .split(|byte| *byte == b'\n')
+            .any(|line| line.trim_ascii() == name.as_bytes())
+    };
     let missing: Vec<&str> = GENERATED
         .iter()
         .copied()
-        .filter(|name| !existing.lines().any(|line| line.trim() == *name))
+        .filter(|name| !listed(name))
         .collect();
     if missing.is_empty() {
         return Ok(());
     }
 
-    let mut next = existing;
-    if !next.is_empty() && !next.ends_with('\n') {
-        next.push('\n');
+    let mut addition = String::new();
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
+        addition.push('\n');
     }
-    if !next.contains(EXCLUDE_HEADER) {
-        next.push_str(EXCLUDE_HEADER);
-        next.push('\n');
+    let has_header = existing
+        .windows(EXCLUDE_HEADER.len())
+        .any(|window| window == EXCLUDE_HEADER.as_bytes());
+    if !has_header {
+        addition.push_str(EXCLUDE_HEADER);
+        addition.push('\n');
     }
     for name in missing {
-        next.push_str(name);
-        next.push('\n');
+        addition.push_str(name);
+        addition.push('\n');
     }
+    append(&path, &addition).await
+}
+
+/// Append to `path`, creating it and its directory as needed. Appending never
+/// rewrites what is already there, whatever its encoding.
+async fn append(path: &Path, addition: &str) -> Result<(), AppError> {
+    use tokio::io::AsyncWriteExt as _;
 
     let info = path.parent().expect("exclude lives in .git/info");
     fs::create_dir_all(info)
         .await
         .map_err(|e| AppError::internal(format!("failed to create {}: {e}", info.display())))?;
-    fs::write(&path, next)
+    let write_error =
+        |e: std::io::Error| AppError::internal(format!("failed to write {}: {e}", path.display()));
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
         .await
-        .map_err(|e| AppError::internal(format!("failed to write {}: {e}", path.display())))
+        .map_err(write_error)?;
+    file.write_all(addition.as_bytes())
+        .await
+        .map_err(write_error)?;
+    file.flush().await.map_err(write_error)
 }
 
 #[cfg(test)]
@@ -427,5 +462,48 @@ mod tests {
         refresh(&dir).await.expect("refreshes");
         assert!(dir.join(REFERENCE_FILE_NAME).exists());
         assert!(!dir.join(".git").exists());
+    }
+
+    /// Rules that are not UTF-8 are still the user's: they stay, byte for
+    /// byte, and the entries are appended after them.
+    #[tokio::test]
+    async fn keeps_exclude_rules_that_are_not_utf8() {
+        let dir = theme_dir("latin1-exclude");
+        std::fs::create_dir_all(dir.join(".git").join("info")).expect("fake repo");
+        let exclude = dir.join(".git").join("info").join("exclude");
+        let seed = b"# caf\xe9\nscratch/".to_vec();
+        std::fs::write(&exclude, &seed).expect("seed");
+
+        refresh(&dir).await.expect("refreshes");
+
+        let content = std::fs::read(&exclude).expect("read");
+        assert!(content.starts_with(&seed), "{content:?}");
+        assert!(String::from_utf8_lossy(&content).contains(REFERENCE_FILE_NAME));
+    }
+
+    /// An exclude file that cannot be read fails the refresh and is left as
+    /// it was, instead of being rewritten without the user's rules.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unreadable_exclude_fails_without_being_overwritten() {
+        if !crate::shared::test_dirs::permissions_bind() {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = theme_dir("unreadable-exclude");
+        std::fs::create_dir_all(dir.join(".git").join("info")).expect("fake repo");
+        let exclude = dir.join(".git").join("info").join("exclude");
+        std::fs::write(&exclude, "scratch/\n").expect("seed");
+        std::fs::set_permissions(&exclude, std::fs::Permissions::from_mode(0o200)).expect("chmod");
+
+        let result = refresh(&dir).await;
+
+        std::fs::set_permissions(&exclude, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        assert!(result.is_err(), "{result:?}");
+        assert_eq!(
+            std::fs::read_to_string(&exclude).expect("read"),
+            "scratch/\n"
+        );
     }
 }

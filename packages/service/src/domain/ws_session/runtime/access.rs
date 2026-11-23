@@ -2,14 +2,16 @@ use sqlx::SqlitePool;
 
 use crate::domain::agents::adapter::{parse_access_mode_wire, RuntimeAccessMode};
 use crate::domain::agents::runtime_adapter;
+use crate::error::AppError;
 
 pub(in crate::domain::ws_session) async fn configured_access_mode(
     provider_id: &str,
     read_pool: &SqlitePool,
-) -> Option<RuntimeAccessMode> {
-    runtime_adapter(provider_id)?
-        .configured_access_mode(read_pool)
-        .await
+) -> Result<Option<RuntimeAccessMode>, AppError> {
+    let Some(adapter) = runtime_adapter(provider_id) else {
+        return Ok(None);
+    };
+    adapter.configured_access_mode(read_pool).await
 }
 
 pub(in crate::domain::ws_session) fn runtime_access_mode(

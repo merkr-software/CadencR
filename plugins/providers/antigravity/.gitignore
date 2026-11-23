@@ -1,0 +1,7 @@
+/bin/
+/dist/
+/.turbo/
+/node_modules/
+__pycache__/
+.DS_Store
+.env

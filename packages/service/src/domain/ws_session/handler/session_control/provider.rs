@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use axum::extract::ws::Message;
 use tracing::error;
 
@@ -100,7 +101,9 @@ async fn apply_provider_set(
             )),
         )
         .expect("provider selection serializes");
-        let _ = sender.send(Message::Text(String::from(reply).into()));
+        sender
+            .send(Message::Text(String::from(reply).into()))
+            .ignore_closed();
         return Ok(());
     }
     let selection = selection::resolve(app_state, payload, snapshot).await?;

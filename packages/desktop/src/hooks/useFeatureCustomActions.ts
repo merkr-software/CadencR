@@ -1,4 +1,5 @@
 import { useListCustomActions, type CustomAction } from "@/api/generated";
+import { useSettledWorkspaceActive } from "@/components/workspace-pool/workspace-activity";
 import { startingKey, useCustomActionsUiStore } from "@/stores/custom-actions-ui-store";
 
 /**
@@ -7,13 +8,19 @@ import { startingKey, useCustomActionsUiStore } from "@/stores/custom-actions-ui
  */
 const RUNNING_FALLBACK_POLL_MS = 10_000;
 
-/** The actions offered in a conversation (the project's, then the global ones). */
+/**
+ * The actions offered in a conversation (the project's, then the global ones).
+ * The fallback poll runs only while the conversation is on screen: the top bar
+ * of a workspace kept mounted but hidden (`WorkspacePool`) stays mounted.
+ */
 export function useFeatureCustomActions(projectId: number, featureId: number) {
+  const shown = useSettledWorkspaceActive();
   return useListCustomActions(
     { project_id: projectId, feature_id: featureId },
     {
       query: {
         refetchInterval: (query) =>
+          shown &&
           (query.state.data ?? []).some(
             (action) => action.last_run != null && action.last_run.ended_at == null,
           )

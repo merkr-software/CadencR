@@ -37,6 +37,29 @@ pub async fn create_project_handler(
     ))
 }
 
+/// Rename the project and/or move its folder (see `relocation`). Runs in its
+/// own task: a client that goes away must not stop a move half done.
+#[utoipa::path(patch, path = "/api/projects/{id}", params(("id" = i64, Path,)),
+    request_body = UpdateProjectRequest,
+    responses(
+        (status = 200, body = UpdateProjectResponse),
+        (status = 400, description = "BAD_REQUEST: invalid name or destination"),
+        (status = 404, description = "NOT_FOUND"),
+        (status = 409, description = "CONFLICT: destination taken, folder missing, or the project is busy"),
+    ))]
+pub async fn update_project_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateProjectRequest>,
+) -> Result<Json<UpdateProjectResponse>, AppError> {
+    tokio::spawn(async move {
+        crate::domain::projects::relocation::update_project(&state, id, body).await
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("project update task failed: {error}")))?
+    .map(Json)
+}
+
 #[utoipa::path(delete, path = "/api/projects/{id}", params(("id" = i64, Path,)), responses((status = 200, body = SuccessResponse)))]
 pub async fn delete_project_handler(
     State(state): State<AppState>,
@@ -136,7 +159,7 @@ pub fn projects_router() -> Router<AppState> {
         )
         .route(
             "/api/projects/{id}",
-            axum::routing::delete(delete_project_handler),
+            axum::routing::delete(delete_project_handler).patch(update_project_handler),
         )
         .route(
             "/api/projects/{id}/publication-readiness",

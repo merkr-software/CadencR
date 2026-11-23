@@ -38,6 +38,12 @@ export function toolCallFailure(
   return failure(result ? resultReason(result) : argsReason(args));
 }
 
+/**
+ * Claude Code wraps a refused call's message in this tag: the reason is the
+ * message. Stripped here, at display, because persisted transcripts keep it.
+ */
+const TOOL_USE_ERROR_TAG = /<\/?tool_use_error>/g;
+
 function failure(output: string | undefined): ToolCallFailure {
   return { reason: output ? firstLine(output) : undefined };
 }
@@ -56,12 +62,15 @@ function argsReason(args: Record<string, unknown>): string | undefined {
   return extractBashOutputFromArgs(args);
 }
 
-/** The first non-blank line, without splitting a long output into every line. */
+/** The first non-blank line, untagged, without splitting a long output into every line. */
 function firstLine(text: string): string | undefined {
   let start = 0;
   while (start < text.length) {
     const end = text.indexOf("\n", start);
-    const line = text.slice(start, end === -1 ? text.length : end).trim();
+    const line = text
+      .slice(start, end === -1 ? text.length : end)
+      .replace(TOOL_USE_ERROR_TAG, "")
+      .trim();
     if (line) {
       return line.length > MAX_REASON_LENGTH ? `${line.slice(0, MAX_REASON_LENGTH - 1)}…` : line;
     }

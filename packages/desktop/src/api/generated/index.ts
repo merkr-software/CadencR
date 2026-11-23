@@ -204,7 +204,22 @@ export interface AgentBlock {
   type: string;
 }
 
+/**
+ * A theme accent for a provider-declared permission mode.
+ */
+export type ProviderModeAccent = (typeof ProviderModeAccent)[keyof typeof ProviderModeAccent];
+
+export const ProviderModeAccent = {
+  blue: "blue",
+  green: "green",
+  yellow: "yellow",
+  violet: "violet",
+} as const;
+
+export type ProviderModeCatalogEntryAccent = null | ProviderModeAccent;
+
 export interface ProviderModeCatalogEntry {
+  accent?: ProviderModeCatalogEntryAccent;
   /** @nullable */
   description?: string | null;
   id: string;
@@ -1383,6 +1398,17 @@ export interface ContentMatch {
 
 export interface ContentSearchResponse {
   matches: ContentMatch[];
+  /**
+   * The size above which a file is skipped.
+   * @minimum 0
+   */
+  max_file_bytes: number;
+  /**
+   * Files left unsearched because they are larger than
+   * `max_file_bytes`: a match inside them is not in `matches`.
+   * @minimum 0
+   */
+  skipped_large_files: number;
   truncated: boolean;
 }
 
@@ -1429,6 +1455,7 @@ export interface ConversationReferenceCandidate {
   feature_id: number;
   feature_status: FeatureStatus;
   feature_title: string;
+  project_id: number;
   project_name: string;
 }
 
@@ -2488,7 +2515,11 @@ export interface FileBlobSha {
 }
 
 export interface FileContent {
-  /** True if either side appears to be a binary blob. */
+  /**
+   * True if either side holds a NUL byte in its first 8 KB or is not valid
+   * UTF-8 — the same verdict `GET /api/git/file-content` reaches. A side
+   * over 16 MiB, which that endpoint refuses, is judged on its first 8 KB.
+   */
   is_binary: boolean;
   /**
    * True if the file is too large to render automatically. When true the
@@ -5337,8 +5368,26 @@ export interface Project {
   id: number;
   name: string;
   path: string;
+  /**
+   * The folder is not where the project records it (moved or deleted
+   * outside Cadencr); the user can locate it.
+   */
+  path_missing: boolean;
   /** @nullable */
   plugin_id?: string | null;
+}
+
+export type ProjectFolderMode = (typeof ProjectFolderMode)[keyof typeof ProjectFolderMode];
+
+export const ProjectFolderMode = {
+  move: "move",
+  locate: "locate",
+} as const;
+
+export interface ProjectFolderChange {
+  mode: ProjectFolderMode;
+  /** The folder's new absolute path. */
+  path: string;
 }
 
 /**
@@ -5492,6 +5541,7 @@ export interface ProviderSetOkPayload {
   model: string;
   /** @nullable */
   profile?: string | null;
+  prompt_receipts_at_submission?: boolean;
   provider: string;
   runtime_overrides: RuntimeConfigOverrides;
   supports_prompt_receipts: boolean;
@@ -5887,6 +5937,8 @@ export interface QueuePromptRequest {
   content: string;
 }
 
+export type QueuedPromptOrigin = null | AgentMessageOrigin;
+
 /**
  * Where a queued prompt stands.
  */
@@ -5907,6 +5959,7 @@ export interface QueuedPrompt {
   /** @nullable */
   error?: string | null;
   id: number;
+  origin?: QueuedPromptOrigin;
   session_id: number;
   status: QueuedPromptStatus;
 }
@@ -6717,6 +6770,8 @@ export interface SessionInitializedPayload {
   permission_mode?: string | null;
   /** @nullable */
   profile?: string | null;
+  /** Keep provider-pending prompts in their submission order. */
+  prompt_receipts_at_submission?: boolean;
   /** @nullable */
   provider?: string | null;
   runtime_overrides: RuntimeConfigOverrides;
@@ -6757,7 +6812,14 @@ export interface SessionLifecyclePayload {
 }
 
 export interface SessionMcpServersPayload {
+  /**
+   * Why the servers could not be read; `mcp_servers` is then empty and
+   * says nothing about what the agent has.
+   * @nullable
+   */
+  error?: string | null;
   mcp_servers: McpServerStatusPayload[];
+  session_id: string;
 }
 
 export interface SessionMessagePayload {
@@ -6787,6 +6849,11 @@ export interface SessionPrompt {
   image_count: number;
   /** Start of the prompt's text, whitespace-collapsed. */
   preview: string;
+}
+
+export interface SessionPromptSteeringPayload {
+  session_id: string;
+  supported: boolean;
 }
 
 export interface SessionPromptsResponse {
@@ -7379,6 +7446,32 @@ export interface UpdatePinnedRequest {
   pinned: boolean;
 }
 
+export type UpdateProjectRequestFolder = null | ProjectFolderChange;
+
+/**
+ * Rename a project, move its folder, or both.
+ */
+export interface UpdateProjectRequest {
+  folder?: UpdateProjectRequestFolder;
+  /**
+   * The new display name; omitted keeps the current one.
+   * @nullable
+   */
+  name?: string | null;
+}
+
+export interface UpdateProjectResponse {
+  /**
+   * A move to another volume copied the folder: the original is still
+   * here, for the user to delete once satisfied.
+   * @nullable
+   */
+  original_left_at?: string | null;
+  project: Project;
+  /** What could not follow the folder, for the user. */
+  warnings: string[];
+}
+
 export interface UpdateStatusRequest {
   status: FeatureStatus;
 }
@@ -7620,6 +7713,7 @@ export const WsSessionAction = {
   stream_status: "stream_status",
   persistence_status: "persistence_status",
   subagent_updated: "subagent_updated",
+  prompt_steering: "prompt_steering",
 } as const;
 
 export type WsSessionCommandOneOfAction =
@@ -8483,6 +8577,18 @@ export type WsSessionEventOneOfEightone = {
   payload: SubagentRun;
 };
 
+export type WsSessionEventOneOfEightthreeAction =
+  (typeof WsSessionEventOneOfEightthreeAction)[keyof typeof WsSessionEventOneOfEightthreeAction];
+
+export const WsSessionEventOneOfEightthreeAction = {
+  prompt_steering: "prompt_steering",
+} as const;
+
+export type WsSessionEventOneOfEightthree = {
+  action: WsSessionEventOneOfEightthreeAction;
+  payload: SessionPromptSteeringPayload;
+};
+
 /**
  * Session-domain server events, flattened beside the envelope id/domain/ref.
  */
@@ -8527,7 +8633,8 @@ export type WsSessionEvent =
   | WsSessionEventOneOfSevenfive
   | WsSessionEventOneOfSevenseven
   | WsSessionEventOneOfSevennine
-  | WsSessionEventOneOfEightone;
+  | WsSessionEventOneOfEightone
+  | WsSessionEventOneOfEightthree;
 
 export type GetAgentCatalogParams = {
   /**
@@ -8809,6 +8916,24 @@ export type GetFeatureAgentStateParams = {
    * @nullable
    */
   before?: string | null;
+  /**
+   * JSON-encoded map of session_id -> exclusive upper bound for an `after`
+   * page: it stops before this message id (a gap in the client's history).
+   * @nullable
+   */
+  until?: string | null;
+  /**
+   * JSON-encoded map of session_id -> exclusive lower bound for a `before`
+   * page: it stops after this message id (a gap in the client's history).
+   * @nullable
+   */
+  since?: string | null;
+  /**
+   * Only this session of the feature (a history page for one conversation
+   * needs no other session's latest page).
+   * @nullable
+   */
+  session?: number | null;
 };
 
 export type UnmarkDiffViewedParams = {
@@ -19754,7 +19879,7 @@ export const respondGate = (
 export const getRespondGateMutationKey = () => ["respondGate"] as const;
 
 export const getRespondGateMutationOptions = <
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -19790,10 +19915,10 @@ export const getRespondGateMutationOptions = <
 
 export type RespondGateMutationResult = NonNullable<Awaited<ReturnType<typeof respondGate>>>;
 export type RespondGateMutationBody = FeatureRespondGateRequest;
-export type RespondGateMutationError = ErrorType<unknown>;
+export type RespondGateMutationError = ErrorType<void>;
 export type RespondGateMutationVariables = { id: number; data: FeatureRespondGateRequest };
 
-export const useRespondGate = <TError = ErrorType<unknown>, TContext = unknown>(
+export const useRespondGate = <TError = ErrorType<void>, TContext = unknown>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof respondGate>>,
@@ -21595,7 +21720,7 @@ export const getGetDiffQueryKey = (params?: GetDiffParams) => {
 
 export const getGetDiffQueryOptions = <
   TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetDiffParams,
   options?: {
@@ -21617,12 +21742,9 @@ export const getGetDiffQueryOptions = <
 };
 
 export type GetDiffQueryResult = NonNullable<Awaited<ReturnType<typeof getDiff>>>;
-export type GetDiffQueryError = ErrorType<unknown>;
+export type GetDiffQueryError = ErrorType<void>;
 
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>> &
@@ -21637,10 +21759,7 @@ export function useGetDiff<
   },
   queryClient?: QueryClient,
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>> &
@@ -21655,10 +21774,7 @@ export function useGetDiff<
   },
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>>;
@@ -21666,10 +21782,7 @@ export function useGetDiff<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
-export function useGetDiff<
-  TData = Awaited<ReturnType<typeof getDiff>>,
-  TError = ErrorType<unknown>,
->(
+export function useGetDiff<TData = Awaited<ReturnType<typeof getDiff>>, TError = ErrorType<void>>(
   params: GetDiffParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getDiff>>, TError, TData>>;
@@ -21922,7 +22035,7 @@ export const getGetFileContentQueryKey = (params?: GetFileContentParams) => {
 
 export const getGetFileContentQueryOptions = <
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -21944,11 +22057,11 @@ export const getGetFileContentQueryOptions = <
 };
 
 export type GetFileContentQueryResult = NonNullable<Awaited<ReturnType<typeof getFileContent>>>;
-export type GetFileContentQueryError = ErrorType<unknown>;
+export type GetFileContentQueryError = ErrorType<void>;
 
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options: {
@@ -21966,7 +22079,7 @@ export function useGetFileContent<
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -21984,7 +22097,7 @@ export function useGetFileContent<
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -21995,7 +22108,7 @@ export function useGetFileContent<
 
 export function useGetFileContent<
   TData = Awaited<ReturnType<typeof getFileContent>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileContentParams,
   options?: {
@@ -22098,7 +22211,7 @@ export const getGetFileDiffQueryKey = (params?: GetFileDiffParams) => {
 
 export const getGetFileDiffQueryOptions = <
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22120,11 +22233,11 @@ export const getGetFileDiffQueryOptions = <
 };
 
 export type GetFileDiffQueryResult = NonNullable<Awaited<ReturnType<typeof getFileDiff>>>;
-export type GetFileDiffQueryError = ErrorType<unknown>;
+export type GetFileDiffQueryError = ErrorType<void>;
 
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options: {
@@ -22142,7 +22255,7 @@ export function useGetFileDiff<
 ): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22160,7 +22273,7 @@ export function useGetFileDiff<
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -22171,7 +22284,7 @@ export function useGetFileDiff<
 
 export function useGetFileDiff<
   TData = Awaited<ReturnType<typeof getFileDiff>>,
-  TError = ErrorType<unknown>,
+  TError = ErrorType<void>,
 >(
   params: GetFileDiffParams,
   options?: {
@@ -30196,6 +30309,89 @@ export const useDeleteProject = <TError = ErrorType<unknown>, TContext = unknown
   TContext
 > => {
   return useMutation(getDeleteProjectMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Rename the project and/or move its folder (see `relocation`). Runs in its
+own task: a client that goes away must not stop a move half done.
+ */
+export const updateProject = (
+  id: number,
+  updateProjectRequest: UpdateProjectRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<UpdateProjectResponse>({
+    url: `/api/projects/${id}`,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    data: updateProjectRequest,
+    signal,
+  });
+};
+
+export const getUpdateProjectMutationKey = () => ["updateProject"] as const;
+
+export const getUpdateProjectMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateProject>>,
+    TError,
+    UpdateProjectMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateProject>>,
+  TError,
+  UpdateProjectMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateProjectMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateProject>>,
+    UpdateProjectMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateProject(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateProjectMutationResult = NonNullable<Awaited<ReturnType<typeof updateProject>>>;
+export type UpdateProjectMutationBody = UpdateProjectRequest;
+export type UpdateProjectMutationError = ErrorType<void>;
+export type UpdateProjectMutationVariables = { id: number; data: UpdateProjectRequest };
+
+/**
+ * @summary Rename the project and/or move its folder (see `relocation`). Runs in its
+own task: a client that goes away must not stop a move half done.
+ */
+export const useUpdateProject = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateProject>>,
+      TError,
+      UpdateProjectMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateProject>>,
+  TError,
+  UpdateProjectMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateProjectMutationOptions(options), queryClient);
 };
 
 export const archiveProjectSessions = (id: number, signal?: AbortSignal) => {

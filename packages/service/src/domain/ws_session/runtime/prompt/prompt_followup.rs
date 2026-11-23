@@ -1,12 +1,7 @@
+use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::ws_session::runtime::output::SessionOutput;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSessionHandle};
-
-struct FollowupTurnGuard {
-    runtime: tokio::sync::OwnedRwLockReadGuard<Box<dyn AgentRuntimeSession>>,
-    _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
-}
 use crate::domain::feature_events::{FeatureEventAction, FeatureEventBroadcaster};
 use crate::domain::ws_session::protocol::PromptSendPayload;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -19,19 +14,20 @@ use super::content::{
     payload_attachments,
 };
 use super::errors::persist_pause_and_send_session_error;
-use super::followup_dispatch::{mark_followup_dispatch_failed, mark_followup_succeeded};
-use super::followup_withdrawal::{
-    fail_stopped_followups, stopped_since_accepted, withdraw_followup, FollowupDelivery,
+use super::followup_delivery::{mark_running, FollowupDelivery};
+use super::followup_dispatch::{
+    claim_followup_shell_context, fail_followup_stream, mark_followup_dispatch_failed,
+    mark_followup_succeeded,
 };
+use super::followup_turn::{acquire_followup_turn_guard, FollowupTurnGuard};
+use super::followup_withdrawal::{fail_stopped_followups, withdraw_followup, WithdrawnBy};
 use super::prompt_receipt::clear_pending_prompt_receipt;
-use super::prompt_status::{
-    mark_agent_running, persist_and_publish_prompt, PromptPersistenceOutcome,
-};
-use super::user_shell_context::{claim_pending_user_shell_context, PendingUserShellContext};
+use super::prompt_status::{persist_and_publish_prompt, PromptPersistenceOutcome};
 use crate::domain::ws_session::runtime::followup_stops::HandOff;
 
 pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub query: RuntimeSessionHandle,
+    pub user_selection: Option<super::user_selection::PromptedSelection>,
     pub delivery_lease: Option<super::super::state::RuntimeDeliveryLease>,
     pub feature_id: i64,
     pub db_session_id: i64,
@@ -41,9 +37,7 @@ pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub ws_feature_senders: WsFeatureSenderRegistry,
     pub feature_events_tx: FeatureEventBroadcaster,
     pub envelope_id: String,
-    /// The owning connection's session map + the global registry, so a
-    /// follow-up turn re-stamps the start time and owner (single source of
-    /// truth for the synced timer + cross-device answers).
+    /// Session owners for cross-device answers and turn timing.
     pub sdk_sessions: SdkSessions,
     pub active_turns: Arc<ActiveTurnRegistry>,
     pub provider_id: String,
@@ -53,21 +47,21 @@ pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub wait_for_delivery: bool,
 }
 
+struct PreparedFollowup {
+    context: FollowupPromptContext,
+    turn_guard: FollowupTurnGuard,
+    payload: PromptSendPayload,
+    dispatch_claim: Option<(i64, String)>,
+    receipt_message_uuid: Option<String>,
+    conversation_references: Vec<super::conversation_references::ResolvedConversationReference>,
+    delivery: FollowupDelivery,
+}
+
 pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     context: FollowupPromptContext,
     payload: PromptSendPayload,
 ) -> Result<(), String> {
-    let turn_running = context.session_status_tx.is_busy(context.db_session_id);
-    let mut delivery = FollowupDelivery {
-        preserve_running_turn: context.wait_for_delivery && turn_running,
-        accepted: turn_running.then(|| {
-            context
-                .active_turns
-                .followups()
-                .accept(context.db_session_id)
-        }),
-        turn_generation: None,
-    };
+    let mut delivery = FollowupDelivery::arrive(&context);
     let persistence = persist_followup_user_message(&context, &payload).await?;
     if !persistence.should_dispatch() {
         return Ok(());
@@ -76,92 +70,93 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
         .dispatch_claim()
         .map(|(message_id, token)| (message_id, token.to_string()));
     let receipt_message_uuid = persistence.tracked_message_uuid(&payload);
-    let conversation_references = match super::conversation_references::resolve(
+    let conversation_references = resolve_followup_references(
+        &context,
+        &payload.text,
+        dispatch_claim.as_ref(),
+        receipt_message_uuid.as_deref(),
+    )
+    .await?;
+
+    // Before the order lock and the pre-turn checkpoint: a prompt sent while
+    // idle reserves its turn (the session reads working, with its Stop), one
+    // sent mid-turn is already a follow-up. A Stop then cancels either, so the
+    // controls received after it are let through.
+    delivery.reserve_turn(&context).await;
+
+    let Some(turn_guard) = acquire_followup_turn_guard(
+        &context,
+        &payload,
+        persistence.message_id(),
+        dispatch_claim.as_ref(),
+        &mut delivery,
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    // A follow-up marks the session working once it is sure to be handed
+    // over; a start did when it reserved its turn.
+    if delivery.follows_a_turn() {
+        mark_running(&context).await;
+    }
+
+    info!(context.db_session_id, "follow-up prompt");
+    let prepared = PreparedFollowup {
+        context,
+        turn_guard,
+        payload,
+        dispatch_claim,
+        receipt_message_uuid,
+        conversation_references,
+        delivery,
+    };
+    let wait = prepared.context.wait_for_delivery;
+    if wait && prepared.turn_guard.runtime.negotiated_prompt_steering() != Some(true) {
+        return stream_followup_prompt(prepared).await;
+    }
+    // The dispatch owns its ACP request and receipt if the control caller leaves.
+    let task = tokio::spawn(stream_followup_prompt(prepared));
+    if wait {
+        return task
+            .await
+            .map_err(|error| format!("Follow-up dispatch task failed: {error}"))?;
+    }
+    drop(task);
+    Ok(())
+}
+
+async fn resolve_followup_references(
+    context: &FollowupPromptContext,
+    text: &str,
+    dispatch_claim: Option<&(i64, String)>,
+    receipt_message_uuid: Option<&str>,
+) -> Result<Vec<super::conversation_references::ResolvedConversationReference>, String> {
+    match super::conversation_references::resolve(
         &context.write_pool,
         context.feature_id,
-        &payload.text,
+        text,
         !context.internal_replay,
     )
     .await
     {
-        Ok(references) => references,
+        Ok(references) => Ok(references),
         Err(error) => {
-            mark_followup_dispatch_failed(&context, dispatch_claim.as_ref(), &error).await;
+            mark_followup_dispatch_failed(context, dispatch_claim, &error).await;
             if let Some(message_uuid) = receipt_message_uuid {
-                let _ = clear_pending_prompt_receipt(
+                clear_pending_prompt_receipt(
                     &context.write_pool,
                     &context.ws_feature_senders,
                     &context.sender,
                     context.feature_id,
                     context.db_session_id,
-                    message_uuid,
+                    message_uuid.to_string(),
                 )
                 .await;
             }
-            return Err(error);
+            Err(error)
         }
-    };
-    // Retain this read guard through dispatch. Reacquiring it while holding
-    // the barrier could deadlock against a queued writer and another control.
-    let runtime = context.query.clone().read_owned().await;
-    let barrier = runtime.turn_control_guard().await;
-    let turn_guard = FollowupTurnGuard {
-        runtime,
-        _barrier: barrier,
-    };
-    // Before it starts a turn: a Stop that came meanwhile ended the one it
-    // followed, and nothing would end the turn it starts.
-    if stopped_since_accepted(&context, &delivery) {
-        drop(turn_guard);
-        return withdraw_followup(&context, &payload, None, dispatch_claim.as_ref(), None).await;
     }
-    mark_agent_running(
-        &context.write_pool,
-        &context.session_status_tx,
-        &context.ws_feature_senders,
-        &context.active_turns,
-        &context.sdk_sessions,
-        context.db_session_id,
-        context.feature_id,
-    )
-    .await;
-
-    delivery.turn_generation = context
-        .active_turns
-        .current_generation(context.db_session_id)
-        .await;
-
-    // Snapshot the worktree *before* this turn's prompt is delivered to the live
-    // agent (the `stream_input` below), so a later rewind to this message can
-    // restore the pre-turn code state. A deliberate pre-turn barrier.
-    super::prompt_checkpoint::capture_pre_turn_followup(&context, persistence.message_id()).await;
-
-    info!(context.db_session_id, "follow-up prompt");
-    if context.wait_for_delivery {
-        return stream_followup_prompt(
-            context,
-            turn_guard,
-            payload,
-            dispatch_claim,
-            receipt_message_uuid,
-            conversation_references,
-            delivery,
-        )
-        .await;
-    }
-    tokio::spawn(async move {
-        let _ = stream_followup_prompt(
-            context,
-            turn_guard,
-            payload,
-            dispatch_claim,
-            receipt_message_uuid,
-            conversation_references,
-            delivery,
-        )
-        .await;
-    });
-    Ok(())
 }
 
 async fn persist_followup_user_message(
@@ -187,9 +182,7 @@ async fn persist_followup_user_message(
         .internal_replay(context.internal_replay)
         .call()
         .await?;
-    // The user message changed this feature's most-recent-user-message sort
-    // key. Broadcast so every client's sidebar re-sorts conversations and
-    // floats this one to the top of its project.
+    // Reorder every client's sidebar after a new user message.
     if outcome.inserted() {
         context
             .feature_events_tx
@@ -198,62 +191,58 @@ async fn persist_followup_user_message(
     Ok(outcome)
 }
 
-async fn stream_followup_prompt(
-    mut context: FollowupPromptContext,
-    turn_guard: FollowupTurnGuard,
-    payload: PromptSendPayload,
-    dispatch_claim: Option<(i64, String)>,
-    receipt_message_uuid: Option<String>,
-    conversation_references: Vec<super::conversation_references::ResolvedConversationReference>,
-    delivery: FollowupDelivery,
-) -> Result<(), String> {
+async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String> {
+    let PreparedFollowup {
+        mut context,
+        mut turn_guard,
+        payload,
+        dispatch_claim,
+        receipt_message_uuid,
+        conversation_references,
+        mut delivery,
+    } = prepared;
     let shell_context =
         claim_followup_shell_context(&context, &payload, dispatch_claim.as_ref()).await?;
     let attachments = payload_attachments(&payload);
     // Expand Cadencr prompt directives only for the provider. The persisted
     // user message keeps the concise command and conversation-reference tokens.
     let prompt_text = expand_prompt_for_provider(&payload.text, &conversation_references);
-    let prompt_text = match shell_context.append_to_prompt(prompt_text) {
-        Ok(prompt) => prompt,
-        Err(message) => {
-            let _ = shell_context.release(&context.write_pool).await;
-            mark_followup_dispatch_failed(&context, dispatch_claim.as_ref(), &message).await;
-            persist_pause_and_send_session_error()
-                .pool(&context.write_pool)
-                .session_status_tx(&context.session_status_tx)
-                .sender(&context.sender)
-                .ref_id(&context.envelope_id)
-                .feature_id(context.feature_id)
-                .session_id(context.db_session_id)
-                .code("USER_SHELL_CONTEXT_ERROR")
-                .message(&message)
-                .call()
-                .await;
-            return Err(message);
-        }
-    };
+    let prompt_text = append_shell_context_or_fail(
+        &context,
+        &shell_context,
+        prompt_text,
+        dispatch_claim.as_ref(),
+    )
+    .await?;
     let content =
         build_content_value_for_provider(&context.provider_id, &prompt_text, &attachments);
-    if stopped_since_accepted(&context, &delivery) {
+    if !delivery.claim_hand_over(&context).await {
         drop(turn_guard);
         drop(context.delivery_lease.take());
-        let shell_context = Some(shell_context);
-        let generation = delivery.turn_to_end();
         return withdraw_followup(
             &context,
             &payload,
-            shell_context,
+            Some(shell_context),
             dispatch_claim.as_ref(),
-            generation,
+            delivery.turn_to_end(),
+            WithdrawnBy::Stop,
         )
         .await;
     }
     let stream_result = turn_guard
         .runtime
-        .stream_input_with_client_message_id(content, receipt_message_uuid.clone())
+        .stream_input_with_delivery_order(
+            content,
+            receipt_message_uuid.clone(),
+            &mut turn_guard.followup_order,
+        )
         .await;
     // Recorded before the barrier drops: a Stop that follows withdraws it,
     // and finds its dispatch final.
+    let selection = match (&stream_result, context.user_selection.take()) {
+        (Ok(()), Some(selection)) => Some(selection.delivered(&**turn_guard.runtime).await),
+        _ => None,
+    };
     if stream_result.is_ok() {
         mark_followup_succeeded(&context, dispatch_claim.as_ref()).await;
         if let (Some(accepted), Some(id)) = (delivery.accepted, receipt_message_uuid.as_ref()) {
@@ -274,63 +263,53 @@ async fn stream_followup_prompt(
     }
     drop(turn_guard);
     drop(context.delivery_lease.take());
-
+    if let Some(selection) = selection {
+        selection
+            .remember(&context.sender, &context.envelope_id)
+            .await;
+    }
     if let Err(error) = stream_result {
         if error.is_input_withdrawn() {
-            let shell_context = Some(shell_context);
-            let generation = delivery.turn_to_end();
             return withdraw_followup(
                 &context,
                 &payload,
-                shell_context,
+                Some(shell_context),
                 dispatch_claim.as_ref(),
-                generation,
+                delivery.turn_to_end(),
+                WithdrawnBy::Stop,
             )
             .await;
         }
-        let message = error.to_string();
-        if let Err(release_error) = shell_context.release(&context.write_pool).await {
-            error!(context.db_session_id, error = %release_error, "failed to release user shell context claim");
-        }
+        shell_context
+            .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+            .await;
         return fail_followup_stream(
             &context,
             dispatch_claim.as_ref(),
             receipt_message_uuid,
-            message,
+            &error,
             delivery.preserve_running_turn,
         )
         .await;
     }
-    if let Err(error) = shell_context.mark_delivered(&context.write_pool).await {
-        error!(context.db_session_id, %error, "failed to mark user shell context delivered");
-        super::super::helpers::send_warning(
-            &context.sender,
-            &context.envelope_id,
-            "USER_SHELL_CONTEXT_STATE_ERROR",
-            &error,
-        );
-    }
+    shell_context
+        .mark_delivered_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+        .await;
     Ok(())
 }
 
-async fn claim_followup_shell_context(
+async fn append_shell_context_or_fail<'a>(
     context: &FollowupPromptContext,
-    payload: &PromptSendPayload,
+    shell_context: &super::user_shell_context::PendingUserShellContext,
+    prompt_text: std::borrow::Cow<'a, str>,
     dispatch_claim: Option<&(i64, String)>,
-) -> Result<PendingUserShellContext, String> {
-    let shell_delivery_id = payload
-        .message_uuid
-        .as_deref()
-        .unwrap_or(&context.envelope_id);
-    match claim_pending_user_shell_context(
-        &context.write_pool,
-        context.db_session_id,
-        shell_delivery_id,
-    )
-    .await
-    {
-        Ok(shell_context) => Ok(shell_context),
+) -> Result<std::borrow::Cow<'a, str>, String> {
+    match shell_context.append_to_prompt(prompt_text) {
+        Ok(prompt) => Ok(prompt),
         Err(message) => {
+            shell_context
+                .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+                .await;
             mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
             persist_pause_and_send_session_error()
                 .pool(&context.write_pool)
@@ -346,49 +325,4 @@ async fn claim_followup_shell_context(
             Err(message)
         }
     }
-}
-
-async fn fail_followup_stream(
-    context: &FollowupPromptContext,
-    dispatch_claim: Option<&(i64, String)>,
-    receipt_message_uuid: Option<String>,
-    message: String,
-    preserve_running_turn: bool,
-) -> Result<(), String> {
-    mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
-    error!(context.db_session_id, error = %message, "stream_input failed");
-    if let Some(message_uuid) = receipt_message_uuid {
-        let owner_closed = clear_pending_prompt_receipt(
-            &context.write_pool,
-            &context.ws_feature_senders,
-            &context.sender,
-            context.feature_id,
-            context.db_session_id,
-            message_uuid,
-        )
-        .await;
-        if owner_closed {
-            error!(
-                context.db_session_id,
-                "prompt delivery-failed receipt owner disconnected"
-            );
-        }
-    }
-    // Refusing this queued steer does not end the already-running turn.
-    // The control caller surfaces the error on the durable queue entry.
-    if preserve_running_turn {
-        return Err(message);
-    }
-    persist_pause_and_send_session_error()
-        .pool(&context.write_pool)
-        .session_status_tx(&context.session_status_tx)
-        .sender(&context.sender)
-        .ref_id(&context.envelope_id)
-        .feature_id(context.feature_id)
-        .session_id(context.db_session_id)
-        .code("SDK_ERROR")
-        .message(&message)
-        .call()
-        .await;
-    Err(message)
 }

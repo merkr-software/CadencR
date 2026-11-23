@@ -3,7 +3,9 @@ import { customInstance } from "./client";
 import {
   agentExtensionOperationTimeout,
   archiveOperationTimeout,
+  isNoTimeoutPath,
   neovimOperationTimeout,
+  projectUpdateOperationTimeout,
 } from "./operation-timeouts";
 
 describe("Neovim initialization request timeout", () => {
@@ -77,5 +79,79 @@ describe("archive request timeout", () => {
     { method: "POST", url: "/api/features/7/archive-preview" },
   ])("keeps $method $url on its normal timeout", (config) => {
     expect(archiveOperationTimeout(config)).toBeUndefined();
+  });
+});
+
+describe("project update request timeout", () => {
+  it("waits for a folder move, which may copy the folder to another volume", async () => {
+    const timeout = await customInstance<number>({
+      method: "PATCH",
+      url: "/api/projects/7",
+      adapter: async (config) => ({
+        data: config.timeout,
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }),
+    });
+    expect(timeout).toBe(600000);
+  });
+
+  it.each([
+    { method: "DELETE", url: "/api/projects/7" },
+    { method: "PATCH", url: "/api/projects/7/settings" },
+  ])("keeps $method $url on its normal timeout", (config) => {
+    expect(projectUpdateOperationTimeout(config)).toBeUndefined();
+  });
+});
+
+describe("long-running git and LSP no-timeout paths", () => {
+  it.each([
+    "/api/git/commit",
+    "/api/git/push",
+    "/api/git/update-branch",
+    "/api/git/update-branch/continue",
+    "/api/git/update-branch/abort",
+    "/api/git/merge",
+    "/api/git/fetch",
+    "/api/git/fetch?feature_id=1",
+    "/api/lsp/sessions",
+  ])("disables the 30s Axios timeout for %s", async (url) => {
+    expect(isNoTimeoutPath(url)).toBe(true);
+    const timeout = await customInstance<number>({
+      method: "POST",
+      url,
+      adapter: async (config) => ({
+        data: config.timeout,
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }),
+    });
+    expect(timeout).toBe(0);
+  });
+
+  it.each([
+    "/api/git/merge-conflicts",
+    "/api/git/commit-log",
+    "/api/git/commit-graph",
+    "/api/git/push-input",
+    "/api/git/status",
+  ])("does not match sibling prefix path %s", async (url) => {
+    expect(isNoTimeoutPath(url)).toBe(false);
+    const timeout = await customInstance<number>({
+      method: "GET",
+      url,
+      adapter: async (config) => ({
+        data: config.timeout,
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      }),
+    });
+    expect(timeout).toBe(30000);
   });
 });

@@ -100,7 +100,7 @@ pub(super) fn inventory(
         .map(|installation| (installation.provider_id(), installation.as_ref()))
         .collect();
     let providers = storage
-        .provider_ids()
+        .provider_ids()?
         .into_iter()
         .map(|provider_id| {
             provider_entry(

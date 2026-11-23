@@ -1,10 +1,10 @@
 ---
 name: finish-job
-description: Simplify the current implementation, ensure the current-session changes have sufficient test coverage, and present a commit plan for user approval before any commit.
+description: Simplify the current implementation, review the behavior it changes, ensure sufficient test coverage, re-verify the final diff in the running app, and present a commit plan for user approval before any commit.
 argument-hint: [scope or notes]
 user-invocable: true
 disable-model-invocation: true
-allowed-tools: Bash(git *) Bash(pnpm *) Bash(cargo *) Read Grep Glob Edit Write Agent
+allowed-tools: Bash(git *) Bash(pnpm *) Bash(cargo *) Bash(curl *) Read Grep Glob Edit Write Agent Skill
 ---
 
 # Finish Job
@@ -26,7 +26,7 @@ Run `git status` and `git diff` first.
 
 Review the full working diff before editing. Prefer the smallest correct simplification.
 
-This phase must use three separate review agents in parallel when the environment supports subagents. The goal is to give each reviewer a small, isolated context centered on the diff, not the main conversation history.
+This phase must use four separate review agents in parallel when the environment supports subagents. The goal is to give each reviewer a small, isolated context centered on the diff, not the main conversation history.
 
 Before launching them:
 
@@ -41,11 +41,11 @@ Before launching them:
   ```
 
   Never reuse a static path like `/tmp/finish-job-diff.txt` — parallel worktrees on different branches would overwrite each other.
-- Pass that diff file (or its contents) to all three agents.
+- Pass that diff file (or its contents) to all four agents.
 - Tell each agent to review the diff brutally and flag anything weak, redundant, sloppy, or avoidable.
 - Tell each agent to focus only on the current diff and not to rely on broader conversation context.
 
-Launch these three review agents concurrently in a single message:
+Launch these four review agents concurrently in a single message:
 
 ### Agent 1: Reuse review
 
@@ -77,9 +77,19 @@ Ask this agent to:
 - Clean up obvious memory or listener leaks.
 - Treat wasteful code in the diff as a real defect even if it is functionally correct.
 
-If subagents are unavailable, perform the same three reviews yourself in that order, still using the full diff as the review target.
+### Agent 4: Behavior review
 
-Wait for all three review results, aggregate them, and then apply the worthwhile fixes directly. Do not preserve weak code just because it already works. If a finding is not worth fixing, note it briefly and move on.
+Ask this agent to:
+
+- List every behavior a user or a client of the code can observe that the diff changes: ordering, timing of statuses, what is retried or cached, error codes and messages, what happens under load, cancellation, reconnect, restart, or on the other platform (macOS and Linux).
+- For each one, say whether the change is intended, and flag the unintended ones as bugs with a concrete failing scenario.
+- Check that comments and docs touched by the diff, or describing code it changed, still match the code.
+- Flag tests that would still pass if the behavior regressed (asserting implementation details instead of outcomes).
+- Return the list of behaviors as the scenario list for the QA in section 4.
+
+If subagents are unavailable, perform the same four reviews yourself in that order, still using the full diff as the review target.
+
+Wait for all four review results, aggregate them, and then apply the worthwhile fixes directly. Do not preserve weak code just because it already works. If a finding is not worth fixing, note it briefly and move on.
 
 ## 3. Ensure tests are sufficient
 
@@ -90,7 +100,16 @@ After simplification, review the current-session changes for testing gaps.
 - For Rust tests, search the output for `FAILED` instead of trusting exit status alone.
 - If current coverage is already sufficient, say so explicitly.
 
-## 4. Prepare a commit plan only
+## 4. Re-verify behavior in the running app
+
+Simplifications and review fixes change code after any earlier QA, so that QA no longer covers the final diff.
+
+- If the change has any runtime effect (not only docs, comments or tests), run the `qa` skill on the final working tree before planning commits.
+- Exercise every behavior listed by the behavior review, plus the scenarios of any earlier QA whose code changed since. Follow the `qa` skill's surface rules: any change with a user-visible consequence is checked in the real Electron app, never only in the headless renderer or through API calls.
+- Report each scenario with the action and the observed result. If a scenario could not be exercised, say so and why; do not present the work as verified without it.
+- If QA finds a problem, fix it, add a test, and rerun the affected scenarios.
+
+## 5. Prepare a commit plan only
 
 Do not stage files, do not create a commit, and do not push during this initial `finish-job` run.
 
@@ -103,7 +122,7 @@ Build a commit plan from the final diff:
 
 Then ask the user for approval before any commit is created.
 
-## 5. Commit execution rules after approval
+## 6. Commit execution rules after approval
 
 If the user approves the commit plan in a later turn, continue with the approved plan and preserve these safety rules from start to finish:
 
@@ -118,11 +137,12 @@ If the user approves the commit plan in a later turn, continue with the approved
 - Do not push unless the user explicitly asks.
 - Run `git status` after the final commit to confirm success.
 
-## 6. Response format
+## 7. Response format
 
 Respond with:
 
 1. `Simplification`: what you simplified, or that no worthwhile simplification was needed.
 2. `Tests`: what you added or ran, or why existing coverage is sufficient.
-3. `Commit plan`: the proposed single-commit or multi-commit plan.
-4. `Approval needed`: explicitly ask whether to proceed with the planned commit structure.
+3. `QA`: the scenarios exercised after the final changes, with surface and results, and any that could not be run.
+4. `Commit plan`: the proposed single-commit or multi-commit plan.
+5. `Approval needed`: explicitly ask whether to proceed with the planned commit structure.

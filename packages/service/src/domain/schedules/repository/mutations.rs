@@ -1,6 +1,7 @@
 use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 
+use super::archive::refuse_arming_into_archived;
 use super::reads::get;
 use crate::domain::features::worktree_validation::{validate_reuse_branch, validate_worktree_mode};
 use crate::domain::schedules::condition;
@@ -222,6 +223,8 @@ pub async fn insert(pool: &SqlitePool, body: SaveScheduleRequest) -> Result<Sche
     let enabled = body.enabled.unwrap_or(true);
     let write = ScheduleWrite::from_request(body)?;
     require_available_action(pool, &write.target).await?;
+    let mut tx = pool.begin().await?;
+    refuse_arming_into_archived(&mut tx, &write.target, enabled).await?;
     let id: i64 = bind_write(
         sqlx::query(
             "INSERT INTO schedules (
@@ -238,9 +241,10 @@ pub async fn insert(pool: &SqlitePool, body: SaveScheduleRequest) -> Result<Sche
     )
     .bind(enabled)
     .bind(&write.next_run_at)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?
     .get(0);
+    tx.commit().await?;
     require_row(get(pool, id).await?, id)
 }
 
@@ -293,6 +297,16 @@ async fn write_update(
     write: &ScheduleWrite,
 ) -> Result<Schedule, AppError> {
     require_available_action(pool, &write.target).await?;
+    let mut tx = pool.begin().await?;
+    let armed = match enabled {
+        Some(enabled) => enabled,
+        None => sqlx::query_scalar("SELECT enabled FROM schedules WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .unwrap_or(false),
+    };
+    refuse_arming_into_archived(&mut tx, &write.target, armed).await?;
     let rows = bind_write(
         sqlx::query(
             "UPDATE schedules SET
@@ -312,12 +326,13 @@ async fn write_update(
     .bind(enabled)
     .bind(&write.next_run_at)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
     if rows == 0 {
         return Err(AppError::NotFound(format!("schedule {id} not found")));
     }
+    tx.commit().await?;
     require_row(get(pool, id).await?, id)
 }
 
@@ -325,6 +340,8 @@ async fn write_update(
 /// it comes back; resuming re-derives it (see [`planner::next_run_on_resume`]).
 pub async fn set_enabled(pool: &SqlitePool, id: i64, enabled: bool) -> Result<Schedule, AppError> {
     let current = require_row(get(pool, id).await?, id)?;
+    let mut tx = pool.begin().await?;
+    refuse_arming_into_archived(&mut tx, &current.target, enabled).await?;
     let next_run_at = if enabled {
         planner::next_run_on_resume(
             &current.recurrence,
@@ -341,8 +358,9 @@ pub async fn set_enabled(pool: &SqlitePool, id: i64, enabled: bool) -> Result<Sc
     .bind(enabled)
     .bind(&next_run_at)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     require_row(get(pool, id).await?, id)
 }
 
@@ -566,6 +584,56 @@ mod tests {
             next > Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "{next}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_schedule_cannot_be_armed_into_an_archived_conversation() {
+        let (pool, _, feature_id) = fixture().await;
+        let created = insert(
+            &pool,
+            once_into_conversation(feature_id, "2099-01-01T09:00:00Z"),
+        )
+        .await
+        .unwrap();
+        // What archiving leaves behind: the conversation archived, its
+        // schedule paused.
+        sqlx::query("UPDATE features SET status = 'archived' WHERE id = ?")
+            .bind(feature_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        set_enabled(&pool, created.id, false).await.unwrap();
+        let refused = |error: AppError| matches!(error, AppError::Conflict(_));
+
+        assert!(refused(
+            set_enabled(&pool, created.id, true).await.unwrap_err()
+        ));
+        let mut resume = once_into_conversation(feature_id, "2099-01-01T09:00:00Z");
+        resume.enabled = Some(true);
+        assert!(refused(
+            update(&pool, created.id, resume).await.unwrap_err()
+        ));
+        assert!(refused(
+            insert(
+                &pool,
+                once_into_conversation(feature_id, "2099-01-01T09:00:00Z")
+            )
+            .await
+            .unwrap_err()
+        ));
+
+        // Still editable while paused, and creatable paused.
+        let edited = update(
+            &pool,
+            created.id,
+            once_into_conversation(feature_id, "2099-02-01T09:00:00Z"),
+        )
+        .await
+        .unwrap();
+        assert!(!edited.enabled);
+        let mut paused = once_into_conversation(feature_id, "2099-01-01T09:00:00Z");
+        paused.enabled = Some(false);
+        assert!(!insert(&pool, paused).await.unwrap().enabled);
     }
 
     #[tokio::test]

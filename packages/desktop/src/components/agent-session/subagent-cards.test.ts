@@ -54,14 +54,30 @@ describe("SubagentCards", () => {
     expect(cards.getVisible().size).toBe(0);
   });
 
-  it("counts a card on screen until the observer has measured it", () => {
+  it("counts a card off screen until the observer reports it", () => {
     const { cards, listener, observer } = setup();
     const card = document.createElement("section");
+    // Virtuoso mounts rows up to a screen ahead: a card just mounted is not
+    // on screen yet, and must not pull a listed agent out for a frame.
     cards.track(card, "toolu_a");
-    // No flash of the agent in the list while its card is being measured.
-    expect([...cards.getVisible()]).toEqual(["toolu_a"]);
+    expect(cards.getVisible().size).toBe(0);
+    expect(listener).not.toHaveBeenCalled();
     observer()?.report(card, true);
-    expect(listener).toHaveBeenCalledTimes(1);
+    expect([...cards.getVisible()]).toEqual(["toolu_a"]);
+  });
+
+  it("forgets what the old observer reported when the scroller changes", () => {
+    window.IntersectionObserver = DrivenObserver as unknown as typeof IntersectionObserver;
+    const cards = new SubagentCards();
+    let scroller = document.createElement("div");
+    cards.attach({ reveal: () => true, getScroller: () => scroller });
+    const card = document.createElement("section");
+    cards.track(card, "toolu_a");
+    DrivenObserver.last?.report(card, true);
+    scroller = document.createElement("div");
+    cards.track(document.createElement("section"), "toolu_b");
+    expect(DrivenObserver.last?.root).toBe(scroller);
+    expect(cards.getVisible().size).toBe(0);
   });
 
   it("forgets a card that unmounts", () => {

@@ -300,7 +300,7 @@ mod tests {
             assert!(hub.send(update(n)));
         }
         assert!(hub.send(request(42)));
-        let (barrier, released) = AcpEventBarrier::new();
+        let (barrier, released) = AcpEventBarrier::new(None);
         assert!(hub.send_reliable(AcpEvent::EventBarrier(barrier)));
         hub.send(AcpEvent::ProcessExited {
             status: Some(0),
@@ -316,7 +316,7 @@ mod tests {
         let Some(AcpEvent::EventBarrier(barrier)) = rx.recv().await else {
             panic!("barrier must survive the burst");
         };
-        barrier.release();
+        barrier.reach().await;
         released.await.expect("barrier released");
         assert!(matches!(
             rx.recv().await,
@@ -370,11 +370,11 @@ mod tests {
     async fn dropping_a_queued_barrier_wakes_its_waiter_with_an_error() {
         let hub = AcpEventHub::new();
         let rx = hub.subscribe_reliable();
-        let (barrier, released) = AcpEventBarrier::new();
+        let (barrier, released) = AcpEventBarrier::new(None);
         assert!(hub.send_reliable(AcpEvent::EventBarrier(barrier)));
         drop(rx);
         assert!(released.await.is_err(), "a lost barrier must not hang");
-        let (barrier, released) = AcpEventBarrier::new();
+        let (barrier, released) = AcpEventBarrier::new(None);
         assert!(!hub.send_reliable(AcpEvent::EventBarrier(barrier)));
         assert!(released.await.is_err());
     }
@@ -384,7 +384,7 @@ mod tests {
         let hub = AcpEventHub::new();
         let mut observer = hub.subscribe();
         let mut reliable = hub.subscribe_reliable();
-        let (barrier, _released) = AcpEventBarrier::new();
+        let (barrier, _released) = AcpEventBarrier::new(None);
         hub.send_reliable(AcpEvent::EventBarrier(barrier));
         hub.send(update(1));
         assert_eq!(update_n(observer.recv().await.ok()), Some(1));
@@ -423,7 +423,7 @@ mod tests {
         let mut rx = hub.subscribe_reliable();
         hub.send(update(0));
         rx.begin_discarding_notifications();
-        let (barrier, _released) = AcpEventBarrier::new();
+        let (barrier, _released) = AcpEventBarrier::new(None);
         for n in 1..=70_000 {
             if n == 35_000 {
                 assert!(hub.send(request(9)), "requests are still accepted");

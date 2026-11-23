@@ -1,3 +1,4 @@
+use crate::shared::discard::cleanup;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
@@ -128,7 +129,10 @@ async fn probe_initial_session(
     let verification =
         verify_and_set_model(client, &session_id, session.config_options, discovered).await;
     if let Err(failure) = verification {
-        let _ = cleanup_session(client, &session_id, capabilities.close).await;
+        cleanup(
+            cleanup_session(client, &session_id, capabilities.close).await,
+            "close the probe session after a failed check",
+        );
         return Err(failure);
     }
     Ok(InitialProbe {

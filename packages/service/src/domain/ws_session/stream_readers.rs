@@ -3,6 +3,7 @@
 //! Readers outlive the WebSocket request that created them, so shutdown must
 //! close their runtimes and join them before it drains provider-usage writes.
 
+use crate::shared::discard::SendIgnoreClosed;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,8 +16,11 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 use crate::domain::agents::adapter::RuntimeSessionWeakHandle;
 use crate::domain::usage_stats::health;
 
+mod signals;
+pub(crate) use signals::{ReaderSignals, TRANSCRIPT_SETTLE_TIMEOUT};
+
 #[allow(dead_code)] // Called by the service binary's shutdown module.
-const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Cancelled once shutdown starts closing the runtimes.
 static CLOSING: LazyLock<CancellationToken> = LazyLock::new(CancellationToken::new);
@@ -26,8 +30,10 @@ static READERS: LazyLock<Mutex<HashMap<u64, RegisteredReader>>> =
 struct RegisteredReader {
     #[allow(dead_code)] // Read during process shutdown.
     db_session_id: i64,
-    #[allow(dead_code)] // Read by the service binary's shutdown path.
+    /// Read by the service binary's shutdown path and by
+    /// [`wait_for_settled_transcript`].
     runtime: Option<RuntimeSessionWeakHandle>,
+    signals: ReaderSignals,
     task: JoinHandle<()>,
 }
 
@@ -37,14 +43,20 @@ fn readers() -> std::sync::MutexGuard<'static, HashMap<u64, RegisteredReader>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub(crate) fn spawn<F>(db_session_id: i64, runtime: Option<RuntimeSessionWeakHandle>, reader: F)
-where
+pub(crate) fn spawn<F>(
+    db_session_id: i64,
+    runtime: Option<RuntimeSessionWeakHandle>,
+    signals: ReaderSignals,
+    reader: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (start_tx, start_rx) = tokio::sync::oneshot::channel();
     let ledger_runtime = runtime.clone();
+    let settle_guard = signals.settle_on_drop();
     let task = tokio::spawn(async move {
+        let _settled = settle_guard;
         if start_rx.await.is_err() {
             return;
         }
@@ -65,10 +77,50 @@ where
         RegisteredReader {
             db_session_id,
             runtime,
+            signals,
             task,
         },
     );
-    let _ = start_tx.send(());
+    start_tx.send_ignore_closed(());
+}
+
+fn session_signals(db_session_id: i64) -> Vec<ReaderSignals> {
+    readers()
+        .values()
+        .filter(|entry| entry.db_session_id == db_session_id)
+        .map(|entry| entry.signals.clone())
+        .collect()
+}
+
+/// A viewer attached to `db_session_id`: ask its readers to re-send the full
+/// text of their live blocks. A viewer's history snapshot is read before its
+/// socket is bound and before buffered deltas reach the database, so without
+/// this the chunks in between are never shown (see `ws-session-resync.ts`).
+pub(crate) fn request_live_catch_up(db_session_id: i64) {
+    for signals in session_signals(db_session_id) {
+        signals.request_catch_up();
+    }
+}
+
+/// Wait until the reader of `runtime` has written its last transcript row (a
+/// closed runtime's reader flushes its buffered text as it ends), or until
+/// `timeout`. Returns whether it did; a runtime with no reader has nothing
+/// left to write.
+pub(crate) async fn wait_for_settled_transcript(
+    runtime: &RuntimeSessionWeakHandle,
+    timeout: Duration,
+) -> bool {
+    let tokens = readers()
+        .values()
+        .filter(|entry| {
+            entry
+                .runtime
+                .as_ref()
+                .is_some_and(|reader_runtime| reader_runtime.ptr_eq(runtime))
+        })
+        .map(|entry| entry.signals.settled_token())
+        .collect();
+    signals::wait_all_settled(tokens, timeout).await
 }
 
 async fn record_agent_process(
@@ -184,7 +236,7 @@ pub(super) fn close_failure_is_benign(turn_was_running: bool, process_alive: Opt
 /// unreadable status is no proof it was idle.
 #[allow(dead_code)] // Reachable through `shutdown` in the service binary.
 async fn turn_was_running(pool: &sqlx::SqlitePool, db_session_id: i64) -> bool {
-    match super::persistence::WsSessionPersistence::try_get_session_row(pool, db_session_id).await {
+    match super::persistence::WsSessionPersistence::get_session_row(pool, db_session_id).await {
         Ok(Some(row)) => row.status == "running" || row.has_pending_user_input(),
         Ok(None) => false,
         Err(error) => {

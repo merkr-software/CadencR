@@ -95,8 +95,20 @@ function flushQueuedInitActions(ctx: StoreAccessors, sessionId: string): void {
   transport
     .get(sessionId)
     ?.delivery.settle(session.queuedPrompts.map((prompt) => prompt.messageUuid));
-  if (session.queuedPrompts.length === 0 && !session.pendingInitAccessMode) return;
-  set(updateSession(get(), sessionId, { queuedPrompts: [], pendingInitAccessMode: null }));
+  if (
+    session.queuedPrompts.length === 0 &&
+    !session.pendingInitAccessMode &&
+    !session.pendingInitPermissionMode
+  ) {
+    return;
+  }
+  set(
+    updateSession(get(), sessionId, {
+      queuedPrompts: [],
+      pendingInitAccessMode: null,
+      pendingInitPermissionMode: null,
+    }),
+  );
 }
 
 /**
@@ -234,7 +246,8 @@ function buildWsSessionStore(
   const branchDeps: BranchDeps = {
     get,
     set,
-    sendRequest: (sessionId, envelope) => get().sendRequest(sessionId, envelope),
+    sendRequest: (sessionId, envelope, timeoutMs) =>
+      get().sendRequest(sessionId, envelope, timeoutMs),
   };
   const socketDeps: SocketHandlerDeps = {
     ctx,

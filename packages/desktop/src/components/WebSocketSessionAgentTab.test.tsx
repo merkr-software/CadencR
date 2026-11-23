@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleModelChange } from "./WebSocketSessionAgentTab";
+import { changeFastMode, handleModelChange } from "./WebSocketSessionAgentTab";
 
 type Controls = Parameters<typeof handleModelChange>[2];
 
@@ -8,12 +8,16 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
   const setModel = vi.fn();
   const setThinkingEffort = vi.fn();
   const setRuntimeOverrides = vi.fn().mockResolvedValue(undefined);
+  const queueRuntimeOverride = vi.fn();
+  const setFastMode = vi.fn().mockResolvedValue(undefined);
   const controls = {
     ws: {
       setProvider,
       setModel,
       setThinkingEffort,
       setRuntimeOverrides,
+      queueRuntimeOverride,
+      setFastMode,
       currentThinkingEffort: undefined,
       currentSelection: currentProviderId
         ? { providerId: currentProviderId, modelId: "old-model" }
@@ -22,7 +26,15 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
     agentCatalog: { data: { providers: [] } },
     supportsConfigInheritance,
   } as unknown as Controls;
-  return { controls, setProvider, setModel, setThinkingEffort, setRuntimeOverrides };
+  return {
+    controls,
+    setProvider,
+    setModel,
+    setThinkingEffort,
+    setRuntimeOverrides,
+    queueRuntimeOverride,
+    setFastMode,
+  };
 }
 
 describe("handleModelChange", () => {
@@ -62,10 +74,36 @@ describe("handleModelChange", () => {
     expect(setThinkingEffort).not.toHaveBeenCalled();
   });
 
-  it("uses an explicit model override only when config inheritance is supported", () => {
-    const { controls, setModel, setRuntimeOverrides } = makeControls("codex_cli", true);
+  it("queues an explicit model override only when config inheritance is supported", () => {
+    const { controls, setModel, setRuntimeOverrides, queueRuntimeOverride } = makeControls(
+      "codex_cli",
+      true,
+    );
     handleModelChange("codex_cli", "gpt-5.6-sol", controls);
-    expect(setRuntimeOverrides).toHaveBeenCalledWith({ model: "gpt-5.6-sol" });
+    // Through the session command queue, so it waits for a reconnect like model.set.
+    expect(queueRuntimeOverride).toHaveBeenCalledWith({ model: "gpt-5.6-sol" });
+    expect(setRuntimeOverrides).not.toHaveBeenCalled();
     expect(setModel).not.toHaveBeenCalled();
+  });
+});
+
+describe("changeFastMode", () => {
+  it("queues a fast mode override like the model and effort ones", async () => {
+    const { controls, setRuntimeOverrides, queueRuntimeOverride, setFastMode } = makeControls(
+      "codex_cli",
+      true,
+    );
+    await changeFastMode(controls, true);
+    // Through the session command queue: no 10 s request, replayed after a reconnect.
+    expect(queueRuntimeOverride).toHaveBeenCalledWith({ fast_mode: true });
+    expect(setRuntimeOverrides).not.toHaveBeenCalled();
+    expect(setFastMode).not.toHaveBeenCalled();
+  });
+
+  it("sends fast_mode.set when the provider has no runtime overrides", async () => {
+    const { controls, queueRuntimeOverride, setFastMode } = makeControls("claude_code");
+    await changeFastMode(controls, true);
+    expect(setFastMode).toHaveBeenCalledWith(true);
+    expect(queueRuntimeOverride).not.toHaveBeenCalled();
   });
 });

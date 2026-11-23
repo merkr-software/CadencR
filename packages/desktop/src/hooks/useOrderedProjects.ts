@@ -67,8 +67,10 @@ interface UseOrderedProjectsResult {
  * order store is in-memory.
  */
 export function useOrderedProjects(): UseOrderedProjectsResult {
-  const query = useListProjects();
-  const data = query.data;
+  // A project folder moved in the file manager shows as missing as soon as
+  // the user comes back to the app (the service checks each folder).
+  const query = useListProjects({ query: { refetchOnWindowFocus: true } });
+  const { data, refetch, isFetching: isRefreshing } = query;
   const order = useSidebarProjectOrderStore((s) => s.order);
   const reconcile = useSidebarProjectOrderStore((s) => s.reconcile);
 
@@ -88,13 +90,15 @@ export function useOrderedProjects(): UseOrderedProjectsResult {
     // surfaces conversations created on another device. Refetching projects
     // alone (the old behavior) left the sidebar's session rows stale.
     const [result] = await Promise.all([
-      query.refetch(),
+      refetch(),
       queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey() }),
     ]);
     if (result.data) {
       useSidebarProjectOrderStore.getState().freeze(result.data.map((p) => p.id));
     }
-  }, [query]);
+  }, [refetch]);
 
-  return { projects, isRefreshing: query.isFetching, refresh };
+  // The sidebar's project tree memoizes on this: a new object per render
+  // re-rendered every project row and its menus on each navigation.
+  return useMemo(() => ({ projects, isRefreshing, refresh }), [isRefreshing, projects, refresh]);
 }

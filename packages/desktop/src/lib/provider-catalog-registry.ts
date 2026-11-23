@@ -4,7 +4,11 @@ import type {
 } from "@/api/agentRuntime";
 import { ACCESS_MODES, type AccessMode } from "@/types/access-mode";
 import { parsePermissionMode } from "@/types/permission-mode";
-import type { ProviderPromptCapabilities, ProviderResumeCommand } from "@/api/generated";
+import type {
+  ProviderModeCatalogEntry,
+  ProviderPromptCapabilities,
+  ProviderResumeCommand,
+} from "@/api/generated";
 
 /**
  * Provider-level catalog facts: identity (label, icon) plus the host
@@ -22,19 +26,13 @@ export interface CatalogProviderMetadata {
   promptCapabilities: ProviderPromptCapabilities | null;
 }
 
-interface CatalogModeInput {
-  id: string;
-  label: string;
-  description?: string | null;
-}
-
 /** The subset of a catalog entry the registry reads (generated or runtime type). */
 export interface CatalogProviderInput {
   id: string;
   label: string;
   icon_data?: string | null;
-  modes?: readonly CatalogModeInput[];
-  access_modes?: readonly CatalogModeInput[];
+  modes?: readonly ProviderModeCatalogEntry[];
+  access_modes?: readonly ProviderModeCatalogEntry[];
   compact_action?: boolean | null;
   resume_command?: ProviderResumeCommand | null;
   prompt_capabilities?: ProviderPromptCapabilities | null;
@@ -122,12 +120,21 @@ function toMetadata(entry: CatalogProviderInput): CatalogProviderMetadata {
 }
 
 /** Catalog ids outside the host's permission-mode vocabulary are dropped. */
-function permissionModeOption(mode: CatalogModeInput): RuntimeProviderModeOption[] {
+function permissionModeOption(mode: ProviderModeCatalogEntry): RuntimeProviderModeOption[] {
   const id = parsePermissionMode(mode.id);
-  return id ? [{ id, label: mode.label, description: mode.description ?? undefined }] : [];
+  return id
+    ? [
+        {
+          id,
+          label: mode.label,
+          description: mode.description ?? undefined,
+          accent: mode.accent ?? undefined,
+        },
+      ]
+    : [];
 }
 
-function accessModeOption(mode: CatalogModeInput): RuntimeProviderAccessModeOption[] {
+function accessModeOption(mode: ProviderModeCatalogEntry): RuntimeProviderAccessModeOption[] {
   if (!(ACCESS_MODES as readonly string[]).includes(mode.id)) return [];
   return [
     { id: mode.id as AccessMode, label: mode.label, description: mode.description ?? undefined },

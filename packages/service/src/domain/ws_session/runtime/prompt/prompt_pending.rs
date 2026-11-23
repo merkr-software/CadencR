@@ -42,6 +42,7 @@ pub(in crate::domain::ws_session) struct PendingPromptContext {
     pub(in crate::domain::ws_session) permission_tx: Option<PermissionResponseSender>,
     pub internal_replay: bool,
     pub wait_for_delivery: bool,
+    pub remember_selection: bool,
     pub spawn_claim: Option<tokio::sync::OwnedMutexGuard<()>>,
     /// Identity of the exact Pending handle, preserved across in-place controls.
     pub handle_identity: super::super::state::RuntimeHandleIdentity,

@@ -134,7 +134,7 @@ async fn merge_runtime_overrides(
     if pins.model.is_none() && pins.thinking_effort.is_none() {
         return Ok(None);
     }
-    let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+    let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("session '{session_id}' not found")))?;
     let mut overrides = runtime_overrides::restore(
@@ -192,7 +192,7 @@ async fn resolve(
         project.as_ref(),
         pins.model.as_deref(),
     )
-    .await
+    .await?
     else {
         // Nothing to validate against and nothing to infer one from. Store the
         // pins as written rather than dropping them silently; the spawn path
@@ -237,24 +237,29 @@ async fn resolve(
 /// resolving it now is what lets a mode pin survive on a conversation that has
 /// never run, instead of being dropped for want of something to validate it
 /// against.
+///
+/// A read that fails fails the run: guessing the agent instead would validate
+/// the pins against one the conversation may not run.
 async fn conversation_provider(
     state: &AppState,
     feature_id: i64,
     session_id: i64,
     project: Option<&Project>,
     model: Option<&str>,
-) -> Option<String> {
-    if let Ok(Some(provider)) = sqlx::query_scalar::<_, Option<String>>(
+) -> Result<Option<String>, AppError> {
+    let stored = sqlx::query_scalar::<_, Option<String>>(
         "SELECT runtime_provider FROM agent_sessions WHERE id = ?",
     )
     .bind(session_id)
     .fetch_optional(&state.read_pool)
-    .await
-    .map(Option::flatten)
-    {
-        return Some(provider);
+    .await?
+    .flatten();
+    if let Some(provider) = stored {
+        return Ok(Some(provider));
     }
-    let project = project?;
+    let Some(project) = project else {
+        return Ok(None);
+    };
     let configured = settings::resolve_setting(
         &state.read_pool,
         &runtime_setting_key("session"),
@@ -262,9 +267,9 @@ async fn conversation_provider(
         Some(project.id),
         Some(default_provider_id()),
     )
-    .await
+    .await?
     .unwrap_or_else(|| default_provider_id().to_string());
-    Some(
+    Ok(Some(
         resolve_effective_provider(
             &state.read_pool,
             Some(std::path::Path::new(&project.path)),
@@ -272,7 +277,7 @@ async fn conversation_provider(
             model,
         )
         .await,
-    )
+    ))
 }
 
 struct Project {
@@ -393,7 +398,7 @@ mod tests {
         let overrides: crate::domain::agents::adapter::RuntimeConfigOverrides =
             serde_json::from_str(&json).unwrap();
         assert_eq!(overrides.thinking_effort.as_deref(), Some("max"));
-        let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+        let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
             .await
             .unwrap()
             .unwrap();
@@ -418,7 +423,7 @@ mod tests {
         assert!(error
             .to_string()
             .contains("invalid persisted runtime overrides"));
-        let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+        let stored = WsSessionPersistence::get_session_row(&state.read_pool, session_id)
             .await
             .unwrap()
             .unwrap();
@@ -577,5 +582,43 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(stored, "default");
+    }
+
+    /// A conversation that never ran takes its agent from the settings
+    /// cascade. When that read fails, the run fails with the reason and is
+    /// recorded as failed, instead of validating the pins against a guessed
+    /// default agent.
+    #[tokio::test]
+    async fn an_unreadable_provider_setting_fails_the_run_visibly() {
+        let (pool, _, feature_id) = fixture().await;
+        let state = AppState::with_pool(pool.clone());
+        let mut body = once_into_conversation(feature_id, "2099-01-01T09:00:00Z");
+        body.target.permission_mode = Some("plan".into());
+        let schedule = insert(&pool, body).await.unwrap();
+        let session_id = resolve_or_create_session(&state, feature_id).await.unwrap();
+        sqlx::query("ALTER TABLE feature_settings RENAME TO feature_settings_unreadable")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let error = apply(&state, feature_id, session_id, &schedule)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("feature_settings"), "{error}");
+
+        let result = crate::domain::schedules::service::run_now(&state, schedule.id)
+            .await
+            .unwrap();
+        assert!(!result.ran);
+        let reported = result.error.expect("the run reports why it failed");
+        assert!(reported.contains("feature_settings"), "{reported}");
+        let last_run = crate::domain::schedules::repository::get(&pool, schedule.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .last_run
+            .expect("the failed run is recorded");
+        assert_eq!(last_run.status, "failed");
+        assert_eq!(last_run.error.as_deref(), Some(reported.as_str()));
     }
 }

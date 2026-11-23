@@ -5,12 +5,14 @@
 //! `models` command; ACP remains the live session protocol.
 
 mod capabilities;
+mod catalog;
+
+use catalog::{default_cwd, discover_cached, with_installation_icon};
 
 use std::borrow::Cow;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -23,28 +25,33 @@ use crate::domain::agents::adapter::{
     RuntimeCompactionStrategy, RuntimeError, RuntimePermissionMode, RuntimePermissionRequest,
     RuntimePromptAttachment, RuntimeSlashCommand, RuntimeSpawnConfig,
 };
+use crate::domain::agents::catalog_cache::{CatalogProvider, LiveCatalogCache};
 use crate::domain::agents::runtime::{
-    ProviderCatalogEntry, ProviderPromptCapabilities, ProviderResumeCommand, ProviderStatus,
+    ProviderCatalogEntry, ProviderPromptCapabilities, ProviderResumeCommand,
 };
 
 use super::hooks::InstalledAcpHooks;
 use super::host_integration::HostIntegrationCache;
 use super::installation::HostInstallation;
-use super::model_discovery::{discover_models, DiscoveredModels, ProviderModeMap};
+use super::model_discovery::{DiscoveredModels, ProviderModeMap};
 use super::prompt_capabilities::SharedPromptCapabilities;
 use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 use super::slash_commands::SlashCommandCatalog;
-use super::workspace_cache::WorkspaceCache;
 
-const CATALOG_TTL: Duration = Duration::from_secs(30);
+type InstalledCatalogCache = LiveCatalogCache<PathBuf, Option<DiscoveredModels>>;
+
+/// Synchronous adapter controls from the most recent successful discovery.
+#[derive(Default)]
+struct DiscoveredControls {
+    modes: Arc<ProviderModeMap>,
+    prompt_steering: bool,
+}
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
     session_scope: Result<Option<super::managed::ManagedSessionScope>, String>,
-    catalog_cache: WorkspaceCache<PathBuf, DiscoveredModels>,
-    /// Modes from the most recent `models` run. Mode and access checks are
-    /// synchronous trait calls, so they read this snapshot.
-    last_modes: std::sync::RwLock<Arc<ProviderModeMap>>,
+    catalog_cache: Arc<InstalledCatalogCache>,
+    controls: Arc<RwLock<DiscoveredControls>>,
     host_integration: Arc<HostIntegrationCache>,
     slash_commands: Arc<SlashCommandCatalog>,
     prompt_capabilities: SharedPromptCapabilities,
@@ -55,11 +62,17 @@ impl GenericAcpAdapter {
         let host_integration = Arc::new(HostIntegrationCache::new(installation.provider_id()));
         let session_scope =
             super::managed::ManagedSessionScope::load(&installation.executable().command);
+        let agent = installation.agent();
+        let catalog_cache = Arc::new(LiveCatalogCache::new(CatalogProvider::owned(
+            agent.id.clone(),
+            agent.name.clone(),
+            agent.name.clone(),
+        )));
         Self {
             session_scope,
             installation,
-            catalog_cache: WorkspaceCache::default(),
-            last_modes: std::sync::RwLock::new(Arc::default()),
+            catalog_cache,
+            controls: Arc::default(),
             host_integration,
             slash_commands: Arc::default(),
             prompt_capabilities: SharedPromptCapabilities::default(),
@@ -78,64 +91,27 @@ impl GenericAcpAdapter {
     }
 
     fn modes(&self) -> Arc<ProviderModeMap> {
-        self.last_modes
+        self.controls
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .modes
             .clone()
-    }
-
-    fn observe_modes(&self, discovered: &DiscoveredModels) {
-        *self
-            .last_modes
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Arc::new(discovered.modes.clone());
-    }
-
-    async fn discover_for_cwd(&self, cwd: &Path) -> Result<DiscoveredModels, RuntimeError> {
-        self.catalog_cache
-            .get_or_refresh(&cwd.to_path_buf(), || async {
-                let executable = self.installation.launchable().map_err(RuntimeError::new)?;
-                let discovered = discover_models(executable, cwd).await.map_err(|error| {
-                    RuntimeError::new(format!("model discovery failed: {error}"))
-                })?;
-                self.observe_modes(&discovered);
-                Ok((discovered, CATALOG_TTL))
-            })
-            .await
-    }
-
-    fn discovered_catalog(&self, discovered: DiscoveredModels) -> ProviderCatalogEntry {
-        let agent = self.installation.agent();
-        self.with_icon(ProviderCatalogEntry {
-            id: agent.id.clone(),
-            label: agent.name.clone(),
-            icon_data: None,
-            status: ProviderStatus::Available,
-            status_message: None,
-            refresh_error: None,
-            modes: discovered.modes.mode_catalog(),
-            access_modes: discovered.modes.access_mode_catalog(),
-            models: discovered.models,
-            default_model: Some(discovered.default_model),
-        })
-    }
-
-    fn unavailable_catalog(&self, message: impl AsRef<str>) -> ProviderCatalogEntry {
-        self.with_icon(ProviderCatalogEntry::unavailable(
-            self.installation.provider_id(),
-            self.installation.agent().name.clone(),
-            message.as_ref(),
-        ))
-    }
-
-    fn with_icon(&self, mut entry: ProviderCatalogEntry) -> ProviderCatalogEntry {
-        entry.icon_data = self.installation.icon_data().map(str::to_string);
-        entry
     }
 }
 
 #[async_trait]
 impl AgentRuntimeAdapter for GenericAcpAdapter {
+    fn supports_prompt_receipts(&self) -> bool {
+        self.controls
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .prompt_steering
+    }
+
+    fn prompt_receipts_at_submission(&self) -> bool {
+        self.supports_prompt_receipts()
+    }
+
     /// Identity comes from the portable registry entry; availability comes from
     /// the host's compatibility check. A quarantined install stays in the
     /// catalog as unavailable with its reason attached rather than vanishing.
@@ -154,24 +130,31 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         let cwd = match cwd {
             Some(cwd) => cwd,
             None => {
-                fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+                fallback_cwd = default_cwd();
                 &fallback_cwd
             }
         };
-        self.host_integration
-            .ensure_loaded(&self.installation)
-            .await;
-        match self.discover_for_cwd(cwd).await {
-            Ok(discovered) => self.discovered_catalog(discovered),
-            Err(error) => self.unavailable_catalog(error.to_string()),
-        }
+        let (_, cached) = tokio::join!(
+            self.host_integration.ensure_loaded(&self.installation),
+            self.cached_catalog_for_cwd(cwd),
+        );
+        with_installation_icon(&self.installation, (*cached.catalog).clone())
     }
 
     fn spawn_startup_warmup(&self) {
+        if self.installation.quarantine().is_some() {
+            return;
+        }
         let cache = self.host_integration();
         let installation = Arc::clone(&self.installation);
+        let catalog_cache = Arc::clone(&self.catalog_cache);
+        let controls = Arc::clone(&self.controls);
         tokio::spawn(async move {
-            cache.ensure_loaded(&installation).await;
+            let cwd = default_cwd();
+            let _ = tokio::join!(
+                cache.ensure_loaded(&installation),
+                discover_cached(&catalog_cache, &installation, &controls, &cwd),
+            );
         });
     }
 
@@ -231,6 +214,24 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
 
     fn supports_permission_mode(&self, mode: &RuntimePermissionMode) -> bool {
         self.modes().mode_for(mode).is_some()
+    }
+
+    async fn resolve_initial_permission_mode(
+        &self,
+        cwd: &Path,
+        requested: Option<&str>,
+    ) -> Result<Option<RuntimePermissionMode>, RuntimeError> {
+        use crate::domain::agents::permission_modes::parse_permission_mode;
+        let discovered = self.discover_for_cwd(cwd).await?;
+        let modes = &discovered.modes;
+        Ok(requested
+            .map(parse_permission_mode)
+            .filter(|mode| modes.mode_for(mode).is_some())
+            .or_else(|| {
+                modes
+                    .primary_mode()
+                    .map(|mode| parse_permission_mode(&mode.host_id))
+            }))
     }
 
     /// The provider's primary edit mode (its first mapped mode value).
@@ -319,6 +320,21 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             RuntimeError::new("installed providers require an explicit model before session start")
         })?;
         let discovered = self.discover_for_cwd(&config.cwd).await?;
+        if config.validate_restored_permission_mode {
+            if discovered.modes.primary_mode().is_none() {
+                // Older hosts persisted seeds even for providers without a
+                // mapped mode. In that case the native session owns its mode.
+                config.permission_mode = None;
+            } else if config
+                .permission_mode
+                .as_ref()
+                .is_none_or(|mode| discovered.modes.mode_for(mode).is_none())
+            {
+                return Err(RuntimeError::new(
+                    "saved permission mode is unavailable in this workspace; choose an available mode and resend",
+                ));
+            }
+        }
         if !discovered
             .models
             .iter()
@@ -336,6 +352,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             .model_config_id(discovered.config_id)
             .modes(Arc::new(discovered.modes))
             .maybe_compact_command(integration.compact_command.clone())
+            .exclude_launcher_ports(integration.exclude_launcher_ports)
             .prompt_capabilities(self.prompt_capabilities.clone())
             .slash_commands(self.slash_commands())
             .build();
@@ -366,6 +383,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             // there is nothing to pre-seed it from.
             context_window: None,
             hooks: Arc::new(hooks),
+            wire_transform: None,
         })
         .await
     }
@@ -432,15 +450,52 @@ mod tests {
     #[tokio::test]
     async fn live_catalog_comes_from_the_provider_models_command() {
         let dir = tempfile::tempdir().unwrap();
-        let entry = adapter(&runnable_binary(dir.path()))
-            .catalog_entry_live_for_cwd(Some(dir.path()))
-            .await;
+        let adapter = adapter(&runnable_binary(dir.path()));
+        let entry = adapter.catalog_entry_live_for_cwd(Some(dir.path())).await;
         assert_eq!(entry.status, ProviderStatus::Available);
         assert_eq!(entry.models.len(), 1);
         assert_eq!(entry.models[0].id, "fixture/default");
         assert!(entry.modes.is_empty());
         assert!(entry.access_modes.is_empty());
         assert_eq!(entry.default_model.as_deref(), Some("fixture/default"));
+        assert!(!adapter.prompt_receipts_at_submission());
+    }
+
+    #[tokio::test]
+    async fn warmup_sets_steering_and_an_unavailable_workspace_keeps_the_last_good_capability() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = super::super::test_fixtures::write_script(
+            dir.path(),
+            "warmup-steering",
+            r#"#!/bin/sh
+if [ "$1" = "models" ]; then
+    echo '[{"id":"model","name":"Model","type":"select","category":"model","currentValue":"m","options":[{"value":"m","name":"M"}],"_meta":{"cadencr":{"promptSteering":true}}}]'
+else
+    echo '{}'
+fi
+"#,
+        );
+        let adapter = adapter(&script.to_string_lossy());
+        adapter.spawn_startup_warmup();
+        let cwd = super::default_cwd();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while adapter.catalog_cache.cached(&cwd).await.is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("startup discovery should finish");
+        assert!(
+            adapter.supports_prompt_receipts(),
+            "warmup publishes the capability"
+        );
+        let unavailable = dir.path().join("missing");
+        let entry = adapter.catalog_entry_live_for_cwd(Some(&unavailable)).await;
+        assert_eq!(entry.status, ProviderStatus::Unavailable);
+        assert!(
+            adapter.supports_prompt_receipts(),
+            "an unrelated probe failure cannot revoke steering"
+        );
     }
 
     /// A connector declaring modes, access modes and a host integration
@@ -454,7 +509,7 @@ mod tests {
             r#"#!/bin/sh
 if [ "$1" = "models" ]; then
   cat <<'JSON'
-[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]},
+[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","_meta":{"cadencr":{"promptSteering":true}},"options":[{"value":"m","name":"M"}]},
  {"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"agent","options":[
    {"value":"agent","name":"Agent","_meta":{"cadencr":{"permissionMode":"default"}}},
    {"value":"plan","name":"Plan","description":"Read only","_meta":{"cadencr":{"permissionMode":"plan"}}}]},
@@ -473,8 +528,11 @@ exit 1
         );
         let adapter = adapter(&script.to_string_lossy());
         assert!(!adapter.supports_permission_mode(&RuntimePermissionMode::Plan));
+        assert!(!adapter.prompt_receipts_at_submission());
         let entry = adapter.catalog_entry_live_for_cwd(Some(dir.path())).await;
         assert_eq!(entry.status, ProviderStatus::Available);
+        assert!(adapter.supports_prompt_receipts());
+        assert!(adapter.prompt_receipts_at_submission());
         let modes: Vec<_> = entry.modes.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(modes, ["default", "plan"]);
         assert_eq!(entry.modes[1].description.as_deref(), Some("Read only"));
@@ -511,9 +569,181 @@ exit 1
         adapter.discover_for_cwd(second_cwd.path()).await.unwrap();
 
         for cwd in [first_cwd.path(), second_cwd.path()] {
-            let cached = adapter.catalog_cache.fresh(&cwd.to_path_buf()).await;
-            assert!(cached.is_some(), "{}", cwd.display());
+            let cached = adapter.catalog_cache.cached(&cwd.to_path_buf()).await;
+            assert!(
+                cached.is_some_and(|entry| entry.is_fresh()),
+                "{}",
+                cwd.display()
+            );
         }
+    }
+
+    #[tokio::test]
+    async fn expired_model_catalog_serves_stale_entry_immediately_while_refreshing() {
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        let gate = dir.path().join("gate");
+        let script = super::super::test_fixtures::write_script(
+            dir.path(),
+            "swr-agent",
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" != \"models\" ]; then exit 1; fi\necho run >> '{}'\nwhile [ -f '{}' ]; do sleep 0.02; done\ncat <<'JSON'\n[{{\"id\":\"model\",\"name\":\"Model\",\"category\":\"model\",\"type\":\"select\",\"currentValue\":\"m\",\"options\":[{{\"value\":\"m\",\"name\":\"M\"}}]}}]\nJSON\n",
+                runs.display(),
+                gate.display(),
+            ),
+        );
+        let adapter = adapter(&script.to_string_lossy());
+        let cwd = dir.path();
+
+        let initial = adapter.catalog_entry_live_for_cwd(Some(cwd)).await;
+        assert_eq!(initial.status, ProviderStatus::Available);
+        assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1);
+
+        // Hold subsequent probes behind `gate` and expire the cached entry: a
+        // read within MAX_STALE must return the cached catalog while the
+        // background probe is still gated.
+        std::fs::write(&gate, "").unwrap();
+        adapter
+            .catalog_cache
+            .force_expire_for_test(&cwd.to_path_buf())
+            .await;
+
+        let stale = adapter.catalog_entry_live_for_cwd(Some(cwd)).await;
+        assert!(gate.exists(), "stale read must return while probe is gated");
+        assert_eq!(stale.status, ProviderStatus::Available);
+        assert_eq!(stale.default_model.as_deref(), Some("m"));
+
+        std::fs::remove_file(&gate).unwrap();
+        for _ in 0..100 {
+            if std::fs::read_to_string(&runs).unwrap().lines().count() >= 2 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("background catalog refresh never ran");
+    }
+
+    #[tokio::test]
+    async fn initial_permission_mode_uses_the_requested_workspace() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("allow-auto"), "").unwrap();
+        let script = super::super::test_fixtures::write_script(
+            first.path(),
+            "workspace-modes",
+            r#"#!/bin/sh
+cat <<'JSON'
+[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]},
+ {"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"default","options":[
+   {"value":"default","name":"Default","_meta":{"cadencr":{"permissionMode":"default"}}}
+JSON
+if [ -f ./allow-auto ]; then
+  echo ',{"value":"auto","name":"Auto","_meta":{"cadencr":{"permissionMode":"auto"}}}'
+fi
+echo ']}]'
+"#,
+        );
+        let adapter = adapter(script.to_str().unwrap());
+        for (cwd, expected) in [
+            (first.path(), RuntimePermissionMode::Auto),
+            (second.path(), RuntimePermissionMode::Default),
+            (first.path(), RuntimePermissionMode::Auto),
+        ] {
+            assert_eq!(
+                adapter
+                    .resolve_initial_permission_mode(cwd, Some("auto"))
+                    .await
+                    .unwrap(),
+                Some(expected)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_deferred_mode_is_validated_when_discovery_recovers_with_mapped_modes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let cwd = workspace.path();
+        let script = super::super::test_fixtures::write_script(
+            cwd,
+            "provider",
+            r#"#!/bin/sh
+if [ "$1" = "run" ]; then
+  touch ./runtime-started
+  exit 2
+fi
+if [ "$1" != "models" ]; then exit 2; fi
+touch ./discovery-called
+if [ ! -f ./online ]; then exit 2; fi
+if [ -f ./no-mapped-modes ]; then
+  echo '[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]}]'
+  exit 0
+fi
+cat <<'JSON'
+[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m","options":[{"value":"m","name":"M"}]},
+ {"id":"mode","name":"Mode","category":"mode","type":"select","currentValue":"default","options":[
+   {"value":"default","name":"Default","_meta":{"cadencr":{"permissionMode":"default"}}}
+ ]}]
+JSON
+"#,
+        );
+        let adapter = adapter(script.to_str().unwrap());
+        assert!(adapter
+            .resolve_initial_permission_mode(cwd, Some("plan"))
+            .await
+            .is_err());
+        assert!(cwd.join("discovery-called").exists());
+        let mut config = RuntimeSpawnConfig {
+            cwd: cwd.to_path_buf(),
+            model: Some("m".into()),
+            resume_session_id: Some("previous-session".into()),
+            permission_mode: Some(RuntimePermissionMode::Plan),
+            validate_restored_permission_mode: true,
+            ..Default::default()
+        };
+        let error = adapter
+            .spawn(json!("hello"), config.clone())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error.to_string().contains("model discovery failed"),
+            "{error}"
+        );
+        assert!(!cwd.join("runtime-started").exists());
+
+        std::fs::write(cwd.join("online"), "").unwrap();
+        adapter
+            .catalog_cache
+            .force_expire_for_test(&cwd.to_path_buf())
+            .await;
+        let error = adapter
+            .spawn(json!("hello"), config.clone())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("saved permission mode is unavailable"),
+            "{error}"
+        );
+        assert!(!cwd.join("runtime-started").exists());
+
+        config.permission_mode = Some(RuntimePermissionMode::Default);
+        assert!(adapter.spawn(json!("hello"), config.clone()).await.is_err());
+        assert!(cwd.join("runtime-started").exists());
+
+        // Before mode initialization was validated, even providers without mode
+        // mappings could have a stored seed from a client or provider switch.
+        std::fs::write(cwd.join("no-mapped-modes"), "").unwrap();
+        std::fs::remove_file(cwd.join("runtime-started")).unwrap();
+        adapter.catalog_cache.reset_for_test().await;
+        config.permission_mode = Some(RuntimePermissionMode::AcceptEdits);
+        assert!(adapter.spawn(json!("hello"), config).await.is_err());
+        assert!(
+            cwd.join("runtime-started").exists(),
+            "legacy seed must not block native resume"
+        );
     }
 
     #[test]

@@ -33,8 +33,10 @@ function anchoredSession(): SessionEntry {
   return {
     ...createSessionEntry(),
     blocks: [block("msg-10", "user_message"), block("msg-500"), block("msg-501", "user_message")],
-    hasMore: true,
-    oldestMessageId: 500,
+    historyGaps: [
+      { id: "g0", afterId: null, beforeId: 10 },
+      { id: "g1", afterId: 10, beforeId: 500 },
+    ],
     featureId: 7,
     sessionDbId: 42,
     historyPrependDisplayOffset: 3,
@@ -51,6 +53,8 @@ describe("loadSessionPromptTurn", () => {
         {
           sessionDbId: 42,
           blocks: [block("msg-200", "user_message"), block("msg-201"), block("msg-202")],
+          hasMoreIncrementalMessages: true,
+          maxMessageId: 202,
         },
       ],
     });
@@ -58,8 +62,10 @@ describe("loadSessionPromptTurn", () => {
     await expect(loadSessionPromptTurn(ctx, "s1", 200)).resolves.toBe(true);
 
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(7, {
+      session: 42,
       after: JSON.stringify({ 42: 199 }),
       after_revisions: JSON.stringify({ 42: Number.MAX_SAFE_INTEGER }),
+      until: JSON.stringify({ 42: 500 }),
     });
     const session = ctx.get().sessions.s1;
     expect(session.blocks.map((b) => b.id)).toEqual([
@@ -70,10 +76,82 @@ describe("loadSessionPromptTurn", () => {
       "msg-500",
       "msg-501",
     ]);
-    expect(session.historyPrependDisplayOffset).toBe(6);
-    // The pagination cursor still points at the window: paging fills the gap.
-    expect(session.oldestMessageId).toBe(500);
-    expect(session.hasMore).toBe(true);
+    // Three rows, and the gap row the turn splits off below it.
+    expect(session.historyPrependDisplayOffset).toBe(7);
+    // The turn is an island: a gap on each side, each filling on its own.
+    expect(session.historyGaps.map(({ afterId, beforeId }) => [afterId, beforeId])).toEqual([
+      [null, 10],
+      [10, 200],
+      [202, 500],
+    ]);
+  });
+
+  it("closes the gap below the turn when its page reaches the loaded window", async () => {
+    const ctx = createCtx(anchoredSession());
+    // Bounded by \`until\`, the page ends right above the window.
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 42,
+          blocks: [block("msg-490", "user_message"), block("msg-491")],
+          hasMoreIncrementalMessages: false,
+          maxMessageId: 491,
+        },
+      ],
+    });
+
+    await expect(loadSessionPromptTurn(ctx, "s1", 490)).resolves.toBe(true);
+
+    expect(ctx.get().sessions.s1.historyGaps.map((gap) => gap.beforeId)).toEqual([10, 490]);
+  });
+
+  it("fetches the turn again when a gap fill moved its gap meanwhile", async () => {
+    const ctx = createCtx(anchoredSession());
+    const turn = {
+      sessionDbId: 42,
+      blocks: [block("msg-200", "user_message"), block("msg-201")],
+      hasMoreIncrementalMessages: true,
+      maxMessageId: 201,
+    };
+    apiMocks.getFeatureAgentState
+      .mockImplementationOnce(async () => {
+        // A fill lands meanwhile: the gap now ends at msg-300.
+        const session = ctx.get().sessions.s1;
+        const historyGaps = [session.historyGaps[0], { id: "g1", afterId: 10, beforeId: 300 }];
+        ctx.set({ sessions: { s1: { ...session, historyGaps } } } as Partial<WsSessionStore>);
+        return { sessions: [turn] };
+      })
+      .mockResolvedValueOnce({ sessions: [turn] });
+
+    await expect(loadSessionPromptTurn(ctx, "s1", 200)).resolves.toBe(true);
+
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledTimes(2);
+    expect(apiMocks.getFeatureAgentState).toHaveBeenLastCalledWith(7, {
+      session: 42,
+      after: JSON.stringify({ 42: 199 }),
+      after_revisions: JSON.stringify({ 42: Number.MAX_SAFE_INTEGER }),
+      until: JSON.stringify({ 42: 300 }),
+    });
+  });
+
+  it("gives up with an error when its gap keeps moving", async () => {
+    const ctx = createCtx(anchoredSession());
+    let bound = 500;
+    apiMocks.getFeatureAgentState.mockImplementation(async () => {
+      // Each attempt sees a gap fill land first.
+      bound -= 10;
+      const session = ctx.get().sessions.s1;
+      const historyGaps = [session.historyGaps[0], { id: "g1", afterId: 10, beforeId: bound }];
+      ctx.set({ sessions: { s1: { ...session, historyGaps } } } as Partial<WsSessionStore>);
+      return {
+        sessions: [
+          { sessionDbId: 42, blocks: [block("msg-200", "user_message")], maxMessageId: 200 },
+        ],
+      };
+    });
+
+    await expect(loadSessionPromptTurn(ctx, "s1", 200)).rejects.toThrow("kept changing");
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledTimes(3);
   });
 
   it("leaves the transcript alone when the prompt no longer exists", async () => {

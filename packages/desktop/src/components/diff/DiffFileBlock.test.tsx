@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { DiffFileBlock } from "./DiffFileBlock";
@@ -45,8 +45,11 @@ const mocks = vi.hoisted(() => ({
   // The per-file diff is fetched lazily; tests drive the returned section
   // through this mutable holder instead of passing it as a prop.
   section: null as FileDiffSection | null,
+  rawLength: null as number | null,
+  isDeferredLarge: false,
   isLoading: false,
   errorMessage: null as string | null,
+  useFileDiffSectionSpy: vi.fn(),
 }));
 
 vi.mock("./DiffImageView", () => ({
@@ -61,13 +64,28 @@ vi.mock("./PatchDiffView", () => ({
 }));
 
 vi.mock("./useFileDiffSection", () => ({
-  useFileDiffSection: ({ enabled }: { enabled: boolean }) => ({
-    // Models the real hook: a row that hasn't been fetched (collapsed / off
-    // screen → `enabled` false) has no section yet.
-    section: enabled ? mocks.section : null,
-    isLoading: enabled && mocks.isLoading,
-    errorMessage: enabled ? mocks.errorMessage : null,
-  }),
+  useFileDiffSection: (params: {
+    enabled: boolean;
+    allowLargeParse?: boolean;
+    isLargeByLines?: boolean;
+  }) => {
+    mocks.useFileDiffSectionSpy(params);
+    const [optedIn, setOptedIn] = useState(false);
+    const effectiveAllow = Boolean(params.allowLargeParse) || optedIn;
+    const deferredByLines = Boolean(params.isLargeByLines) && !effectiveAllow;
+    const deferredByBytes = mocks.isDeferredLarge && !effectiveAllow;
+    const fetchEnabled = params.enabled && !deferredByLines;
+    return {
+      // Models the real hook: a row that hasn't been fetched (collapsed / off
+      // screen / deferred large) has no section yet.
+      section: fetchEnabled && !deferredByBytes ? mocks.section : null,
+      rawLength: fetchEnabled ? mocks.rawLength : null,
+      isDeferredLarge: params.enabled && (deferredByLines || deferredByBytes),
+      isLoading: fetchEnabled && mocks.isLoading,
+      errorMessage: fetchEnabled ? mocks.errorMessage : null,
+      displayLargeDiff: () => setOptedIn(true),
+    };
+  },
 }));
 
 vi.mock("./GitConflictFileBanner", () => ({
@@ -100,7 +118,10 @@ const baseProps = {
 
 beforeEach(() => {
   mocks.patchDiffViewMock.mockClear();
+  mocks.useFileDiffSectionSpy.mockClear();
   mocks.section = defaultSection;
+  mocks.rawLength = null;
+  mocks.isDeferredLarge = false;
   mocks.isLoading = false;
   mocks.errorMessage = null;
 });
@@ -164,6 +185,33 @@ describe("DiffFileBlock", () => {
     await user.click(screen.getByRole("button", { name: "Open src/foo.ts in editor" }));
 
     expect(onOpenFileInEditor).toHaveBeenCalledWith("src/foo.ts", undefined);
+  });
+
+  it("shows a file name holding a newline escaped, and still acts on the real path", async () => {
+    const onOpenFileInEditor = vi.fn();
+    const indexActions = {
+      stage: vi.fn(),
+      reset: vi.fn(),
+      isPending: false,
+      pendingAction: null,
+      pendingPath: null,
+      error: null,
+    };
+    const { user } = render(
+      <DiffFileBlock
+        {...baseProps}
+        file={{ ...baseProps.file, file: "a\nb.txt" }}
+        isCollapsed
+        onOpenFileInEditor={onOpenFileInEditor}
+        indexActions={indexActions}
+      />,
+    );
+
+    expect(screen.getByText('"a\\nb.txt"')).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: 'Open "a\\nb.txt" in editor' }));
+    expect(onOpenFileInEditor).toHaveBeenCalledWith("a\nb.txt", undefined);
+    await user.click(screen.getByRole("button", { name: 'Stage "a\\nb.txt"' }));
+    expect(indexActions.stage).toHaveBeenCalledWith("a\nb.txt");
   });
 
   it("surfaces the conflict banner for an unmerged file", () => {
@@ -348,16 +396,66 @@ ${bigHunkBody}
         isCollapsed={false}
       />,
     );
-    // Placeholder shown, Pierre NOT hydrated (no synchronous parse/render).
+    // Placeholder shown, fetch NOT enabled, Pierre NOT hydrated.
     expect(getByText("Large file")).toBeInTheDocument();
     expect(queryByTestId("patch-diff-view")).not.toBeInTheDocument();
+    expect(mocks.useFileDiffSectionSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: true, allowLargeParse: false, isLargeByLines: true }),
+    );
 
-    // Explicit opt-in renders the real diff — progressively, in bounded
-    // chunks (2000 lines → 400-line sub-patches), never as one giant instance.
+    // Explicit opt-in enables fetch + parse and renders progressively in bounded chunks.
     await user.click(getByRole("button", { name: "Display diff" }));
     const chunks = screen.getAllByTestId("patch-diff-view");
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks[0].getAttribute("data-patch")).toContain("diff --git a/big.ts b/big.ts");
     expect(chunks[0].getAttribute("data-patch")?.length).toBeLessThan(bigPatch.length);
+  });
+
+  it("keeps forceDisplay active when a deferred large-file fetch resolves asynchronously", async () => {
+    const bigHunkBody = Array.from({ length: 2000 }, (_, i) => `+line ${i}`).join("\n");
+    const bigPatch = `diff --git a/big.ts b/big.ts
+--- a/big.ts
++++ b/big.ts
+@@ -0,0 +1,2000 @@
+${bigHunkBody}
+`;
+    mocks.section = null;
+    mocks.isLoading = true;
+    const props = {
+      ...baseProps,
+      file: { ...baseProps.file, file: "big.ts", additions: 2000, deletions: 0 },
+      isCollapsed: false,
+    };
+    const { getByText, getByRole, rerender, user } = render(<DiffFileBlock {...props} />);
+    expect(getByText("Large file")).toBeInTheDocument();
+
+    await user.click(getByRole("button", { name: "Display diff" }));
+    expect(getByText("Loading diff…")).toBeInTheDocument();
+
+    // Fetch finishes asynchronously: section transitions from null → bigPatch.
+    // Pass a fresh `file` object reference so React.memo re-renders with the updated mock.
+    mocks.section = { oldFileName: "big.ts", newFileName: "big.ts", hunks: [bigPatch] };
+    mocks.isLoading = false;
+    rerender(<DiffFileBlock {...props} file={{ ...props.file }} />);
+    expect(screen.getAllByTestId("patch-diff-view").length).toBeGreaterThan(0);
+  });
+
+  it("renders the placeholder when a small-line file has a deferred huge byte payload", async () => {
+    mocks.isDeferredLarge = true;
+    mocks.rawLength = 512_000;
+    const { getByText, getByRole, queryByTestId, user } = render(
+      <DiffFileBlock
+        {...baseProps}
+        file={{ ...baseProps.file, file: "bundle.min.js", additions: 1, deletions: 0 }}
+        isCollapsed={false}
+      />,
+    );
+
+    expect(getByText("Large file")).toBeInTheDocument();
+    expect(getByText(/500\.0 KB/)).toBeInTheDocument();
+    expect(queryByTestId("patch-diff-view")).not.toBeInTheDocument();
+
+    await user.click(getByRole("button", { name: "Display diff" }));
+    expect(screen.getByTestId("patch-diff-view")).toBeInTheDocument();
   });
 });

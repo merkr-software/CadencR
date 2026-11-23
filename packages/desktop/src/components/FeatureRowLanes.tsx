@@ -49,6 +49,7 @@ export function FeatureRowLanes({
     // The label editor takes the activity line, label or not.
     activity: meta.labelEditor !== undefined || hasActivityItems(rowMetaPart(items, "activity")),
     editingLabel: meta.labelEditor !== undefined,
+    hasSubagents: items.subagents > 0,
   });
   return (
     <>

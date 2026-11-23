@@ -5,6 +5,7 @@ import { queryClient } from "@/lib/queryClient";
 import { createFork, createRewind, type WsEnvelope } from "@/lib/ws-envelope";
 
 import { blocksPatchWithDerived } from "./ws-block-mutations";
+import { showBranchFailure } from "./ws-session-branch-errors";
 import { isRecord } from "./ws-message-processing";
 import { updateSession, type WsSessionStore } from "./ws-session-types";
 import { blockMessageDbId } from "./ws-user-message-reconciliation";
@@ -18,14 +19,24 @@ import { blockMessageDbId } from "./ws-user-message-reconciliation";
 export interface BranchDeps {
   get: () => WsSessionStore;
   set: (partial: Partial<WsSessionStore>) => void;
-  sendRequest: (sessionId: string, envelope: WsEnvelope) => Promise<unknown>;
+  sendRequest: (sessionId: string, envelope: WsEnvelope, timeoutMs?: number) => Promise<unknown>;
 }
+
+/**
+ * A rewind or fork starts the provider's CLI to cut its history (and a rewind
+ * may restore a code checkpoint), which takes well over the default reply
+ * timeout on a loaded machine. A reply that came after the timeout used to be
+ * taken for the turn's own failure.
+ */
+export const BRANCH_REPLY_TIMEOUT_MS = 120_000;
 
 let prefillNonce = 0;
 let forkNonce = 0;
 
-function isBranchError(reply: Record<string, unknown>): boolean {
-  return typeof reply.code === "string" && typeof reply.message === "string";
+function branchError(reply: Record<string, unknown>): { code: string; message: string } | null {
+  return typeof reply.code === "string" && typeof reply.message === "string"
+    ? { code: reply.code, message: reply.message }
+    : null;
 }
 
 function isNeedsConfirm(reply: Record<string, unknown>): boolean {
@@ -46,13 +57,15 @@ export async function rewindToMessage(
   const reply = await deps.sendRequest(
     sessionId,
     createRewind(session.serverSessionId, messageId, { confirmDiscard }),
+    BRANCH_REPLY_TIMEOUT_MS,
   );
   if (!isRecord(reply)) {
     toast.error("Rewind failed or timed out.", { id: toastId });
     return;
   }
-  if (isBranchError(reply)) {
-    toast.error(String(reply.message), { id: toastId });
+  const failure = branchError(reply);
+  if (failure) {
+    showBranchFailure("rewind", toastId, failure, session.currentSelection?.providerId);
     return;
   }
   if (isNeedsConfirm(reply)) {
@@ -103,13 +116,18 @@ export async function forkFromMessage(
   const toastId = `branch-${sessionId}`;
   toast.loading("Forking…", { id: toastId });
 
-  const reply = await deps.sendRequest(sessionId, createFork(session.serverSessionId, messageId));
+  const reply = await deps.sendRequest(
+    sessionId,
+    createFork(session.serverSessionId, messageId),
+    BRANCH_REPLY_TIMEOUT_MS,
+  );
   if (!isRecord(reply)) {
     toast.error("Fork failed or timed out.", { id: toastId });
     return;
   }
-  if (isBranchError(reply)) {
-    toast.error(String(reply.message), { id: toastId });
+  const failure = branchError(reply);
+  if (failure) {
+    showBranchFailure("fork", toastId, failure, session.currentSelection?.providerId);
     return;
   }
 

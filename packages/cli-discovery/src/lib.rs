@@ -10,6 +10,8 @@
 //! `--version`, and lets the caller pick the best (highest semver). It also
 //! exposes the full candidate list so the host app can render a picker UI.
 
+mod error;
+mod override_path;
 mod path_lookup;
 mod shell;
 mod shell_exec;
@@ -20,6 +22,7 @@ mod walk;
 #[cfg(test)]
 mod tests_support;
 
+pub use error::DiscoveryError;
 pub use path_lookup::find_on_path;
 pub use shell::login_shell_path;
 pub use shell_exec::{login_shell_command, login_shell_exec_command, shell_quote};
@@ -29,8 +32,10 @@ pub use version::{parse_version_string, query_version};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::error::run_blocking;
+use crate::override_path::override_candidate;
 use crate::version::probe_version;
-use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
+use crate::walk::{walk_path_var, walk_well_known};
 
 /// Enumerate every candidate binary on disk, in source order.
 ///
@@ -41,67 +46,20 @@ use crate::walk::{canonicalize_executable, walk_path_var, walk_well_known};
 /// 3. `well_known_*` from the spec — `WellKnown`
 ///
 /// All candidates are deduped by canonical path. Version is queried for each.
-pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) -> Vec<Candidate> {
+///
+/// An empty `Ok` means nothing was found; an `Err` means the search itself
+/// could not finish (a blocking step panicked), so the CLI may well exist.
+pub async fn discover_all(
+    spec: &DiscoverySpec,
+    override_path: Option<&Path>,
+) -> Result<Vec<Candidate>, DiscoveryError> {
     if let Some(path) = override_path {
-        if let Some(canonical) = canonicalize_executable(path) {
-            // Probe the override. Apply the substring filter too — a shim
-            // dressed as the requested binary still wouldn't speak the
-            // expected protocol, so silently dropping it is safer than
-            // honoring an override that will only fail downstream.
-            let probe = probe_version(path, &spec.version_args).await;
-            let accept = match (&probe, spec.version_must_contain.as_deref()) {
-                // Filter set: the substring alone is too lax — the rustup
-                // shim's "Unknown binary 'rust-analyzer'" error mentions the
-                // name and would pass a contains-only check.
-                (Some(probe), Some(needle)) => probe.passes_filter(needle),
-                // No filter, or subprocess failed entirely: keep behavior
-                // unchanged (returns a possibly versionless candidate).
-                _ => true,
-            };
-            if accept {
-                return vec![Candidate {
-                    path: path.to_path_buf(),
-                    canonical,
-                    version: probe.as_ref().and_then(|probe| probe.version),
-                    version_text: probe.and_then(|probe| probe.version_text),
-                    source: CandidateSource::Override,
-                }];
-            }
+        if let Some(candidate) = override_candidate(spec, path).await? {
+            return Ok(vec![candidate]);
         }
     }
 
-    let mut seen_canonical = HashSet::new();
-    let mut candidates = Vec::new();
-
-    // 1. $PATH (works in Terminal launches; usually stripped under GUI launch).
-    let env_path = std::env::var_os("PATH");
-    walk_path_var(
-        env_path.as_deref(),
-        &spec.bin_name,
-        CandidateSource::EnvPath,
-        &mut seen_canonical,
-        &mut candidates,
-    );
-
-    // 2. Login-shell PATH (fixes macOS GUI launches).
-    if let Some(login_path) = login_shell_path().await {
-        walk_path_var(
-            Some(std::ffi::OsStr::new(login_path.as_str())),
-            &spec.bin_name,
-            CandidateSource::LoginShellPath,
-            &mut seen_canonical,
-            &mut candidates,
-        );
-    }
-
-    // 3. Well-known dirs (deterministic, no subprocess).
-    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
-    walk_well_known(
-        spec,
-        home_dir.as_deref(),
-        &mut seen_canonical,
-        &mut candidates,
-    );
+    let candidates = walk_candidates(spec).await?;
 
     // Probe versions in parallel — each probe is an independent subprocess
     // with its own 5s timeout, so serial waits would compound badly when
@@ -113,7 +71,7 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
     )
     .await;
 
-    candidates
+    Ok(candidates
         .into_iter()
         .zip(probes)
         .filter_map(|(mut candidate, probe)| {
@@ -137,7 +95,54 @@ pub async fn discover_all(spec: &DiscoverySpec, override_path: Option<&Path>) ->
             }
             Some(candidate)
         })
-        .collect()
+        .collect())
+}
+
+/// Every executable named `spec.bin_name` on `$PATH`, the login-shell PATH and
+/// the well-known dirs, deduped by canonical path, versions not yet probed.
+async fn walk_candidates(spec: &DiscoverySpec) -> Result<Vec<Candidate>, DiscoveryError> {
+    // Resolve the cached login-shell PATH asynchronously before offloading the
+    // synchronous PATH/well-known filesystem walks to the blocking pool.
+    let login_path = login_shell_path().await;
+    let env_path = std::env::var_os("PATH");
+    let home_dir = std::env::var_os("HOME").map(PathBuf::from);
+    let spec_owned = spec.clone();
+
+    run_blocking("candidate walk", move || {
+        let mut seen_canonical = HashSet::new();
+        let mut candidates = Vec::new();
+
+        // 1. $PATH (works in Terminal launches; usually stripped under GUI launch).
+        walk_path_var(
+            env_path.as_deref(),
+            &spec_owned.bin_name,
+            CandidateSource::EnvPath,
+            &mut seen_canonical,
+            &mut candidates,
+        );
+
+        // 2. Login-shell PATH (fixes macOS GUI launches).
+        if let Some(login_path) = login_path {
+            walk_path_var(
+                Some(std::ffi::OsStr::new(login_path.as_str())),
+                &spec_owned.bin_name,
+                CandidateSource::LoginShellPath,
+                &mut seen_canonical,
+                &mut candidates,
+            );
+        }
+
+        // 3. Well-known dirs (deterministic, no subprocess).
+        walk_well_known(
+            &spec_owned,
+            home_dir.as_deref(),
+            &mut seen_canonical,
+            &mut candidates,
+        );
+
+        candidates
+    })
+    .await
 }
 
 /// Enumerate every directory `discover_all` would probe for the given spec.
@@ -181,8 +186,15 @@ pub fn select_best(candidates: &[Candidate]) -> Option<&Candidate> {
 /// only visible from a login shell (e.g. installed via Homebrew but Cadencr
 /// launched from Finder/Dock) is found the same way `NeovimManager::start`
 /// will later resolve it when spawning the headless process.
-pub async fn detect_nvim() -> bool {
-    let spec = DiscoverySpec {
+pub async fn detect_nvim() -> Result<bool, DiscoveryError> {
+    let candidates = discover_all(&nvim_spec(), None).await?;
+    Ok(select_best(&candidates).is_some())
+}
+
+/// `nvim` and nothing that merely shares its name: a run must succeed and
+/// print `NVIM` with a version.
+fn nvim_spec() -> DiscoverySpec {
+    DiscoverySpec {
         bin_name: "nvim".to_string(),
         well_known_relative_to_home: vec![],
         well_known_absolute: vec![
@@ -193,25 +205,33 @@ pub async fn detect_nvim() -> bool {
         ],
         version_args: vec!["--version".to_string()],
         version_must_contain: Some("NVIM".to_string()),
-    };
-    let candidates = discover_all(&spec, None).await;
-    select_best(&candidates).is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tests_support::{dummy_spec, make_executable_with_body};
+    use crate::version::VersionProbe;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn detect_nvim_returns_true_when_binary_available() {
-        let expected = std::process::Command::new("nvim")
-            .arg("--version")
-            .output()
-            .is_ok();
-        let detected = detect_nvim().await;
-        assert_eq!(detected, expected);
+    /// Judged on recorded output, not on a run of the installed `nvim`,
+    /// whose start-up can outlast the probe's deadline on a loaded machine.
+    #[test]
+    fn the_nvim_probe_accepts_neovim_and_nothing_else() {
+        let spec = nvim_spec();
+        assert_eq!(spec.bin_name, "nvim");
+        let needle = spec.version_must_contain.as_deref().unwrap();
+        let probe = |output: &str, success| VersionProbe::from_output(output.into(), success);
+        let neovim = "NVIM v0.11.4\nBuild type: Release\nLuaJIT 2.1.1741730670\n";
+        assert!(probe(neovim, true).passes_filter(needle));
+        assert!(
+            !probe(neovim, false).passes_filter(needle),
+            "a failed run is not an install"
+        );
+        let vim = "VIM - Vi IMproved 9.1.1000 (2024 Jan 02)\n";
+        assert!(!probe(vim, true).passes_filter(needle));
+        assert!(!probe("nvim: command not found\n", true).passes_filter(needle));
     }
 
     #[test]
@@ -293,7 +313,7 @@ mod tests {
     async fn discover_all_with_override_returns_only_override() {
         let dir = TempDir::new().unwrap();
         let path = make_executable_with_body(dir.path(), "thing", "#!/bin/sh\necho 1.2.3\n");
-        let candidates = discover_all(&dummy_spec(), Some(&path)).await;
+        let candidates = discover_all(&dummy_spec(), Some(&path)).await.unwrap();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].source, CandidateSource::Override);
         assert_eq!(
@@ -307,7 +327,9 @@ mod tests {
     async fn discover_all_falls_through_when_override_missing() {
         // Bogus override: should NOT short-circuit; falls through to regular
         // discovery (which here finds nothing).
-        let candidates = discover_all(&dummy_spec(), Some(Path::new("/nonexistent/thing"))).await;
+        let candidates = discover_all(&dummy_spec(), Some(Path::new("/nonexistent/thing")))
+            .await
+            .unwrap();
         // We can't assert empty (PATH may have a real `thing`), but we can
         // assert no Override entry slipped in.
         assert!(candidates
@@ -332,7 +354,7 @@ mod tests {
         let mut spec = dummy_spec();
         spec.bin_name = "rust-analyzer".to_string();
         spec.version_must_contain = Some("rust-analyzer".to_string());
-        let via_override = discover_all(&spec, Some(&shim)).await;
+        let via_override = discover_all(&spec, Some(&shim)).await.unwrap();
         assert!(
             via_override.is_empty(),
             "rustup 'Unknown binary' shim must be rejected; got {via_override:?}"
@@ -362,7 +384,7 @@ mod tests {
         // fall through to standard discovery (which here finds nothing).
         let mut spec = dummy_spec();
         spec.version_must_contain = Some("thing".to_string());
-        let via_override = discover_all(&spec, Some(&shim)).await;
+        let via_override = discover_all(&spec, Some(&shim)).await.unwrap();
         assert!(
             via_override.iter().all(|c| c.path != shim),
             "shim must not be selected via override path"
@@ -370,7 +392,7 @@ mod tests {
 
         // The real binary's --version output contains "thing", so the
         // filter accepts it.
-        let via_override_real = discover_all(&spec, Some(&real)).await;
+        let via_override_real = discover_all(&spec, Some(&real)).await.unwrap();
         assert!(
             via_override_real.iter().any(|c| c.path == real),
             "real binary must pass the filter"
@@ -412,7 +434,7 @@ mod tests {
 
         let mut spec = dummy_spec();
         spec.version_must_contain = Some("thing".to_string());
-        let found = discover_all(&spec, None).await;
+        let found = discover_all(&spec, None).await.unwrap();
 
         unsafe {
             match original_path {

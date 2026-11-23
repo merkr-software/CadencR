@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiErrorMessage, toastError } from "./api-errors";
+import { apiErrorMessage, retryUnlessRefusedForSize, toastError } from "./api-errors";
 
 const toastErrorMock = vi.hoisted(() => vi.fn());
 vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
@@ -43,5 +43,23 @@ describe("toastError", () => {
     toastError({}, "Something went wrong");
 
     expect(toastErrorMock).toHaveBeenCalledWith("Something went wrong");
+  });
+});
+
+describe("retryUnlessRefusedForSize", () => {
+  const refused = (code: string) => ({
+    isAxiosError: true,
+    response: { status: 413, data: { error: "too large", code } },
+  });
+
+  it("retries other failures once, like the app default", () => {
+    expect(retryUnlessRefusedForSize(0, new Error("network down"))).toBe(true);
+    expect(retryUnlessRefusedForSize(0, refused("INTERNAL_ERROR"))).toBe(true);
+    expect(retryUnlessRefusedForSize(1, refused("INTERNAL_ERROR"))).toBe(false);
+  });
+
+  it("never retries a diff or file refused for its size", () => {
+    expect(retryUnlessRefusedForSize(0, refused("DIFF_TOO_LARGE"))).toBe(false);
+    expect(retryUnlessRefusedForSize(0, refused("FILE_TOO_LARGE"))).toBe(false);
   });
 });

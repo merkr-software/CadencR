@@ -1,7 +1,9 @@
 mod lines;
+mod stderr_log;
 mod stderr_tail;
 
 use lines::read_bounded_line;
+use stderr_log::StderrLog;
 pub(crate) use stderr_tail::StderrTail;
 
 use std::collections::HashMap;
@@ -74,6 +76,7 @@ pub(crate) fn spawn_stderr_reader(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr);
+        let mut log = StderrLog::default();
         loop {
             match read_bounded_line(&mut reader, max_line_bytes).await {
                 // Codex diagnostics can quote config values. Never log raw
@@ -83,10 +86,7 @@ pub(crate) fn spawn_stderr_reader(
                     if let Ok(mut tail) = tail.lock() {
                         tail.push(&line);
                     }
-                    tracing::warn!(
-                        target: "codex_app_server",
-                        "codex app-server emitted a stderr diagnostic (content redacted)"
-                    );
+                    log.record(&line);
                 }
                 Ok(None) => break,
                 Err(error) => {
@@ -95,6 +95,7 @@ pub(crate) fn spawn_stderr_reader(
                 }
             }
         }
+        log.finish();
     })
 }
 

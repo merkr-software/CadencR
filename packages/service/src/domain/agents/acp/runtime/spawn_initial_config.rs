@@ -211,6 +211,7 @@ mod tests {
             current_mode: Some("build".to_string()),
             session_config: snapshot_from_options(&config_options("openai/gpt-5.3", "low")),
             supports_session_close: false,
+            supports_prompt_steering: false,
             may_replay_history: false,
         }
     }

@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import nullcontext
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -63,7 +62,7 @@ def load_candidate(data, confirmation):
 
 def cli_env(home, token=None):
     # No inherited GitHub tokens, credential helpers, proxy, or user CLI config.
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(home),
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "TMPDIR": str(home),
            "XDG_CONFIG_HOME": str(home / "config"), "LANG": "C.UTF-8"}
     if token is not None:
         env["CADENCR_AUTHOR_GITHUB_TOKEN"] = token
@@ -291,10 +290,8 @@ def source_inventory(c):
 def qualify(cli, c, publish, network=None, interrupt_draft=False):
     require(not interrupt_draft or publish)
     check_cli(cli, c)
-    with nullcontext(tempfile.mkdtemp(prefix="author-cli-qa-")) as scratch:
+    with tempfile.TemporaryDirectory(prefix="author-cli-qa-") as scratch:
         root = Path(scratch)
-        root.chmod(0o700)
-        print("Private QA scratch retained.", file=sys.stderr)
         home, stage, request, sha, assets = local(cli, c, root)
         proof = {"schema_version": 1, "cli_sha256": c["cli_sha256"],
                  "cli_version": c["cli_version"], "request_sha256": sha,

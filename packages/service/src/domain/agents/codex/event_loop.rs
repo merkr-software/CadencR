@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -94,12 +95,12 @@ impl EventLoop {
                         return;
                     }
                     tracing::warn!(%message, "Codex app-server transport failed");
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new(format!(
                             "Codex app-server transport failed: {message}"
                         ))))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
                 Some(AppServerEvent::ProcessExited { status, signal }) => {
@@ -107,22 +108,22 @@ impl EventLoop {
                         return;
                     }
                     tracing::warn!(?status, ?signal, "Codex app-server exited");
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new("Codex app-server exited")))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
                 None => {
                     if self.closing.load(Ordering::SeqCst) {
                         return;
                     }
-                    let _ = self
-                        .tx
+                    self.tx
                         .send(Err(RuntimeError::new(
                             "Codex app-server event stream closed",
                         )))
-                        .await;
+                        .await
+                        .ignore_closed();
                     return;
                 }
             }
@@ -148,15 +149,7 @@ impl EventLoop {
                 .index_state
                 .observe_turn_started(thread, |child| live.contains_key(child));
         }
-        update_turn_state(
-            &method,
-            &params,
-            &self.turns.active_turn_id,
-            &self.turns.last_root_turn_id,
-            &self.turns.root_thread_id,
-        )
-        .await;
-        clear_resolved_request(&method, &params, &self.pending_requests).await;
+        self.track(&method, &params).await;
         if matches!(
             method.as_str(),
             "item/commandExecution/outputDelta" | "command/exec/outputDelta" | "item/completed"
@@ -245,6 +238,27 @@ impl EventLoop {
             }
         }
         true
+    }
+}
+
+impl EventLoop {
+    /// The state every notification updates before its events are built:
+    /// turn ids, the commands each turn started, resolved requests.
+    async fn track(&self, method: &str, params: &serde_json::Value) {
+        update_turn_state(
+            method,
+            params,
+            &self.turns.active_turn_id,
+            &self.turns.last_root_turn_id,
+            &self.turns.root_thread_id,
+        )
+        .await;
+        self.turns
+            .commands
+            .lock()
+            .expect("turn commands lock")
+            .observe(method, params);
+        clear_resolved_request(method, params, &self.pending_requests).await;
     }
 }
 

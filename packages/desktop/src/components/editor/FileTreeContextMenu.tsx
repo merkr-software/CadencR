@@ -9,6 +9,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { ContextMenuActionButton, type ContextMenuIcon } from "@/components/ContextMenuActionItem";
+import { fromPierrePath } from "@/components/file-tree/cadencrFileTreeModel";
 import { FileTreeContextMenuPortal } from "@/components/file-tree/FileTreeContextMenuPortal";
 import { isDocumentFile } from "@/lib/document-file";
 import type { ShortcutKey } from "@/lib/shortcuts/registry";
@@ -79,7 +80,7 @@ function buildMenuItems(
       onSelect: () => onAction("open", item, context),
     });
   }
-  if (!isDir && isDocumentFile(item.path)) {
+  if (!isDir && isDocumentFile(fromPierrePath(item.path))) {
     items.push({
       label: "Open in Preview",
       icon: EyeIcon,

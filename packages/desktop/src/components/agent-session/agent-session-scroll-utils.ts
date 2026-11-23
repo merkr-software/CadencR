@@ -1,19 +1,48 @@
-import type { FollowOutputCallback, SizeFunction, VirtuosoHandle } from "react-virtuoso";
+import type { FollowOutput, SizeFunction, VirtuosoHandle } from "react-virtuoso";
 import { STREAM_BOTTOM_GAP_PX } from "./stream-fade";
+import type { HistoryGapStatus } from "./useHistoryGapFiller";
 
 export type ScrollRef = (el: HTMLElement | null) => void;
 
-export const HISTORY_SCROLL_TOP_PX = 160;
 export const SCROLLBAR_HIT_TARGET_PX = 20;
-// The initial agent-state window is intentionally small (see
-// `AGENT_STATE_INITIAL_MESSAGE_LIMIT`) so latest-message + status paint
-// instantly. If that window doesn't fill the viewport there's no scrollbar, so
-// the user can't scroll up to reach older history. This caps how many pages we
-// auto-prepend to produce a scrollbar before giving up (a pathological run of
-// tiny collapsed rows).
-export const MAX_VIEWPORT_FILL_PAGES = 6;
 /** Input that hands the viewport back to the reader after a programmatic jump. */
 export const USER_SCROLL_EVENTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+
+/** Marks a history gap's row content in the DOM, with the gap's id. */
+export const HISTORY_GAP_ATTRIBUTE = "data-history-gap-id";
+/** Set on a gap row when loaded history sits above it (the gap can fill downward). */
+export const HISTORY_GAP_HAS_ABOVE_ATTRIBUTE = "data-history-gap-has-above";
+/** Virtuoso's absolute row index attribute, on every rendered row. */
+const ROW_INDEX_ATTRIBUTE = "data-item-index";
+
+/** A rendered Virtuoso row standing for a history gap (its content is the gap's element). */
+export function isHistoryGapRow(row: Element): boolean {
+  return row.firstElementChild?.hasAttribute(HISTORY_GAP_ATTRIBUTE) ?? false;
+}
+
+/**
+ * The row the reader reads from: the first rendered row whose top edge is on
+ * screen, else the one spanning the top edge — never a gap row. The scroll
+ * anchor guard holds it still, and a history gap fills toward it: a gap above
+ * it loads the messages just over it, a gap below it those just under the
+ * rows above that gap, so a page never lands between the reader and their row.
+ */
+export function readerFocusRow(
+  list: Element,
+  viewportTop: number,
+  viewportBottom: number,
+): { row: Element; rect: DOMRect } | null {
+  let spanning: { row: Element; rect: DOMRect } | null = null;
+  for (const row of list.children) {
+    if (!row.hasAttribute(ROW_INDEX_ATTRIBUTE) || isHistoryGapRow(row)) continue;
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom <= viewportTop) continue;
+    if (rect.top >= viewportBottom) break;
+    if (rect.top >= viewportTop) return { row, rect };
+    spanning ??= { row, rect };
+  }
+  return spanning;
+}
 
 /** Virtuoso's item list: the direct parent of the stream's rendered rows. */
 export function findStreamItemList(scroller: HTMLElement): HTMLElement | null {
@@ -46,22 +75,26 @@ export function isVerticalScrollbarPointer(el: HTMLElement, e: PointerEvent): bo
 
 /**
  * Runs a programmatic jump (`run` starts it and returns its cancel) after
- * handing it the viewport and cancelling any jump still settling. Returns
- * that cancel, for a caller that unmounts before the session does.
+ * handing it the viewport and cancelling any jump still settling. The jump
+ * calls `settled` once its row holds still, which hands the view back to the
+ * scroll anchor guard and history gap loading. Returns the cancel, for a
+ * caller that unmounts before the session does.
  */
-export type StartJump = (run: () => () => void) => () => void;
+export type StartJump = (run: (settled: () => void) => () => void) => () => void;
 
 export interface UseAgentSessionScrollResult {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
   scrollContainerRef: ScrollRef;
   /** Virtuoso `itemSize`: lets the scroll anchor guard settle with each measurement pass. */
   itemSize: SizeFunction;
-  onStartReached: () => void;
-  followOutput: FollowOutputCallback;
+  followOutput: FollowOutput;
   onAtBottomStateChange: (atBottom: boolean) => void;
   onTotalListHeightChanged: (height: number) => void;
   autoScrollEnabled: boolean;
-  isLoadingOlder: boolean;
+  /** Which history gap is loading or failed, for the gap rows to show. */
+  historyGapStatus: HistoryGapStatus;
+  /** Holds history gap loading (a prompt's turn loading ahead of a jump); returns the release. */
+  holdHistoryFills: () => () => void;
   scrollToBottom: () => void;
   /** Hand the viewport to a programmatic jump (releases bottom-stick and the anchor guard). */
   startJump: StartJump;

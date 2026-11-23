@@ -56,11 +56,17 @@ export function UpdateInstallActions({
   const installUpdate = useUpdateStore((s) => s.installUpdate);
   const schedule = useUpdateStore((s) => s.scheduleInstallWhenAgentsFinish);
   const cancel = useUpdateStore((s) => s.cancelInstallWhenAgentsFinish);
+  // The main process holds the wish: the buttons wait for it to answer.
+  const wishPending = useUpdateStore((s) => s.installWishPending);
+  const wishSpinner = wishPending ? (
+    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+  ) : null;
 
   if (waiting) {
     return (
       <>
-        <Button size={size} variant="outline" onClick={cancel}>
+        <Button size={size} variant="outline" disabled={wishPending} onClick={() => void cancel()}>
+          {wishSpinner}
           Cancel
         </Button>
         <Button size={size} onClick={() => void installUpdate()}>
@@ -72,7 +78,13 @@ export function UpdateInstallActions({
   if (working > 0) {
     return (
       <>
-        <Button size={size} variant="outline" onClick={schedule}>
+        <Button
+          size={size}
+          variant="outline"
+          disabled={wishPending}
+          onClick={() => void schedule()}
+        >
+          {wishSpinner}
           Restart when agents finish
         </Button>
         <Button size={size} onClick={() => void installUpdate()}>

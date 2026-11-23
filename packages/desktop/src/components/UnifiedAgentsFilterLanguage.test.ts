@@ -9,9 +9,27 @@ import {
 } from "@/components/UnifiedAgentsFilterLanguage";
 
 const PROJECTS: Project[] = [
-  { created_at: "2026-01-01 00:00:00", id: 1, name: "Core App", path: "/repo/core" },
-  { created_at: "2026-01-01 00:00:00", id: 2, name: "Marketing", path: "/repo/marketing" },
-  { created_at: "2026-01-01 00:00:00", id: 3, name: "Agent Lab", path: "/repo/agent-lab" },
+  {
+    created_at: "2026-01-01 00:00:00",
+    id: 1,
+    name: "Core App",
+    path: "/repo/core",
+    path_missing: false,
+  },
+  {
+    created_at: "2026-01-01 00:00:00",
+    id: 2,
+    name: "Marketing",
+    path: "/repo/marketing",
+    path_missing: false,
+  },
+  {
+    created_at: "2026-01-01 00:00:00",
+    id: 3,
+    name: "Agent Lab",
+    path: "/repo/agent-lab",
+    path_missing: false,
+  },
 ];
 
 describe("UnifiedAgentsFilterLanguage", () => {

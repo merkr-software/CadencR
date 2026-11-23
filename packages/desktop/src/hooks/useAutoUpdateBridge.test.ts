@@ -6,6 +6,7 @@ import {
   setDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
 import { INITIAL_UPDATE_SNAPSHOT, type UpdateSnapshot } from "@/shared/update-state";
+import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useUpdateStore } from "@/stores/update-store";
 import { useAutoUpdateBridge } from "./useAutoUpdateBridge";
 
@@ -18,7 +19,7 @@ const downloaded: UpdateSnapshot = {
 };
 
 function resetRendererStore(): void {
-  useUpdateStore.setState({ ...INITIAL_UPDATE_SNAPSHOT, installWhenAgentsFinish: false });
+  useUpdateStore.setState({ ...INITIAL_UPDATE_SNAPSHOT, installWishPending: false });
 }
 
 describe("useAutoUpdateBridge", () => {
@@ -76,5 +77,31 @@ describe("useAutoUpdateBridge", () => {
     await waitFor(() => expect(useUpdateStore.getState().status).toBe("error"));
     await Promise.resolve();
     expect(useUpdateStore.getState()).toMatchObject({ status: "error", revision: 5 });
+  });
+
+  it("keeps waiting for the agents after a reload, then installs", async () => {
+    const installUpdate = vi.fn(() => Promise.resolve());
+    setDesktopBridgeOverrideForTests({
+      getUpdateState: vi.fn(() =>
+        Promise.resolve({ ...downloaded, installWhenAgentsFinish: true }),
+      ),
+      onUpdateState: vi.fn(() => () => undefined),
+      installUpdate,
+    });
+    const agent = { status: "agent" as const, kind: null, featureId: 1, seq: 1 };
+    useSessionStatusStore.setState({
+      bySession: { 1: agent },
+      hasSnapshot: true,
+      isConnected: true,
+    });
+
+    const bridge = renderHook(() => useAutoUpdateBridge());
+    await waitFor(() => expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(true));
+    expect(installUpdate).not.toHaveBeenCalled();
+
+    useSessionStatusStore.setState({ bySession: { 1: { ...agent, status: "idle" } } });
+    expect(installUpdate).toHaveBeenCalledTimes(1);
+    bridge.unmount();
+    useSessionStatusStore.setState({ bySession: {}, hasSnapshot: false, isConnected: false });
   });
 });

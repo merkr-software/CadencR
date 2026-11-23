@@ -75,6 +75,7 @@ pub(super) fn handle_tool_call(
         has_child_slots: is_task,
         child_indices: Vec::new(),
         truncated_content: if call_truncated { Some(true) } else { None },
+        last_message_id: None,
     });
     if let Some(tuid) = &msg.tool_use_id {
         tool_use_id_map.insert(tuid.clone(), new_idx);
@@ -153,6 +154,7 @@ pub(super) fn handle_tool_result(
         has_child_slots: false,
         child_indices: Vec::new(),
         truncated_content: if was_truncated { Some(true) } else { None },
+        last_message_id: None,
     });
     // Nest under parent_tool_use_id if available, otherwise under the
     // matching Agent/Task tool_call (tool_result shares tool_use_id).

@@ -5,7 +5,7 @@
 use super::audit::{audit_outcome, elapsed_ms, record_tool_audit, ToolAudit};
 use super::scope::SessionScope;
 use crate::app_state::AppState;
-use crate::domain::schedules::models::{Schedule, ScheduleRanEvent, TargetKind};
+use crate::domain::schedules::models::{Schedule, TargetKind};
 use crate::domain::schedules::repository;
 use crate::error::AppError;
 
@@ -80,9 +80,7 @@ pub(super) async fn audit_schedule_call<T: serde::Serialize>(
 /// without it, a change the agent made would stay invisible until the user
 /// happened to reload.
 pub(super) fn notify_schedule_changed(state: &AppState, schedule_id: i64) {
-    let _ = state
-        .schedule_events_tx
-        .send(ScheduleRanEvent { schedule_id });
+    crate::domain::schedules::service::announce_changed(state, &[schedule_id]);
 }
 
 #[cfg(test)]

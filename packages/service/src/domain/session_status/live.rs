@@ -11,59 +11,11 @@ use std::collections::HashMap;
 
 use crate::domain::sessions::models::SessionStatusSnapshotEntry;
 
+use super::closed_gates::ClosedGates;
+use super::transition::{next_entry, persisted_clock, transition_cannot_apply, unchanged_by};
+pub(super) use super::transition::{Source, Transition};
 use super::turn_clock::{CompletedTurn, TurnClock};
-use super::{AgentStatus, PendingKind, SessionStatusEvent, TurnOutcome};
-
-/// Who is asking for a transition.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Source {
-    /// The code path that owns the change: a prompt, a gate, a stop, a turn end.
-    Authoritative,
-    /// Resolves this request only; a newer gate must keep its pending status.
-    GateResponse { request_id: String },
-    /// Closes a gate the agent never waited on. Applies only while the session
-    /// still shows that gate: a turn start or end, or a newer gate, published
-    /// meanwhile already tells the truth.
-    GateDismissed { request_id: String },
-    /// A turn ended with a gate still pending. Shows it only over that turn's
-    /// working status (a reply sent while the gate waited); a gate resolved or
-    /// replaced meanwhile already moved the book on.
-    GateLeftPending,
-    /// Runtime stream activity. It proves the turn is alive but cannot answer a
-    /// pending gate, so it never turns a `Question` back into `Agent`; and only
-    /// an event that `starts_turn` revives a session another path marked idle
-    /// (trailing deltas of an interrupted turn must not).
-    Stream { starts_turn: bool },
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct Transition {
-    pub session_id: i64,
-    pub feature_id: i64,
-    pub status: AgentStatus,
-    pub kind: Option<PendingKind>,
-    pub request_id: Option<String>,
-    pub outcome: Option<TurnOutcome>,
-    pub source: Source,
-    /// Whether a turn this transition starts gets a closing transcript line.
-    pub summarized: bool,
-}
-
-impl Transition {
-    /// An authoritative transition of the current turn; callers override the rest.
-    pub(super) fn new(session_id: i64, feature_id: i64, status: AgentStatus) -> Self {
-        Self {
-            session_id,
-            feature_id,
-            status,
-            kind: None,
-            request_id: None,
-            outcome: None,
-            source: Source::Authoritative,
-            summarized: true,
-        }
-    }
-}
+use super::{AgentStatus, SessionStatusEvent, TurnOutcome};
 
 /// What an applied change produced.
 #[derive(Debug)]
@@ -76,11 +28,16 @@ pub(super) struct Applied {
     pub persist: Option<Option<TurnClock>>,
 }
 
-/// Non-idle sessions keyed by `session_id`.
+/// Non-idle sessions keyed by `session_id`, plus any session with running sub-agents.
 #[derive(Debug, Default)]
 pub(super) struct LiveStatusBook {
     seq: u64,
     sessions: HashMap<i64, SessionStatusSnapshotEntry>,
+    /// Non-zero running sub-agent counts keyed by `session_id`: `(feature_id, count)`.
+    /// Kept separate from `sessions` so background sub-agents outliving a turn
+    /// stay visible without marking the session itself as busy.
+    running_subagents: HashMap<i64, (i64, u32)>,
+    closed_gates: ClosedGates,
 }
 
 impl LiveStatusBook {
@@ -99,23 +56,38 @@ impl LiveStatusBook {
     }
 
     /// Load a persisted non-idle session at boot, before any client connects.
-    pub(super) fn seed(&mut self, entry: SessionStatusSnapshotEntry) {
+    pub(super) fn seed(&mut self, mut entry: SessionStatusSnapshotEntry) {
+        let count = std::mem::take(&mut entry.running_subagents);
+        if count > 0 {
+            self.running_subagents
+                .insert(entry.session_id, (entry.feature_id, count));
+        }
         if entry.status != AgentStatus::Idle {
             self.sessions.insert(entry.session_id, entry);
         }
     }
 
-    /// `(session_id, feature_id)` of every non-idle session.
+    /// `(session_id, feature_id)` of every tracked session (busy or running sub-agents).
     pub(super) fn tracked(&self) -> Vec<(i64, i64)> {
-        self.sessions
+        let mut tracked: Vec<(i64, i64)> = self
+            .sessions
             .values()
             .map(|entry| (entry.session_id, entry.feature_id))
-            .collect()
+            .collect();
+        for (&session_id, &(feature_id, _)) in &self.running_subagents {
+            if !self.sessions.contains_key(&session_id) {
+                tracked.push((session_id, feature_id));
+            }
+        }
+        tracked
     }
 
     /// Apply a transition. `None` when it changes nothing (a repeat, or stream
     /// activity under a pending gate); otherwise what to broadcast and record.
     pub(super) fn apply(&mut self, transition: &Transition, now_ms: i64) -> Option<Applied> {
+        if self.shows_a_closed_gate(transition, now_ms) {
+            return None;
+        }
         let current = self.sessions.get(&transition.session_id);
         if transition_cannot_apply(current, transition) {
             return None;
@@ -160,6 +132,26 @@ impl LiveStatusBook {
         })
     }
 
+    /// Track gates closing and opening; true when `transition` would show
+    /// again a gate that closed after its turn's end read it as pending.
+    fn shows_a_closed_gate(&mut self, transition: &Transition, now_ms: i64) -> bool {
+        let session_id = transition.session_id;
+        match (&transition.source, transition.request_id.as_deref()) {
+            (Source::GateResponse { request_id } | Source::GateDismissed { request_id }, _) => {
+                self.closed_gates.record(session_id, request_id, now_ms);
+                false
+            }
+            (Source::GateLeftPending, Some(request_id)) => {
+                self.closed_gates.contains(session_id, request_id)
+            }
+            (Source::Authoritative, Some(request_id)) => {
+                self.closed_gates.reopen(session_id, request_id);
+                false
+            }
+            _ => false,
+        }
+    }
+
     /// The CLI reports the model running a busy session's root agent.
     pub(super) fn observe_model(
         &mut self,
@@ -194,20 +186,90 @@ impl LiveStatusBook {
         }
         entry.compacting = active;
         let feature_id = entry.feature_id;
-        let event = self.event(session_id, feature_id, None, now_ms);
-        Some(Applied {
-            event,
-            completed: None,
-            persist: None,
-        })
+        Some(self.event_only(session_id, feature_id, now_ms))
     }
 
-    /// Every non-idle session, keyed by `session_id` for the wire.
+    /// Record how many sub-agents are currently running in `session_id`.
+    /// Works whether the session's main turn is working, gated, or idle.
+    pub(super) fn set_running_subagents(
+        &mut self,
+        session_id: i64,
+        feature_id: i64,
+        count: u32,
+        now_ms: i64,
+    ) -> Option<Applied> {
+        if self.subagent_count(session_id) == count {
+            return None;
+        }
+        if count == 0 {
+            self.running_subagents.remove(&session_id);
+        } else {
+            self.running_subagents
+                .insert(session_id, (feature_id, count));
+        }
+        Some(self.event_only(session_id, feature_id, now_ms))
+    }
+
+    /// Clear a deleted session's status and any running sub-agents in one event.
+    pub(super) fn forget_session(
+        &mut self,
+        session_id: i64,
+        feature_id: i64,
+        now_ms: i64,
+    ) -> Option<Applied> {
+        if !self.sessions.contains_key(&session_id) {
+            return self.set_running_subagents(session_id, feature_id, 0, now_ms);
+        }
+        self.running_subagents.remove(&session_id);
+        self.apply(
+            &Transition::new(session_id, feature_id, AgentStatus::Idle),
+            now_ms,
+        )
+    }
+
+    fn event_only(&mut self, session_id: i64, feature_id: i64, now_ms: i64) -> Applied {
+        Applied {
+            event: self.event(session_id, feature_id, None, now_ms),
+            completed: None,
+            persist: None,
+        }
+    }
+
+    fn subagent_count(&self, session_id: i64) -> u32 {
+        self.running_subagents
+            .get(&session_id)
+            .map_or(0, |(_, count)| *count)
+    }
+
+    /// Every non-idle session (plus idle ones with live sub-agents), keyed by `session_id`.
     pub(super) fn snapshot(&self) -> HashMap<String, SessionStatusSnapshotEntry> {
-        self.sessions
+        let mut states: HashMap<String, SessionStatusSnapshotEntry> = self
+            .sessions
             .iter()
-            .map(|(session_id, entry)| (session_id.to_string(), entry.clone()))
-            .collect()
+            .map(|(&session_id, entry)| {
+                let mut snapshot = entry.clone();
+                snapshot.running_subagents = self.subagent_count(session_id);
+                (session_id.to_string(), snapshot)
+            })
+            .collect();
+        for (&session_id, &(feature_id, count)) in &self.running_subagents {
+            if !self.sessions.contains_key(&session_id) {
+                states.insert(
+                    session_id.to_string(),
+                    SessionStatusSnapshotEntry {
+                        session_id,
+                        feature_id,
+                        status: AgentStatus::Idle,
+                        kind: None,
+                        request_id: None,
+                        clock: TurnClock::default(),
+                        compacting: false,
+                        running_subagents: count,
+                    },
+                );
+            }
+        }
+        states
     }
 
     /// The event announcing the session's current entry (idle when it has none).
@@ -228,6 +290,7 @@ impl LiveStatusBook {
             request_id: entry.and_then(|entry| entry.request_id.clone()),
             clock: entry.map(|entry| entry.clock.clone()).unwrap_or_default(),
             compacting: entry.is_some_and(|entry| entry.compacting),
+            running_subagents: self.subagent_count(session_id),
             outcome,
             seq: self.seq,
             server_now_ms: now_ms,
@@ -235,95 +298,10 @@ impl LiveStatusBook {
     }
 }
 
-/// `(turn_started_at_ms, waiting_ms, waiting_since_ms, models)` of a clock.
-type PersistedClock<'a> = (Option<i64>, i64, Option<i64>, &'a [String]);
-
-/// The part of a clock the DB mirrors (the reported model's name is derived).
-fn persisted_clock(entry: Option<&SessionStatusSnapshotEntry>) -> Option<PersistedClock<'_>> {
-    entry.map(|entry| {
-        let clock = &entry.clock;
-        (
-            clock.turn_started_at_ms,
-            clock.waiting_ms,
-            clock.waiting_since_ms,
-            clock.models.as_slice(),
-        )
-    })
-}
-
-fn transition_cannot_apply(
-    current: Option<&SessionStatusSnapshotEntry>,
-    transition: &Transition,
-) -> bool {
-    match &transition.source {
-        Source::Authoritative => false,
-        Source::GateResponse { request_id } => current.is_some_and(|entry| {
-            entry.status == AgentStatus::Question
-                && entry
-                    .request_id
-                    .as_ref()
-                    .is_some_and(|pending| pending != request_id)
-        }),
-        Source::GateDismissed { request_id } => !current.is_some_and(|entry| {
-            entry.status == AgentStatus::Question
-                && entry.request_id.as_deref() == Some(request_id.as_str())
-        }),
-        Source::GateLeftPending => !current.is_some_and(|entry| entry.status == AgentStatus::Agent),
-        Source::Stream { starts_turn } if transition.status == AgentStatus::Agent => {
-            match current {
-                Some(entry) => entry.status == AgentStatus::Question,
-                None => !starts_turn,
-            }
-        }
-        Source::Stream { .. } => false,
-    }
-}
-
-/// Whether [`next_entry`] would rebuild `entry` as it is.
-fn unchanged_by(entry: &SessionStatusSnapshotEntry, transition: &Transition) -> bool {
-    let gate_open = entry.clock.waiting_since_ms.is_some();
-    entry.status == transition.status
-        && entry.feature_id == transition.feature_id
-        && entry.kind == transition.kind
-        && entry.request_id == transition.request_id
-        && entry.clock.turn_started_at_ms.is_some()
-        && gate_open == (transition.status == AgentStatus::Question)
-}
-
-/// A busy session keeps its turn: a prompt sent while it works steers the same
-/// turn, so only a session leaving idle starts a clock.
-fn next_entry(
-    current: Option<&SessionStatusSnapshotEntry>,
-    transition: &Transition,
-    now_ms: i64,
-) -> Option<SessionStatusSnapshotEntry> {
-    if transition.status == AgentStatus::Idle {
-        return None;
-    }
-    let mut clock = match current {
-        Some(entry) => entry.clock.clone(),
-        None => TurnClock::start(now_ms, transition.summarized),
-    };
-    // A gate persisted before turns had a clock starts one when it resumes.
-    clock.turn_started_at_ms.get_or_insert(now_ms);
-    match transition.status {
-        AgentStatus::Question => clock.open_gate(now_ms),
-        _ => clock.close_gate(now_ms),
-    }
-    Some(SessionStatusSnapshotEntry {
-        session_id: transition.session_id,
-        feature_id: transition.feature_id,
-        status: transition.status,
-        kind: transition.kind,
-        request_id: transition.request_id.clone(),
-        clock,
-        compacting: current.is_some_and(|entry| entry.compacting),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::session_status::PendingKind;
 
     fn authoritative(status: AgentStatus) -> Transition {
         Transition {
@@ -505,6 +483,7 @@ mod tests {
             request_id: Some("req-1".into()),
             clock: TurnClock::restored(Some(100), 50, Some(400), vec!["opus".into()]),
             compacting: false,
+            running_subagents: 0,
         });
 
         assert_eq!(book.seq(), 0);
@@ -527,8 +506,46 @@ mod tests {
             request_id: None,
             clock: TurnClock::restored(None, 0, None, Vec::new()),
             compacting: false,
+            running_subagents: 0,
         });
         let resumed = event(book.apply(&authoritative(AgentStatus::Agent), 5));
         assert_eq!(resumed.clock.turn_started_at_ms, Some(5));
+    }
+
+    #[test]
+    fn running_subagents_ride_events_and_outlive_an_idle_turn() {
+        let mut book = LiveStatusBook::default();
+        book.apply(&authoritative(AgentStatus::Agent), 1);
+
+        let started = event(book.set_running_subagents(7, 8, 2, 2));
+        assert_eq!(started.status, AgentStatus::Agent);
+        assert_eq!(started.running_subagents, 2);
+        assert_eq!(book.snapshot()["7"].running_subagents, 2);
+        // Unchanged counts emit nothing and consume no seq.
+        assert!(book.set_running_subagents(7, 8, 2, 3).is_none());
+
+        // Turn goes idle while a background sub-agent is still running: the
+        // session is no longer busy, yet its count stays in events and snapshots.
+        let idle = event(book.apply(&authoritative(AgentStatus::Idle), 4));
+        assert_eq!(idle.status, AgentStatus::Idle);
+        assert_eq!(idle.running_subagents, 2);
+        assert!(!book.is_busy(7));
+        assert_eq!(book.snapshot()["7"].status, AgentStatus::Idle);
+        assert_eq!(book.snapshot()["7"].running_subagents, 2);
+        assert_eq!(book.tracked(), vec![(7, 8)]);
+
+        let done = event(book.set_running_subagents(7, 8, 0, 5));
+        assert_eq!(done.running_subagents, 0);
+        assert!(book.snapshot().is_empty());
+        assert!(book.tracked().is_empty());
+
+        // Forgetting a busy session with running sub-agents clears both in one event.
+        book.apply(&authoritative(AgentStatus::Agent), 6);
+        book.set_running_subagents(7, 8, 1, 7);
+        let forgotten = event(book.forget_session(7, 8, 8));
+        assert_eq!(forgotten.status, AgentStatus::Idle);
+        assert_eq!(forgotten.running_subagents, 0);
+        assert!(book.snapshot().is_empty());
+        assert!(book.tracked().is_empty());
     }
 }

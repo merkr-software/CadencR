@@ -34,12 +34,11 @@ use serde_json::Value;
 /// out of scope until OpenCode supports durable sessions; the existing
 /// skip-and-log path in `lifecycle.rs` covers the absence-of-capability
 /// case.
-pub(super) fn parent_tool_use_id(body: &Value) -> Option<String> {
+pub(super) fn parent_tool_use_id(body: &Value) -> Option<&str> {
     body.get("parentToolCallId")
         .or_else(|| body.get("parentToolUseId"))
         .or_else(|| body.get("parent_tool_use_id"))
         .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
@@ -53,19 +52,19 @@ mod tests {
             "parentToolCallId": "parent-1",
             "parentToolUseId": "ignored",
         });
-        assert_eq!(parent_tool_use_id(&body).as_deref(), Some("parent-1"));
+        assert_eq!(parent_tool_use_id(&body), Some("parent-1"));
     }
 
     #[test]
     fn falls_back_to_parent_tool_use_id() {
         let body = json!({ "parentToolUseId": "parent-2" });
-        assert_eq!(parent_tool_use_id(&body).as_deref(), Some("parent-2"));
+        assert_eq!(parent_tool_use_id(&body), Some("parent-2"));
     }
 
     #[test]
     fn falls_back_to_snake_case_parent_tool_use_id() {
         let body = json!({ "parent_tool_use_id": "parent-3" });
-        assert_eq!(parent_tool_use_id(&body).as_deref(), Some("parent-3"));
+        assert_eq!(parent_tool_use_id(&body), Some("parent-3"));
     }
 
     #[test]

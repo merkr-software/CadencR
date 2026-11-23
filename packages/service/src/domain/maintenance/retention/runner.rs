@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use super::super::compaction;
+use super::super::compaction::{self, CompactionError};
 use super::super::{
     StorageMaintenanceBroadcaster, StorageMaintenanceEvent, StorageMaintenanceTask,
 };
@@ -68,20 +68,25 @@ impl SweepProgress {
 
 /// Compact every feature whose retention window has elapsed. Returns the number
 /// of message rows rewritten.
-pub async fn run(pool: &SqlitePool, events: &StorageMaintenanceBroadcaster) -> u64 {
+pub async fn run(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    events: &StorageMaintenanceBroadcaster,
+) -> u64 {
     let Some((days, policy)) = PolicyGuard::configured() else {
         return 0;
     };
-    run_with_days(pool, events, days, policy).await
+    run_with_days(read_pool, write_pool, events, days, policy).await
 }
 
 async fn run_with_days(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     events: &StorageMaintenanceBroadcaster,
     days: i64,
     mut policy: PolicyGuard,
 ) -> u64 {
-    let due = match due_features(pool, days).await {
+    let due = match due_features(read_pool, days).await {
         Ok(ids) => ids,
         Err(e) => {
             tracing::warn!("retention: failed to list features due for compaction: {e}");
@@ -115,7 +120,7 @@ async fn run_with_days(
             sweep.cancelled = true;
             break;
         }
-        match compact_feature_guarded(pool, feature_id, days, &mut policy).await {
+        match compact_feature_guarded(read_pool, write_pool, feature_id, days, &mut policy).await {
             Ok(result) => {
                 rewritten += result.rewritten;
                 // A user can disable retention or increase the quiet period
@@ -123,7 +128,7 @@ async fn run_with_days(
                 // under a policy that is no longer the one they approved.
                 let policy_current = policy.is_current(days);
                 if result.complete && policy_current {
-                    match stamp_compacted(pool, feature_id, days).await {
+                    match stamp_compacted(write_pool, feature_id, days).await {
                         Ok(true) => compacted_features += 1,
                         Ok(false) => tracing::info!(
                             feature_id,
@@ -183,9 +188,9 @@ pub(super) async fn compact_feature(
     pool: &SqlitePool,
     feature_id: i64,
     days: i64,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, CompactionError> {
     let mut policy = PolicyGuard::testing(|_| true);
-    compact_feature_guarded(pool, feature_id, days, &mut policy)
+    compact_feature_guarded(pool, pool, feature_id, days, &mut policy)
         .await
         .map(|result| result.rewritten)
 }
@@ -196,32 +201,30 @@ pub(super) async fn compact_feature_with_policy(
     feature_id: i64,
     days: i64,
     check: fn(i64) -> bool,
-) -> Result<u64, sqlx::Error> {
+) -> Result<u64, CompactionError> {
     let mut policy = PolicyGuard::testing(check);
-    compact_feature_guarded(pool, feature_id, days, &mut policy)
+    compact_feature_guarded(pool, pool, feature_id, days, &mut policy)
         .await
         .map(|result| result.rewritten)
 }
 
 async fn compact_feature_guarded(
-    pool: &SqlitePool,
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
     feature_id: i64,
     days: i64,
     policy: &mut PolicyGuard,
-) -> Result<FeatureCompaction, sqlx::Error> {
+) -> Result<FeatureCompaction, CompactionError> {
     let mut cursor = 0i64;
     let mut rewritten = 0u64;
 
     loop {
-        // The due list was snapshotted before the walk began, and a large
-        // backlog takes minutes to work through. Re-check every batch so a
-        // feature the user pulls back out of the archive mid-sweep stops being
-        // compacted at the next batch boundary rather than at the end.
+        // Re-check every batch so a feature restored mid-sweep stops promptly.
         if !policy.is_current(days) {
             tracing::info!(feature_id, "retention: policy changed, stopping feature");
             return Ok(FeatureCompaction::interrupted(rewritten));
         }
-        if !still_eligible(pool, feature_id, days).await? {
+        if !still_eligible(read_pool, feature_id, days).await? {
             tracing::info!(
                 feature_id,
                 "retention: feature became active or received recent activity, stopping"
@@ -233,7 +236,7 @@ async fn compact_feature_guarded(
             .bind(feature_id)
             .bind(cursor)
             .bind(MESSAGE_BATCH)
-            .fetch_all(pool)
+            .fetch_all(read_pool)
             .await?;
         if ids.is_empty() {
             return Ok(FeatureCompaction::complete(rewritten));
@@ -243,19 +246,19 @@ async fn compact_feature_guarded(
             cursor = id;
             let Some(content) = sqlx::query_scalar::<_, String>(FEATURE_MESSAGE_SQL)
                 .bind(id)
-                .fetch_optional(pool)
+                .fetch_optional(read_pool)
                 .await?
             else {
                 continue;
             };
-            let Some(snapshot) = compaction::compact_bash_content_async(content).await else {
+            let Some(snapshot) = compaction::compact_bash_content_async(content).await? else {
                 continue;
             };
             if !policy.is_current(days) {
                 tracing::info!(feature_id, "retention: policy changed, stopping feature");
                 return Ok(FeatureCompaction::interrupted(rewritten));
             }
-            if store_compacted_if_eligible(pool, feature_id, id, &snapshot, days).await? {
+            if store_compacted_if_eligible(write_pool, feature_id, id, &snapshot, days).await? {
                 rewritten += 1;
             } else {
                 tracing::info!(
@@ -383,7 +386,7 @@ pub(super) async fn run_for_test(
     events: &StorageMaintenanceBroadcaster,
     days: i64,
 ) -> u64 {
-    run_with_days(pool, events, days, PolicyGuard::testing(|_| true)).await
+    run_with_days(pool, pool, events, days, PolicyGuard::testing(|_| true)).await
 }
 
 #[cfg(test)]
@@ -393,5 +396,5 @@ pub(super) async fn run_for_test_with_policy(
     days: i64,
     check: fn(i64) -> bool,
 ) -> u64 {
-    run_with_days(pool, events, days, PolicyGuard::testing(check)).await
+    run_with_days(pool, pool, events, days, PolicyGuard::testing(check)).await
 }

@@ -68,6 +68,10 @@ h1 { font-size: 17px; font-weight: 700; }
 h2 { font-size: 14px; font-weight: 600; }
 h3 { font-size: 13px; font-weight: 600; }
 p { margin: 0 0 8px; }
+/* The visual's closing heading or paragraph keeps no margin (scripts and styles
+   after it draw nothing): the reply around the visual sets its spacing. Nested
+   ones keep theirs, as a subtitle over a chart. */
+body > :is(h1, h2, h3, p):not(:has(~ :not(script, style, template))) { margin-bottom: 0; }
 a { color: var(--primary); }
 code, pre, .mono { font-family: var(--font-mono); font-size: 12px; }
 svg { max-width: 100%; }

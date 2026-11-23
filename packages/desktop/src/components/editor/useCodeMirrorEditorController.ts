@@ -4,6 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { useGetBlame, useGetFeatureWorkingDir, useReadFile } from "@/api/generated";
 import { useSetting } from "@/hooks/useSetting";
 import { useEditorLanguage } from "@/hooks/useEditorLanguage";
+import { useQueryErrorToast } from "@/hooks/useQueryErrorToast";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { setGitGutterBaseline } from "@/lib/editor/git-gutter/git-gutter-extension";
 import { useGitGutter } from "@/lib/editor/git-gutter/useGitGutter";
@@ -94,6 +95,11 @@ function useEditorFileData(props: CodeMirrorEditorProps) {
         refetchOnWindowFocus: false,
       },
     },
+  );
+  useQueryErrorToast(
+    blame,
+    "Git blame unavailable",
+    `git-blame:${props.featureId}:${props.filePath}`,
   );
   const gitGutter = useGitGutter({
     projectId: props.projectId,

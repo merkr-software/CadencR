@@ -60,6 +60,7 @@ async fn migration_adds_delivery_claims_without_rewriting_reply_waits() {
     seed_migrations_before_target(&pool).await;
 
     crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
+    super::test_fixtures::ensure_session_queue_prerequisites(&pool, TARGET_VERSION).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

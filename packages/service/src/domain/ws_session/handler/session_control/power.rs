@@ -1,3 +1,4 @@
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 
 use axum::extract::ws::Message;
@@ -13,20 +14,11 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::protocol::GateCloseReason;
-use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
+use crate::domain::ws_session::runtime::helpers::{report_if_unsaved, setting_or_report};
 use crate::domain::ws_session::runtime::output::{CommandError, OutputTarget};
 
-/// Broadcast a `session.lifecycle` envelope so the frontend turn-lifecycle
-/// state machine flips only on backend-confirmed transitions (per
-/// `no-optimistic-updates.md`). Used by both suspend and resume paths.
-fn broadcast_lifecycle(sender: &impl OutputTarget, session_id: i64, kind: SessionLifecycleKind) {
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::Lifecycle(SessionLifecyclePayload {
-        session_id: session_id.to_string(),
-        kind,
-    }))
-    .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(envelope).into()));
-}
+mod sleep_lifecycle;
+use sleep_lifecycle::{announce_suspend, lifecycle_message};
 
 /// Handle `session.suspend`. Provider-neutral pause driven by the renderer
 /// when the OS reports a pending suspend. For an active runtime we capture the
@@ -75,14 +67,17 @@ fn acknowledge_suspend(sender: &WsSender, envelope_id: &str) {
         }),
     )
     .expect("suspend acknowledgement should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
 }
 
 /// The work behind `session.suspend`, for the socket that holds the
 /// conversation (`sdk_sessions` is its map) and for the HTTP suspend used for
 /// conversations no client has open (the service registry's cell). `output`
-/// receives the gate and lifecycle events; headless, every other client
-/// still learns the outcome from the status book.
+/// receives the gate and lifecycle events; headless, every viewer of the
+/// feature receives the lifecycle event, and the status book tells every
+/// client the outcome.
 pub(crate) async fn suspend_session(
     app_state: &AppState,
     sdk_sessions: &SdkSessions,
@@ -147,11 +142,7 @@ pub(crate) async fn suspend_session(
         gates_closed,
     )
     .await;
-    broadcast_lifecycle(
-        output,
-        db_session_id,
-        SessionLifecycleKind::SuspendRequested,
-    );
+    announce_suspend(output, app_state, feature_id, db_session_id).await;
     Ok(())
 }
 
@@ -168,6 +159,7 @@ async fn close_gates_for_sleep(
         None,
         GateCloseReason::Sleep,
         None,
+        false,
     )
     .await
     .map(|_| ())
@@ -237,7 +229,16 @@ async fn pause_running_turn(
     let sid = q.session_id().await;
     let allows_resume_persistence = q.allows_resume_persistence();
     let _barrier = q.turn_control_guard().await;
-    let turn_running = app_state.session_status_tx.is_busy(db_session_id);
+    // A prompt whose reserved turn has not reached the runtime is withdrawn,
+    // as by a Stop: the runtime runs nothing to interrupt.
+    let busy = app_state.session_status_tx.is_busy(db_session_id);
+    let turns = &app_state.active_turns;
+    let current = turns.current_generation(db_session_id).await;
+    let cancelled_start = busy
+        && turns
+            .followups()
+            .cancel_pending_start(db_session_id, current);
+    let turn_running = busy && !cancelled_start;
     let result = interrupt_as_intended(
         app_state,
         query,
@@ -253,7 +254,7 @@ async fn pause_running_turn(
         // the caller must hear it, and the session is not marked paused.
         // Between turns there was nothing to pause (a runtime whose process
         // already ended refuses any control), so the pause goes on.
-        if turn_running {
+        if turn_running && !error.is_nothing_to_interrupt() {
             return Err(CommandError::new(
                 "SDK_ERROR",
                 format!("The agent did not pause for sleep: {error}"),
@@ -290,7 +291,12 @@ pub(crate) async fn handle_resume(envelope: WsEnvelope, sender: &WsSender) {
         return;
     };
 
-    broadcast_lifecycle(sender, db_session_id, SessionLifecycleKind::Resumed);
+    sender
+        .send(lifecycle_message(
+            db_session_id,
+            SessionLifecycleKind::Resumed,
+        ))
+        .ignore_closed();
 }
 
 /// Handle session.retry_worktree_setup: re-run setup commands for an existing worktree.
@@ -318,40 +324,78 @@ pub(crate) async fn handle_retry_worktree_setup(
         }
     };
 
-    let wt_path_str =
-        match worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await {
-            Some(p) => p,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "NO_WORKTREE",
-                    "No worktree found for this feature",
-                );
+    let ws = app_state
+        .ws_feature_senders
+        .fan_out_sender(feature_id, sender.clone());
+    let read = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_path").await;
+    let Some(recorded) = setting_or_report(sender, &envelope.id, "worktree path", read) else {
+        return;
+    };
+    // A worktree whose provisioning failed is provisioned again, in the mode
+    // the feature chose (a reused branch stays reused).
+    let provisioned_now = recorded.is_none();
+    let wt_path_str = match recorded {
+        Some(path) => path,
+        None => match retry_provisioning(app_state, feature_id, &ws).await {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let message = "No worktree found for this feature";
+                send_error(sender, &envelope.id, "NO_WORKTREE", message);
                 return;
             }
-        };
+            Err(error) => {
+                send_error(sender, &envelope.id, "WORKTREE_PROVISIONING_FAILED", &error);
+                return;
+            }
+        },
+    };
 
+    let read = worktree::get_setting(&app_state.read_pool, feature_id, "worktree_setup_step").await;
+    let Some(step) = setting_or_report(sender, &envelope.id, "worktree setup step", read) else {
+        return;
+    };
     let reply = WsEnvelope::session_reply(
         &envelope.id,
         &WsSessionEvent::RetryWorktreeSetupOk(RetryWorktreeSetupOkPayload { feature_id }),
     )
     .expect("session event payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
+    sender
+        .send(Message::Text(String::from(reply).into()))
+        .ignore_closed();
     if app_state.worktree_setup_runs.is_owned(feature_id) {
+        return;
+    }
+    // A worktree shared with the feature that set it up starts ready: its
+    // setup commands are the donor's to run.
+    if provisioned_now && step.as_deref() == Some("ready") {
         return;
     }
 
     let rp = app_state.read_pool.clone();
     let wp = app_state.write_pool.clone();
     let setup_runs = app_state.worktree_setup_runs.clone();
-    let ws = app_state
-        .ws_feature_senders
-        .fan_out_sender(feature_id, sender.clone());
     let path = PathBuf::from(wt_path_str);
     tokio::spawn(async move {
         worktree::run_setup_commands(rp, wp, setup_runs, feature_id, path, ws).await;
     });
+}
+
+/// Provision a worktree the feature chose but never got; `None` when the
+/// feature has none to finish.
+async fn retry_provisioning(
+    app_state: &AppState,
+    feature_id: i64,
+    ws: &WsSender,
+) -> Result<Option<String>, String> {
+    let path = worktree::finish_provisioning(
+        &app_state.read_pool,
+        &app_state.write_pool,
+        &app_state.worktree_setup_runs,
+        feature_id,
+        ws,
+    )
+    .await?;
+    Ok(path.map(|path| path.to_string_lossy().into_owned()))
 }
 
 #[cfg(test)]
@@ -475,6 +519,34 @@ mod tests {
         // `ERROR_DURING_EXECUTION`. Like a Stop, the pause is marked as
         // intended, for the stream reader to end the turn as stopped.
         assert!(marked(&app_state, 51, &query).await);
+    }
+
+    /// A pause over HTTP has no socket to tell: the feature's viewers hear of
+    /// it. One a socket asked for goes to that socket alone, which resumes it.
+    #[tokio::test]
+    async fn a_headless_suspend_tells_the_features_viewers() {
+        let app_state = make_test_app_state().await;
+        let (viewer, mut viewer_rx) = mpsc::unbounded_channel();
+        app_state.ws_feature_senders.register(1, viewer).await;
+
+        let (sessions, _query, _) = slow_stop_session(56).await;
+        suspend_session(
+            &app_state,
+            &sessions,
+            56,
+            &crate::domain::ws_session::runtime::output::SessionOutput::headless(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(lifecycle_kinds(&mut viewer_rx), ["suspend_requested"]);
+
+        let (sessions, _query, _) = slow_stop_session(57).await;
+        let (owner, mut owner_rx) = mpsc::unbounded_channel();
+        suspend_session(&app_state, &sessions, 57, &owner)
+            .await
+            .unwrap();
+        assert_eq!(lifecycle_kinds(&mut owner_rx), ["suspend_requested"]);
+        assert!(lifecycle_kinds(&mut viewer_rx).is_empty());
     }
 
     /// Between turns (the turn ended, perhaps just before the pause) there is

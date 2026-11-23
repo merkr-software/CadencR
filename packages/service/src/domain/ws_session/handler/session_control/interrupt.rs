@@ -4,7 +4,11 @@ use super::super::types::{QueryState, SdkSessions};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
-use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
+use crate::domain::ws_session::runtime::prompt::followup_withdrawal::{
+    end_turn_idle, fail_stopped_followups,
+};
+
+mod owed_resume;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -86,8 +90,31 @@ pub(crate) async fn stop_session(
     let q = query.read().await;
     let _barrier = q.turn_control_guard().await;
     // Under the barrier: no follow-up is handed over between these steps.
-    let withdrawn = withdraw_followups(app_state, &**q, db_session_id, feature_id).await;
-    interrupt_as_intended(
+    let turns = &app_state.active_turns;
+    let current_turn = turns.current_generation(db_session_id).await;
+    let stop = turns.followups().record_stop(db_session_id, current_turn);
+    let withdrawn =
+        withdraw_followups(app_state, &**q, db_session_id, feature_id, stop.handed_off).await;
+    // Before the runtime stops (and its reader writes the stop marker): a
+    // restart in between must not resume what the user is stopping.
+    let recorded = owed_resume::forget(app_state, &query, db_session_id).await;
+    if stop.cancelled_start {
+        // The prompt that reserved this turn has not reached the runtime (it
+        // waits for its pre-turn checkpoint): it is withdrawn, and interrupting
+        // a runtime that runs nothing would leave a mark on its next turn.
+        end_turn_idle()
+            .pool(&app_state.write_pool)
+            .feature_senders(&app_state.ws_feature_senders)
+            .status(&app_state.session_status_tx)
+            .active_turns(turns)
+            .session_id(db_session_id)
+            .feature_id(feature_id)
+            .maybe_generation(current_turn)
+            .call()
+            .await;
+        return withdrawn.and(recorded);
+    }
+    let interrupted = interrupt_as_intended(
         app_state,
         &query,
         &**q,
@@ -95,12 +122,23 @@ pub(crate) async fn stop_session(
         true,
         StopReason::User,
     )
-    .await
-    .map_err(|error| {
-        tracing::error!(db_session_id, %error, "interrupt failed");
-        CommandError::new("SDK_ERROR", error)
-    })?;
-    withdrawn
+    .await;
+    if interrupted.is_err() {
+        owed_resume::restore(app_state, &query, db_session_id, feature_id).await;
+    }
+    match interrupted {
+        Ok(()) => withdrawn.and(recorded),
+        // The status said busy, but the runtime had no turn to stop (it
+        // ended a moment ago): its mark is cleared, nothing will end.
+        Err(error) if error.is_nothing_to_interrupt() => {
+            withdrawn?;
+            Err(nothing_to_stop())
+        }
+        Err(error) => {
+            tracing::error!(db_session_id, %error, "interrupt failed");
+            Err(CommandError::new("SDK_ERROR", error))
+        }
+    }
 }
 
 /// A user Stop cancels the follow-ups the agent has not taken in yet (see
@@ -112,13 +150,10 @@ async fn withdraw_followups(
     runtime: &dyn AgentRuntimeSession,
     db_session_id: i64,
     feature_id: i64,
+    // Drained by the Stop: a later Stop cannot retry one this withdrawal fails
+    // on, which the error then reports.
+    handed_off: Vec<String>,
 ) -> Result<(), CommandError> {
-    // Drained here: a later Stop cannot retry one this withdrawal fails on,
-    // which the error then reports.
-    let handed_off = app_state
-        .active_turns
-        .followups()
-        .record_stop(db_session_id);
     if handed_off.is_empty() {
         return Ok(());
     }
@@ -375,5 +410,73 @@ mod tests {
         let error = stop_session(&app_state, None, 46).await.unwrap_err();
 
         assert_eq!(error.code, NOTHING_TO_STOP);
+    }
+
+    /// A runtime whose turn ended just before the Stop reached it.
+    struct NoTurnRunning;
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for NoTurnRunning {
+        fn take_message_rx(&mut self) -> crate::domain::agents::adapter::RuntimeMessageRx {
+            tokio::sync::mpsc::channel(1).1
+        }
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+        async fn stream_input(&self, _content: serde_json::Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Err(RuntimeError::NothingToInterrupt)
+        }
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_permission_mode(
+            &self,
+            _mode: crate::domain::agents::adapter::RuntimePermissionMode,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn set_thinking_effort(&self, _effort: Option<String>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    /// The status said the agent worked, but its turn had just ended: the
+    /// Stop reports nothing to stop and leaves no mark, so the next turn's
+    /// result is not taken for a stopped turn's and dropped.
+    #[tokio::test]
+    async fn a_stop_that_finds_no_turn_leaves_no_mark_for_the_next_turn() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let mut handle = make_active_handle(1, Some("cli".into()));
+        let runtime: RuntimeSessionHandle =
+            std::sync::Arc::new(tokio::sync::RwLock::new(Box::new(NoTurnRunning)));
+        if let QueryState::Active { query, .. } = &mut handle.state {
+            *query = runtime.clone();
+        }
+        sessions.lock().await.insert(47, handle);
+        app_state.session_runtimes.bind(47, &sessions).await;
+        app_state.active_turns.begin_turn(47, &sessions).await;
+        working(&app_state, 47);
+
+        let error = stop_session(&app_state, None, 47).await.unwrap_err();
+
+        assert_eq!(error.code, NOTHING_TO_STOP);
+        app_state.active_turns.begin_turn(47, &sessions).await;
+        assert_eq!(
+            app_state
+                .active_turns
+                .take_interruption(47, &std::sync::Arc::downgrade(&runtime))
+                .await,
+            None
+        );
     }
 }

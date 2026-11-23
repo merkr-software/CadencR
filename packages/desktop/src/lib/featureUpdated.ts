@@ -2,6 +2,7 @@
  * Shared handler for `feature.updated` WebSocket events.
  * Maps changed aspect names to React Query cache invalidations.
  */
+import type { QueryClient } from "@tanstack/react-query";
 import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 import {
   getGetFeatureQueryKey,
@@ -21,6 +22,30 @@ export const GLOBAL_FEATURE_LIST_URLS = [
   "/api/features/recent",
   "/api/features/active",
 ];
+
+/**
+ * Invalidate only the conversation list queries (one project's list when
+ * `projectId` is known, plus the global Pinned/Recent/Active lists).
+ *
+ * Avoids `invalidateByUrlPrefix("/api/features")`, which also refetches
+ * per-feature detail/settings/working-dir/subagent queries across every
+ * workspace kept mounted in `WorkspacePool`, `/api/features/ports`,
+ * `/api/features/activity`, and preloaded `/agent-state` snapshots.
+ */
+export function invalidateFeatureLists(
+  client: QueryClient,
+  projectId?: number | null,
+): Promise<void> {
+  return Promise.all([
+    client.invalidateQueries({
+      queryKey:
+        projectId != null && projectId > 0
+          ? getListFeaturesQueryKey({ project_id: projectId })
+          : getListFeaturesQueryKey(),
+    }),
+    invalidateByUrlPrefix(client, GLOBAL_FEATURE_LIST_URLS),
+  ]).then(() => undefined);
+}
 
 const FIELD_TO_QUERY_KEY: Record<FeatureChangedField, (id: number) => readonly unknown[]> = {
   title: getGetFeatureQueryKey,
@@ -47,11 +72,6 @@ export function invalidateFeatureQueries(featureId: number, changed: string[]): 
   // invalidate the list cache so those views pick up the new value.
   const LIST_RELEVANT: FeatureChangedField[] = ["title", "label"];
   if (changed.some((f) => LIST_RELEVANT.includes(f as FeatureChangedField))) {
-    // `getListFeaturesQueryKey()` (no args) returns `["/api/features"]` — a
-    // 1-element prefix that matches every per-project list query under React
-    // Query's default prefix matching.
-    void queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey(), exact: false });
-    // Sibling URLs the prefix above can't reach; they all show titles and labels.
-    void invalidateByUrlPrefix(queryClient, GLOBAL_FEATURE_LIST_URLS);
+    void invalidateFeatureLists(queryClient);
   }
 }

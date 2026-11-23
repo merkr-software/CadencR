@@ -36,6 +36,27 @@ describe("resolveDevProfile", () => {
     expect(profile.envError).toBeNull();
   });
 
+  it("puts the whole profile in an absolute CADENCR_DEV_USER_DATA_DIR", () => {
+    const env = {
+      CADENCR_DEV_USER_DATA_DIR: "/tmp/qa-run/electron-profile",
+      CADENCR_DEV_USER_DATA_SUFFIX: "ignored",
+    };
+
+    const profile = resolveDevProfile("/Users/example/AppData", () => "/repo/.env", env);
+
+    expect(profile.userDataPath).toBe("/tmp/qa-run/electron-profile");
+  });
+
+  it("ignores a relative CADENCR_DEV_USER_DATA_DIR", () => {
+    const env = { CADENCR_DEV_USER_DATA_DIR: "qa-profile" };
+
+    const profile = resolveDevProfile("/Users/example/AppData", () => "/repo/.env", env);
+
+    expect(profile.userDataPath).toBe(
+      path.join("/Users/example/AppData", "@cadencr", "desktop-dev"),
+    );
+  });
+
   it("returns a load failure instead of throwing, so the splash can report it", () => {
     const failure = new Error("Missing required dev env file");
     const loadEnv = () => {

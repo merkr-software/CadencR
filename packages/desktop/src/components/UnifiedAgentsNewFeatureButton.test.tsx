@@ -22,8 +22,8 @@ vi.mock("@/api/generated", () => ({
 }));
 
 const projects: Project[] = [
-  { id: 1, name: "Alpha", path: "/a", created_at: "2020-01-01T00:00:00Z" },
-  { id: 2, name: "Beta", path: "/b", created_at: "2020-01-01T00:00:00Z" },
+  { id: 1, name: "Alpha", path: "/a", created_at: "2020-01-01T00:00:00Z", path_missing: false },
+  { id: 2, name: "Beta", path: "/b", created_at: "2020-01-01T00:00:00Z", path_missing: false },
 ];
 
 describe("UnifiedAgentsNewFeatureButton", () => {

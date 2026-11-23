@@ -1,17 +1,18 @@
 import {
-  BotIcon,
   CodeIcon,
   GitCompareArrowsIcon,
   FileTextIcon,
   GlobeIcon,
   TerminalIcon,
 } from "lucide-react";
-import { beforeEach, describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { AgentIcon } from "@/components/AgentIcon";
+import { Profiler } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render } from "@testing-library/react";
 
 import { flatLayoutState, type TabKind } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
-import { useTabHostRegistry } from "@/stores/tab-host-registry";
+import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 
 import { TabContentRegistry } from "./TabContentRegistry";
 import type { FeatureTabs } from "./types";
@@ -19,7 +20,7 @@ import type { FeatureTabs } from "./types";
 const FEATURE_ID = 3;
 
 const tabs: FeatureTabs = {
-  agent: { label: "Agent", Icon: BotIcon, content: <span>agent-body</span> },
+  agent: { label: "Agent", Icon: AgentIcon, content: <span>agent-body</span> },
   terminal: { label: "Terminal", Icon: TerminalIcon, content: <span>terminal-body</span> },
   git: { label: "Git", Icon: GitCompareArrowsIcon, content: <span>git-body</span> },
   editor: { label: "Editor", Icon: CodeIcon, content: <span>editor-body</span> },
@@ -157,5 +158,35 @@ describe("TabContentRegistry", () => {
       "preview",
       "terminal",
     ]);
+  });
+
+  it("does not re-render when another feature registers or unregisters a host", () => {
+    const onRender = vi.fn();
+    render(
+      <Profiler id="registry" onRender={onRender}>
+        <TabContentRegistry
+          featureId={FEATURE_ID}
+          tabs={tabs}
+          layoutState={flatLayoutState("agent")}
+          mountVisibleOnly
+        />
+      </Profiler>,
+    );
+    const rendersAfterMount = onRender.mock.calls.length;
+    const otherHost = document.createElement("div");
+
+    act(() => {
+      useTabHostRegistry.getState().registerHost(makeTabHostKey(999, "root"), otherHost);
+      useTabHostRegistry.getState().unregisterHost(makeTabHostKey(999, "root"), otherHost);
+    });
+
+    expect(onRender).toHaveBeenCalledTimes(rendersAfterMount);
+
+    // Registering a host for this feature still triggers a re-render to re-parent the tab mount.
+    const ownHost = document.createElement("div");
+    act(() => {
+      useTabHostRegistry.getState().registerHost(makeTabHostKey(FEATURE_ID, "root"), ownHost);
+    });
+    expect(onRender.mock.calls.length).toBeGreaterThan(rendersAfterMount);
   });
 });

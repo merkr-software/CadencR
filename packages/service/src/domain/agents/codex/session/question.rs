@@ -94,6 +94,7 @@ impl CodexSession {
         })
         .await?;
         if !delivered {
+            let _starting = self.turn_start.lock().await;
             let turn = self
                 .client
                 .turn_start(json!({"threadId": thread_id, "input": input}))

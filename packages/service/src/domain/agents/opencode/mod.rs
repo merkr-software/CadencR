@@ -11,6 +11,7 @@ mod tool_names;
 pub mod updates;
 mod worktree_config;
 use async_trait::async_trait;
+use opencode_sdk_rs::OpenCodeGeneration;
 use serde_json::Value;
 use std::borrow::Cow;
 
@@ -43,6 +44,11 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
     }
 
     fn user_shell_strategy(&self) -> RuntimeUserShellStrategy {
+        // 2.x keeps its server private: the native shell route is out of reach,
+        // so Cadencr runs the command and hands the record to the next prompt.
+        if opencode_sdk_rs::cached_generation().is_some_and(OpenCodeGeneration::is_v2) {
+            return RuntimeUserShellStrategy::CadencrManaged;
+        }
         RuntimeUserShellStrategy::ProviderNative
     }
 
@@ -105,6 +111,11 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
     }
 
     fn supports_thinking_effort_level(&self, model_id: &str, effort: &str) -> Option<bool> {
+        // 2.x negotiates effort per model over ACP (its `effort` option lists
+        // the model's variants); only the 1.x name table is known up front.
+        if opencode_sdk_rs::cached_generation().is_some_and(OpenCodeGeneration::is_v2) {
+            return None;
+        }
         Some(super::providers::opencode::supports_effort_level_for_model_ref(model_id, effort))
     }
 

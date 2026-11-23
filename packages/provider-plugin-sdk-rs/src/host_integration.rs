@@ -1,6 +1,7 @@
 //! Optional host-integration contract: `host-integration` tells Cadencr how to
 //! compact a live session, which project-local configuration to copy into new
-//! worktrees, and how to resume a session in a terminal.
+//! worktrees, how to resume a session in a terminal, and how to attribute
+//! listening ports.
 //!
 //! Every field is optional; `{}` means "no host integration". The host
 //! validates the same rules [`HostIntegration::validate`] applies here and
@@ -40,6 +41,11 @@ pub struct HostIntegration {
     /// Native CLI invocation that resumes a session in a terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_command: Option<ResumeCommand>,
+    /// The connector and its immediate children are runtime infrastructure.
+    /// Their own listening sockets stay out of the conversation's port list.
+    #[builder(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclude_launcher_ports: bool,
 }
 
 /// A bare executable name plus arguments; [`SESSION_ID_PLACEHOLDER`] marks the

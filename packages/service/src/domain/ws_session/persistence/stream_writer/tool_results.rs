@@ -112,7 +112,7 @@ mod tool_result_identity_tests {
             },
         );
         let identities = persistence
-            .persist_runtime_event(&event)
+            .persist_event_then_flush_due(&event)
             .await
             .expect("persist runtime event");
         let stamped = raw_event_with_agent_message_id(&raw, identities);
@@ -168,7 +168,7 @@ mod tool_result_identity_tests {
             },
         );
         assert!(matches!(
-            p.persist_runtime_event(&event).await,
+            p.persist_event_then_flush_due(&event).await,
             Err(TranscriptPersistenceError::Database(_))
         ));
         let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_messages")
@@ -183,7 +183,7 @@ mod tool_result_identity_tests {
             .execute(&pool)
             .await
             .unwrap();
-        let identities = p.persist_runtime_event(&event).await.unwrap();
+        let identities = p.persist_event_then_flush_due(&event).await.unwrap();
         let Some(PersistedEventRef::ToolResults(ids)) = identities else {
             panic!("expected durable tool identities")
         };

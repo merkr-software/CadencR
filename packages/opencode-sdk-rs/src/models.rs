@@ -39,23 +39,11 @@ pub async fn list_models_from_binary(binary: &Path) -> Result<ConfigProvidersRes
 }
 
 pub fn parse_models_verbose_output(raw: &str) -> Result<ConfigProvidersResponse, SdkError> {
-    let parsed = parse_model_entries(raw)?;
-    let mut providers = Vec::new();
-    let mut provider_indices = HashMap::new();
-
-    for entry in parsed {
-        let index = *provider_indices
-            .entry(entry.provider_id.clone())
-            .or_insert_with(|| {
-                providers.push(ConfigProvider {
-                    id: entry.provider_id.clone(),
-                    name: None,
-                    models: Vec::new(),
-                });
-                providers.len() - 1
-            });
-        providers[index].models.push(entry.model);
-    }
+    let providers = group_by_provider(
+        parse_model_entries(raw)?
+            .into_iter()
+            .map(|entry| (entry.provider_id, entry.model)),
+    );
 
     let default = providers
         .iter()
@@ -68,6 +56,28 @@ pub fn parse_models_verbose_output(raw: &str) -> Result<ConfigProvidersResponse,
         .collect();
 
     Ok(ConfigProvidersResponse { providers, default })
+}
+
+/// Models grouped under their provider, both in first-seen order.
+pub(crate) fn group_by_provider(
+    models: impl IntoIterator<Item = (String, ConfigProviderModel)>,
+) -> Vec<ConfigProvider> {
+    let mut providers: Vec<ConfigProvider> = Vec::new();
+    let mut provider_indices = HashMap::new();
+    for (provider_id, model) in models {
+        let index = *provider_indices
+            .entry(provider_id.clone())
+            .or_insert_with(|| {
+                providers.push(ConfigProvider {
+                    id: provider_id,
+                    name: None,
+                    models: Vec::new(),
+                });
+                providers.len() - 1
+            });
+        providers[index].models.push(model);
+    }
+    providers
 }
 
 fn parse_model_entries(raw: &str) -> Result<Vec<ParsedModel>, SdkError> {
@@ -176,6 +186,7 @@ fn plain_entry(model_ref: &str) -> Result<ParsedModel, SdkError> {
             id: model_id,
             name: None,
             limit: None,
+            variants: Vec::new(),
         },
     })
 }
@@ -190,6 +201,7 @@ fn verbose_entry(model_ref: &str, model: VerboseModel) -> Result<ParsedModel, Sd
             id: model_id,
             name: model.name,
             limit: model.limit,
+            variants: Vec::new(),
         },
     })
 }

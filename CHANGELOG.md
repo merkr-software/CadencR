@@ -1,5 +1,52 @@
 # Changelog
 
+## v0.16.3 - 2026-11-19
+
+Previous release: v0.16.2 - 2026-11-11
+
+### ✨ Added
+
+- [**Desktop**] Rename a project or its folder, move the folder to a new location, or reconnect a project to a folder you moved outside CadencR. The sidebar flags missing folders. Moving a project from CadencR requires idle agents and preserves Git worktree links and supported agent state — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] The bundled `cadencr` command can open the app, jump to a project or a specific line in a file, add projects, and check for updates. The Linux alpha server archive supports running CadencR without a desktop session via `cadencr serve`, generating device pairing links via `cadencr pair`, and installing server updates via `cadencr update` — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**Desktop**] Smoothed conversation scrolling while replies stream. Follow mode keeps the Working timer steady, new lines glide in when animations are enabled, and folded rows keep their height as they come into view — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Compact flow shows the latest reasoning line while the agent thinks and gives failed tool steps a separate line for the error reason — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed live replies appearing frozen until the turn ended, including during fast output and when the window stopped drawing frames. Stream updates continue reaching the transcript as the reply arrives — [@edjubert](https://github.com/edjubert), [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Connection drops show a Reconnecting notice while conversation, app, and custom-tab streams recover. The sidebar checks service health as soon as a connection comes back — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Model, thinking effort, permission mode, and Codex Fast mode changes made during a service outage wait for reconnection. The composer shows what is waiting and applies the latest choice after the service confirms it — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Conversation history and older messages show the reason and a Retry action when they fail to load. Worktree and first-prompt setup wait for the saved history — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Failed responses to questions, permission requests, and plans show an error with the request available to retry. Requests remain open if they cannot be saved or delivered, and the sidebar waits quietly while a restarted agent restores a request — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed a failed worktree setup sending the next prompt to the project root. Retry provisions or recovers the chosen worktree before the agent starts — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Archiving a conversation pauses its scheduled prompts and custom actions, including deliveries waiting on a running check. After unarchiving, you can resume the schedules manually — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Dismissing a non-blocking Codex question leaves the agent's turn running. Questions can still be answered after a restart, and a dismissed question stays dismissed when a turn finishes — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Stop ends commands left running by the interrupted turn and reports when there is no turn to stop. The next turn can finish normally after an earlier Stop races with completion — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Fixed fork and rewind with Codex 0.167 and later while preserving support for earlier versions. Refused operations report the actual rejection, and missing history identifies the provider that no longer has the conversation — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Claude Code's first prompt can start while MCP status loads in the background — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Claude Code turns resumed by background-task results stay active even when the conversation is closed or the first response is slow — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed Claude using Sonnet to write a plan when Haiku was selected — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] The permission chip shows Default when Claude is using its manual approval mode — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed imports, rewind, and fork missing Claude Code transcripts when the project path is long — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Update progress and Restart when agents finish survive a window reload. Unofficial Linux installations show their update status as unsupported from startup — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] The in-app browser shows the active tab's page error and clears it when the tab recovers or closes — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Editor file trees keep refreshing independently across devices even when one device switches conversations — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] The Git and Editor tabs show control characters in filenames explicitly so the original paths remain identifiable — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Restored readable menus and confirmation dialogs for installed textured themes such as Catppuccin Frost — [@edjubert](https://github.com/edjubert).
+- [**Desktop**] Opening Excalidraw files with bundled fonts no longer generates blocked CDN font requests — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed live terminal settings missing changes to nested Alacritty imports or switched symlinks on macOS — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Improved cleanup of leftover agent processes during restart and prevented exited process groups from being reported as failed stops on macOS — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Fixed errors when the same screenshot was saved concurrently — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Surfaced failures to read or save session state while keeping ongoing turns active where possible — [@rle-mino](https://github.com/rle-mino).
+
+### 🔒 Security
+
+- [**Backend**] Paired remote devices have independent rate limits, so heavy traffic or retries with revoked credentials from one device are less likely to disrupt other devices behind the same tunnel — [@rle-mino](https://github.com/rle-mino).
+- [**dependencies**] Updated `quinn-udp` to 0.5.16 to address a security advisory — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.16.2 - 2026-11-11
 
 Previous release: v0.16.1 - 2026-11-08

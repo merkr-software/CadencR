@@ -15,6 +15,7 @@
 //! prefer the typed payload when present and fall back to raw access for
 //! OpenCode-style provider extensions.
 
+use crate::shared::discard::IgnoreClosed;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +30,7 @@ use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
+use super::detached_replies::{DetachedReply, DetachedUpdate};
 use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
 use super::events::session_update_to_events;
 use super::events_stream_blocks::EventIndexer;
@@ -48,6 +50,7 @@ use super::session_config::AcpSessionConfigState;
 use super::session_permissions::SessionPermissions;
 use super::terminal_enrich::enrich_session_update;
 use super::terminal_registry::TerminalRegistry;
+use super::turn_lifecycle::PromptTurnLock;
 
 #[derive(Clone)]
 pub struct EventLoopConfig {
@@ -66,6 +69,7 @@ pub struct EventLoopConfig {
     /// mutates it on every `session/update`) and the prompt-turn path (which
     /// drains open blocks at `stop_reason` time — see W4).
     pub indexer: Arc<Mutex<EventIndexer>>,
+    pub prompt_turn_lock: PromptTurnLock,
     /// Suppresses durable transcript replay from `session/load` until the
     /// first new prompt is dispatched.
     pub replay_suppression: Arc<AtomicBool>,
@@ -101,7 +105,7 @@ pub fn spawn_event_loop(
                 AcpEvent::ServerRequest(request) => {
                     handle_server_request(&client, request, &tx, &config, &mut deferred).await;
                 }
-                AcpEvent::EventBarrier(barrier) => barrier.release(),
+                AcpEvent::EventBarrier(barrier) => barrier.reach().await,
                 AcpEvent::ProcessExited { status, signal } => {
                     if !config.closing.load(Ordering::SeqCst) {
                         let message =
@@ -136,7 +140,9 @@ async fn emit_terminal_error(
     if tx.send(Ok(degraded)).await.is_err() {
         return;
     }
-    let _ = tx.send(Err(RuntimeError::new(message))).await;
+    tx.send(Err(RuntimeError::new(message)))
+        .await
+        .ignore_closed();
 }
 
 fn report_deferred_request_join(joined: Result<(), tokio::task::JoinError>) {
@@ -157,7 +163,7 @@ async fn handle_notification(
             let params = notification.params();
             let synced = sync_session_state_from_update(params, config).await;
             if let Some(event) = synced.mode_changed {
-                let _ = tx.send(Ok(event)).await;
+                tx.send(Ok(event)).await.ignore_closed();
             }
             let agent_moved_model = synced.agent_moved_model;
             if config.replay_suppression.load(Ordering::SeqCst)
@@ -180,27 +186,47 @@ async fn handle_notification(
             // the FE with both `toolInput.command` and an inline text result.
             let enriched = enrich_session_update(params, &config.terminals).await;
             let payload = enriched.as_ref().unwrap_or(params);
-            let mapped = {
+            let (mapped, detached) = {
                 // Hold the mutex only across the (synchronous) mapping call;
                 // never across `await`. The prompt-turn path competes for
                 // this lock at turn end (see drain_open_blocks).
                 let mut indexer = config.indexer.lock().expect("EventIndexer poisoned");
                 let turn_model = latched_turn_model(&mut indexer, agent_moved_model, model);
-                session_update_to_events(
+                let detached = session_id.as_deref().and_then(|session_id| {
+                    let detached_active = indexer.detached_reply != DetachedReply::Inactive;
+                    if !detached_active && !indexer.background_work.is_pending() {
+                        return None;
+                    }
+                    let update = DetachedUpdate::classify(payload, session_id)?;
+                    let work_finished = matches!(update, DetachedUpdate::WorkFinished);
+                    let turn_guard = detached_active
+                        .then(|| config.prompt_turn_lock.try_lock().ok())
+                        .flatten();
+                    if turn_guard.is_none() && !work_finished {
+                        return None;
+                    }
+                    Some((session_id, update, turn_guard))
+                });
+                let mut mapped = session_update_to_events(
                     payload,
                     &mut indexer,
                     turn_model.as_deref(),
                     session_id.as_deref(),
                     config.hooks.as_ref(),
-                )
+                );
+                if let Some((session_id, update, turn_guard)) = &detached {
+                    update.apply(&mut indexer, &mut mapped, session_id, turn_guard.is_some());
+                }
+                (mapped, detached)
             };
             for event in mapped.events {
                 if tx.send(Ok(event)).await.is_err() {
                     return;
                 }
             }
+            drop(detached);
             if let Some(event) = refreshed_pending_permission_event(payload, config).await {
-                let _ = tx.send(Ok(event)).await;
+                tx.send(Ok(event)).await.ignore_closed();
             }
         }
         AcpNotification::Extension { method, .. } => {

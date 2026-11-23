@@ -294,11 +294,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_request_is_described_by_its_kind_alone() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
+        // Port 1 (tcpmux) is served by nothing and lies below every
+        // ephemeral range, so no test binding port 0 can be handed it,
+        // unlike a port freed for the occasion. A bound socket that never
+        // listens would not do: macOS drops its SYNs, so the request times
+        // out instead of being refused.
         let error = reqwest::Client::new()
-            .get(format!("http://127.0.0.1:{port}/a.png"))
+            .get("http://127.0.0.1:1/a.png")
             .basic_auth("someone@example.com", Some("s3cret"))
             .send()
             .await

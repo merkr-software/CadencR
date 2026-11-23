@@ -1,3 +1,4 @@
+use crate::shared::discard::{IgnoreClosed, SendIgnoreClosed};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
@@ -26,21 +27,38 @@ impl Default for AcpClientInfo {
 
 /// One-shot ordering fence. Released by the event loop once every preceding
 /// event has been handled; dropping it unreleased (queue closed, loop gone)
-/// wakes the waiter with an error instead of leaving it hanging.
+/// wakes the waiter with an error instead of leaving it hanging. An optional
+/// resume signal keeps later events behind the turn result while it is emitted.
 #[derive(Debug, Clone)]
-pub struct AcpEventBarrier(Arc<Mutex<Option<oneshot::Sender<()>>>>);
+pub struct AcpEventBarrier(Arc<Mutex<BarrierSignals>>);
+
+#[derive(Debug)]
+struct BarrierSignals {
+    reached: Option<oneshot::Sender<()>>,
+    resume: Option<oneshot::Receiver<()>>,
+}
 
 impl AcpEventBarrier {
-    pub(crate) fn new() -> (Self, oneshot::Receiver<()>) {
+    pub(crate) fn new(resume: Option<oneshot::Receiver<()>>) -> (Self, oneshot::Receiver<()>) {
         let (tx, rx) = oneshot::channel();
-        (Self(Arc::new(Mutex::new(Some(tx)))), rx)
+        let signals = BarrierSignals {
+            reached: Some(tx),
+            resume,
+        };
+        (Self(Arc::new(Mutex::new(signals))), rx)
     }
 
-    pub(crate) fn release(&self) {
-        let sender = self.0.lock().ok().and_then(|mut slot| slot.take());
+    pub(crate) async fn reach(&self) {
+        let (sender, resume) = {
+            let mut signals = self.0.lock().expect("ACP event barrier poisoned");
+            (signals.reached.take(), signals.resume.take())
+        };
         if let Some(sender) = sender {
             // The waiter may have given up (turn cancelled); nothing to signal.
-            let _ = sender.send(());
+            sender.send_ignore_closed(());
+        }
+        if let Some(resume) = resume {
+            resume.await.ignore_closed();
         }
     }
 }

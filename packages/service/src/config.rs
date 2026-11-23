@@ -14,6 +14,15 @@ pub struct Config {
     #[arg(long, env = "CADENCR_SETTINGS_DIR")]
     pub settings_dir: Option<String>,
 
+    /// Root for this service's per-user Cadencr directories (worktrees,
+    /// marketplace LSP servers, forge and remote credentials, caches),
+    /// replacing `~/.cadencr` / the XDG roots without changing `HOME`. Must be
+    /// absolute. Not forwarded to `mcp-serve` children, which only need the
+    /// database and settings dir. The desktop shell never passes it; isolated
+    /// QA runs (`pnpm qa:up`) do.
+    #[arg(long, env = "CADENCR_DATA_DIR")]
+    pub data_dir: Option<std::path::PathBuf>,
+
     /// Port to listen on (overridable via CADENCR_RUST_PORT env var)
     #[arg(long, default_value = "5005", env = "CADENCR_RUST_PORT")]
     pub port: u16,
@@ -45,6 +54,10 @@ pub struct Config {
     /// because both interfaces can't share one port.
     #[arg(long, default_value = "5006", env = "CADENCR_REMOTE_PORT")]
     pub remote_port: u16,
+
+    /// Start on loopback without restoring a saved remote-access listener.
+    #[arg(long)]
+    pub skip_remote_restore: bool,
 
     /// Shut down when stdin reaches end-of-file. The desktop shell spawns the
     /// service with a stdin pipe it never writes to, so the pipe closes when
@@ -99,6 +112,12 @@ pub enum Command {
 mod tests {
     use super::Config;
     use clap::Parser;
+
+    #[test]
+    fn the_data_root_is_opt_in() {
+        let qa = Config::try_parse_from(["cadencr-service", "--data-dir", "/qa/data"]).unwrap();
+        assert_eq!(qa.data_dir, Some(std::path::PathBuf::from("/qa/data")));
+    }
 
     #[test]
     fn the_desktop_shell_lifetime_flag_is_opt_in() {

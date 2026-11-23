@@ -202,7 +202,8 @@ pub async fn update_feature_status_handler(
     } else {
         Some(super::archive_cleanup::runner::abandon(&state, id).await?)
     };
-    service::update_status(&state.write_pool, id, body.status).await?;
+    let paused_schedule_ids = service::update_status(&state.write_pool, id, body.status).await?;
+    crate::domain::schedules::service::announce_changed(&state, &paused_schedule_ids);
     if matches!(body.status, FeatureStatus::Archived) {
         state.plugin_tab_presence.release_features(&[id]);
         crate::domain::workflow::worktree::cancel_setups(&state.worktree_setup_runs, &[id]).await;

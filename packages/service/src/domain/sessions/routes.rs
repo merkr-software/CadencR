@@ -26,6 +26,15 @@ pub struct AgentStateParams {
     pub limit: Option<i64>,
     /// JSON-encoded map of session_id -> before_message_id for loading older messages
     pub before: Option<String>,
+    /// JSON-encoded map of session_id -> exclusive upper bound for an `after`
+    /// page: it stops before this message id (a gap in the client's history).
+    pub until: Option<String>,
+    /// JSON-encoded map of session_id -> exclusive lower bound for a `before`
+    /// page: it stops after this message id (a gap in the client's history).
+    pub since: Option<String>,
+    /// Only this session of the feature (a history page for one conversation
+    /// needs no other session's latest page).
+    pub session: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -73,6 +82,18 @@ pub async fn get_sessions_handler(
     ))
 }
 
+/// A per-session id map (`after`, `before`, `until`…): absent is none;
+/// malformed is refused, as a cursor or bound silently dropped would page from
+/// the wrong place or repeat history.
+fn parse_session_map(name: &str, raw: Option<&str>) -> Result<Option<HashMap<i64, i64>>, AppError> {
+    raw.map(|raw| {
+        serde_json::from_str(raw).map_err(|error| {
+            AppError::BadRequest(format!("`{name}` is not a session id map: {error}"))
+        })
+    })
+    .transpose()
+}
+
 #[utoipa::path(get, path = "/api/features/{feature_id}/agent-state",
     params(("feature_id" = i64, Path,), AgentStateParams),
     responses((status = 200, body = FeatureAgentStateResponse)))]
@@ -81,29 +102,21 @@ pub async fn get_feature_agent_state_handler(
     Path(feature_id): Path<i64>,
     Query(params): Query<AgentStateParams>,
 ) -> Result<Json<FeatureAgentStateResponse>, AppError> {
-    let after_map: Option<HashMap<i64, i64>> = params
-        .after
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok());
-    let before_map: Option<HashMap<i64, i64>> = params
-        .before
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok());
-    let after_revision_map: Option<HashMap<i64, i64>> = params
-        .after_revisions
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok());
     let limit = normalize_agent_message_limit(params.limit);
+    let request = repository::AgentStateRequest::builder()
+        .maybe_after_message_ids(parse_session_map("after", params.after.as_deref())?)
+        .maybe_after_content_revisions(parse_session_map(
+            "after_revisions",
+            params.after_revisions.as_deref(),
+        )?)
+        .limit(limit)
+        .maybe_before_message_ids(parse_session_map("before", params.before.as_deref())?)
+        .until_message_ids(parse_session_map("until", params.until.as_deref())?.unwrap_or_default())
+        .since_message_ids(parse_session_map("since", params.since.as_deref())?.unwrap_or_default())
+        .maybe_session_id(params.session)
+        .build();
     Ok(Json(
-        repository::get_feature_agent_state(
-            &state.read_pool,
-            feature_id,
-            after_map,
-            after_revision_map,
-            Some(limit),
-            before_map,
-        )
-        .await?,
+        repository::load_feature_agent_state(&state.read_pool, feature_id, request).await?,
     ))
 }
 
@@ -292,4 +305,25 @@ pub fn sessions_router() -> Router<AppState> {
             "/api/sessions/messages/{message_id}/full",
             get(get_message_full_content_handler),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_maps_are_optional_but_never_silently_dropped() {
+        assert_eq!(parse_session_map("after", None).unwrap(), None);
+        assert_eq!(
+            parse_session_map("after", Some(r#"{"42":7}"#)).unwrap(),
+            Some(HashMap::from([(42, 7)]))
+        );
+        for raw in ["", "42", r#"{"42":"7"}"#, r#"{"x":7}"#] {
+            let error = parse_session_map("before", Some(raw)).unwrap_err();
+            assert!(
+                matches!(&error, AppError::BadRequest(message) if message.starts_with("`before`")),
+                "{raw:?} gave {error:?}"
+            );
+        }
+    }
 }

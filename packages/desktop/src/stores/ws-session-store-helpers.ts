@@ -64,25 +64,22 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
   if (!session.serverSessionId) return [];
 
   const envelopes: WsEnvelope[] = [];
-  // `session.init` already carries the FE-selected mode, so this `mode.set`
-  // is only needed for the narrow window where the user toggled the chip
-  // *after* `session.init` left the wire but *before* `session.initialized`
-  // came back (during which `setPermissionMode` writes locally because
-  // there is no `serverSessionId` yet). Sending the current local mode for
-  // every value — not just `"plan"` — closes that race for `acceptEdits`,
-  // `default`, `bypassPermissions`, and `auto` too. Idempotent on the
-  // backend: `handle_mode_set`'s Pending branch just overwrites
-  // `options.permission_mode` on the still-pending `SdkHandle`, and this
-  // envelope is emitted before any queued `prompt.send` so the spawn picks
-  // up the corrected mode.
-  // Providers without a built-in mode table hold exactly the modes their
-  // catalog declares (possibly none), so the built-in frontend fallback is
-  // never replayed to them. An empty provider is kept for older `session.initialized` payloads, where
-  // preserving the existing replay behavior is safer than dropping a
-  // legitimate selection.
+  // Replay an explicit choice the init reply has not acknowledged before any
+  // queued `prompt.send` so the spawn picks it up. The current mode is never
+  // replayed: on a reconnect it is the confirmed value from before the
+  // outage, and a setting changed meanwhile waits in the outbound queue —
+  // replaying the old mode after it would silently undo the user's choice.
+  // A choice the provider can't run was replaced by the backend's report in
+  // `handleInitialized`; it is dropped. Providers without a built-in mode
+  // table get only the modes their catalog declares.
   const providerId = session.currentSelection?.providerId;
-  if (!providerId || canReplayPermissionMode(providerId, session.permissionMode)) {
-    envelopes.push(createModeSet(session.serverSessionId, session.permissionMode));
+  const pendingMode = session.pendingInitPermissionMode;
+  if (
+    pendingMode !== null &&
+    pendingMode === session.permissionMode &&
+    (!providerId || canReplayPermissionMode(providerId, pendingMode))
+  ) {
+    envelopes.push(createModeSet(session.serverSessionId, pendingMode));
   }
   // Initialization reports the persisted mode, which can predate a chip change.
   // Replay the explicit pre-init choice before the first prompt starts Codex.

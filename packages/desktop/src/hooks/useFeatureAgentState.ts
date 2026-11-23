@@ -219,6 +219,7 @@ function useLoadOlderMessages(
       const accumulated = accumulatedRef.current.get(sessionDbId);
       if (!accumulated?.hasMore || accumulated.oldestMessageId == null) return;
       const data = await getFeatureAgentState(featureId, {
+        session: sessionDbId,
         before: JSON.stringify({ [sessionDbId]: accumulated.oldestMessageId }),
         limit: AGENT_STATE_OLDER_MESSAGE_LIMIT,
       });

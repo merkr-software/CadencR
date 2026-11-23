@@ -9,7 +9,6 @@ use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 
 use super::super::models::*;
-use super::latest_todos_query::latest_todos_sql;
 use super::pagination::fetch_missing_parents;
 use super::task_todos::latest_todos_from_messages;
 use super::MESSAGE_SELECT;
@@ -31,19 +30,22 @@ struct MessagePage {
 
 /// Fetch messages for sessions that need a full (re)hydration. Limited fetches
 /// use per-session indexed queries so SQLite can stop after `limit + 1` rows;
-/// unbounded legacy fetches keep the original batch IN-query.
+/// unbounded legacy fetches keep the original batch IN-query. `since` bounds a
+/// `before` page from below (exclusive), as `until` does an incremental one.
 pub(super) async fn fetch_full_messages(
     pool: &SqlitePool,
     session_ids: &[i64],
     limit: Option<i64>,
     before_map: &HashMap<i64, i64>,
+    since: &HashMap<i64, i64>,
 ) -> Result<FullMessagesResult, AppError> {
     if session_ids.is_empty() {
         return Ok(empty_full_messages_result());
     }
 
     if !before_map.is_empty() || limit.is_some() {
-        return fetch_before_or_latest_per_session(pool, session_ids, limit, before_map).await;
+        return fetch_before_or_latest_per_session(pool, session_ids, limit, before_map, since)
+            .await;
     }
 
     fetch_unbounded_batch(pool, session_ids).await
@@ -62,10 +64,12 @@ async fn fetch_before_or_latest_per_session(
     session_ids: &[i64],
     limit: Option<i64>,
     before_map: &HashMap<i64, i64>,
+    since: &HashMap<i64, i64>,
 ) -> Result<FullMessagesResult, AppError> {
     let mut result = empty_full_messages_result();
     let with_before_sql = format!(
-        "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?"
+        "{MESSAGE_SELECT} FROM agent_messages
+         WHERE session_id = ? AND id < ? AND id > ? ORDER BY id DESC LIMIT ?"
     );
     let latest_sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?"
@@ -76,6 +80,7 @@ async fn fetch_before_or_latest_per_session(
             sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(with_before_sql.as_str()))
                 .bind(sid)
                 .bind(before_id)
+                .bind(since.get(sid).copied().unwrap_or(0))
         } else {
             sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(latest_sql.as_str())).bind(sid)
         };
@@ -220,43 +225,12 @@ fn is_todo_source_message(message: &AgentMessageRow) -> bool {
     )
 }
 
-/// Fetch latest todo state for each session from `TodoWrite` snapshots or
-/// Claude Code task tool deltas.
-pub(super) async fn fetch_latest_todos(
-    pool: &SqlitePool,
-    session_ids: &[i64],
-) -> Result<HashMap<i64, Vec<serde_json::Value>>, AppError> {
-    let mut todos_by_session: HashMap<i64, Vec<serde_json::Value>> = HashMap::new();
-    if session_ids.is_empty() {
-        return Ok(todos_by_session);
-    }
-
-    let sql = latest_todos_sql(session_ids.len());
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
-    for sid in session_ids {
-        query = query.bind(sid);
-    }
-    let rows = query.fetch_all(pool).await?;
-    let mut rows_by_session: HashMap<i64, Vec<AgentMessageRow>> = HashMap::new();
-    for row in rows {
-        rows_by_session.entry(row.session_id).or_default().push(row);
-    }
-    for (session_id, rows) in rows_by_session {
-        if let Some(todos) = latest_todos_from_messages(&rows) {
-            todos_by_session.insert(session_id, todos);
-        }
-    }
-    Ok(todos_by_session)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use serde_json::json;
-
     use super::super::test_support::{insert_message, insert_session, setup_test_db};
-    use super::{fetch_full_messages, fetch_latest_todos, todo_fetch_session_ids};
+    use super::{fetch_full_messages, todo_fetch_session_ids};
 
     #[test]
     fn todo_fetch_session_ids_skips_full_fetches_for_before_pagination() {
@@ -315,9 +289,15 @@ mod tests {
         )
         .await;
 
-        let result = fetch_full_messages(&pool, &[session_id], Some(3), &HashMap::new())
-            .await
-            .unwrap();
+        let result = fetch_full_messages(
+            &pool,
+            &[session_id],
+            Some(3),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
 
         let rows = result.messages.get(&session_id).unwrap();
         let ids: Vec<i64> = rows.iter().map(|m| m.id).collect();
@@ -330,53 +310,5 @@ mod tests {
             "the anchor user prompt must come first"
         );
         assert!(result.has_more.get(&session_id).copied().unwrap_or(false));
-    }
-
-    #[tokio::test]
-    async fn fetch_latest_todos_reconstructs_persisted_task_tools() {
-        let pool = setup_test_db().await;
-        let session_id = insert_session(&pool, 1, "running").await;
-
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            r#"{"subject":"Write replay tests","activeForm":"Writing replay tests"}"#,
-            Some("TaskCreate"),
-            Some("create-1"),
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_result",
-            r#"{"id":"task-1"}"#,
-            None,
-            Some("create-1"),
-            None,
-        )
-        .await;
-        insert_message(
-            &pool,
-            session_id,
-            "tool_call",
-            r#"{"taskId":"task-1","status":"completed","activeForm":"Finishing replay tests"}"#,
-            Some("TaskUpdate"),
-            Some("update-1"),
-            None,
-        )
-        .await;
-
-        let todos = fetch_latest_todos(&pool, &[session_id]).await.unwrap();
-
-        assert_eq!(
-            todos.get(&session_id),
-            Some(&vec![json!({
-                "content": "Write replay tests",
-                "status": "completed",
-                "activeForm": "Finishing replay tests"
-            })])
-        );
     }
 }

@@ -7,7 +7,10 @@
  *      was never applied (lost start envelope, or a start for a block type we
  *      couldn't render), it synthesises the block from the first surviving
  *      delta so this and every later chunk render. Repairs one in-flight block
- *      instantly with no DB round-trip.
+ *      instantly with no DB round-trip. When this socket (re)binds, the
+ *      backend reader also restates its live text/thinking blocks in full
+ *      (`content_block_snapshot`): the history snapshot was read before the
+ *      binding and the DB trails the stream by up to one flush window.
  *   2. Seq-gap detection       — mid-turn trigger. `trackStreamSeq` (below).
  *      Every `session.message` carries a per-stream monotonic `seq`; a skip
  *      means a whole envelope was dropped in transit. It reacts two ways:
@@ -47,7 +50,8 @@ import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
 import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { blockMessageDbId, mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
+import { pendingPromptFetchCursor } from "./ws-pending-prompts";
+import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
 import { isServiceStopMarker } from "@/lib/agent-message-origin";
 import { invalidateFeatureSubagents } from "@/hooks/useFeatureSubagents";
 import {
@@ -98,7 +102,7 @@ async function performMessageResync(
   // Sub-agent pushes sent while disconnected are gone too.
   invalidateFeatureSubagents(featureId);
   const cursor = target?.cursor ?? session.lastAppliedMessageId ?? 0;
-  const fetchCursor = target ? cursor : reconnectFetchCursor(session.blocks, cursor);
+  const fetchCursor = target ? cursor : pendingPromptFetchCursor(session.blocks, cursor);
   const revisionCursor = session.lastAppliedContentRevision ?? 0;
   const persistenceRepair = repairPersistence ? capturePersistenceRepair(session) : null;
   const pages = await drainResyncPages({
@@ -128,7 +132,11 @@ async function performMessageResync(
     pages.truncatedToolCallUpdateIds,
   );
   const merged = dropStaleReconnectNotices(
-    mergeCanonicalBlocks(currentWithUpdates, incomingWithUpdates),
+    mergeCanonicalBlocks(
+      currentWithUpdates,
+      incomingWithUpdates,
+      current.promptReceiptsAtSubmission,
+    ),
     incomingWithUpdates,
   );
   ctx.set(
@@ -195,8 +203,9 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
   while (true) {
     const data =
       firstPage && request.fullSnapshot
-        ? await getFeatureAgentState(request.featureId)
+        ? await getFeatureAgentState(request.featureId, { session: request.sessionDbId })
         : await getFeatureAgentState(request.featureId, {
+            session: request.sessionDbId,
             after: JSON.stringify({ [request.sessionDbId]: messageCursor }),
             after_revisions: JSON.stringify({ [request.sessionDbId]: revisionCursor }),
           });
@@ -211,6 +220,7 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     blocks = mergeCanonicalBlocks(
       blocks,
       serverBlocksToAgentBlocks(serverSession.blocks as never[]),
+      true, // Database pages are merged in submission order before applying the live policy.
     );
     const pageTruncatedIds = new Set(serverSession.truncatedToolCallUpdateIds ?? []);
     for (const [id, content] of Object.entries(serverSession.toolCallUpdates ?? {})) {
@@ -248,16 +258,6 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     complete,
     settled,
   };
-}
-
-function reconnectFetchCursor(blocks: AgentBlockData[], confirmedCursor: number): number {
-  let cursor = confirmedCursor;
-  for (const block of blocks) {
-    if (block.type !== "user_message" || block.promptDeliveryState !== "pending_agent") continue;
-    const messageId = blockMessageDbId(block);
-    if (messageId != null) cursor = Math.min(cursor, messageId - 1);
-  }
-  return Math.max(0, cursor);
 }
 
 /**
@@ -302,7 +302,7 @@ export async function repairPersistedBlocksAfterTurn(
   const session = ctx.get().sessions[sessionId];
   if (!session?.featureId || !session.sessionDbId) return;
 
-  const data = await getFeatureAgentState(session.featureId);
+  const data = await getFeatureAgentState(session.featureId, { session: session.sessionDbId });
   const serverSession = data.sessions.find((s) => s.sessionDbId === session.sessionDbId);
   if (!serverSession) return;
 
@@ -319,7 +319,7 @@ export async function repairPersistedBlocksAfterTurn(
   };
   const repaired = current.blocks.map((block) => repairBlockTree(block, serverById, markChanged));
 
-  const merged = mergeCanonicalBlocks(repaired, fetched);
+  const merged = mergeCanonicalBlocks(repaired, fetched, current.promptReceiptsAtSubmission);
   const appended = merged.length - repaired.length;
 
   if (!changed && appended === 0 && merged === repaired) return;
@@ -351,8 +351,13 @@ function collectBlockTree(blocks: AgentBlockData[], into: Map<string, AgentBlock
 
 /**
  * Overwrite a held block's content with the persisted version when the DB has
- * strictly more of it (a lost delta always leaves the client behind, never
- * ahead — the backend persists before it forwards). Recurses into children and
+ * strictly more of it. This runs at turn end, once the backend has written
+ * every delta: it forwards text/thinking deltas before writing them (they are
+ * buffered for up to one flush window), so mid-turn the DB can be *behind*
+ * what was streamed, but by turn end a lost delta can only leave the client
+ * behind the DB. A viewer attaching mid-stream is caught up separately, by the
+ * reader's `content_block_snapshot` (`ws-message-processing-stream.ts`), since
+ * its history snapshot may lack text already streamed. Recurses into children and
  * grafts on any server children that never arrived (a lost `content_block_start`
  * under a task/tool parent), so a whole subtree isn't left missing. Returns the
  * original reference when nothing changed so React sees no-ops.

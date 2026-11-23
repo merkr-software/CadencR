@@ -52,8 +52,16 @@ impl NativeCliUpdater {
         read_override_setting(&context.read_pool, self.discovery.setting_key()).await
     }
 
-    async fn resolve(&self, override_path: Option<&Path>) -> Option<Candidate> {
-        best_cli(&self.discovery, override_path).await
+    /// `Ok(None)`: the CLI is not installed.
+    async fn resolve(
+        &self,
+        override_path: Option<&Path>,
+    ) -> Result<Option<Candidate>, UpdateError> {
+        best_cli(&self.discovery, override_path)
+            .await
+            .map_err(|error| {
+                UpdateError::failed(format!("could not look for the provider CLI: {error}"))
+            })
     }
 }
 
@@ -61,7 +69,7 @@ impl NativeCliUpdater {
 impl ProviderUpdater for NativeCliUpdater {
     async fn check(&self, context: &UpdateContext) -> Result<ProviderVersionReport, UpdateError> {
         let override_path = self.override_path(context).await;
-        let Some(candidate) = self.resolve(override_path.as_deref()).await else {
+        let Some(candidate) = self.resolve(override_path.as_deref()).await? else {
             return Ok(ProviderVersionReport::default());
         };
         let current = candidate
@@ -92,7 +100,7 @@ impl ProviderUpdater for NativeCliUpdater {
         let override_path = self.override_path(context).await;
         let candidate = self
             .resolve(override_path.as_deref())
-            .await
+            .await?
             .ok_or_else(|| UpdateError::failed("the provider CLI is not installed"))?;
         let result = run_update(&candidate.path, self.update_args).await;
         // Drop the SDK's cached binary resolution even on failure: a partial

@@ -18,7 +18,8 @@
  *   reach its `onDrop`.
  * - **Manual retry:** a socket that reports to the connection status registers
  *   its forced reconnect, so "Retry now" and the wake watchdog reach it, and
- *   reports when automatic retries give up.
+ *   reports when automatic retries give up (`onRetriesExhausted` lets the
+ *   owner drop what was waiting for them).
  */
 
 import {
@@ -38,8 +39,10 @@ import {
 
 /** Closed on purpose: nothing went wrong. */
 export const WS_CLOSE_NORMAL = 1000;
-/** The service is overloaded: retry later. */
+/** The service is overloaded or rate-limited: retry later. */
 export const WS_CLOSE_TRY_AGAIN_LATER = 1013;
+/** Backend close reason for single-socket outbound backpressure (not a global rate limit). */
+const WS_CLOSE_REASON_OVERLOADED = "overloaded";
 /** No close frame: the transport failed, or the upgrade was refused. */
 export const WS_CLOSE_ABNORMAL = 1006;
 /** The service refused what the socket carries (plugin grant revoked or expired). */
@@ -49,6 +52,8 @@ export interface SocketDrop {
   cause: "error" | "close";
   /** The close code; null when an error came first. */
   code: number | null;
+  /** The close reason frame text, or empty string when absent/error. */
+  reason?: string;
   /** The socket opened before it dropped; false means the upgrade failed. */
   opened: boolean;
 }
@@ -80,10 +85,21 @@ export interface LifecycleSocketOptions {
   reconnect: () => void;
   /** Whether a drop is worth retrying (default: always). */
   shouldRetry?: () => boolean;
+  /** Automatic retries gave up (reported sockets only): what waited for them is lost. */
+  onRetriesExhausted?: () => void;
+}
+
+function isLocalOverloadDrop(drop: SocketDrop): boolean {
+  return (
+    drop.cause === "close" &&
+    drop.code === WS_CLOSE_TRY_AGAIN_LATER &&
+    drop.reason === WS_CLOSE_REASON_OVERLOADED
+  );
 }
 
 /** Minimum wait before retrying this socket (the shared 1013 hold is recorded apart). */
 function retryFloorMs(drop: SocketDrop): number | undefined {
+  if (isLocalOverloadDrop(drop)) return undefined;
   if (drop.code === WS_CLOSE_TRY_AGAIN_LATER) return WS_RATE_LIMIT_RETRY_MS;
   if (drop.cause === "error" || drop.code === WS_CLOSE_ABNORMAL) return WS_RATE_LIMIT_RETRY_MS;
   return undefined;
@@ -91,10 +107,21 @@ function retryFloorMs(drop: SocketDrop): number | undefined {
 
 function dropReason(label: string, drop: SocketDrop): string {
   if (drop.cause === "error") return `${label} error`;
+  if (isLocalOverloadDrop(drop)) {
+    return `${label} overloaded; reconnecting`;
+  }
   if (drop.code === WS_CLOSE_TRY_AGAIN_LATER) {
     return `${label} rate limited; retrying in ${Math.ceil(WS_RATE_LIMIT_RETRY_MS / 1000)}s`;
   }
   return `${label} closed (${drop.code})`;
+}
+
+/** Reports the pause, then lets the owner drop what was waiting for a reconnect. */
+function manualRequiredHandler(onRetriesExhausted?: () => void): (key: string) => void {
+  return (key) => {
+    reportManualReconnectRequired(key);
+    onRetriesExhausted?.();
+  };
 }
 
 function scheduleRetry(options: LifecycleSocketOptions, drop: SocketDrop): void {
@@ -107,13 +134,15 @@ function scheduleRetry(options: LifecycleSocketOptions, drop: SocketDrop): void 
   if (options.shouldRetry && !options.shouldRetry()) return;
   scheduleReconnect(options.key, options.reconnect, {
     minimumDelayMs: retryFloorMs(drop),
-    onManualRequired: label === undefined ? undefined : reportManualReconnectRequired,
+    onManualRequired:
+      label === undefined ? undefined : manualRequiredHandler(options.onRetriesExhausted),
   });
 }
 
 function handleDrop(options: LifecycleSocketOptions, drop: SocketDrop): void {
-  // One overloaded service: every socket holds off, not just this one.
-  if (drop.code === WS_CLOSE_TRY_AGAIN_LATER && !isRateLimited()) {
+  // Global rate-limit hold applies to rate-limited 1013 closes, not local
+  // single-socket outbound backpressure ("overloaded").
+  if (drop.code === WS_CLOSE_TRY_AGAIN_LATER && !isLocalOverloadDrop(drop) && !isRateLimited()) {
     notifyRateLimited(WS_RATE_LIMIT_RETRY_MS);
   }
   try {
@@ -153,10 +182,17 @@ export function openLifecycleSocket(options: LifecycleSocketOptions): WsConnecti
       if (options.isCurrent(connection)) options.onMessage(data);
     },
     onError: (intentional) => {
-      if (!intentional) drop(connection, { cause: "error", code: null, opened });
+      if (!intentional) drop(connection, { cause: "error", code: null, reason: "", opened });
     },
     onClose: (intentional, event) => {
-      if (!intentional) drop(connection, { cause: "close", code: event.code, opened });
+      if (!intentional) {
+        drop(connection, {
+          cause: "close",
+          code: event.code,
+          reason: event.reason ?? "",
+          opened,
+        });
+      }
     },
   });
   return connection;
@@ -166,8 +202,14 @@ export function openLifecycleSocket(options: LifecycleSocketOptions): WsConnecti
  * Lets "Retry now" and the wake watchdog force a reconnect of this socket, and
  * reports when its automatic retries give up.
  */
-export function registerSocketRetry(key: string, forceReconnect: () => void): void {
-  registerReconnector(key, forceReconnect, { onManualRequired: reportManualReconnectRequired });
+export function registerSocketRetry(
+  key: string,
+  forceReconnect: () => void,
+  onRetriesExhausted?: () => void,
+): void {
+  registerReconnector(key, forceReconnect, {
+    onManualRequired: manualRequiredHandler(onRetriesExhausted),
+  });
 }
 
 /** The socket is gone for good: no retry, no status source left behind. */

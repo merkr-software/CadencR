@@ -6,6 +6,7 @@ use crate::domain::agents::providers::{
 };
 use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::protocol::{ProviderSetOkPayload, ProviderSetPayload};
+use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 
 use super::switch::{ProviderSetError, SwitchSnapshot};
 
@@ -22,6 +23,7 @@ pub(super) fn reply(provider: &str, runtime: &RuntimeSpawnConfig) -> ProviderSet
         .as_ref()
         .map(access_mode_wire)
         .map(str::to_string);
+    let adapter = runtime_adapter(provider);
     ProviderSetOkPayload {
         provider: provider.to_string(),
         model: runtime.model.clone().unwrap_or_default(),
@@ -29,8 +31,11 @@ pub(super) fn reply(provider: &str, runtime: &RuntimeSpawnConfig) -> ProviderSet
         runtime_overrides: runtime.overrides.clone(),
         thinking_effort: runtime.thinking_effort.clone(),
         fast_mode: runtime.fast_mode,
-        supports_prompt_receipts: runtime_adapter(provider)
+        supports_prompt_receipts: adapter
+            .as_ref()
             .is_some_and(|adapter| adapter.supports_prompt_receipts()),
+        prompt_receipts_at_submission: adapter
+            .is_some_and(|adapter| adapter.prompt_receipts_at_submission()),
         codex_permission_mode: access_mode.clone(),
         access_mode,
     }
@@ -69,7 +74,10 @@ pub(super) async fn resolve(
         // Spawn in the mode the chip is about to show (`permission_mode_wire`
         // below), exactly as `session.init` resolves it.
         runtime.permission_mode = effective_permission_mode(&payload.provider, None);
-        runtime.access_mode = adapter.configured_access_mode(&state.read_pool).await;
+        runtime.access_mode = adapter
+            .configured_access_mode(&state.read_pool)
+            .await
+            .map_err(|error| ProviderSetError::new(SETTINGS_READ_FAILED, error.to_string()))?;
         runtime.allow_bypass_permissions = false;
     }
     let requested_model = payload.model.as_deref().or_else(|| {
@@ -90,7 +98,9 @@ pub(super) async fn resolve(
         // A new provider/model resumes its last-used level, else its default,
         // exactly like a spawn without an explicit level.
         let effort = match entry.as_ref() {
-            Some(entry) => target_thinking_effort(&state.read_pool, &payload.provider, entry).await,
+            Some(entry) => target_thinking_effort(&state.read_pool, &payload.provider, entry)
+                .await
+                .map_err(|error| ProviderSetError::new(SETTINGS_READ_FAILED, error.to_string()))?,
             None => None,
         };
         runtime.thinking_effort = effort.clone();

@@ -38,18 +38,22 @@ LIMIT ?
 /// Returns the number of rows rewritten.
 #[cfg(test)]
 async fn run(pool: &SqlitePool) -> u64 {
-    run_with_progress(pool, |_| {}).await
+    run_with_progress(pool, pool, |_| {}).await
 }
 
-pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64)) -> u64 {
-    let mut cursor = state::get_i64(pool, state::IMAGE_BACKFILL_CURSOR, 0).await;
+pub(super) async fn run_with_progress(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    progress: impl Fn(i64),
+) -> u64 {
+    let mut cursor = state::get_i64(read_pool, state::IMAGE_BACKFILL_CURSOR, 0).await;
     let mut rewritten = 0u64;
 
     loop {
         let ids = match sqlx::query_scalar::<_, i64>(CANDIDATE_IDS_SQL)
             .bind(cursor)
             .bind(BATCH)
-            .fetch_all(pool)
+            .fetch_all(read_pool)
             .await
         {
             Ok(ids) => ids,
@@ -64,12 +68,12 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
             // the next six-hour sweep starts after them instead of rescanning
             // the same historical range forever.
             match sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(id) FROM agent_messages")
-                .fetch_one(pool)
+                .fetch_one(read_pool)
                 .await
             {
                 Ok(Some(high_water)) if high_water > cursor => {
                     cursor = high_water;
-                    state::set_i64(pool, state::IMAGE_BACKFILL_CURSOR, cursor).await;
+                    state::set_i64(write_pool, state::IMAGE_BACKFILL_CURSOR, cursor).await;
                     progress(cursor);
                 }
                 Ok(_) => {}
@@ -83,7 +87,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
                 "SELECT content FROM agent_messages WHERE id = ? AND message_type = 'user_message'",
             )
             .bind(id)
-            .fetch_optional(pool)
+            .fetch_optional(read_pool)
             .await
             {
                 Ok(Some(content)) => content,
@@ -114,7 +118,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
                 .bind(&offloaded)
                 .bind(id)
                 .bind(&content)
-                .execute(pool)
+                .execute(write_pool)
                 .await
             {
                 Ok(result) if result.rows_affected() == 1 => {
@@ -135,7 +139,7 @@ pub(super) async fn run_with_progress(pool: &SqlitePool, progress: impl Fn(i64))
             }
         }
 
-        state::set_i64(pool, state::IMAGE_BACKFILL_CURSOR, cursor).await;
+        state::set_i64(write_pool, state::IMAGE_BACKFILL_CURSOR, cursor).await;
         progress(cursor);
         tokio::time::sleep(BATCH_PAUSE).await;
     }

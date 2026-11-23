@@ -22,7 +22,7 @@ use crate::domain::git::models::{CheckoutBody, CheckoutValidateBody, SuccessResp
 use crate::domain::git::porcelain::parse_porcelain_v2_entries;
 use crate::domain::git::repository;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git_capture, run_git_safe_refs};
+use crate::shared::git_cli::{run_git_capture, run_git_safe, run_git_safe_refs};
 use crate::shared::git_z;
 
 use super::{local_branch_exists, remote_branch_exists};
@@ -78,10 +78,20 @@ async fn validate_checkout(
         return Ok(SuccessResponse::ok());
     }
 
-    let diff = run_git_safe_refs(
-        &["diff"],
-        &["--name-only", "--no-renames", "-z", "HEAD"],
-        &[&resolved],
+    // `--` ends the revisions: a branch named like a tracked folder is
+    // otherwise ambiguous with that path, and Git refuses.
+    crate::shared::git_cli::guard_positionals(&[&resolved])?;
+    let diff = run_git_safe(
+        &[
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "HEAD",
+            &resolved,
+        ],
+        &[],
+        &[],
         repo,
     )
     .await?;
@@ -127,11 +137,11 @@ async fn prepare(
 }
 
 pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, AppError> {
-    if local_branch_exists(repo, branch).await {
+    if local_branch_exists(repo, branch).await? {
         return Ok(branch.to_string());
     }
     if let Some((_remote, suffix)) = branch.split_once('/') {
-        if !suffix.is_empty() && remote_branch_exists(repo, branch).await {
+        if !suffix.is_empty() && remote_branch_exists(repo, branch).await? {
             return Ok(suffix.to_string());
         }
     }

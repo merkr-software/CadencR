@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { toastError } from "@/lib/api-errors";
 import type { VirtuosoHandle } from "react-virtuoso";
 import type { DisplayItem } from "@/types/agent-stream";
+import { displayItemBlocks } from "@/lib/agent-stream-display";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import {
   adjacentMarkIndex,
@@ -55,8 +56,7 @@ export interface MessageNavigatorState {
 export function rowsByBlockId(items: readonly DisplayItem[]): Map<string, number> {
   const rows = new Map<string, number>();
   for (const [row, item] of items.entries()) {
-    if (item.kind === "block") rows.set(item.block.id, row);
-    else for (const block of item.blocks) rows.set(block.id, row);
+    for (const block of displayItemBlocks(item)) rows.set(block.id, row);
   }
   return rows;
 }
@@ -147,8 +147,14 @@ function useJumpToMark(
       const scroller = scrollerRef.current;
       const { rowIndex, blockId } = mark;
       if (!scroller || rowIndex === null || blockId === null) return;
-      cancelJumpRef.current = startJump(() =>
-        jumpToRow({ scroller, virtuoso: virtuosoRef.current, blockId, rowIndex }),
+      cancelJumpRef.current = startJump((settled) =>
+        jumpToRow({
+          scroller,
+          virtuoso: virtuosoRef.current,
+          blockId,
+          rowIndex,
+          onSettled: settled,
+        }),
       );
     },
     [startJump, scrollerRef, virtuosoRef],

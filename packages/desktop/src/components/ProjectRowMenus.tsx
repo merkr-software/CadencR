@@ -1,4 +1,15 @@
-import { Archive, Download, Ellipsis, PlusIcon, Settings, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Download,
+  Ellipsis,
+  FolderInput,
+  FolderSearch,
+  Pencil,
+  PlusIcon,
+  Settings,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +21,34 @@ import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
 import type { ProjectTreeController } from "./ProjectTree";
 
 type ProjectSummary = ProjectTreeController["ordered"]["projects"][number];
+
+interface LocationAction {
+  key: string;
+  icon: LucideIcon;
+  label: string;
+  run: () => void;
+}
+
+/** Rename, move, or (when its folder is gone) locate the project. Plugin
+ * authoring projects are named and placed by Cadencr. */
+function locationActions(
+  project: ProjectSummary,
+  controller: ProjectTreeController,
+): LocationAction[] {
+  if (project.authoring_target) return [];
+  const open = (mode: "rename" | "move" | "locate") => () =>
+    controller.setLocationTarget({
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      folderMissing: project.path_missing,
+      mode,
+    });
+  const rename = { key: "rename", icon: Pencil, label: "Rename…", run: open("rename") };
+  return project.path_missing
+    ? [rename, { key: "locate", icon: FolderSearch, label: "Locate folder…", run: open("locate") }]
+    : [rename, { key: "move", icon: FolderInput, label: "Move folder…", run: open("move") }];
+}
 
 export function ProjectRowActions({
   project,
@@ -59,6 +98,17 @@ export function ProjectRowActions({
           >
             <Settings className="size-4" /> Project Settings
           </DropdownMenuItem>
+          {locationActions(project, controller).map(({ key, icon: Icon, label, run }) => (
+            <DropdownMenuItem
+              key={key}
+              onClick={(event) => {
+                event.stopPropagation();
+                run();
+              }}
+            >
+              <Icon className="size-4" /> {label}
+            </DropdownMenuItem>
+          ))}
           <DropdownMenuItem
             onClick={(event) => {
               event.stopPropagation();
@@ -111,6 +161,11 @@ export function ProjectRowContextMenu({
       <ContextMenuActionItem icon={Settings} onSelect={() => controller.setSettingsProject(target)}>
         Project Settings
       </ContextMenuActionItem>
+      {locationActions(project, controller).map(({ key, icon, label, run }) => (
+        <ContextMenuActionItem key={key} icon={icon} onSelect={run}>
+          {label}
+        </ContextMenuActionItem>
+      ))}
       <ContextMenuActionItem icon={Download} onSelect={() => controller.setImportProject(target)}>
         Import existing sessions
       </ContextMenuActionItem>

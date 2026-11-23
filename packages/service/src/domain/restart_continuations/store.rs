@@ -2,7 +2,9 @@
 
 use sqlx::{FromRow, SqlitePool};
 
-use super::{transcript, QUIT_MARKER_CONTENT, RESTART_MARKER_CONTENT};
+use super::{
+    transcript, QUIT_MARKER_CONTENT, RESTART_BACKGROUND_MARKER_CONTENT, RESTART_MARKER_CONTENT,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Cause {
@@ -23,7 +25,8 @@ impl Cause {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Intent {
     Resume,
-    /// They quit Cadencr and chose to stop their agents.
+    /// They quit Cadencr and chose to stop their agents (or, for background
+    /// work, quit with no agent working).
     Stop,
 }
 
@@ -32,6 +35,42 @@ impl Intent {
         match self {
             Self::Resume => "resume",
             Self::Stop => "stop",
+        }
+    }
+}
+
+/// The [`Intent`] for each [`Kind`] a capture opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Intents {
+    pub turn: Intent,
+    pub background: Intent,
+}
+
+/// The same intent for turns and background work.
+impl From<Intent> for Intents {
+    fn from(intent: Intent) -> Self {
+        Self {
+            turn: intent,
+            background: intent,
+        }
+    }
+}
+
+/// What a restart cut off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    /// A turn was running.
+    Turn,
+    /// The turn had ended, but background work (or a scheduled wake-up) the
+    /// runtime would have resumed the agent for was still pending.
+    Background,
+}
+
+impl Kind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Turn => "turn",
+            Self::Background => "background",
         }
     }
 }
@@ -60,6 +99,8 @@ pub(super) struct PendingContinuation {
     pub session_id: i64,
     pub app_version: Option<String>,
     pub intent: String,
+    /// A [`Kind`].
+    pub kind: String,
     pub marker_message_id: Option<i64>,
     pub feature_id: i64,
     pub project_id: i64,
@@ -72,18 +113,26 @@ impl PendingContinuation {
     pub(super) fn stop_requested(&self) -> bool {
         self.intent == Intent::Stop.as_str()
     }
+
+    /// The restart found no turn running, only background work (see
+    /// [`Kind::Background`]).
+    pub(super) fn background_work(&self) -> bool {
+        self.kind == Kind::Background.as_str()
+    }
 }
 
-/// Open a continuation for every top-level session still mid-turn. A session
+/// Open a continuation for every top-level session still mid-turn, or whose
+/// runtime still owed it a resume for background work. A session
 /// that already has one open (shutdown capture, then the crash capture of the
 /// next start) keeps it: the partial unique index turns the insert into a no-op.
 pub(super) async fn capture_running(
     pool: &SqlitePool,
     cause: Cause,
-    intent: Intent,
+    intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
-    capture(pool, cause, intent, app_version, None).await
+    let mut conn = pool.acquire().await?;
+    capture(&mut conn, cause, intents.into(), app_version, None).await
 }
 
 /// [`capture_running`] for one session: a turn shutdown cut off that the
@@ -91,43 +140,82 @@ pub(super) async fn capture_running(
 pub(super) async fn capture_session(
     pool: &SqlitePool,
     session_id: i64,
-    intent: Intent,
+    intents: impl Into<Intents>,
     app_version: Option<&str>,
 ) -> Result<u64, sqlx::Error> {
-    capture(pool, Cause::Shutdown, intent, app_version, Some(session_id)).await
+    let mut conn = pool.acquire().await?;
+    capture(
+        &mut conn,
+        Cause::Shutdown,
+        intents.into(),
+        app_version,
+        Some(session_id),
+    )
+    .await
+}
+
+/// [`capture_running`] for the crash capture at startup, inside the
+/// transaction that also consumes what the last process left to read.
+pub(super) async fn capture_crashed(
+    conn: &mut sqlx::SqliteConnection,
+    intents: Intents,
+) -> Result<u64, sqlx::Error> {
+    capture(conn, Cause::Crash, intents, None, None).await
 }
 
 async fn capture(
-    pool: &SqlitePool,
+    conn: &mut sqlx::SqliteConnection,
     cause: Cause,
-    intent: Intent,
+    intents: Intents,
     app_version: Option<&str>,
     session_id: Option<i64>,
 ) -> Result<u64, sqlx::Error> {
-    // Top-level sessions mid-turn, optionally just one. A `!` command the
-    // user runs through Cadencr marks its session `running` too, but there is
-    // no agent turn to resume: its transcript row, still `running`, tells it
-    // apart.
+    // Top-level sessions mid-turn or owed a resume for background work,
+    // optionally just one. A `!` command the user runs through Cadencr marks
+    // its session `running` too, but there is no agent turn to resume: its
+    // transcript row, still `running`, tells it apart. Nor is a turn the user
+    // stopped: their Stop is recorded before the runtime is told, and the next
+    // turn forgets it before it is marked `running`.
     let result = sqlx::query(
-        "INSERT OR IGNORE INTO restart_continuations (session_id, cause, intent, app_version)
-         SELECT id, ?, ?, ? FROM agent_sessions
-         WHERE status = 'running' AND agent_type = 'session'
-           AND (? IS NULL OR id = ?)
-           AND NOT EXISTS (
-               SELECT 1 FROM agent_messages m
-               WHERE m.session_id = agent_sessions.id
-                 AND m.message_type = 'tool_call' AND m.tool_name = 'Bash'
-                 AND json_valid(m.content)
-                 AND json_extract(m.content, '$.__cadencr_user_shell.strategy') = 'cadencr_managed'
-                 AND json_extract(m.content, '$.status') = 'running'
-           )",
+        "INSERT OR IGNORE INTO restart_continuations
+             (session_id, cause, intent, app_version, kind)
+         SELECT id, ?, CASE WHEN mid_turn THEN ? ELSE ? END, ?,
+                CASE WHEN mid_turn THEN ? ELSE ? END
+         FROM (
+             SELECT id,
+                    status = 'running' AND NOT EXISTS (
+                        SELECT 1 FROM agent_messages m
+                        WHERE m.session_id = s.id
+                          AND m.message_type = 'tool_call' AND m.tool_name = 'Bash'
+                          AND json_valid(m.content)
+                          AND json_extract(m.content, '$.__cadencr_user_shell.strategy')
+                              = 'cadencr_managed'
+                          AND json_extract(m.content, '$.status') = 'running'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM agent_user_stops u WHERE u.session_id = s.id
+                    ) AS mid_turn,
+                    EXISTS (
+                        SELECT 1 FROM agent_background_work w
+                        WHERE w.session_id = s.id
+                          AND NOT EXISTS (
+                              SELECT 1 FROM agent_user_stops u
+                              WHERE u.session_id = s.id AND u.stopped_at >= w.since
+                          )
+                    ) AS owes_resume
+             FROM agent_sessions s
+             WHERE s.agent_type = 'session' AND (? IS NULL OR s.id = ?)
+         )
+         WHERE mid_turn OR owes_resume",
     )
     .bind(cause.as_str())
-    .bind(intent.as_str())
+    .bind(intents.turn.as_str())
+    .bind(intents.background.as_str())
     .bind(app_version)
+    .bind(Kind::Turn.as_str())
+    .bind(Kind::Background.as_str())
     .bind(session_id)
     .bind(session_id)
-    .execute(pool)
+    .execute(conn)
     .await?;
     Ok(result.rows_affected())
 }
@@ -136,7 +224,7 @@ pub(super) async fn list_pending(
     pool: &SqlitePool,
 ) -> Result<Vec<PendingContinuation>, sqlx::Error> {
     sqlx::query_as::<_, PendingContinuation>(
-        "SELECT rc.id, rc.session_id, rc.app_version, rc.intent, rc.marker_message_id,
+        "SELECT rc.id, rc.session_id, rc.app_version, rc.intent, rc.kind, rc.marker_message_id,
                 s.feature_id, f.project_id, COALESCE(f.title, '') AS feature_title,
                 (f.status = 'archived') AS feature_archived,
                 (NULLIF(s.runtime_session_id, '') IS NOT NULL) AS has_resume_id
@@ -229,10 +317,19 @@ pub(super) async fn write_marker(
     if continuation.marker_message_id.is_some() {
         return Ok(());
     }
-    let (marker, tool_result) = if continuation.stop_requested() {
-        (QUIT_MARKER_CONTENT, transcript::QUIT_TOOL_RESULT)
+    // Stopped background work keeps its own marker even on a quit: its
+    // Resume button is how the user brings that work back.
+    let marker = if continuation.background_work() {
+        RESTART_BACKGROUND_MARKER_CONTENT
+    } else if continuation.stop_requested() {
+        QUIT_MARKER_CONTENT
     } else {
-        (RESTART_MARKER_CONTENT, transcript::INTERRUPTED_TOOL_RESULT)
+        RESTART_MARKER_CONTENT
+    };
+    let tool_result = if continuation.stop_requested() {
+        transcript::QUIT_TOOL_RESULT
+    } else {
+        transcript::INTERRUPTED_TOOL_RESULT
     };
     let mut tx = pool.begin().await?;
     transcript::close_running_tool_calls(&mut tx, continuation.session_id, tool_result).await?;
@@ -365,6 +462,34 @@ pub(super) mod tests {
         );
     }
 
+    /// A `!` command marks its session `running`, but background work the
+    /// agent left running still owes it a resume.
+    #[tokio::test]
+    async fn background_work_is_captured_next_to_a_user_shell_command() {
+        let (pool, _, feature_id) = fixture().await;
+        let shell = session(&pool, feature_id, "running").await;
+        sqlx::query(
+            r#"INSERT INTO agent_messages (session_id, role, message_type, tool_name, content)
+               VALUES (?, 'assistant', 'tool_call', 'Bash',
+                 '{"status":"running","__cadencr_user_shell":{"strategy":"cadencr_managed"}}')"#,
+        )
+        .bind(shell)
+        .execute(&pool)
+        .await
+        .unwrap();
+        super::super::record_background_work(&pool, shell, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            capture_running(&pool, Cause::Crash, Intent::Resume, None)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(list_pending(&pool).await.unwrap()[0].background_work());
+    }
+
     #[tokio::test]
     async fn a_session_capture_only_opens_that_session() {
         let (pool, _, feature_id) = fixture().await;
@@ -381,6 +506,152 @@ pub(super) mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].session_id, late);
         assert!(pending[0].stop_requested());
+    }
+
+    /// A crash after the Stop was recorded but before the turn ended leaves
+    /// it `running`: it is not resumed. A turn started after the Stop (which
+    /// forgets it) is, and so is one stopped by the machine going to sleep.
+    #[tokio::test]
+    async fn a_turn_the_user_stopped_is_not_captured_but_a_later_one_is() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "running").await;
+        let restarted = session(&pool, feature_id, "running").await;
+        let slept = session(&pool, feature_id, "running").await;
+        for id in [stopped, restarted] {
+            super::super::record_user_stop(&pool, id, chrono::Utc::now())
+                .await
+                .unwrap();
+        }
+        super::super::forget_user_stop(&pool, restarted)
+            .await
+            .unwrap();
+
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+
+        let captured: Vec<i64> = list_pending(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.session_id)
+            .collect();
+        assert_eq!(captured, vec![restarted, slept]);
+    }
+
+    /// A record from before the user's Stop (a reader that decided just
+    /// before it) is never resumed; one from a turn after it is.
+    #[tokio::test]
+    async fn background_work_recorded_before_a_user_stop_is_not_captured() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "completed").await;
+        let later = session(&pool, feature_id, "completed").await;
+        let before_stop = chrono::Utc::now();
+        super::super::record_user_stop(&pool, stopped, before_stop)
+            .await
+            .unwrap();
+        super::super::record_user_stop(&pool, later, before_stop)
+            .await
+            .unwrap();
+        // The racing reader's write lands after the Stop, dated before it.
+        super::super::record_background_work(&pool, stopped, Some(before_stop))
+            .await
+            .unwrap();
+        let after_stop = before_stop + chrono::Duration::milliseconds(5);
+        super::super::record_background_work(&pool, later, Some(after_stop))
+            .await
+            .unwrap();
+
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+
+        let captured: Vec<i64> = list_pending(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.session_id)
+            .collect();
+        assert_eq!(captured, vec![later]);
+    }
+
+    /// A quit with no agent working asks nothing: turns still resume, but
+    /// background work stays stopped.
+    #[tokio::test]
+    async fn a_quit_nobody_was_asked_about_keeps_only_background_work_stopped() {
+        let (pool, _, feature_id) = fixture().await;
+        let mid_turn = session(&pool, feature_id, "running").await;
+        let waiting = session(&pool, feature_id, "completed").await;
+        super::super::record_background_work(&pool, waiting, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+        let intents = Intents {
+            turn: Intent::Resume,
+            background: Intent::Stop,
+        };
+
+        capture_running(&pool, Cause::Shutdown, intents, None)
+            .await
+            .unwrap();
+
+        let pending = list_pending(&pool).await.unwrap();
+        let stops: Vec<(i64, bool)> = pending
+            .iter()
+            .map(|row| (row.session_id, row.stop_requested()))
+            .collect();
+        assert_eq!(stops, vec![(mid_turn, false), (waiting, true)]);
+        // Its marker stays the background one, with its Resume button.
+        write_marker(&pool, &pending[1]).await.unwrap();
+        let marker: String = sqlx::query_scalar(
+            "SELECT content FROM agent_messages
+             WHERE session_id = ? AND message_type = 'turn_interrupted'",
+        )
+        .bind(waiting)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(marker, RESTART_BACKGROUND_MARKER_CONTENT);
+    }
+
+    /// A conversation whose turn had ended but whose runtime still ran its
+    /// background work is not `running`: only its record says a restart
+    /// would leave it waiting forever.
+    #[tokio::test]
+    async fn background_work_is_captured_although_no_turn_is_running() {
+        let (pool, _, feature_id) = fixture().await;
+        let idle = session(&pool, feature_id, "completed").await;
+        let waiting = session(&pool, feature_id, "completed").await;
+        let mid_turn = session(&pool, feature_id, "running").await;
+        for owed in [waiting, mid_turn] {
+            super::super::record_background_work(&pool, owed, Some(chrono::Utc::now()))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            capture_running(&pool, Cause::Crash, Intent::Resume, None)
+                .await
+                .unwrap(),
+            2
+        );
+        let pending = list_pending(&pool).await.unwrap();
+        let kinds: Vec<(i64, bool)> = pending
+            .iter()
+            .map(|row| (row.session_id, row.background_work()))
+            .collect();
+        assert_eq!(kinds, vec![(waiting, true), (mid_turn, false)]);
+        assert!(pending.iter().all(|row| row.session_id != idle));
+
+        write_marker(&pool, &pending[0]).await.unwrap();
+        let marker: String = sqlx::query_scalar(
+            "SELECT content FROM agent_messages
+             WHERE session_id = ? AND message_type = 'turn_interrupted'",
+        )
+        .bind(waiting)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(marker, RESTART_BACKGROUND_MARKER_CONTENT);
     }
 
     #[tokio::test]

@@ -11,8 +11,68 @@
 
 mod compute;
 mod parsing;
+mod worktree_base;
+
+/// Git fixtures shared by this module's tests.
+#[cfg(test)]
+mod test_git {
+    use std::path::{Path, PathBuf};
+
+    pub(super) fn run_git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", dir)
+            .output()
+            .expect("git spawn");
+        assert!(
+            out.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A repository on `main` with one commit.
+    pub(super) fn init_repo(dir: &Path) {
+        run_git(dir, &["init", "-q", "-b", "main"]);
+        run_git(dir, &["config", "user.email", "t@t"]);
+        run_git(dir, &["config", "user.name", "Test"]);
+        run_git(dir, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("seed.txt"), "seed\n").unwrap();
+        run_git(dir, &["add", "seed.txt"]);
+        run_git(dir, &["commit", "-q", "-m", "seed"]);
+    }
+
+    /// A repository under `root` on `feat`, whose upstream `origin/feat` was
+    /// pushed and then deleted: Git keeps the `branch.upstream` header but
+    /// drops `branch.ab`. Nothing of `feat` (2 commits) is on a remote.
+    pub(super) fn repo_with_gone_upstream(root: &Path) -> PathBuf {
+        let (repo, remote) = (root.join("repo"), root.join("remote.git"));
+        std::fs::create_dir(&repo).unwrap();
+        run_git(root, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+        init_repo(&repo);
+        for args in [
+            &["remote", "add", "origin", remote.to_str().unwrap()][..],
+            &["checkout", "-q", "-b", "feat"],
+            &["push", "-q", "-u", "origin", "feat"],
+            &["commit", "-q", "--allow-empty", "-m", "local"],
+            &["push", "-q", "origin", "--delete", "feat"],
+        ] {
+            run_git(&repo, args);
+        }
+        repo
+    }
+}
 
 pub use compute::compute_status_or_empty;
+pub(crate) use compute::{build_snapshot, resolve_targets_for_base};
+pub(crate) use worktree_base::{compute_worktree_base, WorktreeStatusBase};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

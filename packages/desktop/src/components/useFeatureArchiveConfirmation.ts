@@ -27,10 +27,10 @@ export function useFeatureArchiveConfirmation(
   const feature = features.find((candidate) => candidate.id === confirmFeatureId);
   const isDelete = feature?.status === "archived";
   const emptyCheck = useIsFeatureEmpty(confirmFeatureId ?? 0, {
-    query: { enabled: confirmFeatureId != null && !isDelete, staleTime: 0 },
+    query: { enabled: confirmFeatureId != null && !isDelete, retry: false, staleTime: 0 },
   });
   const relationCheck = useGetFeatureArchivePreview(confirmFeatureId ?? 0, {
-    query: { enabled: confirmFeatureId != null && !isDelete, staleTime: 0 },
+    query: { enabled: confirmFeatureId != null && !isDelete, retry: false, staleTime: 0 },
   });
   const pendingAction = getPendingFeatureArchiveAction({
     feature,

@@ -1,5 +1,6 @@
 import type { AgentBlockData } from "@/types/agent-block";
 import type { DisplayItem } from "@/types/agent-stream";
+import { displayItemBlocks } from "@/lib/agent-stream-display";
 import {
   blockSearchableText,
   countConversationOccurrences,
@@ -153,9 +154,9 @@ export class ConversationSearchIndex {
 
     for (let rowIndex = 0; rowIndex < items.length; rowIndex += 1) {
       const item = items[rowIndex];
-      const rowBlockCount = item.kind === "flow" ? item.blocks.length : 1;
-      for (let blockIndexInRow = 0; blockIndexInRow < rowBlockCount; blockIndexInRow += 1) {
-        const block = item.kind === "flow" ? item.blocks[blockIndexInRow] : item.block;
+      const rowBlocks = displayItemBlocks(item);
+      for (let blockIndexInRow = 0; blockIndexInRow < rowBlocks.length; blockIndexInRow += 1) {
+        const block = rowBlocks[blockIndexInRow];
         const count = this.countFor(block, needle, toolResultMap);
         if (count === 0) continue;
         matchCount += count;

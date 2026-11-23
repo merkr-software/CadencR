@@ -4,20 +4,26 @@ import {
   clearDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
 import type { CadencrDesktopBridge } from "@/lib/desktop-bridge";
-import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
+import {
+  AxiosError,
+  CanceledError,
+  type AxiosAdapter,
+  type InternalAxiosRequestConfig,
+} from "axios";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
 import {
   __resetRuntimeConfigForTests,
+  __resetStableReadRequestsForTests,
   customInstance,
   getAuthTokenSync,
   preloadRuntimeConfig,
   publicationOperationTimeout,
   managedProviderOperationTimeout,
   resolveApiBaseUrlSync,
-  shouldAttachAbortSignal,
   strictModeStableReadRequestKey,
   workspaceSettingFromBulk,
 } from "./client";
+import { executeStableReadRequest, STRICT_MODE_ABORT_GRACE_MS } from "./stable-read-requests";
 
 describe("publication release timeout policy", () => {
   it.each([
@@ -93,6 +99,7 @@ function bridgeWithRuntime(
     fetchChangelog: vi.fn(() => Promise.resolve(null)),
     fetchChangelogImage: vi.fn(),
     installUpdate: vi.fn(() => Promise.resolve()),
+    setInstallWhenAgentsFinish: vi.fn(),
     getUpdateState: vi.fn(),
     onUpdateState: vi.fn(() => () => undefined),
   };
@@ -137,27 +144,221 @@ describe("runtime config client", () => {
   });
 });
 
-describe("request abort policy", () => {
-  it("keeps StrictMode-stable read endpoints alive across development remounts", () => {
-    const signal = new AbortController().signal;
-
-    expect(shouldAttachAbortSignal({ method: "GET", signal, url: "/api/git/diff" })).toBe(false);
-    expect(shouldAttachAbortSignal({ method: "GET", signal, url: "/api/feature-layouts" })).toBe(
-      false,
-    );
+describe("stable read request cancellation and StrictMode reuse", () => {
+  beforeEach(() => {
+    __resetStableReadRequestsForTests();
   });
 
-  it("preserves abort signals for mutations and large message fetches", () => {
-    const signal = new AbortController().signal;
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetStableReadRequestsForTests();
+  });
 
-    expect(shouldAttachAbortSignal({ method: "POST", signal, url: "/api/git/commit" })).toBe(true);
-    expect(
-      shouldAttachAbortSignal({
-        method: "GET",
-        signal,
-        url: "/api/sessions/messages/2585/full",
-      }),
-    ).toBe(true);
+  it("reuses an in-flight GET across a StrictMode unmount/remount within the grace window", async () => {
+    vi.useFakeTimers();
+    let resolveBackend: ((value: { ok: boolean }) => void) | undefined;
+    let capturedSignal: AbortSignal | undefined;
+    const execute = vi.fn(
+      (config) =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          capturedSignal = config.signal as AbortSignal;
+          resolveBackend = resolve;
+        }),
+    );
+
+    const mount1 = new AbortController();
+    const first = executeStableReadRequest(
+      "GET /api/git/status?1",
+      { method: "GET", url: "/api/git/status", signal: mount1.signal },
+      execute,
+      { graceMs: STRICT_MODE_ABORT_GRACE_MS, resultTtlMs: 250 },
+    );
+
+    // StrictMode unmount aborts the first observer.
+    mount1.abort();
+    await expect(first).rejects.toBeInstanceOf(CanceledError);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // StrictMode remount subscribes before the grace timer fires.
+    vi.advanceTimersByTime(10);
+    const mount2 = new AbortController();
+    const second = executeStableReadRequest(
+      "GET /api/git/status?1",
+      { method: "GET", url: "/api/git/status", signal: mount2.signal },
+      execute,
+      { graceMs: STRICT_MODE_ABORT_GRACE_MS, resultTtlMs: 250 },
+    );
+
+    // Passing the original grace deadline must NOT abort because mount2 is attached.
+    vi.advanceTimersByTime(STRICT_MODE_ABORT_GRACE_MS * 2);
+    expect(capturedSignal?.aborted).toBe(false);
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    resolveBackend?.({ ok: true });
+    await expect(second).resolves.toEqual({ ok: true });
+  });
+
+  it("aborts the underlying request after the DEV grace window when no remount arrives", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const execute = vi.fn(
+      (config) =>
+        new Promise<unknown>((_resolve, reject) => {
+          capturedSignal = config.signal as AbortSignal;
+          capturedSignal.addEventListener("abort", () => reject(new CanceledError("aborted")));
+        }),
+    );
+
+    const controller = new AbortController();
+    const promise = executeStableReadRequest(
+      "GET /api/git/diff?42",
+      { method: "GET", url: "/api/git/diff", signal: controller.signal },
+      execute,
+      { graceMs: STRICT_MODE_ABORT_GRACE_MS, resultTtlMs: 250 },
+    );
+
+    controller.abort();
+    await expect(promise).rejects.toBeInstanceOf(CanceledError);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    vi.advanceTimersByTime(STRICT_MODE_ABORT_GRACE_MS);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("aborts the underlying request immediately in production (graceMs = 0)", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const execute = vi.fn(
+      (config) =>
+        new Promise<unknown>((_resolve, reject) => {
+          capturedSignal = config.signal as AbortSignal;
+          capturedSignal.addEventListener("abort", () => reject(new CanceledError("aborted")));
+        }),
+    );
+
+    const controller = new AbortController();
+    const promise = executeStableReadRequest(
+      "GET /api/git/file-diff?7",
+      { method: "GET", url: "/api/git/file-diff", signal: controller.signal },
+      execute,
+      { graceMs: 0, resultTtlMs: 0 },
+    );
+
+    controller.abort();
+    expect(capturedSignal?.aborted).toBe(true);
+    await expect(promise).rejects.toBeInstanceOf(CanceledError);
+  });
+
+  it("keeps a shared request alive until all subscribers abort", async () => {
+    let resolveBackend: ((value: string) => void) | undefined;
+    let capturedSignal: AbortSignal | undefined;
+    const execute = vi.fn(
+      (config) =>
+        new Promise<string>((resolve, reject) => {
+          capturedSignal = config.signal as AbortSignal;
+          capturedSignal.addEventListener("abort", () => reject(new CanceledError("aborted")));
+          resolveBackend = resolve;
+        }),
+    );
+
+    const sub1 = new AbortController();
+    const sub2 = new AbortController();
+    const p1 = executeStableReadRequest(
+      "GET /api/git/status?99",
+      { method: "GET", url: "/api/git/status", signal: sub1.signal },
+      execute,
+      { graceMs: 0, resultTtlMs: 0 },
+    );
+    const p2 = executeStableReadRequest(
+      "GET /api/git/status?99",
+      { method: "GET", url: "/api/git/status", signal: sub2.signal },
+      execute,
+      { graceMs: 0, resultTtlMs: 0 },
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    sub1.abort();
+    await expect(p1).rejects.toBeInstanceOf(CanceledError);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    resolveBackend?.("clean");
+    await expect(p2).resolves.toBe("clean");
+  });
+
+  it("cancels an actual customInstance GET /api/git/* request when aborted", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const adapter: AxiosAdapter = (config) =>
+      new Promise((_resolve, reject) => {
+        capturedSignal = config.signal as AbortSignal;
+        capturedSignal.addEventListener("abort", () => reject(new CanceledError("aborted")));
+      });
+
+    const controller = new AbortController();
+    const request = customInstance({
+      method: "GET",
+      url: "/api/git/file-diff",
+      params: { feature_id: 55, file_path: "huge.ts" },
+      signal: controller.signal,
+      adapter,
+    });
+
+    controller.abort();
+    await expect(request).rejects.toBeInstanceOf(CanceledError);
+    vi.advanceTimersByTime(STRICT_MODE_ABORT_GRACE_MS);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("rejects immediately when given a pre-aborted signal without calling execute", async () => {
+    const execute = vi.fn();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      executeStableReadRequest(
+        "GET /api/git/status?preaborted",
+        { method: "GET", url: "/api/git/status", signal: controller.signal },
+        execute,
+        { graceMs: 0, resultTtlMs: 0 },
+      ),
+    ).rejects.toBeInstanceOf(CanceledError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("evicts cached DEV stable read results automatically after resultTtlMs", async () => {
+    vi.useFakeTimers();
+    const execute = vi.fn(async () => ({ diff: "large-payload" }));
+
+    const first = await executeStableReadRequest(
+      "GET /api/git/diff?ttl",
+      { method: "GET", url: "/api/git/diff" },
+      execute,
+      { graceMs: 0, resultTtlMs: 250 },
+    );
+    expect(first).toEqual({ diff: "large-payload" });
+    expect(vi.getTimerCount()).toBe(1);
+
+    // Within TTL, replays the cached result without re-invoking execute.
+    await expect(
+      executeStableReadRequest(
+        "GET /api/git/diff?ttl",
+        { method: "GET", url: "/api/git/diff" },
+        execute,
+        { graceMs: 0, resultTtlMs: 250 },
+      ),
+    ).resolves.toEqual({ diff: "large-payload" });
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    // After TTL elapses, eviction timer clears the cached payload automatically.
+    vi.advanceTimersByTime(250);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await executeStableReadRequest(
+      "GET /api/git/diff?ttl",
+      { method: "GET", url: "/api/git/diff" },
+      execute,
+      { graceMs: 0, resultTtlMs: 250 },
+    );
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -19,12 +19,21 @@ interface CompactFlowRowProps {
   revealBlockId?: string;
   /** Results of the stream's calls: a failed one marks its step. */
   toolResultMap?: ToolResults;
+  /** The block still receiving tokens, when it belongs to this run. */
+  streamingBlockId?: string;
+  /** The run may still take steps: its head keeps one line (see `CompactFlowHead`). */
+  live?: boolean;
+  /** Padding under the row, from the transcript's rhythm (`spaceRows`). */
+  spaceBelow?: number;
 }
 
 function sameCompactFlowRow(previous: CompactFlowRowProps, next: CompactFlowRowProps): boolean {
   if (
     previous.basePath !== next.basePath ||
     previous.revealBlockId !== next.revealBlockId ||
+    previous.streamingBlockId !== next.streamingBlockId ||
+    previous.live !== next.live ||
+    previous.spaceBelow !== next.spaceBelow ||
     previous.blocks.length !== next.blocks.length
   ) {
     return false;
@@ -49,6 +58,9 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   basePath,
   revealBlockId,
   toolResultMap,
+  streamingBlockId,
+  live = false,
+  spaceBelow,
 }: CompactFlowRowProps) {
   const newestFirst = useMemo(() => blocks.filter(hasCompactLine).reverse(), [blocks]);
   const [newest, ...older] = newestFirst;
@@ -71,12 +83,14 @@ export const CompactFlowRow = memo(function CompactFlowRow({
       onHandedOver={endHandOver}
       basePath={basePath}
       toolResultMap={toolResultMap}
+      streaming={streamingBlockId === newest.id}
+      live={live}
     />
   );
   // `-mx-1` cancels the line's own padding: icons sit on the prose's left
   // edge while the hover wash still breathes around the content.
   return (
-    <div className="-mx-1 my-1 text-xs">
+    <div className="-mx-1 text-xs" style={{ paddingBottom: spaceBelow }}>
       {older.length === 0 ? (
         <div className={HEAD_CLASS}>{head}</div>
       ) : (
@@ -90,7 +104,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
           )}
         >
           {head}
-          <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground/60 tabular-nums transition-colors group-hover/flow:text-muted-foreground">
+          <span className="flex h-6 shrink-0 items-center gap-0.5 self-start text-[11px] text-muted-foreground/60 tabular-nums transition-colors group-hover/flow:text-muted-foreground">
             +{older.length}
             <span className="sr-only">
               {older.length === 1 ? " earlier step" : " earlier steps"}
@@ -147,7 +161,7 @@ function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: Compa
     // The rule runs under the head icon; steps hang on the head's label column.
     <ol className="ml-2.5 border-l border-border/60 pl-[11px]">
       {steps.slice(0, shown).map((block) => (
-        <li key={block.id} data-block-id={block.id} className="flex h-6 min-w-0 items-center">
+        <li key={block.id} data-block-id={block.id} className="flex min-h-6 min-w-0 items-center">
           <CompactToolLine
             block={block}
             basePath={basePath}
@@ -179,6 +193,8 @@ interface CompactLatestStepProps {
   basePath?: string;
   /** Results of the steps' calls: a failed one marks the line. */
   toolResultMap?: ToolResults;
+  /** Steps may still come: the line keeps its height (see `CompactFlowHead`). */
+  live?: boolean;
 }
 
 /**
@@ -190,6 +206,7 @@ export const CompactLatestStep = memo(function CompactLatestStep({
   blocks,
   basePath,
   toolResultMap,
+  live = false,
 }: CompactLatestStepProps) {
   const steps = useMemo(() => blocks.filter(hasCompactLine), [blocks]);
   const newest = steps.at(-1);
@@ -203,6 +220,7 @@ export const CompactLatestStep = memo(function CompactLatestStep({
       onHandedOver={endHandOver}
       basePath={basePath}
       toolResultMap={toolResultMap}
+      live={live}
     />
   );
 });
@@ -245,9 +263,17 @@ interface CompactFlowHeadProps {
   onHandedOver: () => void;
   basePath?: string;
   toolResultMap?: ToolResults;
+  streaming?: boolean;
+  /** Steps may still replace this one: a failure's reason stays in the tooltip. */
+  live: boolean;
 }
 
-/** The run's newest step; a new one scrolls in from below as the previous scrolls out the top. */
+/**
+ * The run's newest step; a new one scrolls in from below as the previous
+ * scrolls out the top. While steps still come, a failed one keeps to one line:
+ * its reason line would grow the head, then shrink it with the next step, and
+ * move the whole transcript twice. It shows once the run settles.
+ */
 function CompactFlowHead({
   newest,
   entering,
@@ -255,6 +281,8 @@ function CompactFlowHead({
   onHandedOver,
   basePath,
   toolResultMap,
+  streaming = false,
+  live,
 }: CompactFlowHeadProps) {
   return (
     // Clip vertically only: the outgoing line may be wider than the new one.
@@ -269,6 +297,8 @@ function CompactFlowHead({
           block={newest}
           basePath={basePath}
           result={toolResultOf(toolResultMap, newest)}
+          streaming={streaming}
+          reasonLine={!live}
         />
       </span>
       {leaving && (
@@ -283,6 +313,7 @@ function CompactFlowHead({
             block={leaving}
             basePath={basePath}
             result={toolResultOf(toolResultMap, leaving)}
+            reasonLine={!live}
           />
         </span>
       )}
@@ -290,4 +321,4 @@ function CompactFlowHead({
   );
 }
 
-const HEAD_CLASS = "flex h-6 w-fit max-w-full min-w-0 items-center gap-2 px-1 text-left";
+const HEAD_CLASS = "flex min-h-6 w-fit max-w-full min-w-0 items-center gap-2 px-1 text-left";

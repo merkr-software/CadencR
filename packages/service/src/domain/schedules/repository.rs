@@ -1,8 +1,10 @@
+mod archive;
 mod claim;
 mod mutations;
 mod reads;
 mod row;
 
+pub use archive::{pause_for_archived_features, pause_for_features};
 pub use claim::{
     claim_due, finish_run, record_check, record_manual_run, release_claim, ClaimedSchedule,
     RunOutcome,

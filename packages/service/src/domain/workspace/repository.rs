@@ -26,8 +26,11 @@ fn provider_keys() -> [(&'static str, String); 2] {
 // resolution cascade, binary-override startup) stay unchanged. The legacy
 // `settings` table is left intact as a backup but is no longer read or written.
 
+/// A settings file that cannot be read is an error, not "unset": the caller
+/// would otherwise act on a default the user may have changed (re-opening
+/// onboarding, for one). A missing file still reads as unset.
 pub async fn get_setting(_pool: &SqlitePool, key: &str) -> Result<Option<String>, AppError> {
-    Ok(crate::domain::settings_store::global_get(key))
+    crate::domain::settings_store::global_read(key)
 }
 
 /// A switch that is on unless explicitly set to `"false"`.
@@ -37,10 +40,12 @@ pub async fn setting_enabled_by_default(pool: &SqlitePool, key: &str) -> bool {
 
 /// Like `get_setting` but treats empty/whitespace-only values as unset.
 pub async fn get_nonempty_setting(
-    _pool: &SqlitePool,
+    pool: &SqlitePool,
     key: &str,
 ) -> Result<Option<String>, AppError> {
-    Ok(crate::domain::settings_store::global_get_nonempty(key))
+    Ok(get_setting(pool, key)
+        .await?
+        .filter(|value| !value.trim().is_empty()))
 }
 
 pub async fn set_setting(_pool: &SqlitePool, key: &str, value: &str) -> Result<(), AppError> {
@@ -48,7 +53,7 @@ pub async fn set_setting(_pool: &SqlitePool, key: &str, value: &str) -> Result<(
 }
 
 pub async fn list_settings(_pool: &SqlitePool) -> Result<Vec<Setting>, AppError> {
-    Ok(crate::domain::settings_store::global_list())
+    crate::domain::settings_store::global_list()
 }
 
 pub async fn get_model_settings(pool: &SqlitePool) -> Result<ModelSettings, AppError> {
@@ -252,5 +257,31 @@ mod tests {
 
         // "opus" must never be fabricated as a fallback.
         assert_ne!(settings.session, "opus", "hardcoded placeholder leaked");
+    }
+
+    /// An unreadable settings file used to read as "unset", which re-opened
+    /// onboarding over a workspace that had finished it. A missing file is
+    /// still a workspace with no overrides.
+    #[tokio::test]
+    async fn an_unreadable_settings_file_is_an_error_not_unset() {
+        use axum::response::IntoResponse;
+        let pool = setup_test_db().await;
+        assert_eq!(get_setting(&pool, "onboarding_step").await.unwrap(), None);
+
+        let path = crate::domain::settings_store::paths::global_file(
+            &crate::domain::settings_store::global_dir(),
+        );
+        std::fs::create_dir_all(&path).unwrap();
+
+        let error = get_setting(&pool, "onboarding_step").await.unwrap_err();
+        assert!(
+            error.to_string().contains(&path.display().to_string()),
+            "{error}"
+        );
+        assert!(list_settings(&pool).await.is_err());
+        assert_eq!(
+            error.into_response().status(),
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

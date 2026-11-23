@@ -34,6 +34,12 @@ export interface UpdateSnapshot {
   error: string | null;
   /** Human-readable explanation when `status === "unsupported"`. */
   unsupportedMessage: string | null;
+  /**
+   * The user asked to install the downloaded update once no agent is
+   * mid-turn. Kept here so it survives a renderer reload; the renderer, which
+   * sees agent status, starts the install. Cleared by a cancel or the install.
+   */
+  installWhenAgentsFinish: boolean;
 }
 
 /** Main → renderer: every new `UpdateSnapshot`. */
@@ -58,6 +64,8 @@ export const updateEventSchema = z.discriminatedUnion("kind", [
     reason: z.literal("unsupported-install"),
     message: z.string(),
   }),
+  /** The user set or cleared the wish to install once agents finish. */
+  z.object({ kind: z.literal("install-when-agents-finish"), pending: z.boolean() }),
 ]);
 export type UpdateEvent = z.infer<typeof updateEventSchema>;
 
@@ -70,6 +78,7 @@ export const INITIAL_UPDATE_SNAPSHOT: UpdateSnapshot = {
   progress: 0,
   error: null,
   unsupportedMessage: null,
+  installWhenAgentsFinish: false,
 };
 
 type UpdateFields = Omit<UpdateSnapshot, "revision">;
@@ -103,6 +112,11 @@ function eventFields(prev: UpdateSnapshot, event: UpdateEvent): Partial<UpdateFi
       return { status: "error", error: event.message };
     case "unsupported":
       return { status: "unsupported", unsupportedMessage: event.message, error: null };
+    case "install-when-agents-finish":
+      // Only a downloaded update can wait to be installed; clearing always applies.
+      return event.pending && prev.status !== "downloaded"
+        ? null
+        : { installWhenAgentsFinish: event.pending };
   }
 }
 
@@ -111,9 +125,21 @@ function eventFields(prev: UpdateSnapshot, event: UpdateEvent): Partial<UpdateFi
  * changed (a repeated `checking`, `unsupported` announce or progress tick),
  * so the main process publishes only real changes.
  */
+/** Statuses in which an update is on its way or ready: a wish to install it can wait. */
+const UPDATE_IN_FLIGHT: ReadonlySet<UpdateStatus> = new Set([
+  "checking",
+  "downloading",
+  "downloaded",
+]);
+
 export function reduceUpdateSnapshot(prev: UpdateSnapshot, event: UpdateEvent): UpdateSnapshot {
   const fields = eventFields(prev, event);
   if (!fields) return prev;
+  // A failed check or "up to date" leaves nothing to install: the wish is settled
+  // rather than left to install some later update the user never confirmed.
+  if (fields.status !== undefined && !UPDATE_IN_FLIGHT.has(fields.status)) {
+    fields.installWhenAgentsFinish = false;
+  }
   const keys = Object.keys(fields) as (keyof UpdateFields)[];
   if (keys.every((key) => fields[key] === prev[key])) return prev;
   return { ...prev, ...fields, revision: prev.revision + 1 };

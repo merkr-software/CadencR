@@ -596,200 +596,119 @@ async fn test_unrecognized_message_is_surfaced_to_the_conversation() {
     assert_eq!(count, 1);
 }
 
-#[tokio::test]
-async fn test_stream_close_mid_turn_surfaces_an_error() {
-    // The CLI process went away (clean EOF, no SDK error) while a turn was
-    // still running. That must surface as a visible `session.error`, not a
-    // silent `stream_closed`, so the agent never appears to just stop.
-    let app_state = make_test_app_state().await;
-    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
-    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+const STREAM_CLOSE_FEATURE_ID: i64 = 1;
 
-    let db_session_id = 77i64;
-    let feature_id = 1i64;
-
-    // A turn is in flight: the DB row is `running`.
-    sqlx::query("INSERT INTO agent_sessions (id, feature_id, status) VALUES (?, ?, 'running')")
-        .bind(db_session_id)
-        .bind(feature_id)
-        .execute(&app_state.write_pool)
-        .await
-        .unwrap();
-
-    {
-        let mut sessions = sdk_sessions.lock().await;
-        sessions.insert(
-            db_session_id,
-            make_active_handle(feature_id, Some("cli".into())),
-        );
+/// Deliver an optional message start, then EOF. Drain the output channel so
+/// the test checks the order and uniqueness of the resulting envelopes.
+async fn read_closed_stream(
+    app_state: &AppState,
+    db_session_id: i64,
+    first_event: Option<RuntimeEvent>,
+) -> WsEnvelope {
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::from([(
+        db_session_id,
+        make_active_handle(STREAM_CLOSE_FEATURE_ID, Some("cli".into())),
+    )])));
+    let (msg_tx, msg_rx) = mpsc::channel(1);
+    let expected_first_action = first_event.as_ref().map(|_| "message");
+    if let Some(event) = first_event {
+        msg_tx.send(Ok(event)).await.unwrap();
     }
-
-    let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
-    // A `message_start` flips the reader out of "between turns" so the close is
-    // recognised as mid-turn; then dropping the sender closes the stream.
-    msg_tx
-        .send(Ok(RuntimeEvent::new(
-            crate::domain::agents::adapter::RuntimeEventMetadata {
-                session_id: Some("cli".to_string()),
-                usage: None,
-                context_window: None,
-                raw: serde_json::json!({ "type": "stream_event" }),
-            },
-            RuntimeEventKind::StreamEvent {
-                event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
-                    model: Some("claude-opus-4-8".to_string()),
-                    input_tokens: None,
-                },
-                parent_tool_use_id: None,
-            },
-        )))
-        .await
-        .unwrap();
     drop(msg_tx);
 
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
     spawn_test_stream_reader(
-        &app_state,
+        app_state,
         db_session_id,
-        feature_id,
+        STREAM_CLOSE_FEATURE_ID,
         msg_rx,
         ws_tx,
-        sdk_sessions.clone(),
+        sdk_sessions,
         crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // Drain envelopes until we see the error (the message_start forward and any
-    // status updates may arrive first).
-    let mut saw_error = false;
-    while let Ok(Some(msg)) =
-        tokio::time::timeout(std::time::Duration::from_secs(2), ws_rx.recv()).await
-    {
-        if let Message::Text(text) = msg {
-            let env: WsEnvelope = serde_json::from_str(&text).unwrap();
-            if env.action == "error" {
-                let payload: SessionErrorPayload = serde_json::from_value(env.payload).unwrap();
-                assert_eq!(payload.code, "AGENT_STOPPED");
-                saw_error = true;
-                break;
+    let mut output = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut output = Vec::new();
+        while let Some(message) = ws_rx.recv().await {
+            if let Message::Text(text) = message {
+                let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+                if matches!(envelope.action.as_str(), "message" | "error" | "ended") {
+                    output.push(envelope);
+                }
             }
-            assert_ne!(
-                env.action, "ended",
-                "a mid-turn close must not report a benign `ended`"
-            );
         }
-    }
-    assert!(
-        saw_error,
-        "expected a session.error for the mid-turn stream close"
+        output
+    })
+    .await
+    .expect("the reader must release its WebSocket sender after EOF");
+    let terminal = output.pop().expect("EOF must produce a terminal envelope");
+    assert_eq!(
+        output
+            .iter()
+            .map(|env| env.action.as_str())
+            .collect::<Vec<_>>(),
+        expected_first_action.as_slice(),
+        "only the optional message start should precede the terminal envelope"
     );
+    terminal
+}
 
-    // The session was paused and an error message persisted for history reload.
-    let row: (String, i64) = sqlx::query_as(
-        "SELECT status, (SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'error') FROM agent_sessions WHERE id = ?",
+async fn persisted_stream_outcome(app_state: &AppState, db_session_id: i64) -> (String, i64) {
+    sqlx::query_as(
+        "SELECT status, (SELECT COUNT(*) FROM agent_messages
+                         WHERE session_id = agent_sessions.id AND message_type = 'error')
+         FROM agent_sessions WHERE id = ?",
     )
-    .bind(db_session_id)
     .bind(db_session_id)
     .fetch_one(&app_state.write_pool)
     .await
-    .unwrap();
-    assert_eq!(row.0, "paused");
-    assert_eq!(row.1, 1);
+    .unwrap()
+}
+
+async fn assert_unexpected_stream_close(db_session_id: i64, first_event: Option<RuntimeEvent>) {
+    let app_state = make_test_app_state().await;
+    insert_running_session(&app_state, db_session_id, STREAM_CLOSE_FEATURE_ID).await;
+
+    let terminal = read_closed_stream(&app_state, db_session_id, first_event).await;
+    assert_eq!(terminal.action, "error");
+    let payload: SessionErrorPayload = serde_json::from_value(terminal.payload).unwrap();
+    assert_eq!(payload.code, "AGENT_STOPPED");
+    let (status, errors) = persisted_stream_outcome(&app_state, db_session_id).await;
+    assert_eq!((status.as_str(), errors), ("paused", 1));
+}
+
+#[tokio::test]
+async fn test_stream_close_mid_turn_surfaces_an_error() {
+    assert_unexpected_stream_close(77, Some(message_start("claude-opus-4-8"))).await;
+}
+
+#[tokio::test]
+async fn test_stream_close_before_the_first_event_surfaces_an_error() {
+    assert_unexpected_stream_close(83, None).await;
 }
 
 #[tokio::test]
 async fn test_intentional_teardown_mid_turn_closes_benignly() {
-    // An intentional teardown (session.clear / session.destroy) flips the DB
-    // status off `running` BEFORE closing the subprocess. The reader must then
-    // treat the clean mid-turn close as benign (`stream_closed`), NOT raise the
-    // spurious `AGENT_STOPPED` meant only for an unexpected agent death. This
-    // guards the contract `handle_clear`/`handle_destroy` rely on.
     let app_state = make_test_app_state().await;
-    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
-    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let db_session_id = 79;
+    insert_running_session(&app_state, db_session_id, STREAM_CLOSE_FEATURE_ID).await;
 
-    let db_session_id = 79i64;
-    let feature_id = 1i64;
-
-    // Status is already `completed` — i.e. an intentional teardown ran first.
-    sqlx::query("INSERT INTO agent_sessions (id, feature_id, status) VALUES (?, ?, 'completed')")
-        .bind(db_session_id)
-        .bind(feature_id)
-        .execute(&app_state.write_pool)
+    // Clear and destroy update the persisted status before closing the CLI.
+    WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id)
         .await
         .unwrap();
 
-    {
-        let mut sessions = sdk_sessions.lock().await;
-        sessions.insert(
-            db_session_id,
-            make_active_handle(feature_id, Some("cli".into())),
-        );
-    }
-
-    let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
-    // A `message_start` flips the reader out of "between turns" so the close is
-    // mid-turn; dropping the sender then closes the stream.
-    msg_tx
-        .send(Ok(RuntimeEvent::new(
-            crate::domain::agents::adapter::RuntimeEventMetadata {
-                session_id: Some("cli".to_string()),
-                usage: None,
-                context_window: None,
-                raw: serde_json::json!({ "type": "stream_event" }),
-            },
-            RuntimeEventKind::StreamEvent {
-                event: crate::domain::agents::adapter::RuntimeStreamEvent::MessageStart {
-                    model: Some("claude-opus-4-8".to_string()),
-                    input_tokens: None,
-                },
-                parent_tool_use_id: None,
-            },
-        )))
-        .await
-        .unwrap();
-    drop(msg_tx);
-
-    spawn_test_stream_reader(
+    let terminal = read_closed_stream(
         &app_state,
         db_session_id,
-        feature_id,
-        msg_rx,
-        ws_tx,
-        sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER,
-    );
-
-    let mut saw_ended = false;
-    while let Ok(Some(msg)) =
-        tokio::time::timeout(std::time::Duration::from_secs(2), ws_rx.recv()).await
-    {
-        if let Message::Text(text) = msg {
-            let env: WsEnvelope = serde_json::from_str(&text).unwrap();
-            assert_ne!(
-                env.action, "error",
-                "an intentional teardown must not raise a spurious error"
-            );
-            if env.action == "ended" {
-                let payload: SessionEndedPayload = serde_json::from_value(env.payload).unwrap();
-                assert_eq!(payload.reason, "stream_closed");
-                saw_ended = true;
-                break;
-            }
-        }
-    }
-    assert!(
-        saw_ended,
-        "expected a benign `ended` for the intentional close"
-    );
-
-    // No error message was persisted.
-    let errors: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'error'",
+        Some(message_start("claude-opus-4-8")),
     )
-    .bind(db_session_id)
-    .fetch_one(&app_state.write_pool)
-    .await
-    .unwrap();
-    assert_eq!(errors, 0);
+    .await;
+    assert_eq!(terminal.action, "ended");
+    let payload: SessionEndedPayload = serde_json::from_value(terminal.payload).unwrap();
+    assert_eq!(payload.reason, "stream_closed");
+    let (status, errors) = persisted_stream_outcome(&app_state, db_session_id).await;
+    assert_eq!((status.as_str(), errors), ("completed", 0));
 }
 
 #[tokio::test]
@@ -876,16 +795,8 @@ async fn test_error_result_is_surfaced_and_still_completes_the_turn() {
     );
 
     // Persisted once for history reload, and the session ended (not stuck).
-    let row: (String, i64) = sqlx::query_as(
-        "SELECT status, (SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND message_type = 'error') FROM agent_sessions WHERE id = ?",
-    )
-    .bind(db_session_id)
-    .bind(db_session_id)
-    .fetch_one(&app_state.write_pool)
-    .await
-    .unwrap();
-    assert_eq!(row.0, "completed");
-    assert_eq!(row.1, 1);
+    let (status, errors) = persisted_stream_outcome(&app_state, db_session_id).await;
+    assert_eq!((status.as_str(), errors), ("completed", 1));
 }
 
 #[tokio::test]
@@ -1137,4 +1048,72 @@ async fn test_stream_reader_marks_a_dropped_prompt_not_delivered() {
     .await
     .unwrap();
     assert_eq!(state.as_deref(), Some("delivery_failed"));
+}
+
+/// The MCP server list is session state: another device viewing the feature
+/// (or every viewer, for a headless turn) needs it as much as the owner.
+#[tokio::test]
+async fn stream_reader_mirrors_the_mcp_server_list_to_other_viewers() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel();
+    app_state
+        .ws_feature_senders
+        .register(1, ws_tx.clone())
+        .await;
+    app_state.ws_feature_senders.register(1, viewer_tx).await;
+    let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
+    msg_tx
+        .send(Ok(RuntimeEvent::new(
+            crate::domain::agents::adapter::RuntimeEventMetadata {
+                session_id: Some("runtime-init".to_string()),
+                raw: serde_json::json!({ "type": "session.init" }),
+                ..Default::default()
+            },
+            RuntimeEventKind::Init(crate::domain::agents::adapter::RuntimeInitEvent {
+                model: None,
+                mcp_servers: vec![RuntimeMcpServerStatus {
+                    name: "test-mcp".to_string(),
+                    status: "connected".to_string(),
+                }],
+                context_window: None,
+            }),
+        )))
+        .await
+        .unwrap();
+    drop(msg_tx);
+
+    spawn_test_stream_reader(
+        &app_state,
+        143,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
+    );
+
+    async fn mcp_payloads(rx: &mut mpsc::UnboundedReceiver<Message>) -> usize {
+        let mut count = 0;
+        while let Ok(Some(Message::Text(text))) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await
+        {
+            let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+            if envelope.action == "mcp_servers" {
+                assert_eq!(envelope.payload["mcp_servers"][0]["name"], "test-mcp");
+                count += 1;
+            }
+            if envelope.action == "ended" {
+                break;
+            }
+        }
+        count
+    }
+    assert_eq!(mcp_payloads(&mut ws_rx).await, 1, "the owner gets it once");
+    assert_eq!(
+        mcp_payloads(&mut viewer_rx).await,
+        1,
+        "the viewer gets it once"
+    );
 }

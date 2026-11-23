@@ -48,8 +48,13 @@ pub async fn authenticate_ws(
         }
         Some(ctx) => {
             validate_ws_origin_remote(headers, &ctx.allowed_origins)?;
-            let (proto, device_id) =
-                validate_ws_token_remote(headers, &state.read_pool, &ctx.pepper).await?;
+            let (proto, device_id) = validate_ws_token_remote(
+                headers,
+                state.remote.token_cache(),
+                &state.read_pool,
+                &ctx.pepper,
+            )
+            .await?;
             Ok((Some(proto), Some(device_id)))
         }
     }
@@ -148,13 +153,14 @@ pub fn validate_ws_origin_remote(
 /// the launch token.
 pub async fn validate_ws_token_remote(
     headers: &HeaderMap,
+    cache: &crate::domain::remote::tokens::DeviceTokenCache,
     pool: &sqlx::SqlitePool,
     pepper: &[u8],
 ) -> Result<(String, i64), Response> {
     for token in offered_subprotocols(headers) {
         if let Some(rest) = token.strip_prefix(WS_TOKEN_PREFIX) {
             if let Some(id) =
-                crate::domain::remote::tokens::verify_device_token(pool, pepper, rest).await
+                crate::domain::remote::tokens::verify_device_token(cache, pool, pepper, rest).await
             {
                 return Ok((token.to_string(), id));
             }

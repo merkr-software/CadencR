@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@/test-utils";
 import { RootOverlays, type ConfirmFeatureAction } from "@/components/RootOverlays";
+import { FEATURE_WORKTREES_STALE_MS } from "@/lib/sidebar-queries";
 import type { Feature, FeatureWorktreeInfo } from "@/api/generated";
 
 const features: Feature[] = [
@@ -25,8 +26,15 @@ const features: Feature[] = [
   },
 ];
 
-const { mockListFeatureWorktrees } = vi.hoisted(() => ({
+const { mockListFeatureWorktrees, routeIds } = vi.hoisted(() => ({
   mockListFeatureWorktrees: vi.fn(),
+  routeIds: { projectId: 1, featureId: 2 },
+}));
+
+// The overlays read the open conversation from the route themselves.
+vi.mock("@/hooks/useRouteFeatureIds", () => ({
+  useRouteFeatureIds: () => routeIds,
+  useRouteProjectId: () => routeIds.projectId,
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
@@ -92,12 +100,11 @@ function renderRootOverlays(
   onArchiveFeature = vi.fn().mockResolvedValue({ archived_ids: [1] }),
   activeProjectId = 1,
 ) {
+  routeIds.projectId = activeProjectId;
   render(
     <RootOverlays
       commandPaletteOpen={false}
       setCommandPaletteOpen={vi.fn()}
-      activeProjectId={activeProjectId}
-      activeFeatureId={2}
       confirmAction={confirmAction}
       setConfirmAction={vi.fn()}
       onArchiveFeature={onArchiveFeature}
@@ -177,7 +184,7 @@ describe("RootOverlays", () => {
     renderRootOverlays({ action: "archive", feature: features[0] }, onArchive, 2);
     expect(mockListFeatureWorktrees).toHaveBeenLastCalledWith(
       { project_id: 1 },
-      { query: { enabled: true } },
+      { query: { enabled: true, staleTime: FEATURE_WORKTREES_STALE_MS } },
     );
     await user.click(screen.getByText("Remove worktree"));
     await user.click(screen.getByRole("button", { name: /archive/i }));

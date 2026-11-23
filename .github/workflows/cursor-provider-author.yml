@@ -1,14 +1,19 @@
-name: Publish qualified Cursor connector
+name: Publish a qualified native provider connector
 
 on:
   workflow_dispatch:
     inputs:
+      provider:
+        description: Native provider whose build to publish
+        type: choice
+        default: cursor
+        options: [cursor, antigravity]
       source_commit:
         description: Reviewed source commit, already on main (40 lowercase hex)
         required: true
         type: string
       build_run:
-        description: Successful native Cursor build run for that exact commit
+        description: Successful native provider build run for that exact commit
         required: true
         type: string
       request_sha256:
@@ -42,26 +47,22 @@ jobs:
         id: stage
         env:
           GH_TOKEN: ${{ github.token }}
+          PROVIDER: ${{ inputs.provider }}
           SOURCE: ${{ inputs.source_commit }}
           BUILD_RUN: ${{ inputs.build_run }}
           DIGEST: ${{ inputs.request_sha256 }}
         run: |
-          python3 trusted/scripts/cursor-release-stage.py \
+          python3 trusted/scripts/native-provider-release-stage.py --provider "$PROVIDER" \
             --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
-            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
+            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" \
+            --cli-directory "$RUNNER_TEMP/provider-cli" --output "$RUNNER_TEMP/provider-author"
           if [ "$DIGEST" != 0000000000000000000000000000000000000000000000000000000000000000 ]; then
             echo 'confirmed=true' >> "$GITHUB_OUTPUT"
           fi
-      - name: Validate the assembled release request without author credentials
-        run: |
-          sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
-            trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
-          "$RUNNER_TEMP/cursor-cli/cadencr" plugin inspect-release \
-            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" > /dev/null
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cursor-author-inspection-${{ github.run_id }}
-          path: ${{ runner.temp }}/cursor-author/
+          name: ${{ inputs.provider }}-author-inspection-${{ github.run_id }}
+          path: ${{ runner.temp }}/provider-author/
           if-no-files-found: error
           retention-days: 30
 
@@ -81,27 +82,25 @@ jobs:
       - name: Independently reconstruct exact approved request (inert artifacts only)
         env:
           GH_TOKEN: ${{ github.token }}
+          PROVIDER: ${{ inputs.provider }}
           SOURCE: ${{ inputs.source_commit }}
           BUILD_RUN: ${{ inputs.build_run }}
           DIGEST: ${{ inputs.request_sha256 }}
         run: |
-          python3 trusted/scripts/cursor-release-stage.py \
+          python3 trusted/scripts/native-provider-release-stage.py --provider "$PROVIDER" \
             --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
-            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
-          sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
-            trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null
-          "$RUNNER_TEMP/cursor-cli/cadencr" plugin inspect-release \
-            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" > /dev/null
+            --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" \
+            --cli-directory "$RUNNER_TEMP/provider-cli" --output "$RUNNER_TEMP/provider-author"
       - name: Publish with the separately scoped author credential
         env:
           CADENCR_AUTHOR_GITHUB_TOKEN: ${{ secrets.CADENCR_AUTHOR_GITHUB_TOKEN }}
           DIGEST: ${{ inputs.request_sha256 }}
         run: |
-          if "$RUNNER_TEMP/cursor-cli/cadencr" plugin publish-release \
-            --request "$RUNNER_TEMP/cursor-author/request.json" --directory "$RUNNER_TEMP/cursor-author" \
+          if "$RUNNER_TEMP/provider-cli/cadencr" plugin publish-release \
+            --request "$RUNNER_TEMP/provider-author/request.json" --directory "$RUNNER_TEMP/provider-author" \
             --confirm-request-sha256 "$DIGEST" > /dev/null 2>&1; then
-            echo CURSOR_AUTHOR_PUBLICATION_CONFIRMED
+            echo NATIVE_PROVIDER_AUTHOR_PUBLICATION_CONFIRMED
           else
-            echo CURSOR_AUTHOR_PUBLICATION_FAILED >&2
+            echo NATIVE_PROVIDER_AUTHOR_PUBLICATION_FAILED >&2
             exit 1
           fi

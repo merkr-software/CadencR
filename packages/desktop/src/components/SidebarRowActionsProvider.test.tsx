@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import type { Feature } from "@/api/generated";
@@ -34,7 +35,10 @@ vi.mock("@/hooks/useRouteFeatureIds", () => ({
   useRouteFeatureIds: () => ({ projectId: null, featureId: mocks.activeFeatureId }),
 }));
 vi.mock("@/hooks/useArchiveFeatureAction", () => ({ useArchiveFeatureAction: () => vi.fn() }));
-vi.mock("@/lib/queryClient", () => ({ invalidateByUrlPrefix: mocks.invalidate }));
+vi.mock("@/lib/queryClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/queryClient")>()),
+  invalidateByUrlPrefix: mocks.invalidate,
+}));
 vi.mock("@/components/useFeatureArchiveConfirmation", () => ({
   useFeatureArchiveConfirmation: (id: number | null) => ({
     action: id == null ? null : "archive",
@@ -97,16 +101,26 @@ describe("SidebarRowActionsProvider", () => {
   });
 
   it("writes the pin column and refreshes the feature lists once confirmed", async () => {
-    const { user } = render(
-      <SidebarRowActionsProvider>
-        <ActionButtons />
-      </SidebarRowActionsProvider>,
-    );
-    await user.click(screen.getByText("unpin"));
-    expect(mocks.pin).toHaveBeenCalledWith({ id: 12, data: { pinned: false } });
-    expect(mocks.invalidate).not.toHaveBeenCalled();
-    mocks.pinOptions?.mutation.onSuccess();
-    expect(mocks.invalidate).toHaveBeenCalledWith(expect.anything(), "/api/features");
+    const invalidateQueriesSpy = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    try {
+      const { user } = render(
+        <SidebarRowActionsProvider>
+          <ActionButtons />
+        </SidebarRowActionsProvider>,
+      );
+      await user.click(screen.getByText("unpin"));
+      expect(mocks.pin).toHaveBeenCalledWith({ id: 12, data: { pinned: false } });
+      expect(mocks.invalidate).not.toHaveBeenCalled();
+      mocks.pinOptions?.mutation.onSuccess();
+      expect(invalidateQueriesSpy).toHaveBeenCalledWith({ queryKey: ["/api/features"] });
+      expect(mocks.invalidate).toHaveBeenCalledWith(expect.anything(), [
+        "/api/features/pinned",
+        "/api/features/recent",
+        "/api/features/active",
+      ]);
+    } finally {
+      invalidateQueriesSpy.mockRestore();
+    }
   });
 
   it("confirms an archive in the conversation's own project", async () => {

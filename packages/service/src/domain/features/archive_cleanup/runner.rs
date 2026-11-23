@@ -42,10 +42,12 @@ pub async fn archive_with_cleanup(
     let project_id = project_of(state, feature_id).await?;
     let planned = journal::steps_for(&request.cleanup());
     let mut tx = state.write_pool.begin().await?;
-    let archived_ids = archive_in(&mut tx, feature_id, request, archiver).await?;
+    let archived = archive_in(&mut tx, feature_id, request, archiver).await?;
     journal::plan(&mut tx, feature_id, &planned).await?;
     tx.commit().await?;
 
+    let archived_ids = archived.feature_ids;
+    crate::domain::schedules::service::announce_changed(state, &archived.paused_schedule_ids);
     state.plugin_tab_presence.release_features(&archived_ids);
     // Archived conversations stop their worktree setup; removing the
     // worktree cancels it again, which is a no-op by then.

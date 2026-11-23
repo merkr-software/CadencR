@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { SubagentRun } from "@/api/generated";
 import { SubagentCards } from "@/components/agent-session/subagent-cards";
@@ -6,6 +6,7 @@ import { SubagentLinkContext } from "@/components/agent-session/subagent-reveal"
 import { act, render, screen } from "@/test-utils";
 import { ComposerContextProvider, type ComposerContextValue } from "./ComposerContext";
 import { RunningAgents } from "./RunningAgents";
+import { LIST_AFTER_MS } from "./useSettledOffScreen";
 
 const runs: { current: SubagentRun[] } = { current: [] };
 vi.mock("@/hooks/useFeatureSubagents", () => ({
@@ -25,6 +26,20 @@ function run(overrides: Partial<SubagentRun>): SubagentRun {
   };
 }
 
+/** Reports a card on screen as soon as it is observed, as a scroller would. */
+class ShowingObserver {
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+  root = null;
+  observe = (target: Element): void => {
+    this.callback(
+      [{ target, isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    );
+  };
+  unobserve = (): void => {};
+  disconnect = (): void => {};
+}
+
 /** The list over a transcript whose revealer answers `reveal`. */
 function renderList(reveal: (toolUseId: string) => boolean) {
   const cards = new SubagentCards();
@@ -32,23 +47,41 @@ function renderList(reveal: (toolUseId: string) => boolean) {
   cards.attach({ reveal, getScroller: () => scroller });
   const composer = { featureId: 1, sessionId: 9 } as unknown as ComposerContextValue;
   const view = render(
-    <SubagentLinkContext.Provider value={{ cards, startJump: (run) => run() }}>
+    <SubagentLinkContext.Provider value={{ cards, startJump: (run) => run(() => {}) }}>
       <ComposerContextProvider value={composer}>
         <RunningAgents />
       </ComposerContextProvider>
     </SubagentLinkContext.Provider>,
   );
-  /** A card scrolled into view (the test observer reports every card on screen). */
-  const showCard = (toolUseId: string) =>
+  // An agent out of view joins the list once it has stayed out for a moment.
+  settle();
+  /** A card scrolled into view. Returns its unmount (the card leaving). */
+  const showCard = (toolUseId: string): (() => void) => {
+    let untrack = (): void => {};
     act(() => {
-      cards.track(document.createElement("section"), toolUseId);
+      untrack = cards.track(document.createElement("section"), toolUseId);
     });
+    return () => act(untrack);
+  };
   return { ...view, showCard };
+}
+
+function settle(ms: number = LIST_AFTER_MS): void {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
 }
 
 describe("RunningAgents", () => {
   beforeEach(() => {
+    vi.stubGlobal("IntersectionObserver", ShowingObserver);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.mocked(toast.info).mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("is absent while no sub-agent runs", () => {
@@ -111,5 +144,54 @@ describe("RunningAgents", () => {
     expect(screen.queryByRole("button", { name: /Map the router/ })).not.toBeInTheDocument();
     showCard("far");
     expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+  });
+
+  it("does not list an agent whose card dips out of view for less than the delay", () => {
+    runs.current = [run({ toolUseId: "a", agentType: "Explore", description: "Map the router" })];
+    const { showCard } = renderList(vi.fn(() => true));
+    const hide = showCard("a");
+    expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+    // A card dipping out for a frame (a glide, a remount) moves nothing.
+    hide();
+    settle(LIST_AFTER_MS - 1);
+    expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+    showCard("a");
+    settle();
+    expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+  });
+
+  it("lists an agent whose card stays out of view after the delay", () => {
+    runs.current = [run({ toolUseId: "a", agentType: "Explore", description: "Map the router" })];
+    const { showCard } = renderList(vi.fn(() => true));
+    const hide = showCard("a");
+    hide();
+    settle(LIST_AFTER_MS - 1);
+    expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+    settle(1);
+    expect(screen.getByRole("region", { name: "Running agents" })).toHaveTextContent(
+      "Running agents · 1",
+    );
+    showCard("a");
+    expect(screen.queryByRole("region", { name: "Running agents" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a listed agent while another agent's card comes and goes", () => {
+    runs.current = [
+      run({ toolUseId: "far", agentType: "Plan", description: "Draft the steps" }),
+      run({ toolUseId: "near", agentType: "Explore", description: "Map the router" }),
+    ];
+    const { showCard } = renderList(vi.fn(() => true));
+    const hideNear = showCard("near");
+    expect(screen.getByRole("region", { name: "Running agents" })).toHaveTextContent(
+      "Running agents · 1",
+    );
+    hideNear();
+    settle(LIST_AFTER_MS / 2);
+    expect(screen.getByRole("button", { name: /Draft the steps/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Map the router/ })).not.toBeInTheDocument();
+    settle(LIST_AFTER_MS / 2);
+    expect(screen.getByRole("region", { name: "Running agents" })).toHaveTextContent(
+      "Running agents · 2",
+    );
   });
 });

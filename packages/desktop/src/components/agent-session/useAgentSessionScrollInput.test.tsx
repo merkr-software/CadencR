@@ -1,5 +1,5 @@
 import { act, render } from "@/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAgentSessionScrollInput } from "./useAgentSessionScrollInput";
 import { popResize, pushResize } from "@/lib/resize-coordinator";
 import type { ScrollRef } from "./agent-session-scroll-utils";
@@ -27,13 +27,12 @@ const params = {
   writer: new StreamScrollWriter({ isFollowing: () => stickRef.current, prepareJump: noop }),
   // The guard is unit-tested on its own (stream-scroll-anchor.test.ts).
   anchorGuard: { attach: vi.fn(), detach: vi.fn() },
-  historyLoadArmedRef: { current: false },
   lastScrollTopRef: { current: 0 },
   userScrollIntentRef: { current: false },
   suppressScrollIntentRef: { current: false },
-  armUserScrollIntent: noop,
   setAutoScrollEnabled: noop,
-  requestOlderHistory: noop,
+  onScrollActivity: noop,
+  onUserInput: noop,
 };
 
 let scrollRef: ScrollRef;
@@ -267,6 +266,98 @@ describe("useAgentSessionScrollInput — streaming bottom-pin", () => {
     await flushMutations();
 
     expect(scroller.scrollTop).toBe(0);
+  });
+
+  // The working cursor appears in Virtuoso's footer, beside the list: that
+  // growth is pinned too, in the same frame, but never glided — sliding the
+  // rows down over the cursor would clip the message it appeared under.
+  it("pins footer growth without gliding the rows", async () => {
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+    onTestFinished(() => raf.mockRestore());
+    render(<Harness />);
+    const { scroller, list } = buildScroller();
+    const row = list.appendChild(document.createElement("div"));
+    const footer = document.createElement("div");
+    let footerHeight = 40;
+    Object.defineProperty(footer, "offsetHeight", { configurable: true, get: () => footerHeight });
+    scroller.appendChild(footer);
+    let height = 1000;
+    let top = 600;
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (next: number) => {
+        top = Math.min(Math.max(0, next), height - 400);
+      },
+    });
+    act(() => scrollRef(scroller));
+
+    act(() => {
+      footerHeight = 72;
+      height = 1032;
+      footer.appendChild(document.createElement("div"));
+    });
+    await flushMutations();
+
+    expect(scroller.scrollTop).toBe(632);
+    expect(row.style.transform).toBe("");
+    act(() => scrollRef(null));
+  });
+
+  // The composer growing a line shrinks the viewport without any list
+  // mutation; Virtuoso no longer follows that off iOS, so the hook re-pins.
+  it("re-pins when the viewport shrinks while stuck, not when it grows", () => {
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback);
+        }
+        observe(): void {}
+        disconnect(): void {}
+      },
+    );
+    try {
+      render(<Harness />);
+      const scroller = document.createElement("div");
+      const list = document.createElement("div");
+      list.setAttribute("data-testid", "virtuoso-item-list");
+      scroller.appendChild(list);
+      let viewport = 400;
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => 1000 });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => viewport });
+      scroller.scrollTop = 600;
+      act(() => scrollRef(scroller));
+      const resized = (): void =>
+        resizeCallbacks.forEach((callback) => callback([], {} as ResizeObserver));
+
+      viewport = 360;
+      resized();
+      expect(scroller.scrollTop).toBe(640);
+
+      viewport = 420;
+      scroller.scrollTop = 580;
+      resized();
+      expect(scroller.scrollTop).toBe(580);
+
+      // A shrink while a split-pane drag owns scroll stays pending: the next
+      // resize after the drag still pins, even though it is not a shrink.
+      pushResize();
+      try {
+        viewport = 380;
+        resized();
+        expect(scroller.scrollTop).toBe(580);
+      } finally {
+        popResize();
+      }
+      resized();
+      expect(scroller.scrollTop).toBe(620);
+      act(() => scrollRef(null));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("attaches the scroll anchor guard with the scroller and detaches it after", () => {

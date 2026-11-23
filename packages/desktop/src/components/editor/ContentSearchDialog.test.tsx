@@ -43,6 +43,18 @@ function match(path: string, line: number): ContentMatch {
   };
 }
 
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+function searchResponse(overrides: Partial<ContentSearchResponse>): ContentSearchResponse {
+  return {
+    matches: [],
+    truncated: false,
+    skipped_large_files: 0,
+    max_file_bytes: MAX_FILE_BYTES,
+    ...overrides,
+  };
+}
+
 function mockResult(
   response: ContentSearchResponse | undefined,
   flags: { isLoading?: boolean; isFetching?: boolean } = {},
@@ -69,10 +81,11 @@ describe("ContentSearchDialog", () => {
   });
 
   it("groups matches by file and shows the per-file match count", async () => {
-    mockResult({
-      matches: [match("src/a.ts", 10), match("src/a.ts", 20), match("src/b.ts", 5)],
-      truncated: false,
-    });
+    mockResult(
+      searchResponse({
+        matches: [match("src/a.ts", 10), match("src/a.ts", 20), match("src/b.ts", 5)],
+      }),
+    );
     renderDialog();
     await typeQuery();
 
@@ -85,7 +98,7 @@ describe("ContentSearchDialog", () => {
   it("renders the truncated footer without crashing when results are capped", async () => {
     // Regression guard: the truncated path wires Virtuoso's `components`, which
     // previously crashed when handed `undefined`.
-    mockResult({ matches: [match("src/a.ts", 1)], truncated: true });
+    mockResult(searchResponse({ matches: [match("src/a.ts", 1)], truncated: true }));
     renderDialog();
     await typeQuery();
 
@@ -93,7 +106,7 @@ describe("ContentSearchDialog", () => {
   });
 
   it("shows an empty state when a settled search returns no matches", async () => {
-    mockResult({ matches: [], truncated: false });
+    mockResult(searchResponse({ matches: [] }));
     renderDialog();
     await typeQuery();
 
@@ -101,10 +114,37 @@ describe("ContentSearchDialog", () => {
   });
 
   it("does not flash the empty state while a refetch is in flight", async () => {
-    mockResult({ matches: [], truncated: false }, { isFetching: true });
+    mockResult(searchResponse({ matches: [] }), { isFetching: true });
     renderDialog();
     await typeQuery();
 
     expect(screen.queryByText("No results found.")).not.toBeInTheDocument();
+  });
+
+  it("shows a file name holding a newline escaped the way git prints it", async () => {
+    mockResult(searchResponse({ matches: [match("src/a\nb.txt", 3)] }));
+    renderDialog();
+    await typeQuery();
+
+    expect(screen.getByText('src/"a\\nb.txt"')).toBeInTheDocument();
+  });
+
+  it("says how many files were too large to search, even with no match", async () => {
+    mockResult(searchResponse({ matches: [], skipped_large_files: 2 }));
+    renderDialog();
+    await typeQuery();
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "2 files larger than 5.0 MB not searched.",
+    );
+    expect(screen.getByText("No results found.")).toBeInTheDocument();
+  });
+
+  it("shows no size notice when every file was searched", async () => {
+    mockResult(searchResponse({ matches: [match("src/a.ts", 1)] }));
+    renderDialog();
+    await typeQuery();
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

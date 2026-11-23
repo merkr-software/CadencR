@@ -10,7 +10,8 @@
  * - a session header atop the card — how the agent runs: mode │ model ·
  *   effort · fast on the left, access / session config on the right;
  * - the row under the editor — this conversation and this message:
- *   auto-scroll on the left (the transcript's side); compaction hint, context
+ *   auto-scroll on the left (the transcript's side); settings waiting for a
+ *   reconnect, compaction hint, context
  *   meter, todos, history, ⋯, attach and Send / Stop / Steer on the right,
  *   where the hand expects Send.
  */
@@ -23,6 +24,7 @@ export type Zone = (typeof ZONES)[number];
 export const SESSION_SLOTS = ["autoscroll", "mode", "model", "access"] as const;
 /** Read-outs, tools and run controls: always the bottom right. */
 const TRAILING_SLOTS = [
+  "queued-settings",
   "compaction",
   "meter",
   "todos",

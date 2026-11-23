@@ -239,8 +239,6 @@ function buildUnifiedSessionPatch(
   const patch: Partial<SessionEntry> = {
     contextUsage: buildContextUsage(entry),
     hasFileChanges: entry.session.hasFileChanges,
-    hasMore: entry.session.hasMore,
-    oldestMessageId: entry.session.oldestMessageId,
     featureId: entry.feature.id,
     sessionDbId: entry.session.sessionDbId,
     ...(permissionMode ? { permissionMode } : {}),

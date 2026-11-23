@@ -295,6 +295,19 @@ describe("question body", () => {
     expect(respond).toHaveBeenLastCalledWith({ type: "question", answers: [["6 px"]] });
   });
 
+  it("ignores the digit for Other when the provider requires an offered choice", () => {
+    mockHook({
+      gate: questionGate([{ question: "Pick", options: ["One"], allowCustomAnswer: false }]),
+    });
+    renderBody();
+    const option = screen.getByRole("button", { name: /One/ });
+    fireEvent.keyDown(option, { key: "é", code: "Digit2" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Other/ })).toBeNull();
+    fireEvent.keyDown(option, { key: "&", code: "Digit1" });
+    expect(respond).toHaveBeenCalledWith({ type: "question", answers: [["One"]] });
+  });
+
   it("collects a multi-select with a Submit button", async () => {
     mockHook({
       gate: questionGate([

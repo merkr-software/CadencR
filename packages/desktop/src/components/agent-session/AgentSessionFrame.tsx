@@ -7,6 +7,12 @@ import type { AgentSessionProps } from "./types";
 import { CollapsibleHeader } from "./CollapsibleHeader";
 import type { BadgeConfig } from "./CollapsibleHeader";
 import { SessionHint } from "./SessionHint";
+import {
+  AgentSessionHistoryFailure,
+  useHasHistoryLoadFailure,
+  useIsHistoryLoading,
+} from "./AgentSessionHistoryFailure";
+import { TranscriptLoading } from "./TranscriptLoading";
 import { STREAM_DISSOLVE_STYLE } from "./stream-fade";
 
 interface AgentSessionFrameProps extends Pick<
@@ -34,6 +40,8 @@ interface AgentSessionFrameProps extends Pick<
   IconComponent: ComponentType<LucideProps>;
   badge: BadgeConfig;
   displayLabel: string;
+  /** Session whose history-load failure replaces the empty state. */
+  wsSessionId?: string;
 }
 
 export const AgentSessionFrame = memo(function AgentSessionFrame({
@@ -59,35 +67,22 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
   canDelete,
   onDelete,
   onToggleMaximize,
+  wsSessionId,
 }: AgentSessionFrameProps): ReactElement {
+  const historyFailed = useHasHistoryLoadFailure(wsSessionId);
+  // An empty transcript whose history is still on its way is not a new
+  // conversation: it must not flash the empty state before its messages.
+  const historyLoading = useIsHistoryLoading(wsSessionId) && !historyFailed;
   if (!collapsible) {
     return (
       <div ref={containerRef} className={cn("flex h-full flex-col", className)}>
-        {isIdle ? (
-          // `min-h-0` matters as much here as on the stream branch below: a bare
-          // `flex-1` takes an automatic minimum size equal to its content, so on
-          // a short viewport (phone + on-screen keyboard) the hint card refused
-          // to shrink, crushed the composer, and shoved the prompt's bottom and
-          // send button off-screen. With `min-h-0` the hint yields first — its
-          // `flex-basis: 0` means the composer keeps its natural size — and the
-          // inner `min-h-full` wrapper keeps the card centred when there IS room
-          // while letting it scroll from the top when there isn't (centring
-          // directly on a scroll container clips the overflow out of reach).
-          // The padding sits on that inner wrapper so the scroller can collapse
-          // to 0px: on the outer box it was 48px the composer could never have.
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="flex min-h-full items-center justify-center px-4 pt-4 pb-8">
-              <SessionHint />
-            </div>
-          </div>
-        ) : (
-          // No bottom padding: the dissolve is anchored to this box's bottom
-          // edge, which is where the scroller clips. The last message's
-          // breathing room lives inside the scroller — see `STREAM_BOTTOM_GAP_PX`.
-          <div className="flex-1 min-h-0 px-4 pt-4" style={STREAM_DISSOLVE_STYLE}>
-            {streamContent}
-          </div>
-        )}
+        <TranscriptArea
+          isIdle={isIdle}
+          historyFailed={historyFailed}
+          historyLoading={historyLoading}
+          wsSessionId={wsSessionId}
+          streamContent={streamContent}
+        />
         {bottomContent}
       </div>
     );
@@ -126,7 +121,11 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
         <>
           {blocks.length === 0 && status === "idle" ? (
             <div className="flex flex-1 items-center justify-center border-t border-border/30 p-6 text-sm text-muted-foreground">
-              No output yet
+              {historyFailed ? (
+                <AgentSessionHistoryFailure sessionId={wsSessionId} variant="empty" />
+              ) : (
+                "No output yet"
+              )}
             </div>
           ) : (
             // Bottom padding omitted for the same reason as the full-page
@@ -144,3 +143,52 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
     </div>
   );
 });
+
+/** The full-page transcript: loading, empty state, load failure, or the stream. */
+function TranscriptArea({
+  isIdle,
+  historyFailed,
+  historyLoading,
+  wsSessionId,
+  streamContent,
+}: {
+  isIdle: boolean;
+  historyFailed: boolean;
+  historyLoading: boolean;
+  wsSessionId: string | undefined;
+  streamContent: ReactNode;
+}): ReactElement {
+  if (isIdle && historyLoading) return <TranscriptLoading />;
+  if (isIdle) {
+    // `min-h-0` matters as much here as on the stream branch below: a bare
+    // `flex-1` takes an automatic minimum size equal to its content, so on
+    // a short viewport (phone + on-screen keyboard) the hint card refused
+    // to shrink, crushed the composer, and shoved the prompt's bottom and
+    // send button off-screen. With `min-h-0` the hint yields first — its
+    // `flex-basis: 0` means the composer keeps its natural size — and the
+    // inner `min-h-full` wrapper keeps the card centred when there IS room
+    // while letting it scroll from the top when there isn't (centring
+    // directly on a scroll container clips the overflow out of reach).
+    // The padding sits on that inner wrapper so the scroller can collapse
+    // to 0px: on the outer box it was 48px the composer could never have.
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center px-4 pt-4 pb-8">
+          {historyFailed ? (
+            <AgentSessionHistoryFailure sessionId={wsSessionId} variant="empty" />
+          ) : (
+            <SessionHint />
+          )}
+        </div>
+      </div>
+    );
+  }
+  // No bottom padding: the dissolve is anchored to this box's bottom
+  // edge, which is where the scroller clips. The last message's
+  // breathing room lives inside the scroller — see `STREAM_BOTTOM_GAP_PX`.
+  return (
+    <div className="flex-1 min-h-0 px-4 pt-4" style={STREAM_DISSOLVE_STYLE}>
+      {streamContent}
+    </div>
+  );
+}

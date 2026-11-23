@@ -201,7 +201,8 @@ mod tests {
             &mut indexes,
             "thread/tokenUsage/updated",
             json!({"threadId": "child", "turnId": "ct1",
-            "tokenUsage": {"total": {"totalTokens": 1_200}, "last": {"totalTokens": 300}}}),
+            "tokenUsage": {"total": {"totalTokens": 1_200, "cachedInputTokens": 250},
+                           "last": {"totalTokens": 300, "cachedInputTokens": 250}}}),
         );
         assert!(throttled.is_empty());
         assert!(updates(&mut indexes, "item/completed", json!({"threadId": "child", "turnId": "ct1",
@@ -219,7 +220,7 @@ mod tests {
             Some("No reuse findings.")
         );
         assert_eq!(done.patch.duration_ms, Some(3_000));
-        assert_eq!(done.patch.total_tokens, Some(1_200));
+        assert_eq!(done.patch.total_tokens, Some(950));
         // Bookkeeping after the turn end keeps it completed.
         for (method, params) in [
             (

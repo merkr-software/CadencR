@@ -43,15 +43,15 @@ pub async fn list_branches(
         .iter()
         .map(|row| (row.worktree_path.clone(), row.feature_id))
         .collect();
-    let attached = collect_branch_attachments(repo, &path_to_feature).await;
+    let attached = collect_branch_attachments(repo, &path_to_feature).await?;
 
     Ok(parse_branches(&local_raw, &remote_raw, &attached))
 }
 
 /// Join the result of `commands::list_worktree_branches` (the *single* parser
 /// for `git worktree list --porcelain` in the codebase) with the feature
-/// lookup. Soft-fail on git errors — branches still render even if the join is
-/// empty.
+/// lookup. A worktree listing Git cannot produce fails the request: an empty
+/// join would show every checked-out branch as free to check out.
 ///
 /// `attached_worktree_path` is set for **every** branch that git reports as
 /// attached to a worktree, regardless of whether Cadencr knows about that
@@ -62,18 +62,16 @@ pub async fn list_branches(
 async fn collect_branch_attachments(
     project_path: &Path,
     path_to_feature: &HashMap<String, i64>,
-) -> HashMap<String, (String, Option<i64>)> {
-    let attachments = commands::list_worktree_branches(project_path)
-        .await
-        .unwrap_or_default();
-    attachments
+) -> Result<HashMap<String, (String, Option<i64>)>, AppError> {
+    let attachments = commands::list_worktree_branches(project_path).await?;
+    Ok(attachments
         .into_iter()
         .map(|(branch, path)| {
             let path_str = path.to_string_lossy().into_owned();
             let feature_id = path_to_feature.get(&path_str).copied();
             (branch, (path_str, feature_id))
         })
-        .collect()
+        .collect())
 }
 
 /// Build the picker list. Local and remote-tracking refs are emitted as

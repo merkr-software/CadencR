@@ -11,23 +11,25 @@
 //! process start time, and a survivor is only stopped when the pid still
 //! reports that same start time.
 
+use crate::shared::discard::KeepFirst;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use sqlx::SqlitePool;
 
-#[cfg(not(target_os = "linux"))]
-use crate::domain::ports::scan::capture;
-use crate::domain::ports::scan::parent_map;
+use crate::shared::process_table;
 
 static LEDGER: OnceLock<SqlitePool> = OnceLock::new();
 
 /// How long a survivor gets to exit on SIGTERM before SIGKILL.
 const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 
+/// How long `ps` gets for a row recorded by an earlier version.
+const LEGACY_PS_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub(super) fn init(pool: &SqlitePool) {
-    let _ = LEDGER.set(pool.clone());
+    LEDGER.keep_first(pool.clone());
 }
 
 /// Remember a live agent process. Returns the ledger row to [`forget`] once
@@ -76,7 +78,8 @@ pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
         .await?;
     let survivors = futures::future::join_all(rows.into_iter().map(|(pid, identity)| async move {
         let pid = u32::try_from(pid).ok()?;
-        (process_identity(pid).await.as_deref() == Some(identity.as_str())).then_some(pid)
+        (recorded_identity(pid, &identity).await.as_deref() == Some(identity.as_str()))
+            .then_some(pid)
     }))
     .await
     .into_iter()
@@ -87,7 +90,7 @@ pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
     let parents = if survivors.is_empty() {
         Ok(HashMap::new())
     } else {
-        parent_map().await
+        process_table::parents().await
     };
     let empty = HashMap::new();
     let tree = parents.as_ref().unwrap_or(&empty);
@@ -102,33 +105,50 @@ pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
 }
 
 /// When `pid` started, or `None` when no such process: a pid with the same
-/// start time is the same process. Linux reads the kernel's tick count, which
-/// `ps -o lstart` would round through the wall clock (and can shift by a
-/// second between calls); macOS `ps` reports the kernel's own start time.
-#[cfg(target_os = "linux")]
-pub(crate) async fn process_identity(pid: u32) -> Option<String> {
-    let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .await
-        .ok()?;
-    start_ticks(&stat).map(str::to_string)
+/// start time is the same process. Read from the kernel, so a loaded machine
+/// cannot time the check out and make a survivor look gone.
+async fn process_identity(pid: u32) -> Option<String> {
+    process_table::start_time(pid).await
 }
 
-/// Field 22 of `/proc/<pid>/stat`. The command name (field 2) is in
-/// parentheses and may itself contain spaces and parentheses, so fields are
-/// counted from the last `)`, which is followed by field 3.
-#[cfg(any(target_os = "linux", test))]
-fn start_ticks(stat: &str) -> Option<&str> {
-    let (_, fields) = stat.rsplit_once(')')?;
-    fields.split_whitespace().nth(22 - 3)
+/// `pid`'s identity in the form `identity` was recorded in. On macOS, rows
+/// written before identities came from the kernel hold what `ps -o lstart`
+/// printed, in the user's locale: those are read the same way, once, since
+/// every reap empties the ledger.
+async fn recorded_identity(pid: u32, identity: &str) -> Option<String> {
+    if cfg!(target_os = "macos") && !is_kernel_identity(identity) {
+        return legacy_identity(pid).await;
+    }
+    process_identity(pid).await
 }
 
-#[cfg(not(target_os = "linux"))]
-pub(crate) async fn process_identity(pid: u32) -> Option<String> {
-    let output = capture("ps", &["-p", &pid.to_string(), "-o", "lstart="])
-        .await
-        .ok()?;
-    let identity = output.trim();
-    (!identity.is_empty()).then(|| identity.to_string())
+/// Kernel identities are digits: seconds and microseconds on macOS
+/// (`1731700000.123456`), clock ticks on Linux.
+fn is_kernel_identity(identity: &str) -> bool {
+    !identity.is_empty()
+        && identity
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+}
+
+/// What `ps -o lstart` prints for `pid`, `None` when it prints nothing (no
+/// such process) or cannot run.
+async fn legacy_identity(pid: u32) -> Option<String> {
+    let mut command = tokio::process::Command::new("ps");
+    command
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    match crate::shared::bounded_command::capture_bounded(command, LEGACY_PS_TIMEOUT).await {
+        Ok(output) => {
+            let identity = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!identity.is_empty()).then_some(identity)
+        }
+        Err(error) => {
+            tracing::warn!(pid, %error, "could not read a recorded agent process's start time");
+            None
+        }
+    }
 }
 
 /// The pids below `root` in a `pid -> parent pid` snapshot.
@@ -211,11 +231,11 @@ mod tests {
     }
 
     #[test]
-    fn the_start_time_is_read_past_a_command_name_with_spaces() {
-        let stat = "4242 (my (odd) cmd) S 1 4242 4242 0 -1 4194560 120 0 0 0 1 2 0 0 \
-                    20 0 1 0 987654 1000 10";
-        assert_eq!(start_ticks(stat), Some("987654"));
-        assert_eq!(start_ticks("garbage"), None);
+    fn rows_recorded_through_ps_are_told_from_kernel_identities() {
+        assert!(is_kernel_identity("1731700000.123456"));
+        assert!(is_kernel_identity("987654"));
+        assert!(!is_kernel_identity("Mon Nov 16 01:46:00 2026"));
+        assert!(!is_kernel_identity(""));
     }
 
     #[tokio::test]
@@ -229,17 +249,11 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn reap_stops_a_recorded_survivor_and_spares_a_reused_pid() {
+        use crate::shared::{process_group::wait_bounded, test_processes::sleeping_child_command};
+
         let (pool, _, _) = crate::domain::schedules::repository::test_support::fixture().await;
-        let mut survivor = tokio::process::Command::new("sleep")
-            .arg("30")
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
-        let mut bystander = tokio::process::Command::new("sleep")
-            .arg("30")
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
+        let mut survivor = sleeping_child_command().spawn().unwrap();
+        let mut bystander = sleeping_child_command().spawn().unwrap();
         let survivor_pid = survivor.id().unwrap();
         let bystander_pid = bystander.id().unwrap();
         let identity = process_identity(survivor_pid).await.unwrap();
@@ -253,10 +267,9 @@ mod tests {
 
         assert_eq!(reap(&pool).await.unwrap(), 1);
 
-        let status = tokio::time::timeout(Duration::from_secs(5), survivor.wait())
+        let status = wait_bounded(&mut survivor, Duration::from_secs(5))
             .await
-            .unwrap()
-            .unwrap();
+            .expect("the recorded survivor must exit");
         assert!(!status.success());
         assert!(
             bystander.try_wait().unwrap().is_none(),

@@ -1,6 +1,10 @@
 import type { FlatIndexLocationWithAlign, VirtuosoHandle } from "react-virtuoso";
+import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
+import { animationsDisabled } from "@/lib/animations/animations-disabled";
 import { isIos } from "@/lib/is-ios";
+import { isResizing } from "@/lib/resize-coordinator";
 import { pinToBottom } from "@/lib/scroll-pin";
+import { StreamFollowGlide } from "./stream-follow-glide";
 
 /**
  * Why the agent stream's scroll position is being moved.
@@ -64,8 +68,20 @@ function scrollByTop(args: unknown[]): number {
  * chunk pins it straight back). Virtuoso's own `scrollBy` compensation is
  * intercepted here and handed to the arbiter the anchor guard registers.
  */
+/**
+ * How long Virtuoso keeps re-aiming an index scroll: until 1,200 ms after it,
+ * each list change re-scrolls to the same *index* (react-virtuoso's
+ * `scrollToIndex` retry), and each retry re-arms that window. Rows inserted
+ * above meanwhile shift what that index holds, and the view lands on another
+ * row. Every such scroll reaches the scroller through `scrollTo`.
+ */
+const INDEX_SCROLL_RETRY_MS = 1250;
+
 export class StreamScrollWriter {
   private arbiter: ScrollCompensationArbiter | null = null;
+  private lastIndexScrollAt = Number.NEGATIVE_INFINITY;
+  /** Non-iOS only, like every raw follow write. */
+  private glide: StreamFollowGlide | null = null;
 
   constructor(
     private readonly owner: StreamScrollOwner = DETACHED_OWNER,
@@ -77,10 +93,21 @@ export class StreamScrollWriter {
     this.detach();
     this.scroller = scroller;
     writers.set(scroller, this);
+    // Virtuoso's index scrolls and their retries land through `scrollTo`: noted,
+    // then passed through untouched, on every platform.
+    Object.defineProperty(scroller, "scrollTo", {
+      configurable: true,
+      writable: true,
+      value: (...args: unknown[]): void => {
+        this.lastIndexScrollAt = performance.now();
+        Reflect.apply(HTMLElement.prototype.scrollTo, scroller, args);
+      },
+    });
     // Virtuoso compensates resizes and prepends through `scrollBy` only; an
     // own property shadows the prototype method. iOS keeps Virtuoso's
     // deviation-based correction untouched: no anchor guard runs there.
     if (isIos()) return;
+    this.glide = new StreamFollowGlide(scroller);
     Object.defineProperty(scroller, "scrollBy", {
       configurable: true,
       writable: true,
@@ -91,10 +118,13 @@ export class StreamScrollWriter {
   detach(): void {
     const scroller = this.scroller;
     if (!scroller) return;
+    this.glide?.stop();
+    this.glide = null;
     // Only the writer attached to the scroller owns its `scrollBy` shadow; a
     // detached writer (`streamScrollWriterFor`) never installed one.
     if (writers.get(scroller) === this) {
       Reflect.deleteProperty(scroller, "scrollBy");
+      Reflect.deleteProperty(scroller, "scrollTo");
       writers.delete(scroller);
     }
     this.scroller = null;
@@ -118,6 +148,37 @@ export class StreamScrollWriter {
     const scroller = this.scroller;
     if (!scroller || !this.canWrite("follow-bottom")) return false;
     return pinToBottom(scroller);
+  }
+
+  /**
+   * Follows new output to the bottom while bottom-stick holds. The pin is
+   * immediate, so layout always sees the settled position; with animations on,
+   * the rows then glide up to it instead of jumping (`StreamFollowGlide`).
+   * Returns whether it wrote.
+   */
+  followBottom(): boolean {
+    const scroller = this.scroller;
+    if (!scroller || !this.canWrite("follow-bottom")) return false;
+    const before = scroller.scrollTop;
+    if (!pinToBottom(scroller)) return false;
+    if (animationsDisabled()) this.glide?.stop();
+    else this.glide?.absorb(scroller.scrollTop - before);
+    return true;
+  }
+
+  /** Drops a glide in flight: the next view (another conversation) starts settled. */
+  stopFollowGlide(): void {
+    this.glide?.stop();
+  }
+
+  /**
+   * Bottom-stick let go: a glide still in flight becomes scroll offset, so the
+   * rows stay exactly where the reader sees them and nothing else owns the
+   * item list's transform when the anchor guard takes over.
+   */
+  releaseFollow(): void {
+    const rest = this.glide?.release() ?? 0;
+    if (rest > 0) this.scrollBy("keep-anchor", -rest);
   }
 
   /** Moves the offset by `delta` px. Returns whether it wrote. */
@@ -147,8 +208,18 @@ export class StreamScrollWriter {
     if (!virtuoso) return false;
     if (intent === "follow-bottom" && !this.owner.isFollowing()) return false;
     this.takeViewport(intent);
+    this.lastIndexScrollAt = performance.now();
     virtuoso.scrollToIndex(location);
     return true;
+  }
+
+  /**
+   * Milliseconds until Virtuoso stops re-aiming the last index scroll or its
+   * latest retry (see `INDEX_SCROLL_RETRY_MS`); 0 once it has. Rows must not be
+   * inserted above the view before then.
+   */
+  indexScrollSettlesIn(): number {
+    return Math.max(0, this.lastIndexScrollAt + INDEX_SCROLL_RETRY_MS - performance.now());
   }
 
   /** A jump or reveal moves the view away from the bottom: follow lets go first. */
@@ -160,6 +231,17 @@ export class StreamScrollWriter {
 
   private virtuosoScrollBy(scroller: HTMLElement, args: unknown[]): void {
     if (this.arbiter?.(scrollByTop(args))) return;
+    // Bottom-stick owns the viewport. Virtuoso compensates a resize as if the
+    // reader were anchored to the top, and a streaming row taller than the
+    // viewport counts as "above" it: its growth comes back as a `scrollBy`
+    // that overshoots or, clamped, dips the view off the bottom for a frame.
+    // The bottom is the only correct place while following — except where
+    // every bottom pin stands down: a recap toggle animating its height, and
+    // a split-pane drag (the resize coordinator owns scroll then).
+    if (this.owner.isFollowing() && !isAutoScrollPinSuppressed() && !isResizing()) {
+      this.followBottom();
+      return;
+    }
     Reflect.apply(Element.prototype.scrollBy, scroller, args);
   }
 }

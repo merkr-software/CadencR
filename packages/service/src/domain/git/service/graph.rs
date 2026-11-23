@@ -10,6 +10,7 @@ use crate::domain::git::host;
 use crate::domain::git::models::{
     CommitGraphResponse, CommitUrlResponse, GetCommitGraphParams, GetCommitUrlParams,
 };
+use crate::domain::git::workflow_service::local_branch_exists;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_background;
 
@@ -20,21 +21,20 @@ use super::resolve_feature_git_path;
 /// but the graph view is explicitly a local comparison: if `origin/main` was
 /// chosen yet a local `main` exists, we log against `main`. Picks already
 /// pointing at a local branch pass through unchanged.
-async fn prefer_local_target(repo: &Path, target: &str) -> String {
-    if crate::domain::git::workflow_service::local_branch_exists(repo, target).await {
-        return target.to_string();
+async fn prefer_local_target(repo: &Path, target: &str) -> Result<String, AppError> {
+    if local_branch_exists(repo, target).await? {
+        return Ok(target.to_string());
     }
     // `<remote>/<name>` → try the bare `<name>` against the local branches.
-    if let Ok(remotes) = run_git_background(&["remote"], repo).await {
-        for remote in remotes.lines().map(str::trim).filter(|r| !r.is_empty()) {
-            if let Some(local) = target.strip_prefix(&format!("{remote}/")) {
-                if crate::domain::git::workflow_service::local_branch_exists(repo, local).await {
-                    return local.to_string();
-                }
+    let remotes = run_git_background(&["remote"], repo).await?;
+    for remote in remotes.lines().map(str::trim).filter(|r| !r.is_empty()) {
+        if let Some(local) = target.strip_prefix(&format!("{remote}/")) {
+            if local_branch_exists(repo, local).await? {
+                return Ok(local.to_string());
             }
         }
     }
-    target.to_string()
+    Ok(target.to_string())
 }
 
 pub async fn get_commit_graph(
@@ -111,9 +111,9 @@ fn validate_selected_branch(
 
 async fn resolve_branch_ref(path: &Path, branch: &SelectedBranch) -> Result<String, AppError> {
     let exists = if branch.is_local {
-        crate::domain::git::workflow_service::local_branch_exists(path, &branch.name).await
+        local_branch_exists(path, &branch.name).await?
     } else {
-        crate::domain::git::workflow_service::remote_branch_exists(path, &branch.name).await
+        crate::domain::git::workflow_service::remote_branch_exists(path, &branch.name).await?
     };
     if !exists {
         return Err(AppError::BadRequest(format!(
@@ -152,14 +152,11 @@ async fn default_graph_scope(
     );
     let feature = feature?;
     let current_branch = feature.branch;
-    let resolved = resolved.unwrap_or_else(|_| "main".to_string());
-    let local_target = prefer_local_target(path, &resolved).await;
+    let local_target = prefer_local_target(path, &resolved?).await?;
 
     let mut tips = vec![feature.revision];
     let on_target = current_branch.as_deref() == Some(local_target.as_str());
-    let target_for_view = if !on_target
-        && crate::domain::git::workflow_service::local_branch_exists(path, &local_target).await
-    {
+    let target_for_view = if !on_target && local_branch_exists(path, &local_target).await? {
         tips.push(local_target.clone());
         Some(local_target)
     } else {
@@ -191,7 +188,7 @@ pub async fn get_commit_url(
         None => return Ok(unavailable),
     };
     let commit_url = host::detect_origin_remote(Path::new(&git_path))
-        .await
+        .await?
         .and_then(|info| host::commit_url(&info, sha));
     Ok(match commit_url {
         Some(url) => CommitUrlResponse {

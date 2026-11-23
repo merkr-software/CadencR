@@ -8,11 +8,16 @@
 //! last of them leaves.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, PoisonError,
+};
 
 use axum::extract::ws::Message;
 use tokio::sync::{broadcast, Mutex};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 use super::{start_off_runtime, FileChangeEvent, FileWatcher};
 use crate::domain::workflow::ws_sender::WsSender;
@@ -21,6 +26,78 @@ use crate::domain::ws_session::protocol::WsEnvelope;
 /// Room for a burst of emissions before a slow relay lags (it then resends a
 /// bare invalidation).
 const EVENT_CAPACITY: usize = 16;
+
+struct PendingSubscription {
+    id: u64,
+    sender: WsSender,
+    abort: AbortHandle,
+}
+
+#[derive(Default)]
+struct PendingSubscriptions {
+    next_id: AtomicU64,
+    entries: std::sync::Mutex<Vec<PendingSubscription>>,
+}
+
+impl PendingSubscriptions {
+    fn retain_active_excluding(entries: &mut Vec<PendingSubscription>, sender: &WsSender) {
+        entries.retain(|entry| {
+            let stale = entry.sender.same_channel(sender) || entry.sender.is_closed();
+            if stale {
+                entry.abort.abort();
+            }
+            !stale
+        });
+    }
+
+    fn replace_for_sender<F>(self: &Arc<Self>, sender: &WsSender, build: impl FnOnce(u64) -> F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        Self::retain_active_excluding(&mut entries, sender);
+        let pending = Arc::clone(self);
+        let future = build(id);
+        let task = tokio::spawn(async move {
+            future.await;
+            pending.remove(id);
+        });
+        entries.push(PendingSubscription {
+            id,
+            sender: sender.clone(),
+            abort: task.abort_handle(),
+        });
+    }
+
+    fn is_current(&self, id: u64) -> bool {
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|entry| entry.id == id)
+    }
+
+    fn cancel_for_sender(&self, sender: &WsSender) {
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        Self::retain_active_excluding(&mut entries, sender);
+    }
+
+    fn remove(&self, id: u64) {
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|entry| entry.id != id);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
+    }
+}
 
 /// One OS watcher and the clients relaying its events. Dropping it stops the
 /// watcher.
@@ -68,8 +145,14 @@ impl Inner {
     /// Relay `root`'s changes (which must be watched) to `sender` as
     /// `feature_id`'s, replacing the client's previous subscription. The new
     /// share is taken before the old one is released, so moving between
-    /// features of one root never restarts its watcher.
-    fn attach(&mut self, sender: &WsSender, root: PathBuf, feature_id: Option<i64>) {
+    /// features of one root never restarts its watcher. Returns any retired
+    /// root so the caller can drop it after releasing the registry lock.
+    fn attach(
+        &mut self,
+        sender: &WsSender,
+        root: PathBuf,
+        feature_id: Option<i64>,
+    ) -> Option<SharedRoot> {
         let previous = self.take_client(sender);
         let shared = self
             .roots
@@ -87,21 +170,21 @@ impl Inner {
             feature_id,
             relay,
         });
-        if let Some(previous) = previous {
-            self.release(previous);
-        }
+        previous.and_then(|previous| self.release(previous))
     }
 
-    /// Drop the client's relay, then its share of the root's watcher.
-    fn release(&mut self, client: ClientSubscription) {
+    /// Drop the client's relay, then release its share of the root's watcher.
+    /// Returns the removed [`SharedRoot`] when this was its last client so the
+    /// caller can drop it outside the registry mutex.
+    fn release(&mut self, client: ClientSubscription) -> Option<SharedRoot> {
         let root = client.root.clone();
         drop(client);
-        let Some(shared) = self.roots.get_mut(&root) else {
-            return;
-        };
+        let shared = self.roots.get_mut(&root)?;
         shared.clients = shared.clients.saturating_sub(1);
         if shared.clients == 0 {
-            self.roots.remove(&root);
+            self.roots.remove(&root)
+        } else {
+            None
         }
     }
 }
@@ -110,9 +193,57 @@ impl Inner {
 #[derive(Default)]
 pub struct EditorWatchers {
     inner: Mutex<Inner>,
+    pending: Arc<PendingSubscriptions>,
 }
 
 impl EditorWatchers {
+    /// Resolve `root` and [`Self::subscribe`] off the caller's lane with
+    /// per-sender latest-wins cancellation. A newer subscription or
+    /// [`Self::unsubscribe_sender`] aborts any in-flight setup before it
+    /// attaches or replies.
+    pub fn subscribe_in_background<Resolve, E, Respond>(
+        self: &Arc<Self>,
+        sender: WsSender,
+        feature_id: Option<i64>,
+        resolve_root: Resolve,
+        respond: Respond,
+    ) where
+        Resolve: Future<Output = Result<PathBuf, E>> + Send + 'static,
+        E: Send + 'static,
+        Respond: FnOnce(Result<Result<(), String>, E>) + Send + 'static,
+    {
+        let watchers = Arc::clone(self);
+        let pending = Arc::clone(&self.pending);
+        let sender_for_task = sender.clone();
+        self.pending
+            .replace_for_sender(&sender, move |generation| async move {
+                let root = match resolve_root.await {
+                    Ok(path) => path,
+                    Err(error) => {
+                        if pending.is_current(generation) {
+                            respond(Err(error));
+                        }
+                        return;
+                    }
+                };
+                if sender_for_task.is_closed() || !pending.is_current(generation) {
+                    return;
+                }
+                if let Err(error) = watchers.subscribe(&sender_for_task, root, feature_id).await {
+                    if pending.is_current(generation) {
+                        respond(Ok(Err(error)));
+                    }
+                    return;
+                }
+                if sender_for_task.is_closed() {
+                    watchers.unsubscribe_sender(&sender_for_task).await;
+                    return;
+                }
+                if pending.is_current(generation) {
+                    respond(Ok(Ok(())));
+                }
+            });
+    }
     /// Point `sender`'s subscription at `root` (an already resolved and
     /// canonical editor root) for `feature_id`, replacing the one it held.
     /// Re-subscribing to the same feature keeps the running relay, so no
@@ -136,39 +267,62 @@ impl EditorWatchers {
                 }
             }
             if inner.roots.contains_key(&root) {
-                inner.attach(sender, root, feature_id);
+                let retired_root = inner.attach(sender, root, feature_id);
+                drop(inner);
+                drop(retired_root);
                 return Ok(());
             }
         }
+
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let started = start_off_runtime(&root, None, events.clone()).await;
-        let mut inner = self.inner.lock().await;
-        let watcher = match started {
-            Ok(watcher) => watcher,
-            Err(error) => {
-                if let Some(previous) = inner.take_client(sender) {
-                    inner.release(previous);
+
+        let (result, retired_root, unused_watcher) = {
+            let mut inner = self.inner.lock().await;
+            match started {
+                Ok(watcher) => {
+                    // Another client may have started the same root meanwhile:
+                    // keep theirs, and drop ours after releasing the lock.
+                    let unused = if inner.roots.contains_key(&root) {
+                        Some(watcher)
+                    } else {
+                        inner.roots.insert(
+                            root.clone(),
+                            SharedRoot {
+                                _watcher: watcher,
+                                events,
+                                clients: 0,
+                            },
+                        );
+                        None
+                    };
+                    let retired = inner.attach(sender, root, feature_id);
+                    (Ok(()), retired, unused)
                 }
-                return Err(error);
+                Err(error) => {
+                    let retired = inner
+                        .take_client(sender)
+                        .and_then(|previous| inner.release(previous));
+                    (Err(error), retired, None)
+                }
             }
         };
-        // Another client may have started the same root meanwhile: keep
-        // theirs, and ours stops as it drops.
-        inner.roots.entry(root.clone()).or_insert(SharedRoot {
-            _watcher: watcher,
-            events,
-            clients: 0,
-        });
-        inner.attach(sender, root, feature_id);
-        Ok(())
+        drop(unused_watcher);
+        drop(retired_root);
+        result
     }
 
-    /// Release `sender`'s subscription (the client disconnected).
+    /// Release `sender`'s subscription (the client disconnected) and cancel
+    /// any in-flight background setup for that sender.
     pub async fn unsubscribe_sender(&self, sender: &WsSender) {
-        let mut inner = self.inner.lock().await;
-        if let Some(client) = inner.take_client(sender) {
-            inner.release(client);
-        }
+        self.pending.cancel_for_sender(sender);
+        let retired_root = {
+            let mut inner = self.inner.lock().await;
+            inner
+                .take_client(sender)
+                .and_then(|client| inner.release(client))
+        };
+        drop(retired_root);
     }
 
     /// `(subscribed clients, OS watchers)`.
@@ -318,5 +472,34 @@ mod tests {
         let missing = root.join("gone");
         assert!(watchers.subscribe(&tx, missing, None).await.is_err());
         assert_eq!(watchers.counts().await, (0, 0), "nothing dangles");
+    }
+
+    #[tokio::test]
+    async fn unsubscribe_sender_cancels_pending_background_subscription() {
+        let watchers = Arc::new(EditorWatchers::default());
+        let (_dir, root) = temp_root();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (replied_tx, mut replied_rx) = mpsc::unbounded_channel();
+
+        watchers.subscribe_in_background(
+            tx.clone(),
+            Some(1),
+            async move {
+                started_tx.send(()).unwrap();
+                std::future::pending::<Result<PathBuf, ()>>().await
+            },
+            move |result| {
+                let _ = replied_tx.send(result.is_ok());
+            },
+        );
+        started_rx.await.unwrap();
+        assert_eq!(watchers.pending.len(), 1);
+
+        watchers.unsubscribe_sender(&tx).await;
+        assert_eq!(watchers.pending.len(), 0);
+        assert_eq!(watchers.counts().await, (0, 0));
+        assert!(replied_rx.try_recv().is_err());
+        drop(root);
     }
 }

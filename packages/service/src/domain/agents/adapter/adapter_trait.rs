@@ -39,11 +39,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         _cwd: &Path,
         overrides: &RuntimeConfigOverrides,
     ) -> Result<RuntimeEffectiveConfig, RuntimeError> {
-        Ok(RuntimeEffectiveConfig {
-            model: overrides.model.clone(),
-            thinking_effort: overrides.thinking_effort.clone(),
-            fast_mode: overrides.fast_mode.unwrap_or(false),
-        })
+        Ok(super::adapter_defaults::effective_config(overrides))
     }
     /// Public, secret-free profile metadata for generic selection surfaces.
     async fn profile_catalog(
@@ -72,8 +68,8 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         _pool: &sqlx::SqlitePool,
         _feature_id: i64,
         _project_id: Option<i64>,
-    ) -> Option<bool> {
-        None
+    ) -> Result<Option<bool>, crate::error::AppError> {
+        Ok(None)
     }
     /// Compatibility mirror for the original access-mode field.
     fn legacy_access_mode_wire(&self, _access_mode: Option<&str>) -> Option<String> {
@@ -96,6 +92,15 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     /// Where user permission answers for this runtime are delivered.
     fn permission_response_route(&self) -> RuntimePermissionResponseRoute {
         RuntimePermissionResponseRoute::Session
+    }
+
+    /// The next prompt answering a question a runtime since gone asked
+    /// (`Ok(None)`: nothing to tell); `None` when only that runtime can take it.
+    fn unheld_question_prompt(
+        &self,
+        _response: &super::permission::RuntimePermissionResponse,
+    ) -> Option<Result<Option<String>, RuntimeError>> {
+        None
     }
 
     /// A saved conversation cannot be handed silently to another provider owner.
@@ -209,6 +214,12 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         false
     }
 
+    /// Keep a pending prompt at its submission position in the transcript.
+    /// Its receipt still depends on the provider accepting the prompt.
+    fn prompt_receipts_at_submission(&self) -> bool {
+        false
+    }
+
     /// Extract an authoritative context window for the current event.
     ///
     /// The default implementation stays provider-neutral by relying only on
@@ -219,9 +230,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         runtime_event: &RuntimeEvent,
         _active_model: Option<&str>,
     ) -> Option<u64> {
-        runtime_event
-            .context_window()
-            .or_else(|| runtime_event.init().and_then(|init| init.context_window))
+        super::adapter_defaults::context_window_for_event(runtime_event)
     }
 
     /// Called once at startup for background warmup (e.g. starting sidecar processes).
@@ -288,9 +297,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         &self,
         _cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        Err(RuntimeError::new(
-            "runtime slash command refresh is not supported by this provider",
-        ))
+        Err(super::adapter_defaults::slash_command_refresh_unsupported())
     }
 
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {
@@ -317,6 +324,15 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     fn supports_permission_mode(&self, _mode: &RuntimePermissionMode) -> bool {
         false
     }
+    /// Resolve the initial mode before starting the runtime. Connectors with
+    /// workspace-specific modes resolve against that workspace's catalog.
+    async fn resolve_initial_permission_mode(
+        &self,
+        _cwd: &Path,
+        requested: Option<&str>,
+    ) -> Result<Option<RuntimePermissionMode>, RuntimeError> {
+        Ok(super::super::permission_modes::supported_or_default_permission_mode(self, requested))
+    }
 
     /// Whether this provider supports the provider-neutral access/autonomy
     /// axis (Default, Full Access, Auto Review). Providers own the concrete
@@ -340,9 +356,13 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     async fn configured_access_mode(
         &self,
         read_pool: &sqlx::SqlitePool,
-    ) -> Option<RuntimeAccessMode> {
-        let setting_key = self.access_mode_setting_key()?;
-        Some(super::adapter_defaults::configured_access_mode(read_pool, setting_key.as_ref()).await)
+    ) -> Result<Option<RuntimeAccessMode>, crate::error::AppError> {
+        let Some(setting_key) = self.access_mode_setting_key() else {
+            return Ok(None);
+        };
+        super::adapter_defaults::configured_access_mode(read_pool, setting_key.as_ref())
+            .await
+            .map(Some)
     }
 
     /// Initial mode after `provider.set`; matches the frontend catalog fallback.
@@ -375,21 +395,13 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         false
     }
 
-    /// If the runtime session has reached a terminal state, return the text
-    /// of the latest assistant message. May be empty when the provider can't
-    /// expose final text or the message contains only non-text parts. Return
-    /// `None` if the session is still running.
-    ///
-    /// Default delegates to `session_finished` and returns no text — adapters
-    /// whose drain loop can race ahead of streamed text (e.g. short turns)
-    /// should override to return the actual text so callers can recover from
-    /// a probe-wins-the-race exit.
+    /// The latest assistant text (possibly empty) once the runtime session
+    /// ended, `None` while it runs. Adapters whose drain loop can outrun
+    /// streamed text override it so callers recover from that race.
     async fn session_finished_text(&self, runtime_session_id: &str) -> Option<String> {
-        if self.session_finished(runtime_session_id).await {
-            Some(String::new())
-        } else {
-            None
-        }
+        self.session_finished(runtime_session_id)
+            .await
+            .then(String::new)
     }
 
     async fn spawn(
@@ -405,7 +417,7 @@ mod tests {
     use serde_json::json;
     use tokio::sync::RwLock;
 
-    use super::super::config::RuntimeSpawnConfig;
+    use super::super::config::{RuntimeConfigOverrides, RuntimeSpawnConfig};
     use super::super::error::RuntimeError;
     use super::super::permission::RuntimePermissionResponseRoute;
     use super::super::session::test_support::DummySession;
@@ -453,19 +465,40 @@ mod tests {
             .parse_permission_request(&json!({"type": "none"}))
             .is_none());
         assert!(!adapter.supports_prompt_receipts());
+        assert!(!adapter.prompt_receipts_at_submission());
         assert_eq!(
             adapter.permission_response_route(),
             RuntimePermissionResponseRoute::Session
         );
         assert_eq!(adapter.legacy_access_mode_wire(Some("fullAccess")), None);
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        assert_eq!(adapter.bypass_permission_opt_in(&pool, 1, None).await, None);
+        assert_eq!(
+            adapter
+                .bypass_permission_opt_in(&pool, 1, None)
+                .await
+                .unwrap(),
+            None
+        );
         assert_eq!(adapter.profile_name_for_new_session(), None);
         assert_eq!(adapter.environment_for_new_session(), None);
         assert_eq!(
             adapter.user_shell_strategy(),
             RuntimeUserShellStrategy::Unsupported
         );
+        let overrides = RuntimeConfigOverrides {
+            model: Some("m".into()),
+            thinking_effort: Some("high".into()),
+            ..Default::default()
+        };
+        let effective = adapter
+            .resolve_profile_effective_config(None, std::path::Path::new("/"), &overrides)
+            .await
+            .unwrap();
+        assert_eq!(effective.model.as_deref(), Some("m"));
+        assert_eq!(effective.thinking_effort.as_deref(), Some("high"));
+        assert!(!effective.fast_mode, "fast mode is off unless overridden");
+        let refresh = adapter.refresh_runtime_slash_commands("/").await;
+        assert!(refresh.unwrap_err().to_string().contains("not supported"));
 
         let spawned = adapter
             .spawn(serde_json::Value::Null, RuntimeSpawnConfig::default())

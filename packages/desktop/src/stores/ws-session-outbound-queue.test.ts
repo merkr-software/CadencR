@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
 import { createSessionEnvelope } from "@/lib/ws-envelope";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
-import { COMMAND_QUEUE_TTL_MS } from "./ws-session-commands";
+import { AUTO_RECONNECT_TIMEOUT_MS, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
 import { SESSION_ACTION } from "./ws-session-action-names";
 
 const { toastError, toastWarning } = vi.hoisted(() => ({
@@ -34,6 +34,8 @@ class MockWebSocket {
   static CONNECTING = 0;
   static CLOSED = 3;
   static instances: MockWebSocket[] = [];
+  /** The service is down: every new socket fails its upgrade. */
+  static failOpen = false;
 
   readyState = MockWebSocket.OPEN;
   sent: string[] = [];
@@ -41,7 +43,15 @@ class MockWebSocket {
 
   constructor(_url: string) {
     MockWebSocket.instances.push(this);
-    Promise.resolve().then(() => this.fireEvent("open"));
+    Promise.resolve().then(() => {
+      if (!MockWebSocket.failOpen) {
+        this.fireEvent("open");
+        return;
+      }
+      this.readyState = MockWebSocket.CLOSED;
+      this.fireEvent("error");
+      this.fireEvent("close", { code: 1006 });
+    });
   }
 
   addEventListener(event: string, cb: (...args: unknown[]) => void) {
@@ -149,6 +159,263 @@ describe("ws-session outbound queue", () => {
     expect(sentActions(getWs())).toContain("session.model.set");
   });
 
+  /** Frames sent on a socket, as `[action, payload]`, for the settings ones. */
+  function settingFrames(ws: MockWebSocket): Array<[string, Record<string, unknown>]> {
+    return ws.sent
+      .map((raw) => JSON.parse(raw) as { action: string; payload: Record<string, unknown> })
+      .filter((envelope) => envelope.action.endsWith(".set"))
+      .map((envelope) => [envelope.action, envelope.payload]);
+  }
+
+  async function confirmedAcceptEditsThenDrop(): Promise<void> {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    store.initSession("s1", { cwd: "/tmp/proj", featureId: 42 });
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "claude_code", model: "claude-haiku-5-5" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "mode.changed",
+      payload: { mode: "acceptEdits" },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("acceptEdits");
+    ws.readyState = MockWebSocket.CLOSED;
+    ws.fireEvent("close", { code: 1006 });
+  }
+
+  it("never lets the reconnect's init replay overwrite a mode chosen during the outage", async () => {
+    await confirmedAcceptEditsThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setPermissionMode("s1", "plan");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    // The backend answers the reconnect's session.init with the stored mode.
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "7",
+        provider: "claude_code",
+        model: "claude-haiku-5-5",
+        permission_mode: "acceptEdits",
+      },
+    });
+
+    expect(settingFrames(ws)).toEqual([["mode.set", { session_id: "7", mode: "plan" }]]);
+    ws.simulateMessage({ domain: "session", action: "mode.changed", payload: { mode: "plan" } });
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("plan");
+  });
+
+  it("sends only the settings chosen during the outage after the reconnect", async () => {
+    await confirmedAcceptEditsThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setModel("s1", "claude-sonnet-4-6", "claude_code");
+    store.setThinkingEffort("s1", "high");
+    store.setPermissionMode("s1", "plan");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "7",
+        provider: "claude_code",
+        model: "claude-haiku-5-5",
+        permission_mode: "acceptEdits",
+        thinking_effort: "low",
+      },
+    });
+
+    expect(
+      settingFrames(ws).map(([action, payload]) => [
+        action,
+        payload.model ?? payload.thinking_effort ?? payload.mode,
+      ]),
+    ).toEqual([
+      ["model.set", "claude-sonnet-4-6"],
+      ["effort.set", "high"],
+      ["mode.set", "plan"],
+    ]);
+  });
+
+  it("replays the latest Codex model and effort overrides changed during an outage", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    store.queueRuntimeOverride("s1", { model: "gpt-b" });
+    store.queueRuntimeOverride("s1", { thinking_effort: "high" });
+    store.queueRuntimeOverride("s1", { model: "gpt-c" });
+    // One per field: a newer model replaces the waiting one, the effort stays.
+    expect(useWsSessionStore.getState().sessions.s1.queuedCommandActions).toEqual([
+      "runtime_overrides.set:thinking_effort",
+      "runtime_overrides.set:model",
+    ]);
+    // Nothing optimistic: the selection is still the confirmed one.
+    expect(useWsSessionStore.getState().sessions.s1.currentSelection?.modelId).toBe("gpt-a");
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const overrides = ws.sent
+      .map(
+        (raw) =>
+          JSON.parse(raw) as { id: string; action: string; payload: Record<string, unknown> },
+      )
+      .filter((envelope) => envelope.action === "runtime_overrides.set");
+    expect(overrides.map((envelope) => envelope.payload.runtime_overrides)).toEqual([
+      { thinking_effort: "high" },
+      { model: "gpt-c" },
+    ]);
+
+    // The backend confirms through the correlated `runtime_overrides.changed`.
+    ws.simulateMessage({
+      domain: "session",
+      action: "runtime_overrides.changed",
+      ref: overrides[1].id,
+      payload: {
+        runtime_overrides: { model: "gpt-c", thinking_effort: "high", fast_mode: null },
+        effective: { model: "gpt-c", thinking_effort: "high", fast_mode: false },
+      },
+    });
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.currentSelection?.modelId).toBe("gpt-c");
+    // Only the effort change is still unanswered.
+    expect(session.pendingCommandActions).toEqual(["runtime_overrides.set:thinking_effort"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("replays the latest Codex fast mode change made during an outage", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    store.queueRuntimeOverride("s1", { model: "gpt-b" });
+    store.queueRuntimeOverride("s1", { fast_mode: true });
+    store.queueRuntimeOverride("s1", { fast_mode: false });
+    // One per field: the newer fast mode replaces the waiting one, the model stays.
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual([
+      "runtime_overrides.set:model",
+      "runtime_overrides.set:fast_mode",
+    ]);
+    // The fast mode control can tell its own change is waiting, and nothing
+    // optimistic: the value shown is still the confirmed one.
+    expect(waiting.pendingCommandActions).toContain("runtime_overrides.set:fast_mode");
+    expect(waiting.fastMode).toBe(false);
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const overrides = ws.sent
+      .map(
+        (raw) =>
+          JSON.parse(raw) as { id: string; action: string; payload: Record<string, unknown> },
+      )
+      .filter((envelope) => envelope.action === "runtime_overrides.set");
+    expect(overrides.map((envelope) => envelope.payload.runtime_overrides)).toEqual([
+      { model: "gpt-b" },
+      { fast_mode: false },
+    ]);
+
+    // A refusal is reported as a fast mode failure, not as another setting's.
+    ws.simulateMessage({
+      domain: "session",
+      action: SESSION_ACTION.error,
+      ref: overrides[1].id,
+      payload: { code: "INVALID_OVERRIDES", message: "fast mode unavailable" },
+    });
+    expect(toastError).toHaveBeenCalledWith(
+      "Couldn't change fast mode",
+      expect.objectContaining({ description: expect.stringContaining("fast mode unavailable") }),
+    );
+    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([
+      "runtime_overrides.set:model",
+    ]);
+  });
+
+  it("queues a fast mode change made during an outage and applies it once confirmed", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+
+    await store.setFastMode("s1", true);
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual(["fast_mode.set"]);
+    expect(waiting.fastMode).toBe(false);
+
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    const sent = ws.sent
+      .map((raw) => JSON.parse(raw) as { id: string; action: string; payload: unknown })
+      .filter((envelope) => envelope.action === "fast_mode.set");
+    expect(sent.map((envelope) => envelope.payload)).toEqual([{ session_id: "7", enabled: true }]);
+    expect(useWsSessionStore.getState().sessions.s1.fastMode).toBe(false);
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "fast_mode.set.ok",
+      ref: sent[0].id,
+      payload: { enabled: true },
+    });
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.fastMode).toBe(true);
+    expect(session.pendingCommandActions).toEqual([]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("replays a Codex model change before the effort chosen after it", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const first = getWs();
+    first.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "7", provider: "codex_cli", model: "gpt-a" },
+    });
+    first.readyState = MockWebSocket.CLOSED;
+    first.fireEvent("close", { code: 1006 });
+
+    // As online: the model switch loads that model's remembered effort, then
+    // the explicit effort replaces it, so the session ends on gpt-5.6 / xhigh.
+    store.queueRuntimeOverride("s1", { model: "gpt-5.6-sol" });
+    store.queueRuntimeOverride("s1", { thinking_effort: "xhigh" });
+
+    store.connect("s1");
+    await tick();
+    const overrides = getWs()
+      .sent.map((raw) => JSON.parse(raw) as { action: string; payload: Record<string, unknown> })
+      .filter((envelope) => envelope.action === "runtime_overrides.set")
+      .map((envelope) => envelope.payload.runtime_overrides);
+    expect(overrides).toEqual([{ model: "gpt-5.6-sol" }, { thinking_effort: "xhigh" }]);
+  });
+
   it("never replays a Stop pressed while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
@@ -163,20 +430,68 @@ describe("ws-session outbound queue", () => {
     expect(sentActions(getWs())).not.toContain("session.interrupt");
   });
 
-  it("drops a queued setting that outlived its TTL instead of replaying it late", async () => {
+  it("replays a setting changed during an abnormal drop once the reconnect floor has passed", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+    vi.useFakeTimers();
+    try {
+      // The service went away: the browser reports a 1006, so the next retry
+      // waits at least the rate-limit floor.
+      ws.readyState = MockWebSocket.CLOSED;
+      ws.fireEvent("close", { code: 1006 });
+      store.setModel("s1", "opus", "claude-code");
+
+      await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS + 100);
+
+      expect(getWs()).not.toBe(ws);
+      expect(sentActions(getWs())).toContain("session.model.set");
+      expect(toastError).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps only the latest setting of each kind while disconnected", async () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
-    const now = vi.spyOn(Date, "now");
-    now.mockReturnValue(1_000);
     store.setModel("s1", "opus", "claude-code");
+    store.setThinkingEffort("s1", "high");
+    store.setModel("s1", "sonnet", "claude-code");
+    expect(useWsSessionStore.getState().sessions.s1.queuedCommandActions).toEqual([
+      "effort.set",
+      "model.set",
+    ]);
 
-    now.mockReturnValue(1_000 + COMMAND_QUEUE_TTL_MS + 1);
     store.connect("s1");
     await tick();
 
-    expect(sentActions(getWs())).not.toContain("session.model.set");
-    expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
-    expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+    const models = getWs()
+      .sent.map((raw) => JSON.parse(raw) as { action: string; payload: { model?: string } })
+      .filter((envelope) => envelope.action === "model.set")
+      .map((envelope) => envelope.payload.model);
+    expect(models).toEqual(["sonnet"]);
+    expect(sentActions(getWs())).toContain("session.effort.set");
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows a queued setting as waiting until it leaves with the reconnect", async () => {
+    await connectInitializedThenDrop();
+    const store = useWsSessionStore.getState();
+    store.setPermissionMode("s1", "plan");
+    const waiting = useWsSessionStore.getState().sessions.s1;
+    expect(waiting.queuedCommandActions).toEqual(["mode.set"]);
+    // No optimistic write: the chip keeps the backend-confirmed mode.
+    expect(waiting.permissionMode).not.toBe("plan");
+
+    store.connect("s1");
+    await tick();
+
+    const sent = useWsSessionStore.getState().sessions.s1;
+    expect(sent.queuedCommandActions).toEqual([]);
+    expect(sent.pendingCommandActions).toEqual(["mode.set"]);
   });
 
   it("presents a failed command by the command, not as a turn error", async () => {
@@ -325,15 +640,55 @@ describe("ws-session outbound queue", () => {
     );
   });
 
-  it("reports a queued setting as unsent once its TTL passes without a reconnect", async () => {
-    await connectInitializedThenDrop();
+  it("reports a queued setting as unsent once automatic reconnects give up", async () => {
     vi.useFakeTimers();
     try {
-      useWsSessionStore.getState().setModel("s1", "opus", "claude-code");
-      vi.advanceTimersByTime(COMMAND_QUEUE_TTL_MS);
+      // Its own session: the reconnect registry stays paused for this key.
+      const store = useWsSessionStore.getState();
+      store.connect("s-gives-up");
+      await vi.advanceTimersByTimeAsync(0);
+      const ws = getWs();
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "8" },
+      });
+      MockWebSocket.failOpen = true;
+      ws.readyState = MockWebSocket.CLOSED;
+      ws.fireEvent("close", { code: 1006 });
+      useWsSessionStore.getState().setModel("s-gives-up", "opus", "claude-code");
+      // Every retry fails, as long as the service stays down.
+      await vi.advanceTimersByTimeAsync(AUTO_RECONNECT_TIMEOUT_MS / 2);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([
+        "model.set",
+      ]);
+
+      await vi.advanceTimersByTimeAsync(AUTO_RECONNECT_TIMEOUT_MS);
       expect(toastError).toHaveBeenCalledWith("Couldn't switch model", expect.anything());
-      expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+      const session = useWsSessionStore.getState().sessions["s-gives-up"];
+      expect(session.queuedCommandActions).toEqual([]);
+      expect(session.pendingCommandActions).toEqual([]);
+
+      // Reconnects are paused for a manual retry: a new setting is refused at
+      // once, not parked until someone presses "Retry now".
+      toastError.mockClear();
+      useWsSessionStore.getState().setThinkingEffort("s-gives-up", "high");
+      expect(toastError).toHaveBeenCalledWith("Couldn't change thinking effort", expect.anything());
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([]);
+
+      // "Retry now" resumes automatic reconnects even though the service is
+      // still down: a setting waits for them again.
+      forceReconnectAll({ bypassManualPause: true });
+      await vi.advanceTimersByTimeAsync(0);
+      toastError.mockClear();
+      useWsSessionStore.getState().setPermissionMode("s-gives-up", "plan");
+      expect(toastError).not.toHaveBeenCalled();
+      expect(useWsSessionStore.getState().sessions["s-gives-up"].queuedCommandActions).toEqual([
+        "mode.set",
+      ]);
     } finally {
+      MockWebSocket.failOpen = false;
       vi.useRealTimers();
     }
   });

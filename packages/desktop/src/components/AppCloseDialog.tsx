@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import type { AppCloseState, WorkingAgent } from "@/hooks/useAppClose";
 import { useRestartResumeEnabled } from "@/lib/restart-resume-setting";
+import { dialogCloseChoice } from "@/shared/app-close";
 
 function working(count: number): string {
   return count === 1 ? "1 agent is still working" : `${count} agents are still working`;
@@ -60,8 +61,9 @@ function OpenAppCloseDialog({
 }): ReactElement {
   const { enabled: resumeEnabled } = useRestartResumeEnabled();
   const { agents, cancel, close } = state;
-  const stop = () => close({ resumeAgents: false });
-  const resume = () => close({ resumeAgents: true });
+  // The answer covers background work too, whether or not it is listed.
+  const stop = () => close(dialogCloseChoice(false));
+  const resume = () => close(dialogCloseChoice(true));
 
   return (
     <Dialog open onOpenChange={(open) => !open && cancel()}>

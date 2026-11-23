@@ -23,6 +23,7 @@ export interface AgentQuestionForm {
   freeText: string;
   setFreeText: (value: string) => void;
   showOther: boolean;
+  showFreeText: boolean;
   freeTextFocused: boolean;
   setFreeTextFocused: (value: boolean) => void;
   highlightedIndex: number | null;
@@ -32,7 +33,7 @@ export interface AgentQuestionForm {
   handleBack: () => void;
   handleForward: () => void;
   handleOptionToggle: (option: string) => void;
-  handleOtherToggle: () => void;
+  handleOtherToggle?: () => void;
   handleNext: () => void;
   /** Answers the current question with exactly this option, and moves on or submits. */
   handleChoose: (option: string) => void;
@@ -44,54 +45,48 @@ export interface AgentQuestionForm {
   selectedPreview: string | undefined;
 }
 
-const EMPTY_ANSWER = (): SavedAnswer => ({
-  text: "",
-  selectedOptions: new Set<string>(),
-  freeText: "",
-  showOther: false,
-});
-
-function answerText(question: AgentQuestion | undefined, state: SavedAnswer): string {
-  if (!question?.options?.length) return state.freeText.trim();
-  const parts = Array.from(state.selectedOptions);
-  if (state.showOther && state.freeText.trim()) parts.push(state.freeText.trim());
-  return parts.join("; ");
+function showsFreeText(question: AgentQuestion, otherSelected: boolean): boolean {
+  return question.allowCustomAnswer !== false && (otherSelected || !question.options?.length);
 }
 
-function answerValues(question: AgentQuestion | undefined, state: SavedAnswer): string[] {
-  if (!question) return [];
-  if (!question.options?.length) return state.freeText.trim() ? [state.freeText.trim()] : [];
-  const values = Array.from(state.selectedOptions);
-  if (state.showOther && state.freeText.trim()) values.push(state.freeText.trim());
+function answerValues(
+  question: AgentQuestion | undefined,
+  state: SavedAnswer | undefined,
+): string[] {
+  if (!question || !state) return [];
+  // A restored draft can contain IDs the provider no longer offers.
+  if (question.allowCustomAnswer === false) {
+    const allowed = new Set(question.options?.map(agentQuestionOptionValue));
+    const selected = Array.from(state.selectedOptions).filter((id) => allowed.has(id));
+    return !question.multiSelect && selected.length > 1 ? [] : selected;
+  }
+  const values = question.options?.length ? Array.from(state.selectedOptions) : [];
+  const text = state.freeText.trim();
+  if (showsFreeText(question, state.showOther) && text) values.push(text);
   return values;
 }
 
 type QuestionFormState = ReturnType<typeof useQuestionFormState>;
 
-function currentSavedAnswer(
-  question: AgentQuestion | undefined,
-  state: QuestionFormState,
-): SavedAnswer {
-  const snapshot = {
-    text: "",
-    selectedOptions: new Set(state.selectedOptions),
-    freeText: state.freeText,
-    showOther: state.showOther,
-  };
-  return { ...snapshot, text: answerText(question, snapshot) };
+function currentSavedAnswer({
+  selectedOptions,
+  freeText,
+  showOther,
+}: QuestionFormState): SavedAnswer {
+  return { selectedOptions, freeText, showOther };
 }
 
-function useQuestionNavigation(questions: AgentQuestion[], state: QuestionFormState) {
+function useQuestionNavigation(state: QuestionFormState) {
   const canGoBack = state.currentIndex > 0;
   const canGoForward =
     state.currentIndex < state.answers.length - 1 && state.answers[state.currentIndex + 1] != null;
   const move = useCallback(
     (nextIndex: number): void => {
       const answers = [...state.answers];
-      answers[state.currentIndex] = currentSavedAnswer(questions[state.currentIndex], state);
+      answers[state.currentIndex] = currentSavedAnswer(state);
       state.moveTo(nextIndex, answers);
     },
-    [questions, state],
+    [state],
   );
   const handleBack = useCallback(() => {
     if (canGoBack) move(state.currentIndex - 1);
@@ -112,36 +107,30 @@ function useQuestionSubmission(
 ) {
   const advance = useCallback(
     (current: SavedAnswer) => {
-      if (!current.text) return;
       const newAnswers = [...state.answers];
       newAnswers[state.currentIndex] = current;
       if (state.currentIndex < questions.length - 1) {
+        if (!answerValues(questions[state.currentIndex], current).length) return;
         state.moveTo(state.currentIndex + 1, newAnswers);
         return;
       }
-      onSubmit(
-        questions.map((question, index) =>
-          answerValues(question, newAnswers[index] ?? EMPTY_ANSWER()),
-        ),
-      );
+      const values = questions.map((question, index) => answerValues(question, newAnswers[index]));
+      const missing = values.findIndex((answer) => !answer.length);
+      if (missing === -1) onSubmit(values);
+      else if (missing !== state.currentIndex) state.moveTo(missing, newAnswers);
     },
     [onSubmit, questions, state],
   );
-  const handleNext = useCallback(
-    () => advance(currentSavedAnswer(questions[state.currentIndex], state)),
-    [advance, questions, state],
-  );
+  const handleNext = useCallback(() => advance(currentSavedAnswer(state)), [advance, state]);
   const handleChoose = useCallback(
     (option: string) => {
-      const snapshot = {
-        text: "",
+      advance({
         selectedOptions: new Set([option]),
         freeText: "",
         showOther: false,
-      };
-      advance({ ...snapshot, text: answerText(questions[state.currentIndex], snapshot) });
+      });
     },
-    [advance, questions, state.currentIndex],
+    [advance],
   );
   const handleFreeTextSubmit = useCallback(() => {
     if (state.freeText.trim()) handleNext();
@@ -176,8 +165,11 @@ function useQuestionOptions(question: AgentQuestion | undefined, state: Question
     if (!state.showOther && !question?.multiSelect) state.setSelectedOptions(new Set());
   }, [question?.multiSelect, state]);
   return useMemo(
-    () => ({ handleOptionToggle, handleOtherToggle }),
-    [handleOptionToggle, handleOtherToggle],
+    () => ({
+      handleOptionToggle,
+      handleOtherToggle: question?.allowCustomAnswer === false ? undefined : handleOtherToggle,
+    }),
+    [question?.allowCustomAnswer, handleOptionToggle, handleOtherToggle],
   );
 }
 
@@ -205,29 +197,27 @@ export function useAgentQuestionForm({
 }: UseAgentQuestionFormParams): AgentQuestionForm {
   const state = useQuestionFormState(draftIdentity);
   const currentQuestion = questions[state.currentIndex];
-  const navigation = useQuestionNavigation(questions, state);
+  const navigation = useQuestionNavigation(state);
   const submission = useQuestionSubmission(questions, onSubmit, state);
   const options = useQuestionOptions(currentQuestion, state);
   const highlight = useQuestionHighlight();
   const hasOptions = !!currentQuestion?.options?.length;
-  const hasAnswer =
-    state.selectedOptions.size > 0 ||
-    (state.showOther && state.freeText.trim().length > 0) ||
-    (!hasOptions && state.freeText.trim().length > 0);
-  const selectedPreview = hasOptions
-    ? currentQuestion.options
-        ?.filter(
-          (option) => state.selectedOptions.has(agentQuestionOptionValue(option)) && option.preview,
-        )
-        .at(-1)?.preview
-    : undefined;
+  const showFreeText = !!currentQuestion && showsFreeText(currentQuestion, state.showOther);
+  const hasAnswer = useMemo(
+    () => answerValues(currentQuestion, state).length > 0,
+    [currentQuestion, state],
+  );
+  const selectedPreview = currentQuestion?.options?.findLast(
+    (option) => option.preview && state.selectedOptions.has(agentQuestionOptionValue(option)),
+  )?.preview;
   return {
     currentIndex: state.currentIndex,
     currentQuestion,
     selectedOptions: state.selectedOptions,
     freeText: state.freeText,
     setFreeText: state.setFreeText,
-    showOther: state.showOther,
+    showOther: showFreeText && state.showOther,
+    showFreeText,
     freeTextFocused: state.freeTextFocused,
     setFreeTextFocused: state.setFreeTextFocused,
     highlightedIndex: highlight.highlightedIndex,

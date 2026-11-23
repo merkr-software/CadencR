@@ -1,5 +1,5 @@
 import { forwardRef, type MouseEventHandler, type ReactElement, type ReactNode } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderX } from "lucide-react";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { SidebarShortcutBadge } from "@/components/SidebarShortcutBadge";
 import { PROJECT_ROW_CLASS } from "@/components/SidebarLensGroupHeader";
@@ -45,10 +45,13 @@ export function ProjectRowLabel({
   projectId,
   name,
   expanded,
+  folderMissing = false,
 }: {
   projectId: number;
   name: string;
   expanded: boolean;
+  /** The folder is not where the project records it; the menu offers to locate it. */
+  folderMissing?: boolean;
 }): ReactElement {
   return (
     <>
@@ -64,6 +67,11 @@ export function ProjectRowLabel({
         <ProjectBadge projectId={projectId} className="max-w-none" />
       </span>
       <span className="min-w-0 truncate">{name}</span>
+      {folderMissing ? (
+        <span title="Folder not found. Locate it from the project menu." className="shrink-0">
+          <FolderX aria-label="Folder not found" className="size-3.5 text-[var(--acc-yellow)]" />
+        </span>
+      ) : null}
     </>
   );
 }

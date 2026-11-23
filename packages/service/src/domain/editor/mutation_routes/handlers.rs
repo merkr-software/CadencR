@@ -24,35 +24,33 @@ pub async fn create_editor_file_handler(
 ) -> Result<axum::Json<CreateFileResponse>, AppError> {
     let project_root =
         resolve_feature_editor_root(&state.read_pool, body.project_id, body.feature_id).await?;
-    let path = service::validate_path_for_write(&project_root, &body.file_path)?;
-    let project_root_for_response = project_root.clone();
+    let file_path = body.file_path;
 
-    let path_for_blocking = path.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        service::write_file_no_follow(&path_for_blocking, b"", service::FileWriteMode::CreateNew)
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::AlreadyExists => AppError::BadRequest(format!(
-                    "File already exists: {}",
-                    path_for_blocking.display()
-                )),
+    let relative = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let path = service::validate_path_for_write(&project_root, &file_path)?;
+        service::write_file_no_follow(&path, b"", service::FileWriteMode::CreateNew).map_err(
+            |e| match e.kind() {
+                std::io::ErrorKind::AlreadyExists => {
+                    AppError::BadRequest(format!("File already exists: {}", path.display()))
+                }
                 _ if e.raw_os_error() == Some(libc::ELOOP) => {
                     AppError::BadRequest("Refusing to create through a symbolic link".into())
                 }
-                std::io::ErrorKind::PermissionDenied => AppError::BadRequest(format!(
-                    "Permission denied: {}",
-                    path_for_blocking.display()
-                )),
+                std::io::ErrorKind::PermissionDenied => {
+                    AppError::BadRequest(format!("Permission denied: {}", path.display()))
+                }
                 _ => AppError::internal(e.to_string()),
-            })
+            },
+        )?;
+        Ok(path
+            .strip_prefix(&project_root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .to_string())
     })
     .await
     .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
-    let relative = path
-        .strip_prefix(&project_root_for_response)
-        .unwrap_or(path.as_path())
-        .to_string_lossy()
-        .to_string();
     Ok(axum::Json(CreateFileResponse { path: relative }))
 }
 
@@ -65,31 +63,28 @@ pub async fn create_editor_folder_handler(
 ) -> Result<axum::Json<CreateFolderResponse>, AppError> {
     let project_root =
         resolve_feature_editor_root(&state.read_pool, body.project_id, body.feature_id).await?;
-    let path = service::validate_path_for_write(&project_root, &body.dir_path)?;
-    let project_root_for_response = project_root.clone();
+    let dir_path = body.dir_path;
 
-    let path_for_blocking = path.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        std::fs::create_dir(&path_for_blocking).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => AppError::BadRequest(format!(
-                "Path already exists: {}",
-                path_for_blocking.display()
-            )),
-            std::io::ErrorKind::PermissionDenied => AppError::BadRequest(format!(
-                "Permission denied: {}",
-                path_for_blocking.display()
-            )),
+    let relative = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let path = service::validate_path_for_write(&project_root, &dir_path)?;
+        std::fs::create_dir(&path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                AppError::BadRequest(format!("Path already exists: {}", path.display()))
+            }
+            std::io::ErrorKind::PermissionDenied => {
+                AppError::BadRequest(format!("Permission denied: {}", path.display()))
+            }
             _ => AppError::internal(e.to_string()),
-        })
+        })?;
+        Ok(path
+            .strip_prefix(&project_root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .to_string())
     })
     .await
     .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
-    let relative = path
-        .strip_prefix(&project_root_for_response)
-        .unwrap_or(path.as_path())
-        .to_string_lossy()
-        .to_string();
     Ok(axum::Json(CreateFolderResponse { path: relative }))
 }
 
@@ -103,43 +98,42 @@ pub async fn rename_editor_path_handler(
     validate_simple_name(&body.new_name)?;
     let project_root =
         resolve_feature_editor_root(&state.read_pool, body.project_id, body.feature_id).await?;
+    let old_path = body.old_path;
+    let new_name = body.new_name;
 
-    let old_abs = service::validate_path(&project_root, &body.old_path)?;
-    let parent = old_abs
-        .parent()
-        .ok_or_else(|| AppError::BadRequest("Cannot rename root path".to_string()))?
-        .to_path_buf();
-    let new_abs = parent.join(&body.new_name);
+    let relative = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let old_abs = service::validate_path(&project_root, &old_path)?;
+        let parent = old_abs
+            .parent()
+            .ok_or_else(|| AppError::BadRequest("Cannot rename root path".to_string()))?
+            .to_path_buf();
+        let new_abs = parent.join(&new_name);
 
-    if !new_abs.starts_with(&project_root) {
-        return Err(AppError::BadRequest(
-            "Renamed path is outside the project directory".to_string(),
-        ));
-    }
+        if !new_abs.starts_with(&project_root) {
+            return Err(AppError::BadRequest(
+                "Renamed path is outside the project directory".to_string(),
+            ));
+        }
 
-    let project_root_for_response = project_root.clone();
-    let new_abs_for_blocking = new_abs.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        rename_no_replace(&old_abs, &new_abs_for_blocking).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => AppError::BadRequest(format!(
-                "Destination already exists: {}",
-                new_abs_for_blocking.display()
-            )),
-            std::io::ErrorKind::PermissionDenied => AppError::BadRequest(format!(
-                "Permission denied: {}",
-                new_abs_for_blocking.display()
-            )),
+        rename_no_replace(&old_abs, &new_abs).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                AppError::BadRequest(format!("Destination already exists: {}", new_abs.display()))
+            }
+            std::io::ErrorKind::PermissionDenied => {
+                AppError::BadRequest(format!("Permission denied: {}", new_abs.display()))
+            }
             _ => AppError::internal(e.to_string()),
-        })
+        })?;
+
+        Ok(new_abs
+            .strip_prefix(&project_root)
+            .unwrap_or(new_abs.as_path())
+            .to_string_lossy()
+            .to_string())
     })
     .await
     .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
-    let relative = new_abs
-        .strip_prefix(&project_root_for_response)
-        .unwrap_or(new_abs.as_path())
-        .to_string_lossy()
-        .to_string();
     Ok(axum::Json(RenamePathResponse { new_path: relative }))
 }
 
@@ -152,75 +146,73 @@ pub async fn move_editor_path_handler(
 ) -> Result<axum::Json<MovePathResponse>, AppError> {
     let project_root =
         resolve_feature_editor_root(&state.read_pool, body.project_id, body.feature_id).await?;
+    let old_path = body.old_path;
+    let new_parent_path = body.new_parent_path;
 
-    let old_abs = service::validate_path(&project_root, &body.old_path)?;
+    let relative = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let old_abs = service::validate_path(&project_root, &old_path)?;
 
-    // Resolve the new parent. An empty string or "." means the project root.
-    let parent_input = if body.new_parent_path.is_empty() {
-        "."
-    } else {
-        body.new_parent_path.as_str()
-    };
-    let new_parent_abs = service::validate_path(&project_root, parent_input)?;
+        // Resolve the new parent. An empty string or "." means the project root.
+        let parent_input = if new_parent_path.is_empty() {
+            "."
+        } else {
+            new_parent_path.as_str()
+        };
+        let new_parent_abs = service::validate_path(&project_root, parent_input)?;
 
-    if !new_parent_abs.is_dir() {
-        return Err(AppError::BadRequest(
-            "Move target must be a directory".to_string(),
-        ));
-    }
+        if !new_parent_abs.is_dir() {
+            return Err(AppError::BadRequest(
+                "Move target must be a directory".to_string(),
+            ));
+        }
 
-    let file_name = old_abs
-        .file_name()
-        .ok_or_else(|| AppError::BadRequest("Cannot move root path".to_string()))?;
-    let new_abs = new_parent_abs.join(file_name);
+        let file_name = old_abs
+            .file_name()
+            .ok_or_else(|| AppError::BadRequest("Cannot move root path".to_string()))?;
+        let new_abs = new_parent_abs.join(file_name);
 
-    if !new_abs.starts_with(&project_root) {
-        return Err(AppError::BadRequest(
-            "Move destination is outside the project directory".to_string(),
-        ));
-    }
+        if !new_abs.starts_with(&project_root) {
+            return Err(AppError::BadRequest(
+                "Move destination is outside the project directory".to_string(),
+            ));
+        }
 
-    // Block self-move and move-into-own-descendant. We compare the canonical
-    // paths so callers can't sneak through with a different relative form.
-    if new_parent_abs == old_abs || new_parent_abs.starts_with(&old_abs) {
-        return Err(AppError::BadRequest(
-            "Cannot move a path into itself or its own descendant".to_string(),
-        ));
-    }
+        // Block self-move and move-into-own-descendant. We compare the canonical
+        // paths so callers can't sneak through with a different relative form.
+        if new_parent_abs == old_abs || new_parent_abs.starts_with(&old_abs) {
+            return Err(AppError::BadRequest(
+                "Cannot move a path into itself or its own descendant".to_string(),
+            ));
+        }
 
-    // No-op when the entry already lives in the destination directory.
-    if new_abs == old_abs {
-        let relative = old_abs
-            .strip_prefix(&project_root)
-            .unwrap_or(old_abs.as_path())
-            .to_string_lossy()
-            .to_string();
-        return Ok(axum::Json(MovePathResponse { new_path: relative }));
-    }
+        // No-op when the entry already lives in the destination directory.
+        if new_abs == old_abs {
+            return Ok(old_abs
+                .strip_prefix(&project_root)
+                .unwrap_or(old_abs.as_path())
+                .to_string_lossy()
+                .to_string());
+        }
 
-    let project_root_for_response = project_root.clone();
-    let new_abs_for_blocking = new_abs.clone();
-    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        rename_no_replace(&old_abs, &new_abs_for_blocking).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => AppError::BadRequest(format!(
-                "Destination already exists: {}",
-                new_abs_for_blocking.display()
-            )),
-            std::io::ErrorKind::PermissionDenied => AppError::BadRequest(format!(
-                "Permission denied: {}",
-                new_abs_for_blocking.display()
-            )),
+        rename_no_replace(&old_abs, &new_abs).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                AppError::BadRequest(format!("Destination already exists: {}", new_abs.display()))
+            }
+            std::io::ErrorKind::PermissionDenied => {
+                AppError::BadRequest(format!("Permission denied: {}", new_abs.display()))
+            }
             _ => AppError::internal(e.to_string()),
-        })
+        })?;
+
+        Ok(new_abs
+            .strip_prefix(&project_root)
+            .unwrap_or(new_abs.as_path())
+            .to_string_lossy()
+            .to_string())
     })
     .await
     .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
-    let relative = new_abs
-        .strip_prefix(&project_root_for_response)
-        .unwrap_or(new_abs.as_path())
-        .to_string_lossy()
-        .to_string();
     Ok(axum::Json(MovePathResponse { new_path: relative }))
 }
 
@@ -233,7 +225,11 @@ pub async fn trash_editor_path_handler(
 ) -> Result<axum::Json<TrashPathResponse>, AppError> {
     let project_root =
         resolve_feature_editor_root(&state.read_pool, body.project_id, body.feature_id).await?;
-    let abs_path = service::validate_path(&project_root, &body.path)?;
+    let path = body.path;
+    let abs_path =
+        tokio::task::spawn_blocking(move || service::validate_path(&project_root, &path))
+            .await
+            .map_err(|e| AppError::internal(format!("Blocking task failed: {e}")))??;
 
     crate::shared::trash::move_to_trash(&abs_path).await?;
 

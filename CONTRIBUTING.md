@@ -30,6 +30,31 @@ pnpm --filter @cadencr/desktop <script>
 pnpm --filter @cadencr/service <script>
 ```
 
+### Isolated QA runs
+
+`pnpm qa:up` starts the app on throwaway state for manual or agent QA, and
+`pnpm qa:down <run>` stops and removes exactly what that run created. Several
+runs can live side by side; the [`qa` skill](./.agents/skills/qa/SKILL.md) is
+the full workflow.
+
+```bash
+pnpm qa:build                       # checks + Rust build, never times out
+pnpm qa:up --skip-build             # --surface electron|renderer|service
+pnpm -s qa env "<run>"              # shell exports: URLs, token, CDP port
+pnpm -s qa cdp "<run>" screenshot x # also eval, click, type, key, targets
+pnpm qa:down "<run>"                # --purge also drops evidence and logs
+```
+
+A run lives in `$CADENCR_QA_ROOT/<run-id>` (default `$TMPDIR/cadencr-qa`). It
+owns a fresh database, a settings dir, free ports, a browser profile and a data
+root passed as the service's `--data-dir` (`CADENCR_DATA_DIR`). That root
+replaces `~/.cadencr` (macOS) or the XDG directories (Linux) for worktrees,
+marketplace LSP servers, forge and remote credentials and caches, while `HOME`
+stays real so agent CLIs keep their login. Without the flag the service
+resolves those paths exactly as before. `pnpm qa:build --marketplace` compiles a
+service with the repository's public catalog pins into `target/qa-marketplace`
+to test marketplace installs.
+
 ### Packaged local builds
 
 Run:
@@ -123,6 +148,10 @@ Precompile the Rust targets used by `pnpm dev` without starting the app:
 pnpm dev:precompile
 ```
 
+Development precompiles and isolated QA Rust warm-ups share one build slot
+across linked worktrees of the same repository. Cargo targets stay isolated
+per worktree. On Linux, install `flock` from the `util-linux` package.
+
 For Cadencr-managed worktrees, set the project's worktree setup commands to
 `pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile`. The setup
 runs in the new worktree, so it gets its own `.env` ports and a warm local
@@ -160,7 +189,8 @@ them cheap:
   hold data of its own, so every later migration backs up as usual. A database
   the worktree already had (rerunning the script never replaces it), a custom
   `CADENCR_DB_PATH` that may name a shared database, the main checkout and
-  release builds always back up before migrating.
+  release builds always back up before migrating. Git ignores the marker, so a
+  worktree whose service never started still removes cleanly.
 
 `pnpm rust:storage` lists every dev database and the installed app's
 `~/.cadencr/database`, and names the backups the service never rotates (legacy
@@ -391,7 +421,7 @@ output and stopping at the first failure with the exact command to rerun:
 | desktop `src/lib/shortcuts/**`, `src/shared/**`                                                                                                                       | landing checks too (it imports the shortcut registry)                                    |
 | `packages/brand/src/**`                                                                                                                                               | desktop and landing checks too, tracing desktop tests that import the brand file         |
 | `packages/service/src`, `packages/desktop/src`                                                                                                                        | provider-boundary scan                                                                   |
-| Rust: `packages/service`, any `packages/*-rs`, `packages/cli-discovery`, `Cargo.toml`/`Cargo.lock`, `rust-toolchain.toml`                                             | `@cadencr/service` `format:check`, `lint` (clippy), `test` for the whole Cargo workspace |
+| Rust: any Cargo workspace member (`members` in the root `Cargo.toml`), `Cargo.toml`/`Cargo.lock`, `rust-toolchain.toml`                                               | `@cadencr/service` `format:check`, `lint` (clippy), `test` for the whole Cargo workspace |
 | release scripts, `homebrew/**`, `desktop-release.yml`, `desktop-linux-release.yml`                                                                                    | `pnpm run test:release-scripts`                                                          |
 | root tooling: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `.oxlintrc.json`, `.oxfmtrc.json`, `.npmrc`, `.nvmrc`, `.husky/**`, `patches/**` | everything                                                                               |
 
@@ -406,6 +436,91 @@ CADENCR_PRECOMMIT_FULL=1 git commit
 Checks run against your working tree, so unstaged edits in the same files are
 checked too. CI always runs everything, so a scoped pass locally is not a
 guarantee.
+
+### Interpreters
+
+The root script tests need Python 3.11+, and the desktop tests need the Node of
+`.nvmrc` (Node ≥ 25 ships its own `localStorage`, which breaks them). The hook
+picks both itself, without changing your `PATH`:
+
+- `python3` on `PATH` when it is 3.11+; otherwise the newest `python3.1x` found
+  on `PATH`, then in pyenv, uv, `~/.local/bin`, Homebrew (`/opt/homebrew/bin`,
+  `/usr/local/bin`) on macOS, or Linuxbrew and `/usr/bin` on Linux.
+- the running `node` when it satisfies `engines.node`; otherwise the `.nvmrc`
+  version installed by fnm, nvm, volta, mise or asdf.
+
+When one is replaced, the hook prints which, and the checks run with a private
+directory holding only `python3` / `node` links (under
+`node_modules/.cache/cadencr-toolchain/`) first on their `PATH`. It stops with
+the fix when no compatible Python exists, or when the running Node is outside
+`engines.node` and no compatible install is found. `pnpm run test:scripts` does the same, and
+`pnpm doctor` reports the interpreter the hook will use. To run another command
+the same way: `node scripts/toolchain-env.mjs -- <command>`.
+
+### Rust test threads
+
+Many Rust tests spawn processes and bound how long a child may take, so a
+full-width suite on a machine other sessions already load starves its own
+children. Every Cargo command run through `pnpm rust` or the package scripts
+(the hook's Rust tests included) therefore sets `RUST_TEST_THREADS` when you
+have not: every CPU while they are idle, down to half of them (at least four,
+libtest's own default on a 4-CPU CI runner) as the load average takes them.
+The hook prints the value it uses and passes it to every step, Turbo's
+included. Set `RUST_TEST_THREADS` yourself, or pass `--test-threads`, to
+override it.
+
+### Intermittent test failures
+
+1. Record the tested SHA (`git rev-parse HEAD`), any local changes, the test
+   name, and the exact failing command and suite or CI shard. Include the OS,
+   toolchain and relevant environment, such as the effective `RUST_TEST_THREADS`
+   and concurrent load. Save the failure output or CI run link in the PR test
+   plan or existing issue, and link the issue from the PR when one exists.
+2. Rerun the original suite with the same SHA and local changes under comparable
+   conditions. If an isolated run helps narrow the cause, record its command and
+   result separately from the suite rerun. An isolated pass only establishes
+   that the test can pass on its own. A failure and a pass in comparable suite
+   runs support classifying the failure as intermittent. Keep the classification
+   open if the evidence is unclear.
+3. Fix the cause and keep the test in the suite. Rerun the affected suite under
+   the conditions that exposed the failure, and record the fixed SHA, command
+   and results alongside the original evidence. Mark the classification fixed
+   when the change addresses the observed cause and the affected suite passes
+   under comparable conditions. Link the fix in the existing issue, if any, and
+   follow the [issue lifecycle](#issue-lifecycle).
+
+### Disk space
+
+Steps that compile the Rust workspace or run every suite (Rust clippy and
+tests, the full workspace check), `pnpm dev:precompile`, `pnpm build`,
+`pnpm build:local` and `pnpm test` stop first when less than 10 GiB is free on
+the checkout's volume, and print what to clean (`pnpm rust:storage`,
+`pnpm rust:prune`). Set `CADENCR_MIN_FREE_DISK_GIB` to change the threshold
+(`0` disables the check).
+
+### Verifying a series of commits
+
+Before you push several commits, check each one on its own the way the hook
+would have:
+
+```bash
+pnpm verify:commits                       # main..HEAD
+pnpm verify:commits -- origin/main..HEAD --keep-going
+pnpm verify:commits -- HEAD~3..HEAD --full
+pnpm verify:commits -- --dry-run          # list the commits and their plans
+```
+
+It creates one temporary detached worktree (under the system temp directory, or
+`CADENCR_VERIFY_DIR`, for instance when `/tmp` is RAM-backed), checks out each
+commit in turn, installs dependencies when the lockfile changes, routes the
+files the commit changed with this checkout's `scripts/pre-commit.mjs`, runs
+those steps in the commit's tree with its own scripts, prints a summary, and
+removes the worktree, also after a failure or Ctrl-C. Your checkout, branch,
+index, uncommitted edits and `target/` are never touched: Rust builds go to
+`target/verify-commits`, kept between runs (the first one builds the
+dependencies; `pnpm rust:clean` removes it with the rest of `target/`).
+Without `--keep-going` it stops at the first failing commit; Ctrl-C always
+stops the series. Free space is checked on both volumes first.
 
 ## Pull Request Process
 

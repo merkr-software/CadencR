@@ -42,6 +42,49 @@ impl CodexAppServerClient {
         .map(|_| ())
     }
 
+    /// Replace the thread's history with the turns before `before_turn_id`
+    /// (that turn and every later one are dropped). History only: files are
+    /// left as they are.
+    pub async fn thread_revert(
+        &self,
+        thread_id: &str,
+        before_turn_id: &str,
+    ) -> Result<(), SdkError> {
+        self.request(
+            "thread/revert",
+            json!({
+                "threadId": thread_id,
+                "beforeTurnId": before_turn_id,
+            }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// Stop a command the thread still runs (Codex keeps a command running
+    /// past its turn, as a background terminal), with every process it
+    /// started. `process_id` is the command item's `processId`. Returns
+    /// whether a running command was stopped.
+    pub async fn thread_background_terminal_terminate(
+        &self,
+        thread_id: &str,
+        process_id: &str,
+    ) -> Result<bool, SdkError> {
+        let result = self
+            .request(
+                "thread/backgroundTerminals/terminate",
+                json!({
+                    "threadId": thread_id,
+                    "processId": process_id,
+                }),
+            )
+            .await?;
+        Ok(result
+            .get("terminated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+    }
+
     pub async fn thread_read(
         &self,
         thread_id: &str,
@@ -57,6 +100,13 @@ impl CodexAppServerClient {
             )
             .await?;
         parse_thread_snapshot(&result)
+    }
+
+    /// Archive a thread: it leaves the thread list but is not deleted.
+    pub async fn thread_archive(&self, thread_id: &str) -> Result<(), SdkError> {
+        self.request("thread/archive", json!({ "threadId": thread_id }))
+            .await
+            .map(|_| ())
     }
 
     pub async fn thread_unsubscribe(&self, thread_id: &str) -> Result<(), SdkError> {

@@ -1,0 +1,48 @@
+{
+  "kind": "provider",
+  "package": {
+    "agent": {
+      "id": "antigravity",
+      "name": "Google Antigravity",
+      "version": "0.1.0",
+      "description": "Use the Google Antigravity CLI as a CadencR agent through ACP. Requires a local installation of agy.",
+      "repository": "https://github.com/merkr-software/CadencR",
+      "license": "Apache-2.0",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "darwin-x86_64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "linux-aarch64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "linux-x86_64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      }
+    },
+    "host": {
+      "publisher": "cadencr",
+      "compatibility": {
+        "min_app_version": "0.16.4"
+      },
+      "assets": {
+        "icon": "icon.svg",
+        "readme": "README.md",
+        "license": "LICENSE"
+      }
+    }
+  }
+}

@@ -49,6 +49,7 @@ function createSession(
 }
 
 const afterCursor = (cursor: number, revision = 0) => ({
+  session: 2586,
   after: JSON.stringify({ 2586: cursor }),
   after_revisions: JSON.stringify({ 2586: revision }),
 });
@@ -247,6 +248,46 @@ describe("resyncMessagesOnReconnect", () => {
 
     expect(ctx.get().sessions.s1.blocks[0].promptDeliveryState).toBe("delivery_unknown");
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(10, 7));
+  });
+
+  it("recovers separate receipts across two steers without moving their streamed answers", async () => {
+    const pending = (id: number): AgentBlockData => ({
+      id: `msg-${id}`,
+      type: "user_message",
+      content: `request ${id}`,
+      messageDbId: id,
+      messageUuid: crypto.randomUUID(),
+      promptDeliveryState: "pending_agent",
+    });
+    const first = pending(12);
+    const second = pending(14);
+    const answer = makeBlock("msg-13", "first response");
+    const ctx = createCtx({
+      ...createSession([first, answer, second], 15),
+      promptReceiptsAtSubmission: true,
+    });
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [
+        {
+          sessionDbId: 2586,
+          maxMessageId: 16,
+          blocks: [
+            { ...first, promptDeliveryState: "received_agent" },
+            answer,
+            { ...second, promptDeliveryState: "delivery_failed" },
+            makeBlock("msg-16", "original command returned"),
+          ],
+        },
+      ],
+    });
+    await resyncMessagesOnReconnect(ctx, "s1");
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(11, 7));
+    expect(ctx.getSession("s1").rootBlocks.map((b) => [b.id, b.promptDeliveryState])).toEqual([
+      ["msg-12", "received_agent"],
+      ["msg-13", undefined],
+      ["msg-14", "delivery_failed"],
+      ["msg-16", undefined],
+    ]);
   });
 
   it("coalesces concurrent reconnect and gap resyncs", async () => {
@@ -466,7 +507,7 @@ describe("resyncMessagesOnReconnect", () => {
       sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-1", "restored")], maxMessageId: 1 }],
     });
     await resyncMessagesOnReconnect(ctx, "s1");
-    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077);
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, { session: 2586 });
     expect(ctx.get().sessions.s1.blocks.map((block) => block.id)).toEqual(["msg-1"]);
   });
 });
@@ -501,6 +542,7 @@ describe("repairPersistedBlocksAfterTurn", () => {
 
     await repairPersistedBlocksAfterTurn(ctx, "s1");
 
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, { session: 2586 });
     const repairedParent = ctx.get().sessions.s1.blocks[0];
     expect(repairedParent.childBlocks?.map((c) => c.id)).toEqual(["child-a", "child-b", "child-c"]);
   });

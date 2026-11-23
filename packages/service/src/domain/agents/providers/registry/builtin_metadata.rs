@@ -6,6 +6,7 @@ use cli_discovery::DiscoverySpec;
 
 use super::{ProviderDiscoveryMetadata, ProviderRegistrationMetadata};
 use crate::domain::agents::extensions::ExtensionCli;
+use crate::domain::agents::relocation::ProviderRelocator;
 use crate::domain::agents::updates::native_cli::{LatestVersionSource, NativeCliUpdater};
 
 pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
@@ -28,6 +29,9 @@ pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
     .with_extensions(Arc::new(
         crate::domain::agents::claude_code::extensions::ClaudeExtensions,
     ))
+    .with_relocator(Arc::new(
+        crate::domain::agents::claude_code::relocation::ClaudeRelocator,
+    ))
 }
 
 pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
@@ -48,6 +52,9 @@ pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
         )
     }
     .with_extensions(Arc::new(crate::domain::agents::codex::extensions::CodexExtensions))
+    .with_relocator(Arc::new(
+        crate::domain::agents::codex::relocation::CodexRelocator,
+    ))
 }
 
 pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
@@ -72,6 +79,11 @@ pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
 impl ProviderRegistrationMetadata {
     fn with_extensions(mut self, extensions: Arc<dyn ExtensionCli>) -> Self {
         self.extensions = Some(extensions);
+        self
+    }
+
+    fn with_relocator(mut self, relocator: Arc<dyn ProviderRelocator>) -> Self {
+        self.relocator = Some(relocator);
         self
     }
 }

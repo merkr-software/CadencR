@@ -13,6 +13,16 @@ export function rendersStandaloneToolResult(block: AgentBlockData): boolean {
   return isSubagentToolName(block.sourceToolName);
 }
 
+/**
+ * A standalone tool result row renders a sub-agent's report as prose, hover
+ * actions included — unless it is a hidden tool's error (`ToolResultContent`).
+ */
+export function rendersResultAsProse(block: AgentBlockData): boolean {
+  return (
+    block.type === "tool_result" && !(block.isError && shouldHideToolCall(block.sourceToolName))
+  );
+}
+
 /** Whether a tool call draws anything: runtime plumbing and todo updates never do. */
 export function rendersToolCall(block: AgentBlockData): boolean {
   if (block.toolName === "TodoWrite" || isTaskTodoTool(block.toolName)) return false;
