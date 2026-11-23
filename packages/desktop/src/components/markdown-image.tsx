@@ -7,7 +7,7 @@ import {
   type ReactEventHandler,
   type ReactNode,
 } from "react";
-import { ImageOffIcon, Loader2Icon } from "lucide-react";
+import { ImageOffIcon, Loader2Icon, Maximize2Icon } from "lucide-react";
 
 /** Internal Streamdown marker: render a loader, never fetch it as an image. */
 export const INCOMPLETE_MARKDOWN_IMAGE_SRC = "streamdown:incomplete-image";
@@ -48,7 +48,11 @@ export function PlainMarkdownImage({
   width,
   height,
   onError,
-}: MarkdownImageProps & { onError?: ReactEventHandler<HTMLImageElement> }): ReactElement {
+  onLoad,
+}: MarkdownImageProps & {
+  onError?: ReactEventHandler<HTMLImageElement>;
+  onLoad?: ReactEventHandler<HTMLImageElement>;
+}): ReactElement {
   return (
     <img
       src={src}
@@ -57,9 +61,50 @@ export function PlainMarkdownImage({
       width={width}
       height={height}
       onError={onError}
+      onLoad={onLoad}
       loading="lazy"
       className="inline-block h-auto max-w-full rounded align-middle"
     />
+  );
+}
+
+/**
+ * Clickable markdown image that opens full screen when clicking anywhere on
+ * the image or its floating top-right button. Rendered as an inline-block
+ * `<button>` so it remains valid phrasing content inside `<p>`.
+ */
+function ExpandableMarkdownImage({
+  onExpand,
+  onError,
+  ...props
+}: MarkdownImageProps & {
+  onExpand: () => void;
+  onError?: ReactEventHandler<HTMLImageElement>;
+}): ReactElement {
+  const [isTiny, setIsTiny] = useState(false);
+  const handleLoad: ReactEventHandler<HTMLImageElement> = (event) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    setIsTiny(naturalWidth > 0 && naturalHeight > 0 && Math.min(naturalWidth, naturalHeight) < 48);
+  };
+  const label = props.alt ? `Full screen: ${props.alt}` : "Full screen";
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={props.title ?? "Full screen"}
+      aria-label={label}
+      className="group/mdimg relative inline-block max-w-full cursor-zoom-in rounded align-middle text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <PlainMarkdownImage {...props} onError={onError} onLoad={handleLoad} />
+      {!isTiny && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded-md border border-border bg-background/80 text-foreground opacity-0 backdrop-blur-sm transition-opacity group-hover/mdimg:opacity-100 group-focus-visible/mdimg:opacity-100"
+        >
+          <Maximize2Icon className="size-3.5" />
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -95,8 +140,13 @@ export function MarkdownImageNotice({
 export function ProxiedMarkdownImage({
   url,
   errorMessage,
+  onExpand,
   ...props
-}: MarkdownImageProps & { url: string | null; errorMessage: string | null }): ReactElement {
+}: MarkdownImageProps & {
+  url: string | null;
+  errorMessage: string | null;
+  onExpand?: () => void;
+}): ReactElement {
   const label = props.alt || props.src || "image";
   if (errorMessage) {
     return (
@@ -112,17 +162,25 @@ export function ProxiedMarkdownImage({
       </MarkdownImageNotice>
     );
   }
-  return <DecodedMarkdownImage key={url} {...props} src={url} />;
+  return <DecodedMarkdownImage key={url} {...props} src={url} onExpand={onExpand} />;
 }
 
 /** Fetching bytes can succeed even when the browser cannot decode them. */
-export function DecodedMarkdownImage(props: MarkdownImageProps): ReactElement {
+export function DecodedMarkdownImage({
+  onExpand,
+  ...props
+}: MarkdownImageProps & { onExpand?: () => void }): ReactElement {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
       <MarkdownImageNotice title="Could not display this image." label={props.alt || "image"}>
         <ImageOffIcon className="size-3.5 shrink-0" aria-hidden />
       </MarkdownImageNotice>
+    );
+  }
+  if (onExpand) {
+    return (
+      <ExpandableMarkdownImage {...props} onExpand={onExpand} onError={() => setFailed(true)} />
     );
   }
   return <PlainMarkdownImage {...props} onError={() => setFailed(true)} />;

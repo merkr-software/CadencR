@@ -14,6 +14,12 @@ export interface LightboxImage {
   id: string;
   /** Blob or data URL. `null` when the payload is no longer resolvable. */
   src: string | null;
+  /**
+   * Optional Blob owned by the caller (e.g. a virtualized chat row whose own
+   * object URL is revoked on unmount). When supplied, the store mints its own
+   * object URL for the lifetime of the open viewer and revokes it on close.
+   */
+  blob?: Blob;
   alt: string;
   fileName?: string;
   mediaType?: string;
@@ -30,17 +36,43 @@ interface ImageLightboxState {
   step: (delta: number) => void;
 }
 
+let ownedObjectUrls: string[] = [];
+
+function revokeOwnedObjectUrls(): void {
+  for (const url of ownedObjectUrls) {
+    URL.revokeObjectURL(url);
+  }
+  ownedObjectUrls = [];
+}
+
+function retainImageBlobs(images: LightboxImage[]): LightboxImage[] {
+  revokeOwnedObjectUrls();
+  return images.map((image) => {
+    if (!image.blob) return image;
+    const { blob, ...rest } = image;
+    const ownedUrl = URL.createObjectURL(blob);
+    ownedObjectUrls.push(ownedUrl);
+    return { ...rest, src: ownedUrl };
+  });
+}
+
 export const useImageLightboxStore = create<ImageLightboxState>((set, get) => ({
   open: false,
   images: [],
   index: 0,
   openLightbox: (images, index = 0) => {
     if (images.length === 0) return;
-    set({ open: true, images, index: Math.min(Math.max(index, 0), images.length - 1) });
+    const retained = retainImageBlobs(images);
+    set({
+      open: true,
+      images: retained,
+      index: Math.min(Math.max(index, 0), retained.length - 1),
+    });
   },
-  // The host unmounts its content on close, so the stale list is never read;
-  // the next open replaces it wholesale.
-  close: () => set({ open: false }),
+  close: () => {
+    revokeOwnedObjectUrls();
+    set({ open: false, images: [], index: 0 });
+  },
   setIndex: (index) => set({ index }),
   step: (delta) => {
     const { images, index } = get();
