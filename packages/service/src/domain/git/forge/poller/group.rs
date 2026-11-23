@@ -1,4 +1,7 @@
 //! Single repo-group polling and snapshot publication.
+//!
+//! Polling only computes [`Publication`]s; the caller publishes them while it
+//! holds the publish-order lock, so forge network calls never run under it.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -22,15 +25,35 @@ use crate::shared::discard::IgnoreClosed;
 /// How many per-PR forge lookups a single repo group runs at once.
 pub(super) const PR_FANOUT: usize = 4;
 
-pub(super) async fn group_targets(
-    state: &AppState,
+/// A snapshot to publish, and the branch it describes as the feature's
+/// current one when it comes from a poll.
+pub(super) struct Publication {
+    pub(super) snapshot: PrStatusSnapshot,
+    current_branch: Option<Option<String>>,
+}
+
+impl Publication {
+    /// A snapshot that did not come from polling the forge (no remote, a
+    /// setup or transient error): the noted current branch stays as it is.
+    pub(super) fn unpolled(snapshot: PrStatusSnapshot) -> Self {
+        Self {
+            snapshot,
+            current_branch: None,
+        }
+    }
+}
+
+/// Group pollable targets by repository; the others already have their
+/// snapshot.
+pub(super) fn group_targets(
     targets: Vec<FeatureForgeTarget>,
     configs: &BTreeMap<String, ForgeHostConfig>,
-) -> HashMap<RepoKey, RepoGroup> {
+) -> (HashMap<RepoKey, RepoGroup>, Vec<Publication>) {
     let mut groups = HashMap::<RepoKey, RepoGroup>::new();
+    let mut unpolled = Vec::new();
     for target in targets {
         if let Some(snapshot) = target_without_repo_snapshot(&target) {
-            publish(state, snapshot).await;
+            unpolled.push(Publication::unpolled(snapshot));
             continue;
         }
         let single = build_single_group(target, configs);
@@ -43,7 +66,7 @@ pub(super) async fn group_targets(
             .features
             .extend(single.features);
     }
-    groups
+    (groups, unpolled)
 }
 
 pub(super) fn build_single_group(
@@ -113,14 +136,12 @@ async fn resolve_group_context(
     Ok((provider, context))
 }
 
-pub(super) async fn refresh_group(state: &AppState, group: &RepoGroup) {
+/// Poll one repo group and return what to publish for each of its features.
+pub(super) async fn poll_group(state: &AppState, group: &RepoGroup) -> Vec<Publication> {
     let hostname = &group.remote.hostname;
     let (provider, context) = match resolve_group_context(state, group).await {
         Ok(resolved) => resolved,
-        Err(error) => {
-            publish_group_error(state, group, &error).await;
-            return;
-        }
+        Err(error) => return group_error(group, &error),
     };
     let prs = match provider.list_open_prs(&context).await {
         Ok(prs) => prs,
@@ -132,8 +153,7 @@ pub(super) async fn refresh_group(state: &AppState, group: &RepoGroup) {
             }
             // The first real call is where an expired or wrongly-scoped token
             // surfaces, so this arm carries onboarding failures too.
-            publish_group_error(state, group, &error).await;
-            return;
+            return group_error(group, &error);
         }
     };
     let mut matches = matched_prs(group, &prs);
@@ -164,31 +184,50 @@ pub(super) async fn refresh_group(state: &AppState, group: &RepoGroup) {
         unresolved_by_pr: &unresolved_by_pr,
         fetched_at: chrono::Utc::now().timestamp_millis(),
     };
-    for feature in &group.features {
-        let error = detail_errors.get(&feature.feature_id).cloned();
-        let current = feature.tracked.first().map(|branch| branch.name.as_str());
-        state
-            .forge_status
-            .set_current_branch(feature.feature_id, current)
-            .await;
-        publish(state, feature_snapshot(feature, &polled, error)).await;
-    }
+    group
+        .features
+        .iter()
+        .map(|feature| {
+            let error = detail_errors.get(&feature.feature_id).cloned();
+            Publication {
+                snapshot: feature_snapshot(feature, &polled, error),
+                current_branch: Some(feature.tracked.first().map(|branch| branch.name.clone())),
+            }
+        })
+        .collect()
 }
 
 /// Report one group-wide failure against every feature in the group.
-async fn publish_group_error(state: &AppState, group: &RepoGroup, error: &ForgeError) {
+fn group_error(group: &RepoGroup, error: &ForgeError) -> Vec<Publication> {
     let setup_required = error.is_setup_failure();
     let detail = error.to_string();
-    for feature in &group.features {
-        publish(
-            state,
-            PrStatusSnapshot::unpolled(feature.feature_id, Some(detail.clone()), setup_required),
-        )
-        .await;
+    group
+        .features
+        .iter()
+        .map(|feature| {
+            Publication::unpolled(PrStatusSnapshot::unpolled(
+                feature.feature_id,
+                Some(detail.clone()),
+                setup_required,
+            ))
+        })
+        .collect()
+}
+
+/// Publish polled snapshots. Callers hold the publish-order lock.
+pub(super) async fn publish_all(state: &AppState, publications: Vec<Publication>) {
+    for publication in publications {
+        if let Some(current) = publication.current_branch {
+            state
+                .forge_status
+                .set_current_branch(publication.snapshot.feature_id, current.as_deref())
+                .await;
+        }
+        publish(state, publication.snapshot).await;
     }
 }
 
-pub(super) async fn publish(state: &AppState, snapshot: PrStatusSnapshot) {
+async fn publish(state: &AppState, snapshot: PrStatusSnapshot) {
     if state.forge_status.upsert(snapshot.clone()).await {
         state.forge_events_tx.send(snapshot).ignore_closed();
     }

@@ -223,9 +223,11 @@ async fn run_cli_output(
 
 fn classify_cli_error(binary: &str, error: BoundedCommandError) -> ForgeError {
     let message = error.to_string();
-    if message.starts_with("timed out") {
-        ForgeError::Authentication(format!(
-            "{binary} {message} while resolving credentials. Run {binary} auth login and try again."
+    if error.is_timed_out() {
+        // A slow CLI (keychain prompt, loaded machine, network check) is not
+        // a credential problem: logging in again would not help.
+        ForgeError::Timeout(format!(
+            "{binary} did not return credentials in time ({message}); try again shortly."
         ))
     } else if error.is_output_exceeded() {
         ForgeError::Authentication(format!(
@@ -380,8 +382,12 @@ mod tests {
         .await
         .expect_err("hung CLI must time out");
         assert!(
-            matches!(&err, ForgeError::Authentication(msg) if msg.contains("timed out")),
+            matches!(&err, ForgeError::Timeout(msg) if msg.contains("timed out") && !msg.contains("auth login")),
             "unexpected error: {err:?}"
+        );
+        assert!(
+            !err.is_setup_failure(),
+            "a timeout is transient, not a setup prompt"
         );
 
         // Give the kernel a brief window to reap the killed child.
