@@ -305,6 +305,16 @@ pub struct RuntimeSpawnConfig {
     pub profile_state_identity: Option<String>,
 }
 
+impl RuntimeSpawnConfig {
+    /// Non-empty trimmed `system_prompt`, or `None` when unset or blank.
+    pub fn trimmed_system_prompt(&self) -> Option<&str> {
+        self.system_prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|prompt| !prompt.is_empty())
+    }
+}
+
 impl Default for RuntimeSpawnConfig {
     fn default() -> Self {
         Self {

@@ -28,14 +28,14 @@ use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
 pub(super) struct OpenCodeV2Hooks {
     binary: PathBuf,
-    /// Cadencr's instructions file, read by the process for its lifetime.
-    _instructions_dir: TempDir,
+    /// Optional Cadencr instructions file, kept alive for the process lifetime.
+    _instructions_dir: Option<TempDir>,
     mcp_tool_names: McpToolNameResolver,
     resolved_mcp: ResolvedMcpConfig,
 }
 
 impl OpenCodeV2Hooks {
-    pub(super) fn new(binary: PathBuf, instructions_dir: TempDir) -> Self {
+    pub(super) fn new(binary: PathBuf, instructions_dir: Option<TempDir>) -> Self {
         Self {
             binary,
             _instructions_dir: instructions_dir,
