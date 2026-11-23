@@ -12,13 +12,13 @@ export function startAgentBrowserBridge(
   getMainWindow: () => BrowserWindow | null,
 ): Promise<BrowserBridgeHandle> {
   return startBrowserBridgeServer({
-    dispatch: async (toolName, args, featureId) => {
+    dispatch: async (toolName, args, featureId, signal) => {
       const manager = getManager();
       if (!manager) throw new Error("Browser manager is not ready.");
       // Shield the renderer's focus (most visibly the agent prompt) from being
       // stolen by the guest page while the agent drives the browser.
       const result = await manager.focusGuard.run(() =>
-        dispatchBrowserMcpTool(manager, toolName, args, featureId),
+        dispatchBrowserMcpTool(manager, toolName, args, featureId, signal),
       );
       // Let the renderer follow the agent (auto layout, activity indicator).
       const activity = agentActivityFor(toolName, featureId);

@@ -1,9 +1,11 @@
 import type { Session, WebContents } from "electron";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
+import { BrowserSiteApi } from "./browser-site-api";
 import { BrowserSiteController, type BrowserSiteTab } from "./browser-site-controller";
 import { BrowserSitePermissionStore } from "./browser-site-permission-store";
 import { createBrowserProfile } from "./browser-profiles";
+import type { ManagedTab } from "./browser-tab-events";
 
 type RequestHandler = NonNullable<Parameters<Session["setPermissionRequestHandler"]>[0]>;
 type CheckHandler = NonNullable<Parameters<Session["setPermissionCheckHandler"]>[0]>;
@@ -82,6 +84,7 @@ function fakeBrowser(mode: "fresh" | "persistent" = "fresh"): FakeBrowser {
     },
     profile,
     automationAccess: "user",
+    externalAutomationOrigin: null,
     webContents: wc,
   };
   const send = vi.fn();
@@ -304,5 +307,35 @@ describe("BrowserSiteController", () => {
     expect(duplicateCallback).toHaveBeenCalledWith(false);
     const request = browser.send.mock.calls[0]?.[1] as { requestId: string };
     browser.controller.resolvePermissionRequest(request.requestId, false);
+  });
+
+  it("updates metadata.agentAccess, externalAutomationOrigin, emits state on change, and syncs pending access", () => {
+    const browser = fakeBrowser();
+    const managedTab = browser.tab as unknown as ManagedTab;
+    const emitState = vi.fn();
+    const syncExternal = vi.fn();
+    const api = new BrowserSiteApi(browser.controller, () => managedTab, emitState, syncExternal);
+
+    const sharedInfo = api.setSharing("tab-1", "https://app.example.com", true);
+    expect(sharedInfo.agentAccess).toBe("shared");
+    expect(managedTab.automationAccess).toBe("shared");
+    expect(managedTab.metadata.agentAccess).toBe("shared");
+    expect(managedTab.externalAutomationOrigin).toBe("https://app.example.com");
+    expect(emitState).toHaveBeenCalledWith(7);
+    expect(syncExternal).toHaveBeenCalledWith("tab-1", true);
+
+    // Repeating an identical share does not re-emit state, but still syncs external access.
+    api.setSharing("tab-1", "https://app.example.com", true);
+    expect(emitState).toHaveBeenCalledTimes(1);
+
+    // Revoking succeeds even after the live URL changed or failed to load.
+    browser.setUrl("about:blank");
+    const revokedInfo = api.setSharing("tab-1", "https://app.example.com", false);
+    expect(revokedInfo.agentAccess).toBe("user");
+    expect(managedTab.automationAccess).toBe("user");
+    expect(managedTab.metadata.agentAccess).toBe("user");
+    expect(managedTab.externalAutomationOrigin).toBeNull();
+    expect(emitState).toHaveBeenCalledTimes(2);
+    expect(syncExternal).toHaveBeenLastCalledWith("tab-1", false);
   });
 });

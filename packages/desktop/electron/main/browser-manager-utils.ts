@@ -9,6 +9,7 @@ import {
   type BrowserProfile,
 } from "./browser-profiles";
 import type {
+  BrowserAgentAccess,
   BrowserConsoleEntry,
   BrowserElementContext,
   BrowserNetworkEntry,
@@ -51,6 +52,29 @@ export function externalAutomationMatches(liveUrl: string, unlockedOrigin: strin
     !isCadencrBrowserUrl(liveUrl) &&
     originOf(liveUrl) === unlockedOrigin
   );
+}
+
+/**
+ * Apply a `"shared"` / `"user"` agent-access transition on a live tab.
+ * Returns true only when `automationAccess`, `metadata.agentAccess`, or
+ * `externalAutomationOrigin` changed.
+ */
+export function applyTabAgentAccess(
+  tab: Pick<ManagedTab, "automationAccess" | "metadata" | "externalAutomationOrigin">,
+  shared: boolean,
+  origin: string | null,
+): boolean {
+  const nextAccess: BrowserAgentAccess = shared ? "shared" : "user";
+  const nextOrigin = shared && origin && !isCadencrBrowserUrl(origin) ? origin : null;
+  const changed =
+    tab.automationAccess !== nextAccess ||
+    tab.metadata.agentAccess !== nextAccess ||
+    tab.externalAutomationOrigin !== nextOrigin;
+  if (!changed) return false;
+  tab.automationAccess = nextAccess;
+  tab.metadata = { ...tab.metadata, agentAccess: nextAccess };
+  tab.externalAutomationOrigin = nextOrigin;
+  return true;
 }
 
 // One ⌘+/⌘- step multiplies the guest page's own zoom factor (independent of

@@ -1,7 +1,7 @@
 import { useAutoLayoutStore, type AutoRevealKind } from "@/stores/auto-layout-store";
 import type { TabKind } from "@/stores/feature-layout-schema";
 import { choosePlacement, planReveal } from "@/stores/feature-layout-reveal";
-import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
+import { activateFeatureTab, useFeatureLayoutStore } from "@/stores/feature-layout-store";
 
 /**
  * Runtime half of the auto layout mode: decides *whether* a reveal may happen
@@ -75,6 +75,17 @@ export function requestAutoReveal(
     .getState()
     .recordReveal(featureId, before, { paneId: result.paneId, kind: result.kind });
   return result.kind;
+}
+
+/** Reveal `tab` via auto layout, or activate it in place when auto layout declines. */
+export function revealOrActivateFeatureTab(
+  featureId: number,
+  tab: TabKind,
+  source: RevealSource,
+): void {
+  if (requestAutoReveal(featureId, tab, source) === "declined") {
+    activateFeatureTab(featureId, tab);
+  }
 }
 
 function agentMayReveal(featureId: number): boolean {

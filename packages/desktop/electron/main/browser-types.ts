@@ -14,6 +14,9 @@ export type {
   BrowserNetworkEntry,
   BrowserOpenUrlOptions,
   BrowserAgentAccess,
+  BrowserAgentAccessRequest,
+  BrowserAgentTabSummary,
+  BrowserAgentTabsList,
   BrowserBookmark,
   BrowserHistoryEntry,
   BrowserLibraryChange,
@@ -27,7 +30,10 @@ export type {
   BrowserShortcut,
   BrowserShortcutBinding,
   BrowserStateSnapshot,
+  BrowserTabError,
+  BrowserTabErrorKind,
   BrowserTabMetadata,
+  BrowserTabPrivacy,
 } from "../../src/shared/browser-types";
 
 export type {

@@ -15,11 +15,8 @@ import {
   type MarkdownImageProps,
 } from "@/components/markdown-image";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, stripElectronIpcPrefix } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
-
-/** Electron prefixes errors thrown by an `ipcMain.handle` handler; keep only the handler's message. */
-const IPC_ERROR_PREFIX = /^Error invoking remote method '[^']+': (?:Error: )?/;
 
 async function changelogImageBlob(src: string): Promise<Blob> {
   const { data, mimeType } = await desktopBridge.fetchChangelogImage(src);
@@ -47,7 +44,7 @@ export function ChangelogImage(props: MarkdownImageProps): ReactElement {
   const errorMessage = !src
     ? "This image has no source."
     : query.error
-      ? apiErrorMessage(query.error, "Could not load this image").replace(IPC_ERROR_PREFIX, "")
+      ? stripElectronIpcPrefix(apiErrorMessage(query.error, "Could not load this image"))
       : null;
   return <ProxiedMarkdownImage {...props} url={url} errorMessage={errorMessage} />;
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { BrowserTabPrivacy } from "./browser-types";
 
 export type BrowserProfileMode = "fresh" | "feature" | "persistent";
 
@@ -6,6 +7,17 @@ export interface BrowserProfile {
   id: string;
   label: string;
   mode: BrowserProfileMode;
+}
+
+export function privacyForProfileMode(mode: BrowserProfileMode): BrowserTabPrivacy {
+  if (mode === "persistent") return "normal";
+  return mode === "fresh" ? "private" : "feature";
+}
+
+export function privacyFromProfileId(profileId: string): BrowserTabPrivacy {
+  if (profileId === "fresh") return "private";
+  if (profileId === "feature") return "feature";
+  return "normal";
 }
 
 export function createBrowserProfile(mode: BrowserProfileMode, id?: string): BrowserProfile {

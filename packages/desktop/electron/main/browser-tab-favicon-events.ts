@@ -29,8 +29,7 @@ export function installBrowserFaviconEvents(tab: ManagedTab, host: TabEventHost)
       })
       .catch((error: unknown) => {
         if (!isCurrent()) return;
-        const message = error instanceof Error ? error.message : String(error);
-        if (host.setTabError(`Could not load page icon: ${message}`)) host.emitState();
+        console.debug("[browser] favicon load skipped", error);
       })
       .finally(() => {
         tab.pendingSessionTasks.delete(task);

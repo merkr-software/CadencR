@@ -49,24 +49,39 @@ export function BrowserEmptyState({
 }
 
 export function BrowserError({
+  title,
   message,
   onDismiss,
 }: {
+  title?: string;
   message: string;
   onDismiss: () => void;
 }): ReactElement {
   return (
-    <div className="flex items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-      <AlertTriangleIcon className="size-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{message}</span>
-      <button
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-2 border-b border-[color-mix(in_oklab,var(--destructive)_35%,transparent)] bg-[color-mix(in_oklab,var(--destructive)_8%,var(--card))] px-3 py-2 text-xs text-foreground"
+    >
+      <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-destructive" />
+      <div className="min-w-48 flex-1">
+        {title ? (
+          <>
+            <p className="font-medium text-foreground">{title}</p>
+            <p className="text-muted-foreground">{message}</p>
+          </>
+        ) : (
+          <p className="truncate font-medium text-foreground">{message}</p>
+        )}
+      </div>
+      <Button
         type="button"
+        size="icon-xs"
+        variant="ghost"
         aria-label="Dismiss browser error"
-        className="rounded p-1 hover:bg-destructive/15"
         onClick={onDismiss}
       >
-        <XIcon className="size-3.5" />
-      </button>
+        <XIcon />
+      </Button>
     </div>
   );
 }

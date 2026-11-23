@@ -1,12 +1,19 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { desktopBridge, isDesktopShell, type BrowserTabMetadata } from "@/lib/desktop-bridge";
+import {
+  desktopBridge,
+  isDesktopShell,
+  type BrowserTabError,
+  type BrowserTabMetadata,
+} from "@/lib/desktop-bridge";
 import { useBrowserDefaultMode, type CookieMode } from "@/lib/browser-settings";
 import { useSuppressBrowserView } from "@/lib/browser-suppression";
 import { BrowserAddressBar } from "./browser/BrowserAddressBar";
+import { BrowserAgentAccessBanner } from "./browser/BrowserAgentAccessBanner";
 import { BrowserCommentDock } from "./browser/BrowserCommentDock";
 import { BrowserCommentOverlay } from "./browser/BrowserCommentOverlay";
 import { BrowserFindToolbar } from "./browser/BrowserFindToolbar";
 import { BrowserDownloadsPanel } from "./browser/BrowserDownloadsPanel";
+import { BrowserPageError } from "./browser/BrowserPageError";
 import { BrowserPermissionPrompt } from "./browser/BrowserPermissionPrompt";
 import { BrowserPopupNotice } from "./browser/BrowserPopupNotice";
 import { BrowserResponsiveToolbar } from "./browser/BrowserResponsiveToolbar";
@@ -113,7 +120,16 @@ function BrowserWorkspaceView({
     downloadsOpen ||
     responsiveMenuOpen ||
     comments.draft !== null;
-  const snapshot = useSuppressedBrowserSnapshot(overlayActive, model.activeTab);
+  const pageError = resolvePageError(model.state.tabError);
+  const chromeError = model.state.tabError && !pageError ? model.state.tabError : null;
+  const retryPageError = useCallback((): void => {
+    if (pageError?.url) {
+      void model.navigate(pageError.url);
+    } else {
+      model.reload();
+    }
+  }, [model.navigate, model.reload, pageError?.url]);
+  const snapshot = useSuppressedBrowserSnapshot(overlayActive && !pageError, model.activeTab);
   useSuppressBrowserView(snapshot.suppressNativeView);
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -131,9 +147,20 @@ function BrowserWorkspaceView({
         onResponsiveOverlayOpenChange={setResponsiveMenuOpen}
       />
       {model.find.open ? <BrowserFindToolbar find={model.find} /> : null}
-      {model.state.error ? (
-        <BrowserError message={model.state.error} onDismiss={model.clearError} />
+      {chromeError ? (
+        <BrowserError
+          title={chromeError.title}
+          message={chromeError.description}
+          onDismiss={() => model.clearError("tab")}
+        />
+      ) : model.state.error ? (
+        <BrowserError message={model.state.error} onDismiss={() => model.clearError("scope")} />
       ) : null}
+      <BrowserAgentAccessBanner
+        scopeId={scopeId}
+        activeTabId={model.state.activeTabId}
+        onActivateTab={model.activateTab}
+      />
       <BrowserPopupNotice scopeId={scopeId} activeTabId={model.state.activeTabId} />
       <BrowserCommentDock
         count={comments.comments.length}
@@ -141,36 +168,77 @@ function BrowserWorkspaceView({
         onSend={comments.send}
         onDiscardAll={comments.discardAll}
       />
-      <div
-        ref={containerRef}
-        className={`relative min-h-0 flex-1 ${responsiveGeometry ? "bg-muted/30" : ""}`}
-      >
-        {model.activeTab?.loading ? (
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/15">
-            <div className="h-full w-1/3 animate-[browser-progress_1.1s_ease-in-out_infinite] bg-primary" />
-          </div>
-        ) : null}
-        <BrowserResponsiveFrame geometry={responsiveGeometry} />
-        <div ref={model.viewportRef} className="absolute inset-0" />
-        {overlayActive && snapshot.src ? (
-          <BrowserSnapshot src={snapshot.src} geometry={responsiveGeometry} />
-        ) : null}
-        {comments.draft ? (
-          <BrowserCommentOverlay
-            draft={comments.draft}
-            containerRef={containerRef}
-            pageGeometry={responsiveGeometry}
-            onSave={comments.saveDraft}
-            onCancel={comments.cancelDraft}
-            onToggleScreenshot={comments.toggleDraftScreenshot}
-            onRemove={comments.removeComment}
-          />
-        ) : null}
-        {model.activeTab ? null : (
-          <BrowserEmptyState onNewTab={newTab} creating={model.creatingMode !== null} />
-        )}
-      </div>
+      <BrowserViewport
+        containerRef={containerRef}
+        model={model}
+        comments={comments}
+        responsiveGeometry={responsiveGeometry}
+        pageError={pageError}
+        onRetryPageError={retryPageError}
+        snapshotSrc={overlayActive && !pageError ? snapshot.src : null}
+        onNewTab={newTab}
+      />
       <BrowserPermissionPrompt scopeId={scopeId} onOpenChange={setPermissionPromptOpen} />
+    </div>
+  );
+}
+
+function resolvePageError(tabError: BrowserTabError | null | undefined): BrowserTabError | null {
+  if (!tabError) return null;
+  return tabError.kind === "load" || tabError.kind === "security" || tabError.kind === "crash"
+    ? tabError
+    : null;
+}
+
+function BrowserViewport({
+  containerRef,
+  model,
+  comments,
+  responsiveGeometry,
+  pageError,
+  onRetryPageError,
+  snapshotSrc,
+  onNewTab,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  model: BrowserWorkspaceModel;
+  comments: CommentsController;
+  responsiveGeometry: ReturnType<typeof useBrowserResponsiveGeometry>;
+  pageError: BrowserTabError | null;
+  onRetryPageError: () => void;
+  snapshotSrc: string | null;
+  onNewTab: () => void;
+}): ReactElement {
+  return (
+    <div
+      ref={containerRef}
+      className={`relative min-h-0 flex-1 ${responsiveGeometry ? "bg-muted/30" : ""}`}
+    >
+      {model.activeTab?.loading ? (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/15">
+          <div className="h-full w-1/3 animate-[browser-progress_1.1s_ease-in-out_infinite] bg-primary" />
+        </div>
+      ) : null}
+      <BrowserResponsiveFrame geometry={responsiveGeometry} />
+      <div ref={model.viewportRef} className="absolute inset-0" />
+      {pageError ? (
+        <BrowserPageError error={pageError} onRetry={onRetryPageError} retrying={model.pending} />
+      ) : null}
+      {snapshotSrc ? <BrowserSnapshot src={snapshotSrc} geometry={responsiveGeometry} /> : null}
+      {comments.draft ? (
+        <BrowserCommentOverlay
+          draft={comments.draft}
+          containerRef={containerRef}
+          pageGeometry={responsiveGeometry}
+          onSave={comments.saveDraft}
+          onCancel={comments.cancelDraft}
+          onToggleScreenshot={comments.toggleDraftScreenshot}
+          onRemove={comments.removeComment}
+        />
+      ) : null}
+      {model.activeTab ? null : (
+        <BrowserEmptyState onNewTab={onNewTab} creating={model.creatingMode !== null} />
+      )}
     </div>
   );
 }

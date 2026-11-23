@@ -1,8 +1,7 @@
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { showBrowserError } from "@/components/browser/browser-errors";
 import { PROFILE_ID, type CookieMode } from "@/lib/browser-settings";
-import { activateFeatureTab } from "@/stores/feature-layout-store";
-import { requestAutoReveal } from "@/lib/auto-layout/auto-layout-controller";
+import { revealOrActivateFeatureTab } from "@/lib/auto-layout/auto-layout-controller";
 
 /**
  * Single source of truth for where a clicked link opens. The terminal and the
@@ -120,9 +119,7 @@ async function openInCadencrBrowser(url: string, options: OpenLinkOptions): Prom
     // Reveal the feature's Browser panel so the freshly-opened tab is visible
     // rather than loading behind the terminal or agent chat. Auto layout splits
     // it beside the agent; otherwise it's activated in place.
-    if (requestAutoReveal(options.scopeId, "browser", "user-link") === "declined") {
-      activateFeatureTab(options.scopeId, "browser");
-    }
+    revealOrActivateFeatureTab(options.scopeId, "browser", "user-link");
   } catch (error) {
     showBrowserError(error, "Could not open in Cadencr browser");
   }
