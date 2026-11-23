@@ -139,23 +139,78 @@ mod tests {
         assert!(error.to_string().contains("quick_check failed"));
     }
 
+    /// The anti-freeze contract between the pools: an open write transaction
+    /// (a long maintenance batch, a migration step) must not stall readers,
+    /// all read connections can be in use at once, and the read pool can never
+    /// write.
     #[tokio::test]
-    async fn write_pool_uses_normal_synchronous_mode_and_read_pool_allows_twelve_connections() {
+    async fn readers_are_not_blocked_by_an_open_write_transaction() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("tuned.db");
-        let path_str = path.to_str().unwrap();
-
-        let write_pool = create_write_pool(path_str).await.unwrap();
-        let sync_mode: i64 = sqlx::query_scalar("PRAGMA synchronous")
+        let path = dir.path().join("concurrent.db");
+        let path = path.to_str().unwrap();
+        let write_pool = create_write_pool(path).await.unwrap();
+        sqlx::query("CREATE TABLE entries (value INTEGER)")
+            .execute(&write_pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO entries VALUES (1)")
+            .execute(&write_pool)
+            .await
+            .unwrap();
+        let read_pool = create_read_pool(path).await.unwrap();
+        // Readers only stay unblocked through a committing writer under WAL;
+        // NORMAL sync is the write-latency trade-off WAL makes safe.
+        for pool in [&write_pool, &read_pool] {
+            let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+            assert_eq!(mode, "wal");
+        }
+        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
             .fetch_one(&write_pool)
             .await
             .unwrap();
-        // SQLite PRAGMA synchronous: 0 = OFF, 1 = NORMAL, 2 = FULL, 3 = EXTRA
-        assert_eq!(sync_mode, 1);
+        assert_eq!(synchronous, 1, "write pool must use synchronous = NORMAL");
 
-        let read_pool = create_read_pool(path_str).await.unwrap();
-        assert_eq!(read_pool.options().get_max_connections(), 12);
+        let mut writer = write_pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO entries VALUES (2)")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
 
+        // Every reader holds its connection until all of them hold one, so
+        // this only finishes if the pool really serves them in parallel.
+        let parallel = read_pool.options().get_max_connections() as usize;
+        assert!(
+            parallel > 4,
+            "four readers starved the API under maintenance"
+        );
+        let all_connected = tokio::sync::Barrier::new(parallel);
+        let readers = (0..parallel).map(|_| async {
+            let mut conn = read_pool.acquire().await.unwrap();
+            let seen: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM entries")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+            all_connected.wait().await;
+            seen
+        });
+        let seen = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            futures::future::join_all(readers),
+        )
+        .await
+        .expect("readers blocked behind the open write transaction");
+        // Readers see the last commit, not the writer's pending row.
+        assert!(seen.iter().all(|count| *count == 1), "{seen:?}");
+
+        let refused = sqlx::query("INSERT INTO entries VALUES (3)")
+            .execute(&read_pool)
+            .await;
+        assert!(refused.is_err(), "the read pool must not write");
+
+        writer.commit().await.unwrap();
         read_pool.close().await;
         write_pool.close().await;
     }
