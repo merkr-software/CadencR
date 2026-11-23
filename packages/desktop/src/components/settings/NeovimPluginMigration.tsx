@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getGetWorkspaceSettingQueryKey,
   getMigrationStatusRouteQueryKey,
@@ -90,8 +91,25 @@ export function NeovimPluginMigration(): React.JSX.Element | null {
   const [error, setError] = useState<string | null>(null);
 
   if (id !== "neovim") return null;
+  if (status.isError) {
+    return (
+      <div className="space-y-2 rounded-md border border-border p-3">
+        <div className="text-sm font-medium">Move full Neovim to the Neovim plugin</div>
+        <p role="alert" className="text-xs text-destructive">
+          {apiErrorMessage(status.error, "Migration status could not be loaded.")}
+        </p>
+      </div>
+    );
+  }
+  if (status.isLoading || !status.data) {
+    return (
+      <div className="space-y-2 rounded-md border border-border p-3">
+        <div className="text-sm font-medium">Move full Neovim to the Neovim plugin</div>
+        <Skeleton aria-label="Loading migration status" className="h-8 w-full" />
+      </div>
+    );
+  }
   const data = status.data;
-  if (!data) return null;
 
   const onMigrate = async (): Promise<void> => {
     setError(null);
@@ -123,7 +141,7 @@ export function NeovimPluginMigration(): React.JSX.Element | null {
           onClick={() => void onMigrate()}
           disabled={data.sessions_running.length > 0 || migrate.isPending}
         >
-          Switch to the Neovim plugin
+          {migrate.isPending ? "Switching…" : "Switch to the Neovim plugin"}
         </Button>
       )}
       {migrationHint(data)}

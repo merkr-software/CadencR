@@ -33,6 +33,11 @@ vi.mock("@/api/generated", async (original) => {
         staleTime: Infinity,
       }),
     usePluginTabList: () => ({ data: [editor], isLoading: false, isError: false }),
+    useMigrationStatusRoute: () => ({
+      data: { plugin: "ready", sessions_running: [] },
+      isLoading: false,
+      isError: false,
+    }),
     setWorkspaceSetting: mocks.persist,
   };
 });

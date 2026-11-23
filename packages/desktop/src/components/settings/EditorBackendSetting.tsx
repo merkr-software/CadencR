@@ -1,4 +1,4 @@
-import { useGetWorkspaceSetting, usePluginTabList } from "@/api/generated";
+import { useGetWorkspaceSetting, usePluginTabList, useMigrationStatusRoute } from "@/api/generated";
 import { useSetting } from "@/hooks/useSetting";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useVimModeLevel } from "@/hooks/useVimModeLevel";
@@ -20,6 +20,12 @@ export function EditorBackendSetting() {
   const plugins = usePluginTabList(undefined, { query: { enabled: desktop } });
   const value = resolveEditorId(setting.value, vim);
   const externalUnavailable = !desktop || mobile;
+  // Guard the plugin:neovim choice behind the same live-session check the
+  // migration panel uses, so switching cannot hide running built-in buffers.
+  const migration = useMigrationStatusRoute({
+    query: { enabled: value === "neovim" && desktop },
+  });
+  const sessionsRunning = migration.data?.sessions_running.length ?? 0;
   const options: RadioCardOption<string>[] = [
     { value: "codemirror", label: "CodeMirror", description: "The built-in code editor." },
     {
@@ -34,15 +40,20 @@ export function EditorBackendSetting() {
       .filter((plugin) => plugin.editor)
       .map((plugin) => {
         const reason = pluginEditorUnavailable(plugin);
+        const blockedBySessions =
+          plugin.id === "neovim" && sessionsRunning > 0
+            ? `${sessionsRunning} full Neovim session${sessionsRunning === 1 ? "" : "s"} still running. Save and quit first.`
+            : null;
         return {
           value: `plugin:${plugin.id}`,
           label: plugin.editor!.label,
           description:
+            blockedBySessions ??
             reason ??
             (externalUnavailable
               ? "Requires the desktop app on a supported computer."
               : `Editor provided by ${plugin.name}.`),
-          disabled: externalUnavailable || Boolean(reason),
+          disabled: externalUnavailable || Boolean(reason) || blockedBySessions !== null,
         };
       }),
   ];
