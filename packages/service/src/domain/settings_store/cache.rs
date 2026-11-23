@@ -4,6 +4,14 @@
 //! [`super::watcher`]. When no watcher is active (unit tests doing raw
 //! `std::fs::write`, `mcp-serve`), every read goes directly to disk so external
 //! edits are always visible immediately.
+//!
+//! The watcher is not trusted alone: every hit is checked against a
+//! [`fingerprint::Fingerprint`] (one `stat`), so an event the OS dropped or a
+//! watch that died with its directory cannot serve stale settings. Only
+//! `Missing` and `Present` are cached; a read error (EMFILE, EACCES during a
+//! chmod…) may be transient and is retried on the next read.
+
+mod fingerprint;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -12,6 +20,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::error::AppError;
 
 use super::{file, validate, watcher, Scope, SettingWarning};
+use fingerprint::DiskState;
 
 /// Cached parsed/validated view of one settings file on disk.
 pub(crate) enum CachedEntry {
@@ -90,10 +99,15 @@ fn validate_parsed(
     }
 }
 
+struct CacheSlot {
+    entry: Arc<CachedEntry>,
+    disk: DiskState,
+}
+
 #[derive(Default)]
 struct CacheStore {
     generation: u64,
-    entries: HashMap<PathBuf, Arc<CachedEntry>>,
+    entries: HashMap<PathBuf, CacheSlot>,
 }
 
 static CACHE: OnceLock<RwLock<CacheStore>> = OnceLock::new();
@@ -110,6 +124,17 @@ fn load_from_disk(path: &Path) -> CachedEntry {
     }
 }
 
+/// Whether a freshly loaded `entry` agrees with the `disk` state seen before
+/// loading it. A file created or deleted in between does not get cached.
+fn matches_disk(entry: &CachedEntry, disk: DiskState) -> bool {
+    match (entry, disk) {
+        (CachedEntry::Missing, DiskState::Missing) => true,
+        (CachedEntry::Present(_), DiskState::File(_)) => true,
+        // Read errors are never cached: they may be gone on the next read.
+        _ => false,
+    }
+}
+
 /// Read a settings file through the watcher-invalidated cache when its
 /// directory is actively watched, or directly from disk otherwise.
 pub(crate) fn get_or_load(path: &Path) -> Arc<CachedEntry> {
@@ -120,11 +145,18 @@ fn get_or_load_with(path: &Path, load: impl FnOnce(&Path) -> CachedEntry) -> Arc
     let Some(key) = watcher::watched_cache_key(path) else {
         return Arc::new(load(path));
     };
+    // Stat before reading: a change racing the read leaves a stamp older than
+    // the bytes, which the next hit sees as stale, never the reverse.
+    let Some(disk) = fingerprint::disk_state(path) else {
+        return Arc::new(load(path));
+    };
 
     let generation = {
         let store = cache().read().unwrap_or_else(|e| e.into_inner());
-        if let Some(entry) = store.entries.get(&key) {
-            return Arc::clone(entry);
+        if let Some(slot) = store.entries.get(&key) {
+            if slot.disk == disk {
+                return Arc::clone(&slot.entry);
+            }
         }
         store.generation
     };
@@ -132,27 +164,17 @@ fn get_or_load_with(path: &Path, load: impl FnOnce(&Path) -> CachedEntry) -> Arc
     let entry = Arc::new(load(path));
     // Re-check both that the watcher is still running and that no concurrent
     // write or invalidation raced with our cold load before inserting.
-    if watcher::watched_cache_key(path).is_some() {
+    if matches_disk(&entry, disk) && watcher::watched_cache_key(path).is_some() {
         let mut store = cache().write().unwrap_or_else(|e| e.into_inner());
         if store.generation == generation {
-            store.entries.insert(key, Arc::clone(&entry));
+            let slot = CacheSlot {
+                entry: Arc::clone(&entry),
+                disk,
+            };
+            store.entries.insert(key, slot);
         }
     }
     entry
-}
-
-/// Update the cache immediately after an internal atomic write succeeds (called
-/// under `WRITE_LOCK`). No-op when the file's directory is not watched.
-pub(crate) fn put_text(path: &Path, text: String) {
-    let Some(key) = watcher::watched_cache_key(path) else {
-        return;
-    };
-    let entry = Arc::new(CachedEntry::Present(Box::new(CachedDocument::from_text(
-        text,
-    ))));
-    let mut store = cache().write().unwrap_or_else(|e| e.into_inner());
-    store.generation = store.generation.wrapping_add(1);
-    store.entries.insert(key, entry);
 }
 
 /// Drop one canonical cache key (called by the watcher before bumping
@@ -163,7 +185,10 @@ pub(crate) fn invalidate_key(key: &Path) {
     store.entries.remove(key);
 }
 
-/// Drop any cached entry for `path` (e.g. after a project settings rename/undo).
+/// Drop any cached entry for `path`: after an internal write (called under
+/// `WRITE_LOCK`), a project settings rename or undo. The next read reloads
+/// from disk; caching our own text instead could pair it with the stamp of an
+/// external save that landed right after our rename.
 pub(crate) fn invalidate_path(path: &Path) {
     let mut store = cache().write().unwrap_or_else(|e| e.into_inner());
     store.generation = store.generation.wrapping_add(1);
@@ -178,6 +203,15 @@ pub(crate) fn invalidate_dir(dir: &Path) {
     let mut store = cache().write().unwrap_or_else(|e| e.into_inner());
     store.generation = store.generation.wrapping_add(1);
     store.entries.retain(|key, _| key.parent() != Some(dir));
+}
+
+/// Whether `path` currently has a cache entry (tests only).
+#[cfg(test)]
+pub(crate) fn is_cached(path: &Path) -> bool {
+    watcher::watched_cache_key(path).is_some_and(|key| {
+        let store = cache().read().unwrap_or_else(|e| e.into_inner());
+        store.entries.contains_key(&key)
+    })
 }
 
 /// Read the parsed JSON document for `path` through the watcher-invalidated
@@ -272,6 +306,14 @@ mod tests {
         drop(guard);
     }
 
+    /// A watcher that will not report anything during the test, so only the
+    /// cache's own checks can make a read fresh.
+    fn silent_watcher(dir: &Path) -> watcher::WatcherGuard {
+        let (tx, _rx) = broadcast::channel::<SettingsChangeEvent>(16);
+        watcher::start_guarded_with_debounce(dir, Duration::from_secs(600), tx)
+            .expect("watcher should start")
+    }
+
     #[tokio::test]
     async fn cached_reads_preserve_corrupt_and_unreadable_behavior() {
         let dir = tempfile::tempdir().unwrap();
@@ -279,10 +321,7 @@ mod tests {
         std::fs::write(&corrupt, "{ broken json").unwrap();
         let unreadable = dir.path().join("bad.settings.json");
         std::fs::create_dir(&unreadable).unwrap();
-
-        let (tx, _rx) = broadcast::channel::<SettingsChangeEvent>(16);
-        let guard = watcher::start_guarded_with_debounce(dir.path(), Duration::from_millis(80), tx)
-            .expect("watcher should start");
+        let guard = silent_watcher(dir.path());
 
         // Corrupt JSON degrades to empty map + warning on `store::read` and errors on `read_document`.
         let (map, warnings) = store::read(&corrupt, Scope::Workspace).unwrap();
@@ -293,7 +332,7 @@ mod tests {
             Err(AppError::BadRequest(_))
         ));
 
-        // Unreadable directory surfaces SETTINGS_READ_FAILED with cause on both reads (cold & cached).
+        // Unreadable directory surfaces SETTINGS_READ_FAILED with cause on every read.
         for _ in 0..2 {
             let err = store::read(&unreadable, Scope::Workspace)
                 .unwrap_err()
@@ -301,6 +340,63 @@ mod tests {
             assert!(err.to_lowercase().contains("directory"), "{err}");
             assert!(read_document(&unreadable).is_err());
         }
+
+        // The error was not cached: once the cause is gone the next read
+        // succeeds, without waiting for a watcher event.
+        std::fs::remove_dir(&unreadable).unwrap();
+        std::fs::write(&unreadable, r#"{"theme_current":"aurora"}"#).unwrap();
+        let (map, _) = store::read(&unreadable, Scope::Workspace).unwrap();
+        assert_eq!(map.get("theme_current").map(String::as_str), Some("aurora"));
+
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn a_transient_read_error_is_retried_on_the_next_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        file::write_atomic(&path, r#"{"theme_current":"aurora"}"#).unwrap();
+        let guard = silent_watcher(dir.path());
+
+        let failed = get_or_load_with(&path, |_| {
+            CachedEntry::Unreadable("Too many open files (os error 24)".to_string())
+        });
+        assert!(matches!(failed.as_ref(), CachedEntry::Unreadable(_)));
+        assert!(
+            matches!(get_or_load(&path).as_ref(), CachedEntry::Present(_)),
+            "a read error must not be served from the cache"
+        );
+
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn an_edit_the_watcher_has_not_reported_is_still_read_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        file::write_atomic(&path, r#"{"theme_current":"aurora"}"#).unwrap();
+        let guard = silent_watcher(dir.path());
+        let theme = || {
+            store::load(&path, Scope::Workspace)
+                .0
+                .get("theme_current")
+                .cloned()
+        };
+
+        assert_eq!(theme().as_deref(), Some("aurora"));
+        assert!(matches!(
+            get_or_load(&path).as_ref(),
+            CachedEntry::Present(_)
+        ));
+
+        // In place, then atomically replaced, then deleted: no watcher event
+        // has been delivered for any of these yet.
+        std::fs::write(&path, r#"{"theme_current":"dracula"}"#).unwrap();
+        assert_eq!(theme().as_deref(), Some("dracula"));
+        file::write_atomic(&path, r#"{"theme_current":"tokyo-night"}"#).unwrap();
+        assert_eq!(theme().as_deref(), Some("tokyo-night"));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(theme(), None);
 
         drop(guard);
     }
@@ -317,7 +413,8 @@ mod tests {
 
         // Case 1: an internal write lands while a cold read is in flight.
         let _stale = get_or_load_with(&path, |_| {
-            put_text(&path, r#"{"theme_current":"fresh"}"#.to_string());
+            file::write_atomic(&path, r#"{"theme_current":"fresh"}"#).unwrap();
+            invalidate_path(&path);
             CachedEntry::Present(Box::new(CachedDocument::from_text(
                 r#"{"theme_current":"stale"}"#.to_string(),
             )))
@@ -328,7 +425,7 @@ mod tests {
                 .get("theme_current")
                 .map(String::as_str),
             Some("fresh"),
-            "stale cold load must not overwrite concurrent put_text"
+            "stale cold load must not overwrite a concurrent internal write"
         );
 
         // Case 2: an invalidation lands while a cold read is in flight.

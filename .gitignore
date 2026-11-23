@@ -26,6 +26,8 @@ target/
 *.db.fresh-clone
 # Content-addressed image store paired with local/custom SQLite databases.
 *.db.blobs/
+# Single-instance lock the service holds next to its database.
+*.db.service.lock
 # Per-clone local environment and repo-local dev state. Never commit.
 **/.env
 **/.env.local
