@@ -145,6 +145,28 @@ export function useLiveActiveSessionIds(): readonly number[] {
   );
 }
 
+/** How many sub-agents are currently running across `featureId`'s sessions. */
+export function countFeatureRunningSubagents(
+  bySession: Record<number, SessionStatusEntry>,
+  featureId: number,
+): number {
+  let total = 0;
+  for (const id in bySession) {
+    const entry = bySession[Number(id)];
+    if (entry && entry.featureId === featureId && entry.runningSubagents) {
+      total += entry.runningSubagents;
+    }
+  }
+  return total;
+}
+
+/** Narrow primitive selector: re-renders a sidebar row only when its own count changes. */
+export function useFeatureRunningSubagentCount(featureId: number | null | undefined): number {
+  return useSessionStatusStore((s) =>
+    featureId == null ? 0 : countFeatureRunningSubagents(s.bySession, featureId),
+  );
+}
+
 /** Sorted ids of `featureIds` whose agent is mid-turn; stable while unchanged. */
 export function useBusyFeatureIds(featureIds: ReadonlySet<number>): readonly number[] {
   return useSessionStatusStore(

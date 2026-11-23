@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactElement } from "react";
-import { BotIcon, ChevronDownIcon, CircleDashedIcon, Loader2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, CircleDashedIcon, Loader2Icon, XIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { ModelMetaChip, type Provider } from "@/components/agent-session/ModelMetaChip";
 import { RuntimeModelPicker } from "@/components/RuntimeModelPicker";
@@ -98,7 +99,7 @@ export function VirtualSkillAgentControls({
               className="composer-instrument min-w-0 gap-1.5 text-muted-foreground hover:text-foreground"
               aria-label="Model: the agent picks. Choose a model"
             >
-              <BotIcon className="size-3.5 shrink-0" aria-hidden />
+              <AgentIcon className="size-3.5 shrink-0" aria-hidden />
               <span className="truncate">Agent picks the model</span>
               <ChevronDownIcon className="size-3 shrink-0 opacity-50" aria-hidden />
             </button>

@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
 import {
-  BotIcon,
   CameraIcon,
   ClipboardIcon,
   EyeOffIcon,
@@ -12,6 +11,7 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -257,7 +257,7 @@ function AgentSharing({
   return (
     <section aria-labelledby="agent-sharing-heading" className="space-y-2">
       <div className="flex items-start gap-2">
-        <BotIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <AgentIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <h3 id="agent-sharing-heading" className="text-sm font-medium">
             Agent sharing

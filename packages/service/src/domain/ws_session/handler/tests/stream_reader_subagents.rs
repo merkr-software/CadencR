@@ -232,3 +232,51 @@ async fn a_failed_turn_stops_its_foreground_sub_agents() {
         ("stopped".into(), "turn_failed".into())
     );
 }
+
+#[tokio::test]
+async fn stream_reader_mirrors_running_sub_agent_counts_to_session_status() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let session_id = 706;
+    insert_running_session(&app_state, session_id, 1).await;
+    let mut status_rx = app_state.session_status_tx.subscribe();
+
+    let (msg_tx, msg_rx) = mpsc::channel(4);
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+
+    msg_tx.send(Ok(launch("toolu_a", false))).await.unwrap();
+    let first = status_rx.recv().await.unwrap();
+    assert_eq!((first.session_id, first.running_subagents), (session_id, 1));
+
+    msg_tx.send(Ok(launch("toolu_b", true))).await.unwrap();
+    let second = status_rx.recv().await.unwrap();
+    assert_eq!(
+        (second.session_id, second.running_subagents),
+        (session_id, 2)
+    );
+
+    // Turn ends: foreground finishes (2 -> 1), background stays live until stream closes.
+    msg_tx.send(Ok(result_event())).await.unwrap();
+    let after_turn = status_rx.recv().await.unwrap();
+    assert_eq!(after_turn.running_subagents, 1);
+
+    drop(msg_tx);
+    drain(&mut ws_rx).await;
+    assert!(
+        !app_state
+            .session_status_tx
+            .snapshot()
+            .states
+            .contains_key(&session_id.to_string()),
+        "closing the runtime settles the background sub-agent and clears the snapshot"
+    );
+}

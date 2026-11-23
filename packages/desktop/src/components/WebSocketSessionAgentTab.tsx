@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BotIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/McpServersRow";
 import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
@@ -209,7 +209,7 @@ export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
   return useMemo(
     () => ({
       label: "Agent",
-      Icon: BotIcon,
+      Icon: AgentIcon,
       shortcutId: "pane-agent",
       content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
     }),

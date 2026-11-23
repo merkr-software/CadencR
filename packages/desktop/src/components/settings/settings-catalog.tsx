@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import {
   BarChart3,
   Bell,
-  Bot,
   Code2,
   GitMerge,
   Globe,
@@ -16,6 +15,7 @@ import {
   Puzzle,
   SlidersHorizontal,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { SETTINGS_ANCHORS as A } from "./settings-anchor-ids";
 
@@ -190,7 +190,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "agents",
         label: "Agents",
-        icon: icon(Bot),
+        icon: icon(AgentIcon),
         description:
           "What applies to every agent, whichever provider runs it. New conversations start on the model you last used; switch it from the composer.",
         aliases: ["auto-naming"],

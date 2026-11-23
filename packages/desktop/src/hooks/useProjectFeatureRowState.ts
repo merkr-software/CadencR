@@ -5,9 +5,11 @@ import { useFeatureAttention } from "@/hooks/useFeatureAttention";
 import type { Attention } from "@/lib/sidebar-attention";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
 import { useIsSidebarPointedFeature } from "@/stores/sidebar-pointed-feature-store";
+import { useFeatureRunningSubagentCount } from "@/stores/session-status-selectors";
 
 export interface ProjectFeatureRowState {
   attention: Attention;
+  runningSubagentCount: number;
   prStatus: PrStatusSnapshot | undefined;
   gitStats: GitStats | undefined;
   isActive: boolean;
@@ -40,6 +42,7 @@ export function useProjectFeatureRowState(
   // collapsed children. Subscribes to just those ids, so another
   // conversation's status push doesn't re-render this row.
   const attention = useFeatureAttention(feature.id, hiddenDescendantIds);
+  const runningSubagentCount = useFeatureRunningSubagentCount(feature.id);
   const prStatus = usePrStatusStore(selectPrStatus(feature.id));
   const { data: gitStats } = useGetStats(
     { feature_id: feature.id, mode: "worktree" },
@@ -58,6 +61,7 @@ export function useProjectFeatureRowState(
 
   return {
     attention,
+    runningSubagentCount,
     prStatus,
     gitStats,
     isActive,

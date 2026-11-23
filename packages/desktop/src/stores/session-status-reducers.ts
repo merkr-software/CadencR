@@ -15,13 +15,18 @@ function isPendingKind(val: unknown): val is PendingKind {
 
 type TurnFields = Pick<
   SessionStatusEntry,
-  "turnStartedAtMs" | "waitingMs" | "waitingSinceMs" | "model" | "compacting"
+  "turnStartedAtMs" | "waitingMs" | "waitingSinceMs" | "model" | "compacting" | "runningSubagents"
 >;
 
 const finiteOrNull = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
-/** The turn clock and compaction flag an event or snapshot entry carries. */
+const nonNegativeInt = (value: unknown): number => {
+  const num = finiteOrNull(value);
+  return num !== null && num > 0 ? Math.floor(num) : 0;
+};
+
+/** The turn clock, compaction flag, and running sub-agent count an entry carries. */
 function parseTurnFields(obj: Record<string, unknown>): TurnFields {
   return {
     turnStartedAtMs: finiteOrNull(obj.turn_started_at_ms),
@@ -29,6 +34,7 @@ function parseTurnFields(obj: Record<string, unknown>): TurnFields {
     waitingSinceMs: finiteOrNull(obj.waiting_since_ms),
     model: typeof obj.model === "string" && obj.model !== "" ? obj.model : null,
     compacting: obj.compacting === true,
+    runningSubagents: nonNegativeInt(obj.running_subagents),
   };
 }
 
@@ -38,7 +44,8 @@ function sameTurnFields(existing: SessionStatusEntry, next: TurnFields): boolean
     (existing.waitingMs ?? 0) === next.waitingMs &&
     (existing.waitingSinceMs ?? null) === next.waitingSinceMs &&
     (existing.model ?? null) === next.model &&
-    (existing.compacting ?? false) === next.compacting
+    (existing.compacting ?? false) === next.compacting &&
+    (existing.runningSubagents ?? 0) === next.runningSubagents
   );
 }
 

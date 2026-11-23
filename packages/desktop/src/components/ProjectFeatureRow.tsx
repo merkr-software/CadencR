@@ -138,6 +138,7 @@ function FeatureRowDetails({
       }
       prStatus={state.prStatus}
       gitStats={state.gitStats}
+      runningSubagentCount={state.runningSubagentCount}
       shellCount={shellCount}
       browserCount={browserCount}
       downloadCount={downloadCount}

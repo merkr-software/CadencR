@@ -1,11 +1,11 @@
 import {
-  BotIcon,
   CodeIcon,
   GitCompareArrowsIcon,
   FileTextIcon,
   GlobeIcon,
   TerminalIcon,
 } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { Profiler } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
@@ -20,7 +20,7 @@ import type { FeatureTabs } from "./types";
 const FEATURE_ID = 3;
 
 const tabs: FeatureTabs = {
-  agent: { label: "Agent", Icon: BotIcon, content: <span>agent-body</span> },
+  agent: { label: "Agent", Icon: AgentIcon, content: <span>agent-body</span> },
   terminal: { label: "Terminal", Icon: TerminalIcon, content: <span>terminal-body</span> },
   git: { label: "Git", Icon: GitCompareArrowsIcon, content: <span>git-body</span> },
   editor: { label: "Editor", Icon: CodeIcon, content: <span>editor-body</span> },

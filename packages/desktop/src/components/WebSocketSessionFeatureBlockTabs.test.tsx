@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { BotIcon, BoxIcon } from "lucide-react";
+import { BoxIcon } from "lucide-react";
+import { AgentIcon } from "@/components/AgentIcon";
 import { render, renderHook, screen } from "@/test-utils";
 import type { FeatureTabs } from "@/components/feature-layout/types";
 import { useSessionTabs, type UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
 vi.mock("./WebSocketSessionAgentTab", () => ({
-  useAgentTab: () => ({ label: "Agent", Icon: BotIcon, content: <p>transcript</p> }),
+  useAgentTab: () => ({ label: "Agent", Icon: AgentIcon, content: <p>transcript</p> }),
 }));
 vi.mock("@/components/plugin-tabs/usePluginTabDefs", () => ({
   usePluginTabDefs: () => ({

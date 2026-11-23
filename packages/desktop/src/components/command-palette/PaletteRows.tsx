@@ -1,13 +1,13 @@
 import { memo, type ReactElement } from "react";
 import {
   ArchiveIcon,
-  BotIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   ShieldAlertIcon,
   UserIcon,
 } from "lucide-react";
 import { Command as CommandPrimitive } from "cmdk";
+import { AgentIcon } from "@/components/AgentIcon";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { nextActionVerb } from "@/components/SidebarNextActionLine";
 import { StatusShape } from "@/components/StatusShape";
@@ -157,7 +157,7 @@ function MessageRow({ entry, now }: { entry: MessageEntry; now: number }): React
   return (
     <>
       <span className="cp-row-icon">
-        {hit.role === "user" ? <UserIcon aria-label="You" /> : <BotIcon aria-label="Agent" />}
+        {hit.role === "user" ? <UserIcon aria-label="You" /> : <AgentIcon aria-label="Agent" />}
       </span>
       <span className="cp-row-title">
         <SnippetText snippet={hit.snippet} />

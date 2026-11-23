@@ -99,6 +99,7 @@ pub async fn get_session_status_snapshot(
                     parse_turn_models(row.turn_models.as_deref()),
                 ),
                 compacting: false,
+                running_subagents: 0,
             },
         );
     }
