@@ -7,7 +7,9 @@ use crate::shared::ignore_watch::GitIgnoreRules;
 
 // Content search and file/directory search live in their own modules to keep
 // this file focused on path validation and gitignore helpers.
-pub use super::content_search::{content_search, content_search_cancellable};
+#[cfg(test)]
+pub use super::content_search::content_search;
+pub use super::content_search::content_search_cancellable;
 pub use super::file_search::{fuzzy_search_files, recent_files};
 
 /// Validate that `relative_path` joined under `project_root` (already

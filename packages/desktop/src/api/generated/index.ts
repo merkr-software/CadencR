@@ -1398,6 +1398,17 @@ export interface ContentMatch {
 
 export interface ContentSearchResponse {
   matches: ContentMatch[];
+  /**
+   * The size above which a file is skipped.
+   * @minimum 0
+   */
+  max_file_bytes: number;
+  /**
+   * Files left unsearched because they are larger than
+   * `max_file_bytes`: a match inside them is not in `matches`.
+   * @minimum 0
+   */
+  skipped_large_files: number;
   truncated: boolean;
 }
 
