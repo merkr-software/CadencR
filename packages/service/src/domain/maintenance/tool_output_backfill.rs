@@ -78,28 +78,39 @@ struct StrippedCandidate {
     cleaned: String,
 }
 
-async fn strip_candidate_async(
+/// Why a window stopped before its end. The cursor never moves past the row
+/// that failed, so the next sweep retries it.
+#[derive(Debug, thiserror::Error)]
+enum WindowError {
+    #[error(transparent)]
+    Query(#[from] sqlx::Error),
+    /// The blocking JSON comparison panicked or was cancelled: the candidate
+    /// was never judged, so it must not be skipped.
+    #[error("strip task for tool_call {id} failed: {source}")]
+    StripTask {
+        id: i64,
+        /// Rows already rewritten earlier in the window.
+        stripped: u64,
+        source: tokio::task::JoinError,
+    },
+}
+
+/// Pure duplicate check, run off the async runtime: it JSON-parses payloads
+/// that can weigh megabytes.
+type StripFn = fn(String, String, Option<String>) -> Option<StrippedCandidate>;
+
+fn strip_candidate(
     content: String,
     result_content: String,
     tool_name: Option<String>,
 ) -> Option<StrippedCandidate> {
-    match tokio::task::spawn_blocking(move || {
-        let result_output = result_output_text(&result_content)?;
-        let cleaned = strip_duplicated_bash_output(&content, &result_output, tool_name.as_deref())?;
-        Some(StrippedCandidate {
-            content,
-            result_content,
-            cleaned,
-        })
+    let result_output = result_output_text(&result_content)?;
+    let cleaned = strip_duplicated_bash_output(&content, &result_output, tool_name.as_deref())?;
+    Some(StrippedCandidate {
+        content,
+        result_content,
+        cleaned,
     })
-    .await
-    {
-        Ok(stripped) => stripped,
-        Err(error) => {
-            tracing::warn!("tool-output backfill strip task failed: {error}");
-            None
-        }
-    }
 }
 
 /// Strip every genuinely duplicated copy in `(after, upto]`. Returns the number
@@ -109,7 +120,8 @@ async fn strip_window(
     write_pool: &SqlitePool,
     after: i64,
     upto: i64,
-) -> Result<StripWindow, sqlx::Error> {
+    strip: StripFn,
+) -> Result<StripWindow, WindowError> {
     let mut cursor = after;
     let mut stripped = 0u64;
     loop {
@@ -126,7 +138,13 @@ async fn strip_window(
         };
         cursor = id;
         let Some(stripped_candidate) =
-            strip_candidate_async(content, result_content, tool_name).await
+            tokio::task::spawn_blocking(move || strip(content, result_content, tool_name))
+                .await
+                .map_err(|source| WindowError::StripTask {
+                    id,
+                    stripped,
+                    source,
+                })?
         else {
             continue;
         };
@@ -159,6 +177,15 @@ pub(super) async fn run_with_progress(
     write_pool: &SqlitePool,
     progress: impl Fn(i64),
 ) -> u64 {
+    run_with_strip(read_pool, write_pool, progress, strip_candidate).await
+}
+
+async fn run_with_strip(
+    read_pool: &SqlitePool,
+    write_pool: &SqlitePool,
+    progress: impl Fn(i64),
+    strip: StripFn,
+) -> u64 {
     let max_id = match sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(id) FROM agent_messages")
         .fetch_one(read_pool)
         .await
@@ -178,7 +205,7 @@ pub(super) async fn run_with_progress(
     let mut stripped = 0u64;
     while cursor < max_id {
         let upto = (cursor + WINDOW).min(max_id);
-        match strip_window(read_pool, write_pool, cursor, upto).await {
+        match strip_window(read_pool, write_pool, cursor, upto, strip).await {
             Ok(StripWindow::Complete(rows)) => stripped += rows,
             Ok(StripWindow::Retry(rows)) => {
                 stripped += rows;
@@ -191,6 +218,19 @@ pub(super) async fn run_with_progress(
             }
             Err(e) => {
                 tracing::warn!(cursor, upto, "tool-output backfill window failed: {e}");
+                // Rows before the failed candidate are done: resume at it
+                // rather than re-scanning the whole window next sweep.
+                if let WindowError::StripTask {
+                    id, stripped: rows, ..
+                } = e
+                {
+                    stripped += rows;
+                    if id - 1 > cursor {
+                        state::set_i64(write_pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, id - 1)
+                            .await;
+                        progress(id - 1);
+                    }
+                }
                 return stripped;
             }
         }
@@ -421,5 +461,38 @@ mod tests {
         }
 
         assert_eq!(run(&pool).await, 4);
+    }
+
+    #[tokio::test]
+    async fn a_failed_strip_task_keeps_the_candidate_for_the_next_sweep() {
+        let pool = test_pool().await;
+        insert(&pool, 1, "tool_call", "tu-1", WITH_OUTPUT).await;
+        insert(&pool, 2, "tool_result", "tu-1", "ok").await;
+        let crashing = r#"{"command":"crash","output":"ok","aggregatedOutput":"ok"}"#;
+        insert(&pool, 3, "tool_call", "tu-2", crashing).await;
+        insert(&pool, 4, "tool_result", "tu-2", "ok").await;
+
+        fn crashes_on_one_row(
+            content: String,
+            result_content: String,
+            tool_name: Option<String>,
+        ) -> Option<StrippedCandidate> {
+            assert!(!content.contains("crash"), "strip task crashed");
+            strip_candidate(content, result_content, tool_name)
+        }
+        assert_eq!(
+            run_with_strip(&pool, &pool, |_| {}, crashes_on_one_row).await,
+            1
+        );
+
+        // The crashed candidate was not skipped: the cursor stops right before
+        // it, so the next sweep judges it again without re-scanning row 1.
+        assert_eq!(
+            state::get_i64(&pool, state::TOOL_OUTPUT_BACKFILL_CURSOR, 0).await,
+            2
+        );
+        assert_eq!(content_of(&pool, 3).await, crashing);
+        assert_eq!(run(&pool).await, 1);
+        assert_ne!(content_of(&pool, 3).await, crashing);
     }
 }
