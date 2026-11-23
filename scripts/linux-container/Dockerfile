@@ -3,7 +3,6 @@
 # packages target among supported distros. See scripts/linux-container.sh.
 FROM debian:12
 
-ARG NODE_VERSION=22.23.4
 ARG RUST_TOOLCHAIN=1.96.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -21,13 +20,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgbm1 libxkbcommon0 libasound2 libsecret-1-0 xvfb xauth dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN arch="$(dpkg --print-architecture)" \
-    && case "$arch" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) exit 1 ;; esac \
-    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
-      | tar -xJ -C /usr/local \
-    && mv "/usr/local/node-v${NODE_VERSION}-linux-${node_arch}" /usr/local/node \
-    && corepack enable
-
 RUN curl -fsSL https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" -c rustfmt -c clippy \
     && chmod -R a+w "$CARGO_HOME" "$RUSTUP_HOME"
@@ -36,5 +28,13 @@ RUN curl -fsSL https://sh.rustup.rs \
 # failures several tests rely on. `linux-container.sh e2e` stays root to install
 # packages.
 RUN useradd --create-home --uid 1000 dev
+
+ARG NODE_VERSION
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) exit 1 ;; esac \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+      | tar -xJ -C /usr/local \
+    && mv "/usr/local/node-v${NODE_VERSION}-linux-${node_arch}" /usr/local/node \
+    && corepack enable
 
 WORKDIR /src

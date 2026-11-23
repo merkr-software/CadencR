@@ -180,7 +180,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          # Frozen semantic fixtures retain their reviewed Node baseline.
+          # The runtime evidence is qualified on this exact version.
           node-version: "22.19.0"
           package-manager-cache: false
       # actions/download-artifact@v8.0.2. Never select another run or a mutable artifact name.
