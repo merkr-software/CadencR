@@ -10,6 +10,8 @@ use tokio::process::{Child, Command};
 
 #[cfg(windows)]
 use crate::shared::process_group::wait_bounded;
+#[cfg(windows)]
+use super::process_tree_windows as windows_job;
 
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,99 +218,6 @@ fn prepare_windows_job(
     }
 }
 
-#[cfg(windows)]
-mod windows_job {
-    use std::ffi::c_void;
-    use std::io;
-    use std::mem::size_of;
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-
-    use tokio::process::Child;
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_JOB_TIME,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    };
-
-    use super::AcpProcessTreeLimits;
-
-    pub(super) fn prepare(limits: AcpProcessTreeLimits) -> io::Result<OwnedHandle> {
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            | JOB_OBJECT_LIMIT_JOB_TIME
-            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-            | JOB_OBJECT_LIMIT_JOB_MEMORY;
-        info.BasicLimitInformation.PerJobUserTimeLimit = i64::try_from(
-            limits
-                .cpu_time_seconds
-                .checked_mul(10_000_000)
-                .ok_or_else(|| io::Error::other("Windows CPU limit overflow"))?,
-        )
-        .map_err(|_| io::Error::other("Windows CPU limit overflow"))?;
-        info.BasicLimitInformation.ActiveProcessLimit = limits.max_processes;
-        info.JobMemoryLimit = usize::try_from(limits.memory_bytes)
-            .map_err(|_| io::Error::other("Windows memory limit overflow"))?;
-        create_job(info)
-    }
-
-    /// A Job that only guarantees descendants die with their owner.
-    pub(super) fn prepare_unlimited() -> io::Result<OwnedHandle> {
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        create_job(info)
-    }
-
-    fn create_job(info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION) -> io::Result<OwnedHandle> {
-        let raw = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if raw.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let job = unsafe { OwnedHandle::from_raw_handle(raw.cast()) };
-        let result = unsafe {
-            SetInformationJobObject(
-                job.as_raw_handle().cast(),
-                JobObjectExtendedLimitInformation,
-                (&raw const info).cast::<c_void>(),
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            )
-        };
-        if result == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(job)
-    }
-
-    pub(super) fn attach(job: Option<&OwnedHandle>, child: &Child) -> io::Result<()> {
-        let job = required_job(job)?;
-        let process = child
-            .raw_handle()
-            .ok_or_else(|| io::Error::other("isolated child has no process handle"))?;
-        let result = unsafe {
-            AssignProcessToJobObject(job.as_raw_handle().cast(), process.cast::<c_void>())
-        };
-        if result == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
-    }
-
-    pub(super) fn terminate(job: Option<&OwnedHandle>) -> io::Result<()> {
-        let job = required_job(job)?;
-        let result = unsafe { TerminateJobObject(job.as_raw_handle().cast(), 1) };
-        if result == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn required_job(job: Option<&OwnedHandle>) -> io::Result<&OwnedHandle> {
-        job.ok_or_else(|| io::Error::other("isolated Windows process has no Job Object"))
-    }
-}
-
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
@@ -379,6 +288,26 @@ mod unix_tests {
         command
     }
 
+    /// Whether `pid` is gone or a zombie (exited but not yet reaped).
+    fn process_dead_or_zombie(pid: libc::pid_t) -> bool {
+        // SAFETY: kill with signal 0 only probes the process table.
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return true;
+        }
+        // On Linux, read /proc/<pid>/stat: state Z means zombie (exited).
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                if let Some(state) = stat.rsplit(')').next().and_then(|s| s.trim_start().chars().next()) {
+                    if state == 'Z' {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     #[tokio::test]
     async fn grouped_policy_leads_a_new_process_group() {
         let directory = tempfile::tempdir().expect("test directory");
@@ -426,16 +355,16 @@ mod unix_tests {
         control.attach(&child).expect("attach grouped control");
 
         let descendant = wait_for_pid(&pid_file).await;
+        // Register the descendant itself so a failed assertion cannot leave it running.
+        let _descendant_cleanup = crate::shared::test_processes::KillOnDrop::default()
+            .process(descendant as u32);
         control
             .terminate(&mut child, Duration::from_secs(1))
             .await
             .expect("terminate helper");
 
         for _ in 0..50 {
-            // SAFETY: kill with signal 0 only probes the process table.
-            if unsafe { libc::kill(descendant, 0) } != 0
-                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            {
+            if process_dead_or_zombie(descendant) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;

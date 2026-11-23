@@ -69,8 +69,10 @@ pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
 }
 
 /// Stop the group `child` leads: SIGTERM, then `grace` for the leader to
-/// exit. If it does, SIGKILL whatever it left behind; if not, SIGKILL the
-/// whole group and wait `grace` more for the leader.
+/// exit. If it does, SIGKILL whatever it left behind and wait, bounded by
+/// the remaining grace, until no live member remains, so a lease-holding
+/// worker cannot outlive the `ProcessExited` event. If the leader does not
+/// exit within `grace`, SIGKILL the whole group and wait `grace` more.
 #[cfg(unix)]
 pub(crate) async fn terminate_process_group(
     child: &mut Child,
@@ -79,18 +81,21 @@ pub(crate) async fn terminate_process_group(
     let pid = child
         .id()
         .ok_or_else(|| io::Error::other("process group leader has no process id"))?;
+    let deadline = tokio::time::Instant::now() + grace;
     signal_process_group(pid, libc::SIGTERM)?;
-    match tokio::time::timeout(grace, child.wait()).await {
+    match tokio::time::timeout_at(deadline, child.wait()).await {
         Ok(status) => {
             let status = status?;
             #[cfg(target_os = "macos")]
             macos_signal::kill_after_leader_exit(pid, grace).await?;
             #[cfg(not(target_os = "macos"))]
             signal_process_group(pid, libc::SIGKILL)?;
+            wait_group_gone(pid, deadline).await;
             Ok(status)
         }
         Err(_) => {
             signal_process_group(pid, libc::SIGKILL)?;
+            wait_group_gone(pid, deadline).await;
             wait_bounded(child, grace).await
         }
     }
