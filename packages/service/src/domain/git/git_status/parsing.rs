@@ -21,6 +21,10 @@ pub(super) struct ParsedPorcelain {
     /// value lets the status hot path select an incoming upstream without
     /// rediscovering data Git already returned.
     pub(super) upstream: Option<String>,
+    /// Git printed `branch.ab`: the upstream exists, so `ahead` / `behind`
+    /// are real counts. False without an upstream and for a `[gone]` one,
+    /// whose header Git still prints after the remote branch was deleted.
+    pub(super) upstream_tracked: bool,
     pub(super) staged_count: u32,
     pub(super) unstaged_count: u32,
     pub(super) untracked_count: u32,
@@ -47,6 +51,7 @@ pub(super) fn parse_porcelain_v2(output: &str) -> ParsedPorcelain {
             p.upstream = Some(rest.trim().to_string());
         } else if let Some(rest) = record.strip_prefix("# branch.ab ") {
             // Format: `+<ahead> -<behind>`
+            p.upstream_tracked = true;
             let mut parts = rest.split_whitespace();
             if let Some(a) = parts.next() {
                 p.ahead = a.trim_start_matches('+').parse().unwrap_or(0);
@@ -75,6 +80,14 @@ pub(super) fn parse_porcelain_v2(output: &str) -> ParsedPorcelain {
     p.conflict_count = u32::try_from(conflicts.len()).unwrap_or(u32::MAX);
 
     p
+}
+
+impl ParsedPorcelain {
+    /// The upstream whose divergence `branch.ab` reported, or `None` when
+    /// there is none or it is gone.
+    pub(super) fn tracked_upstream(&self) -> Option<&str> {
+        self.upstream.as_deref().filter(|_| self.upstream_tracked)
+    }
 }
 
 #[cfg(test)]
