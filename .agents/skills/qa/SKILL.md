@@ -59,11 +59,20 @@ CADENCR_QA_ROOT="<scratchpad>/qa-runs" pnpm qa:up --skip-build [--surface electr
 eval "$(pnpm -s qa env "<run-dir>")" # QA_RUN_DIR, QA_SERVICE_URL, QA_TOKEN, QA_CDP_PORT, QA_PROJECT_ID…
 ```
 
-| Surface              | What runs                                                        | Use for                                                                                 |
-| -------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `electron` (default) | service + real dev Electron app, CDP on its own port             | anything desktop-only: IPC, in-app browser, browser MCP, notch, menus, window behaviour |
-| `renderer`           | service + Vite renderer + headless Chrome (`--headed` to see it) | pure UI flows when no Electron window should appear                                     |
-| `service`            | service only                                                     | API and WebSocket behaviour                                                             |
+| Surface              | What runs                                                        | Use for                                                                             |
+| -------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `electron` (default) | service + real dev Electron app, CDP on its own port             | **every QA that touches the UI**: it is the app users run                           |
+| `renderer`           | service + Vite renderer + headless Chrome (`--headed` to see it) | only renderer performance benches, or when Electron cannot start (say why)          |
+| `service`            | service only                                                     | changes with no UI at all: API, WebSocket protocol, background jobs, migrations     |
+
+**Choose the surface for fidelity, never for comfort.** The goal of a QA is to behave like the user, and
+the user runs Electron. A headless renderer is not Cadencr: it has no preload bridge (`desktopBridge`: IPC,
+files, native dialogs, clipboard), no native views (browser pane, custom and plugin tabs), no real sidecar
+startup or service transport, and no window focus (the renderer reads it from the main process, so
+focus-gated work such as forge polling never runs). An Electron window appearing on the user's screen, even
+taking focus, is expected and fine; do not pick `renderer` to avoid it, to start faster, or to run several
+QAs in parallel. A `service` run is only enough when no user-visible behaviour changed; when the change has
+a UI consequence (a status, a toast, a list, a badge), check it in Electron.
 
 `qa:up` returns only after the service answers with the run's token, refuses a request without it, and is
 the process listening on its port, and (UI surfaces) after the renderer page is up on this run's CDP port and
@@ -73,6 +82,20 @@ the app has mounted. On failure it stops what it started and keeps `logs/` for i
 
 Before touching the UI, list 3-5 concrete cases (happy path and key edge cases), each with steps and the
 expected outcome. Tell the user briefly what you are about to test.
+
+Build the cases from what the change can break for the user, not from what is easy to check:
+
+- **Every user-visible behaviour the diff can affect gets a case**: ordering, what a Stop or a reconnect
+  sees, what happens to input under load, error messages, statuses that must update. A case that only
+  calls the endpoint you changed and reads a 200 proves little.
+- **Act like the user.** Drive the UI with the real input events of the CDP helper (`click`, `type`,
+  `key`); do not replace a user action with `el.click()`, a store call or a direct API request. Use the
+  API only to set up state the user would have built earlier, and say so.
+- **Use real dependencies.** Real agent turns (with a small model, see below), real terminals, real git
+  repositories. When behaviour depends on volume (lists, history, diffs, search), load realistic data, for
+  example with `.agents/skills/perf/seed-large.sql` on `<run>/app/db/qa.db`.
+- **Exercise the edges the change introduces**: a full queue, a slow command, a cancelled request, a
+  concurrent client (a second CDP target or WebSocket), a deleted credential, a restart mid-way.
 
 ## Step 4: Drive the app
 
@@ -113,7 +136,10 @@ After the cases, check the console (`eval` reading what the app logged, or `logs
 ## Step 5: Report
 
 Complete `<run>/evidence.md` (tested SHA, surface, scenarios, screenshots, limits, platforms not validated;
-`qa:up` pre-fills what it knows) and put its content in your reply or the PR description. Embed each screenshot
+`qa:up` pre-fills what it knows) and put its content in your reply or the PR description. When the surface
+is not `electron`, state why and which user paths it could not exercise. For each case, give the action,
+the observed result read from the tool output, and the verdict; list the risky paths you did not exercise.
+Never write a result before reading the output that shows it. Embed each screenshot
 with a one-line caption and its absolute path: `![caption](<run>/screenshots/<name>.png)`. If checks ran
 somewhere else than the run's surface (for example an HTML bench rendering components alone), say so in the
 Surface line: it changes what the result proves.
