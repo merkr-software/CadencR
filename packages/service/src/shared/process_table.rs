@@ -40,9 +40,10 @@ pub async fn parents() -> io::Result<HashMap<i32, i32>> {
 
 /// Current working directory of each requested pid, read directly from the
 /// kernel (`proc_pidinfo(PROC_PIDVNODEPATHINFO)` on macOS, `/proc/<pid>/cwd`
-/// on Linux). Duplicate pids are probed once; exited or inaccessible processes
-/// are omitted. Returns `ErrorKind::Unsupported` on platforms without a kernel
-/// cwd reader.
+/// on Linux). Duplicate pids are probed once. A process that exited, or one
+/// this user may not inspect, is omitted; any other failure is an error.
+/// A directory deleted under a process keeps its last path on both
+/// platforms. Returns `ErrorKind::Unsupported` elsewhere.
 pub async fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
     let owned: Vec<i32> = pids.to_vec();
     tokio::task::spawn_blocking(move || platform::cwds(&owned))
@@ -91,15 +92,23 @@ mod platform {
             if pid <= 0 || out.contains_key(&pid) {
                 continue;
             }
-            if let Some(path) = pid_cwd(pid) {
+            if let Some(path) = pid_cwd(pid)? {
                 out.insert(pid, path);
             }
         }
         Ok(out)
     }
 
-    fn pid_cwd(pid: i32) -> Option<PathBuf> {
-        let info: libc::proc_vnodepathinfo = pid_info(pid, libc::PROC_PIDVNODEPATHINFO)?;
+    /// `None` when the process is gone or belongs to another user (EPERM).
+    fn pid_cwd(pid: i32) -> io::Result<Option<PathBuf>> {
+        let info: libc::proc_vnodepathinfo = match read_pid_info(pid, libc::PROC_PIDVNODEPATHINFO) {
+            Ok(Some(info)) => info,
+            Ok(None) => return Ok(None),
+            Err(error) if matches!(error.raw_os_error(), Some(libc::EPERM | libc::EACCES)) => {
+                return Ok(None)
+            }
+            Err(error) => return Err(error),
+        };
         let raw_len = size_of_val(&info.pvi_cdir.vip_path);
         // SAFETY: `vip_path` is a contiguous `[[c_char; 32]; 32]` (MAXPATHLEN = 1024)
         // populated as a NUL-terminated path by `proc_pidinfo`.
@@ -108,9 +117,9 @@ mod platform {
         };
         let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
         if end == 0 {
-            return None;
+            return Ok(None);
         }
-        Some(PathBuf::from(OsStr::from_bytes(&bytes[..end])))
+        Ok(Some(PathBuf::from(OsStr::from_bytes(&bytes[..end]))))
     }
 
     pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
@@ -241,7 +250,7 @@ mod platform {
     use std::io;
     use std::path::PathBuf;
 
-    use super::{stat_fields, ProcessLinks};
+    use super::{stat_fields, without_deleted_marker, ProcessLinks};
 
     pub(super) fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
         let mut out = HashMap::new();
@@ -249,8 +258,23 @@ mod platform {
             if pid <= 0 || out.contains_key(&pid) {
                 continue;
             }
-            if let Ok(path) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
-                out.insert(pid, path);
+            match std::fs::read_link(format!("/proc/{pid}/cwd")) {
+                Ok(path) => {
+                    out.insert(pid, without_deleted_marker(path, |path| path.exists()));
+                }
+                // Exited (ENOENT, or ESRCH while it is torn down) or another
+                // user's process (EACCES).
+                Err(error)
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(libc::ENOENT | libc::ESRCH | libc::EACCES)
+                    ) => {}
+                Err(error) => {
+                    return Err(io::Error::new(
+                        error.kind(),
+                        format!("read /proc/{pid}/cwd: {error}"),
+                    ))
+                }
             }
         }
         Ok(out)
@@ -313,6 +337,21 @@ mod platform {
     }
 }
 
+/// Linux appends ` (deleted)` to the link of a directory removed under a
+/// process; macOS keeps reporting its last path. Strip the marker so both
+/// platforms attribute such a process to where it was started — unless a
+/// directory by that literal name exists.
+#[cfg(any(target_os = "linux", test))]
+fn without_deleted_marker(path: PathBuf, exists: impl Fn(&std::path::Path) -> bool) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    const MARKER: &[u8] = b" (deleted)";
+    let bytes = path.as_os_str().as_bytes();
+    match bytes.strip_suffix(MARKER) {
+        Some(original) if !exists(&path) => PathBuf::from(std::ffi::OsStr::from_bytes(original)),
+        _ => path,
+    }
+}
+
 /// Fields 3 onward of `/proc/<pid>/stat`. The command name (field 2) is in
 /// parentheses and may itself contain spaces and parentheses, so fields are
 /// counted from the last `)`.
@@ -349,6 +388,57 @@ mod tests {
         );
         assert_eq!(stat_fields(stat).unwrap().nth(22 - 3), Some("987654"));
         assert_eq!(stat_links("garbage"), None);
+    }
+
+    #[test]
+    fn the_deleted_marker_is_stripped_unless_the_literal_directory_exists() {
+        let deleted = PathBuf::from("/w/feature-a/src (deleted)");
+        assert_eq!(
+            without_deleted_marker(deleted.clone(), |_| false),
+            PathBuf::from("/w/feature-a/src")
+        );
+        assert_eq!(without_deleted_marker(deleted.clone(), |_| true), deleted);
+        let plain = PathBuf::from("/w/feature-a");
+        assert_eq!(without_deleted_marker(plain.clone(), |_| false), plain);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn processes_that_exit_before_the_cwd_read_are_omitted_not_errors() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let gone = i32::try_from(child.id()).unwrap();
+        child.wait().unwrap();
+        let this = i32::try_from(std::process::id()).unwrap();
+
+        let found = cwds(&[gone, this, this]).await.unwrap();
+
+        assert!(!found.contains_key(&gone));
+        assert_eq!(
+            std::fs::canonicalize(&found[&this]).unwrap(),
+            std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap()
+        );
+    }
+
+    /// A process whose directory was removed keeps that path, as on macOS.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_removed_cwd_reads_as_its_last_path_on_linux() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("gone");
+        std::fs::create_dir(&dir).unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .current_dir(&dir)
+            .spawn()
+            .unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+
+        let found = cwds(&[pid]).await;
+        child.kill().unwrap();
+        child.wait().unwrap();
+
+        assert_eq!(found.unwrap().get(&pid), Some(&dir));
     }
 
     /// A failed listing used to read as an empty group, so a group that

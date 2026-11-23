@@ -174,7 +174,51 @@ describe("useFeaturePorts live snapshots", () => {
     await waitFor(() => expect([...result.current.keys()]).toEqual([8]));
   });
 
-  it("does not retry a failed scan even when the query client defaults to retrying", async () => {
+  it("keeps badges shown after mount once the shared snapshot turns stale", async () => {
+    // Fetched 3.2 s ago by another section: fresh (4 s) when this one mounts.
+    client.setQueryData(queryKey, snapshot, { updatedAt: Date.now() - 3_200 });
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        return HttpResponse.json(snapshot);
+      }),
+    );
+
+    const { result } = renderHook(useFeaturePorts, { wrapper });
+    expect(result.current.size).toBe(2);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(result.current.size).toBe(2);
+    expect(requests).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient failure once without surfacing it", async () => {
+    client = new QueryClient({
+      defaultOptions: { queries: { retryDelay: 10, gcTime: 0, staleTime: 30_000 } },
+    });
+    const requests = vi.fn();
+    server.use(
+      http.get("*/api/features/ports", () => {
+        requests();
+        if (requests.mock.calls.length === 1) {
+          return HttpResponse.json(
+            { error: "The database is busy", code: "DATABASE_BUSY" },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(snapshot);
+      }),
+    );
+
+    const { result } = renderHook(useFeaturePorts, { wrapper });
+
+    await waitFor(() => expect(result.current.size).toBe(2));
+    expect(requests).toHaveBeenCalledTimes(2);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a scan the backend is backing off from", async () => {
     client = new QueryClient({
       defaultOptions: { queries: { retry: 2, retryDelay: 10, gcTime: 0, staleTime: 30_000 } },
     });
@@ -182,7 +226,10 @@ describe("useFeaturePorts live snapshots", () => {
     server.use(
       http.get("*/api/features/ports", () => {
         requests();
-        return HttpResponse.json({ error: "lsof timed out" }, { status: 500 });
+        return HttpResponse.json(
+          { error: "lsof timed out", code: "PORT_SCAN_TIMEOUT" },
+          { status: 503 },
+        );
       }),
     );
 
