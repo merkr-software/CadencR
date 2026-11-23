@@ -24,8 +24,16 @@ const EDGE_MARGIN = "-48px 0px -48px 0px";
  * Cards report themselves (`track`) as Virtuoso mounts them; the transcript
  * attaches while mounted. Nothing here re-renders the transcript: the list
  * subscribes to `getVisible`, which changes only when a card enters or
- * leaves the screen. A card the observer has not measured yet counts as on
- * screen, so a list never flashes an agent whose card is about to report in.
+ * leaves the screen.
+ *
+ * A card counts off screen until the observer's first report, a frame after
+ * it mounts. Counting it on screen meanwhile was wrong for every card
+ * Virtuoso mounts in its overscan, up to a screen away: its agent left the
+ * list for two frames and came back, the list's height changed twice and the
+ * whole transcript jumped with it — over and over where a scroll position
+ * sat on the edge of Virtuoso's rendered range. The list only adds an agent
+ * after it has stayed off screen for a moment (`useSettledOffScreen`), so a
+ * card mounting on screen reports in before its agent could show there.
  */
 export class SubagentCards {
   private stream: SubagentCardsStream | null = null;
@@ -33,8 +41,6 @@ export class SubagentCards {
   private readonly tracked = new Map<Element, string>();
   /** Cards the observer last reported inside the scroller. */
   private readonly onScreen = new Set<Element>();
-  /** Cards the current observer has not reported on yet. */
-  private readonly unmeasured = new Set<Element>();
   private visible: ReadonlySet<string> = NONE;
   private readonly listeners = new Set<() => void>();
 
@@ -64,14 +70,12 @@ export class SubagentCards {
     this.tracked.set(element, toolUseId);
     if (this.rootChanged()) this.observe();
     else if (this.observer) {
-      this.unmeasured.add(element);
       this.observer.observe(element);
       this.recount();
     }
     return () => {
       this.tracked.delete(element);
       this.onScreen.delete(element);
-      this.unmeasured.delete(element);
       this.observer?.unobserve(element);
       this.recount();
     };
@@ -99,7 +103,6 @@ export class SubagentCards {
     this.observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          this.unmeasured.delete(entry.target);
           if (entry.isIntersecting) this.onScreen.add(entry.target);
           else this.onScreen.delete(entry.target);
         }
@@ -107,17 +110,14 @@ export class SubagentCards {
       },
       { root, rootMargin: EDGE_MARGIN },
     );
-    for (const element of this.tracked.keys()) {
-      this.unmeasured.add(element);
-      this.observer.observe(element);
-    }
+    for (const element of this.tracked.keys()) this.observer.observe(element);
     this.recount();
   }
 
   private recount(): void {
     if (!this.observer) return;
     const next = new Set<string>();
-    for (const element of [...this.onScreen, ...this.unmeasured]) {
+    for (const element of this.onScreen) {
       const toolUseId = this.tracked.get(element);
       if (toolUseId !== undefined) next.add(toolUseId);
     }
@@ -128,7 +128,6 @@ export class SubagentCards {
     this.observer?.disconnect();
     this.observer = null;
     this.onScreen.clear();
-    this.unmeasured.clear();
   }
 
   private publish(next: ReadonlySet<string>): void {
