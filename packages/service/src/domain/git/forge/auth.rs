@@ -209,6 +209,8 @@ pub fn forge_to_app_error(error: ForgeError) -> AppError {
         AppError::BadRequest(error.to_string())
     } else if matches!(error, ForgeError::Refused(_)) {
         AppError::Conflict(error.to_string())
+    } else if matches!(error, ForgeError::Timeout(_)) {
+        AppError::ServiceUnavailable(error.to_string())
     } else {
         AppError::internal(error.to_string())
     }
@@ -278,6 +280,15 @@ pub(super) fn normalized_optional(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cli_timeout_is_a_retryable_503_not_a_login_prompt() {
+        let error = forge_to_app_error(ForgeError::Timeout("gh did not answer".into()));
+        assert!(
+            matches!(&error, AppError::ServiceUnavailable(message) if message == "gh did not answer"),
+            "{error:?}"
+        );
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

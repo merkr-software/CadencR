@@ -10,8 +10,6 @@ use super::provider::{ForgeContext, ForgeProvider};
 use super::{api_base_url, effective_kind, provider_for};
 use crate::app_state::AppState;
 use crate::domain::git::host::{detect_origin_remote, GitHost, RemoteInfo};
-use crate::domain::git::linked_branches;
-use crate::domain::git::service;
 use crate::error::AppError;
 
 /// A feature's forge, resolved end to end: which provider speaks for it, where
@@ -91,22 +89,9 @@ pub async fn active_feature_targets(state: &AppState) -> Result<Vec<FeatureForge
     batch::active_feature_targets(&state.read_pool).await
 }
 
+/// Resolve one feature's forge target with the same rules as the poller.
 pub async fn resolve_feature_target(state: &AppState, feature_id: i64) -> FeatureForgeTarget {
-    match try_resolve_feature_target(state, feature_id).await {
-        Ok((branch, remote)) => {
-            match tracked_branches(state, feature_id, branch.as_deref()).await {
-                Ok(tracked) => FeatureForgeTarget {
-                    feature_id,
-                    branch,
-                    tracked,
-                    remote,
-                    error: None,
-                },
-                Err(error) => failed_target(feature_id, error.to_string()),
-            }
-        }
-        Err(error) => failed_target(feature_id, error.to_string()),
-    }
+    batch::feature_target(&state.read_pool, feature_id).await
 }
 
 pub(super) fn failed_target(feature_id: i64, error: impl Into<String>) -> FeatureForgeTarget {
@@ -159,20 +144,6 @@ pub(super) fn assemble_tracked(
     tracked
 }
 
-async fn tracked_branches(
-    state: &AppState,
-    feature_id: i64,
-    current: Option<&str>,
-) -> Result<Vec<TrackedBranch>, AppError> {
-    let rows = linked_branches::repository::list_linked(&state.read_pool, feature_id).await?;
-    let linked = rows
-        .into_iter()
-        .map(|row| linked_branch_entry(row.branch, row.pr_number, row.pr_state))
-        .collect();
-    let recorded = service::recorded_feature_branch(&state.read_pool, feature_id).await?;
-    Ok(assemble_tracked(linked, recorded, current))
-}
-
 pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo>, AppError> {
     let paths = sqlx::query_scalar::<_, String>("SELECT path FROM projects ORDER BY id")
         .fetch_all(&state.read_pool)
@@ -194,29 +165,6 @@ pub async fn detected_project_remotes(state: &AppState) -> Result<Vec<RemoteInfo
         }
     }
     Ok(remotes)
-}
-
-async fn try_resolve_feature_target(
-    state: &AppState,
-    feature_id: i64,
-) -> Result<(Option<String>, Option<RemoteInfo>), AppError> {
-    let path = service::resolve_feature_working_path(state, feature_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("No repository found for feature {feature_id}"))
-        })?;
-    if !crate::shared::git_context::has_git_metadata(Path::new(&path)).await? {
-        return Ok((None, None));
-    }
-    // The branch the feature is *bound to*, not whatever the resolved
-    // repository happens to have checked out: a feature whose worktree was
-    // removed, or one created by the worktree-free "From branch" flow, both
-    // resolve to the project directory, whose HEAD is usually the default
-    // branch. Matching PRs against that would report the wrong proposal.
-    let branch =
-        service::resolve_feature_branch(&state.read_pool, feature_id, Path::new(&path)).await?;
-    let remote = detect_origin_remote(Path::new(&path)).await?;
-    Ok((branch, remote))
 }
 
 async fn remote_for_path(path: &Path) -> Result<Option<RemoteInfo>, AppError> {

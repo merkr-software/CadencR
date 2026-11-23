@@ -5,15 +5,21 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::{Duration, Instant};
 
-use super::super::auth::host_configs;
-use super::super::provider::{CiRollup, CiState};
+use tracing::warn;
+
+use super::super::auth::{forge_to_app_error, host_configs};
 use super::{RepoGroup, RepoKey};
 use crate::app_state::AppState;
 use crate::domain::git::host::GitHost;
+use crate::error::AppError;
 
 pub(super) const POLL_INTERVAL: Duration = Duration::from_secs(60);
 pub(super) const RUNNING_CI_POLL_INTERVAL: Duration = Duration::from_secs(30);
 const BITBUCKET_POLL_INTERVAL: Duration = Duration::from_secs(120);
+/// Without any credentials there is nothing to fetch, so unchanged features
+/// are re-resolved this rarely: often enough that a remote added meanwhile
+/// still gets its "connect your forge" prompt.
+const UNAUTHENTICATED_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 /// Tolerance so a periodic tick firing slightly ahead of the computed due
 /// instant (timer jitter) still polls instead of waiting another 30s tick.
 const SCHEDULE_LEEWAY: Duration = Duration::from_secs(1);
@@ -27,34 +33,58 @@ pub(super) struct PollSchedule {
     /// Last `ForgeStatusCache::schedule_generation` observed by the periodic
     /// poller; a change invalidates `next_due_at`.
     pub(super) seen_generation: u64,
-    /// True once at least one sweep has run (so initial unauthenticated setup
-    /// snapshots are always published on startup).
-    pub(super) has_swept: bool,
+    /// Whether any forge credentials were configured for the last completed
+    /// sweep (`None` when that could not be read). Snapshots published with
+    /// credentials must be replaced once they are gone, so only a sweep that
+    /// itself ran without them lets later ticks skip.
+    pub(super) swept_with_auth: Option<bool>,
+    /// The credential state seen by the tick that started the running sweep.
+    pub(super) pending_auth: Option<bool>,
+    /// When the last periodic sweep started; `None` until one has run, so
+    /// the initial unauthenticated setup snapshots are always published.
+    pub(super) last_sweep_at: Option<Instant>,
 }
 
-pub(super) async fn has_any_configured_auth(state: &AppState) -> bool {
+impl PollSchedule {
+    /// Record a completed sweep that started at `started`.
+    pub(super) fn finish_sweep(&mut self, started: Instant, generation: u64) {
+        self.seen_generation = generation;
+        self.swept_with_auth = self.pending_auth.take();
+        self.last_sweep_at = Some(started);
+    }
+}
+
+pub(super) async fn has_any_configured_auth(state: &AppState) -> Result<bool, AppError> {
     if state
         .forge_auth
         .has_any_stored_tokens()
         .await
-        .unwrap_or(true)
+        .map_err(forge_to_app_error)?
     {
-        return true;
+        return Ok(true);
     }
-    host_configs().map_or(true, |configs| {
-        configs.values().any(|config| config.use_cli_auth)
-    })
+    Ok(host_configs()?.values().any(|config| config.use_cli_auth))
 }
 
-async fn active_feature_ids_match_cache(state: &AppState) -> bool {
-    let Ok(ids) = sqlx::query_scalar::<_, i64>("SELECT id FROM features WHERE status = 'active'")
+async fn active_feature_ids_match_cache(state: &AppState) -> Result<bool, AppError> {
+    let ids = sqlx::query_scalar::<_, i64>("SELECT id FROM features WHERE status = 'active'")
         .fetch_all(&state.read_pool)
-        .await
-    else {
-        return false;
-    };
+        .await?;
     let active: HashSet<i64> = ids.into_iter().collect();
-    state.forge_status.matches_feature_ids(&active).await
+    Ok(state.forge_status.matches_feature_ids(&active).await)
+}
+
+/// Whether the published snapshots still cover exactly the active features.
+/// A read failure counts as "changed": the sweep it triggers resolves the
+/// features again and reports the failure from there.
+async fn feature_set_unchanged(state: &AppState) -> bool {
+    match active_feature_ids_match_cache(state).await {
+        Ok(unchanged) => unchanged,
+        Err(error) => {
+            warn!(%error, "could not compare active features with forge snapshots; sweeping");
+            false
+        }
+    }
 }
 
 pub(super) async fn should_skip_periodic_tick<A, FutA>(
@@ -64,27 +94,69 @@ pub(super) async fn should_skip_periodic_tick<A, FutA>(
 ) -> bool
 where
     A: FnOnce() -> FutA,
-    FutA: Future<Output = bool>,
+    FutA: Future<Output = Result<bool, AppError>>,
 {
     let current_generation = state.forge_status.schedule_generation();
     if schedule.seen_generation != current_generation {
         schedule.next_due_at = None;
         schedule.seen_generation = current_generation;
     }
-    if !schedule.has_swept {
+    if schedule.last_sweep_at.is_none() {
+        schedule.pending_auth = read_auth(has_auth).await;
         return false;
     }
-    if schedule
+    let not_due = schedule
         .next_due_at
-        .is_some_and(|due| due.saturating_duration_since(Instant::now()) > SCHEDULE_LEEWAY)
-    {
-        return true;
+        .is_some_and(|due| due.saturating_duration_since(Instant::now()) > SCHEDULE_LEEWAY);
+    // A created or archived feature is news on the next tick, not when the
+    // slowest repo group comes due.
+    let mut unchanged = None;
+    if not_due {
+        let same = feature_set_unchanged(state).await;
+        if same {
+            return true;
+        }
+        unchanged = Some(same);
     }
-    if !has_auth().await && active_feature_ids_match_cache(state).await {
+    let auth = read_auth(has_auth).await;
+    schedule.pending_auth = auth;
+    if auth != schedule.swept_with_auth {
+        // Credentials appeared or went away: every snapshot published under
+        // the previous state is due, not just the groups whose interval ran.
+        schedule.last_polled.clear();
+    }
+    let unauthenticated_and_settled = auth == Some(false)
+        && schedule.swept_with_auth == Some(false)
+        && schedule
+            .last_sweep_at
+            .is_some_and(|last| last.elapsed() < UNAUTHENTICATED_SWEEP_INTERVAL);
+    if !unauthenticated_and_settled {
+        return false;
+    }
+    let unchanged = match unchanged {
+        Some(unchanged) => unchanged,
+        None => feature_set_unchanged(state).await,
+    };
+    if unchanged {
         schedule.next_due_at = Some(Instant::now() + POLL_INTERVAL);
-        return true;
     }
-    false
+    unchanged
+}
+
+/// `None` when the credential state could not be read; the sweep then runs
+/// and reports the failure on each feature's snapshot.
+async fn read_auth<A, FutA>(has_auth: A) -> Option<bool>
+where
+    A: FnOnce() -> FutA,
+    FutA: Future<Output = Result<bool, AppError>>,
+{
+    match has_auth().await {
+        Ok(auth) => Some(auth),
+        Err(error) => {
+            warn!(%error, "could not read forge credentials; sweeping");
+            None
+        }
+    }
 }
 
 pub(super) async fn compute_next_due<'a>(
@@ -110,14 +182,10 @@ pub(super) async fn compute_next_due<'a>(
 pub(super) async fn should_poll(
     state: &AppState,
     group: &RepoGroup,
-    force: bool,
     last_polled: &HashMap<RepoKey, Instant>,
 ) -> bool {
-    if force {
-        return true;
-    }
     for feature in &group.features {
-        if state.forge_status.get(feature.feature_id).await.is_none() {
+        if !state.forge_status.contains(feature.feature_id).await {
             return true;
         }
     }
@@ -131,17 +199,8 @@ async fn poll_interval(state: &AppState, group: &RepoGroup) -> Duration {
     if group.kind == GitHost::Bitbucket {
         return BITBUCKET_POLL_INTERVAL;
     }
-    let running = |ci: Option<&CiRollup>| ci.is_some_and(|ci| ci.state == CiState::Running);
     for feature in &group.features {
-        let Some(snapshot) = state.forge_status.get(feature.feature_id).await else {
-            continue;
-        };
-        if running(snapshot.ci.as_ref())
-            || snapshot
-                .other_prs
-                .iter()
-                .any(|other| running(other.ci.as_ref()))
-        {
+        if state.forge_status.has_running_ci(feature.feature_id).await {
             return RUNNING_CI_POLL_INTERVAL;
         }
     }

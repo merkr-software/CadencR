@@ -13,6 +13,7 @@ const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 enum BoundedCommandErrorKind {
     Other,
     OutputExceeded,
+    TimedOut,
 }
 
 /// Failure fragment; callers prefix it with the command they ran, e.g.
@@ -40,6 +41,11 @@ impl BoundedCommandError {
 
     pub fn is_output_exceeded(&self) -> bool {
         self.kind == BoundedCommandErrorKind::OutputExceeded
+    }
+
+    /// The command was killed for outliving its deadline.
+    pub fn is_timed_out(&self) -> bool {
+        self.kind == BoundedCommandErrorKind::TimedOut
     }
 }
 
@@ -161,7 +167,10 @@ async fn capture<G>(
         Err(_) => {
             let seconds = timeout.as_secs();
             let unit = if seconds == 1 { "second" } else { "seconds" };
-            BoundedCommandError::new(format!("timed out after {seconds} {unit}"))
+            BoundedCommandError {
+                message: format!("timed out after {seconds} {unit}"),
+                kind: BoundedCommandErrorKind::TimedOut,
+            }
         }
     };
     #[cfg(unix)]
@@ -281,6 +290,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!error.is_output_exceeded());
+        assert!(error.is_timed_out());
         assert!(error.to_string().contains("timed out"));
     }
 

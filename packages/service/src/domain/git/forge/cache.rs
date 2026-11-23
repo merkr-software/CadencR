@@ -2,22 +2,28 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use axum::http::StatusCode;
 use tokio::sync::RwLock;
 
-use super::provider::PrStatusSnapshot;
+use super::provider::{CiRollup, CiState, PrStatusSnapshot};
 use crate::error::AppError;
 use crate::shared::singleflight::Singleflight;
+
+mod publish_order;
+
+pub(super) use publish_order::PublishOrder;
 
 #[derive(Default)]
 pub struct ForgeStatusCache {
     by_feature: RwLock<HashMap<i64, PrStatusSnapshot>>,
     /// The branch each published snapshot's top-level proposal belongs to.
     current_branches: RwLock<HashMap<i64, String>>,
-    /// Serializes full polls. Holds the ticket of the newest target resolution a
-    /// poll published, so a periodic poll that resolved its branches before
-    /// it does not republish an older view.
-    pub(super) refresh_lock: tokio::sync::Mutex<u64>,
+    /// Serializes full polls, network calls included, so concurrent sweeps
+    /// (periodic, forced, HTTP) never query the forges twice at once.
+    pub(super) sweep_lock: tokio::sync::Mutex<()>,
+    /// Held only to publish, by full and per-feature polls alike. Remembers
+    /// which target resolution each publication came from, so a poll that
+    /// resolved its branches earlier never republishes an older view.
+    pub(super) publish_order: tokio::sync::Mutex<PublishOrder>,
     /// Numbers target resolutions in the order they start.
     pub(super) resolve_tickets: AtomicU64,
     /// Bumped by forced/on-demand refreshes so the background poller drops its
@@ -25,83 +31,9 @@ pub struct ForgeStatusCache {
     schedule_generation: AtomicU64,
     pub(super) forced: ForcedRefreshQueue,
     /// Coalesces concurrent HTTP full-refresh callers onto one in-flight sweep.
-    pub(super) full_refresh: Singleflight<(), Result<(), SharedRefreshError>>,
+    pub(super) full_refresh: Singleflight<(), Result<(), AppError>>,
     /// Coalesces concurrent HTTP single-feature callers onto one in-flight refresh.
-    pub(super) feature_refreshes: Singleflight<i64, Result<(), SharedRefreshError>>,
-}
-
-/// Cloneable projection of [`AppError`] so singleflight waiters preserve the
-/// leader's HTTP status and structured error variant instead of flattening to
-/// an opaque 500.
-#[derive(Clone, Debug)]
-pub(super) enum SharedRefreshError {
-    DatabaseError(String),
-    DatabaseBusy(String),
-    ConstraintViolation(String),
-    GitCommandError(String),
-    GitRejected(String),
-    NotFound(String),
-    BadRequest(String),
-    Conflict(String),
-    Coded {
-        status: StatusCode,
-        code: &'static str,
-        message: String,
-    },
-    ServiceUnavailable(String),
-    Internal(String),
-}
-
-impl SharedRefreshError {
-    pub(super) fn from_app_error(error: AppError) -> Self {
-        match error {
-            AppError::DatabaseError(detail) => Self::DatabaseError(detail.to_string()),
-            AppError::DatabaseBusy(detail) => Self::DatabaseBusy(detail.to_string()),
-            AppError::ConstraintViolation(message) => Self::ConstraintViolation(message),
-            AppError::GitCommandError(detail) => Self::GitCommandError(detail.to_string()),
-            AppError::GitRejected(rejection) => Self::GitRejected(rejection.message),
-            AppError::NotFound(message) => Self::NotFound(message),
-            AppError::BadRequest(message) => Self::BadRequest(message),
-            AppError::Conflict(message) => Self::Conflict(message),
-            AppError::Coded {
-                status,
-                code,
-                message,
-            } => Self::Coded {
-                status,
-                code,
-                message,
-            },
-            AppError::ServiceUnavailable(message) => Self::ServiceUnavailable(message),
-            AppError::Internal(detail) => Self::Internal(detail.to_string()),
-            other => Self::Internal(other.to_string()),
-        }
-    }
-
-    #[track_caller]
-    pub(super) fn into_app_error(self) -> AppError {
-        match self {
-            Self::DatabaseError(message) => AppError::database(message),
-            Self::DatabaseBusy(message) => AppError::database_busy(message),
-            Self::ConstraintViolation(message) => AppError::ConstraintViolation(message),
-            Self::GitCommandError(message) => AppError::git_command(message),
-            Self::GitRejected(message) => AppError::git_rejected(message),
-            Self::NotFound(message) => AppError::NotFound(message),
-            Self::BadRequest(message) => AppError::BadRequest(message),
-            Self::Conflict(message) => AppError::Conflict(message),
-            Self::Coded {
-                status,
-                code,
-                message,
-            } => AppError::Coded {
-                status,
-                code,
-                message,
-            },
-            Self::ServiceUnavailable(message) => AppError::ServiceUnavailable(message),
-            Self::Internal(message) => AppError::internal(message),
-        }
-    }
+    pub(super) feature_refreshes: Singleflight<i64, Result<(), AppError>>,
 }
 
 /// Forced refreshes asked for with `request_refresh`. One worker runs them;
@@ -163,13 +95,39 @@ impl ForgeStatusCache {
         self.by_feature.read().await.get(&feature_id).cloned()
     }
 
+    /// Whether a snapshot was published for `feature_id`, without cloning it.
+    pub(super) async fn contains(&self, feature_id: i64) -> bool {
+        self.by_feature.read().await.contains_key(&feature_id)
+    }
+
+    /// Whether any proposal in `feature_id`'s published snapshot has checks
+    /// still running, without cloning the snapshot.
+    pub(super) async fn has_running_ci(&self, feature_id: i64) -> bool {
+        let running = |ci: Option<&CiRollup>| ci.is_some_and(|ci| ci.state == CiState::Running);
+        self.by_feature
+            .read()
+            .await
+            .get(&feature_id)
+            .is_some_and(|snapshot| {
+                running(snapshot.ci.as_ref())
+                    || snapshot
+                        .other_prs
+                        .iter()
+                        .any(|other| running(other.ci.as_ref()))
+            })
+    }
+
     pub async fn is_fresh(&self, feature_id: i64, stale_ms: i64) -> bool {
-        self.get(feature_id).await.is_some_and(|status| {
-            chrono::Utc::now()
-                .timestamp_millis()
-                .saturating_sub(status.fetched_at)
-                < stale_ms
-        })
+        self.by_feature
+            .read()
+            .await
+            .get(&feature_id)
+            .is_some_and(|status| {
+                chrono::Utc::now()
+                    .timestamp_millis()
+                    .saturating_sub(status.fetched_at)
+                    < stale_ms
+            })
     }
 
     pub async fn matches_feature_ids(&self, feature_ids: &HashSet<i64>) -> bool {
@@ -283,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn singleflight_coalesces_concurrent_http_refreshes_and_preserves_error_variants() {
-        let sf = Arc::new(Singleflight::<i64, Result<(), SharedRefreshError>>::new());
+        let sf = Arc::new(Singleflight::<i64, Result<(), AppError>>::new());
         let runs = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
@@ -303,13 +261,10 @@ mod tests {
                         runs.fetch_add(1, Ordering::SeqCst);
                         started.notify_one();
                         release.notified().await;
-                        Err(SharedRefreshError::from_app_error(AppError::database_busy(
-                            "db locked",
-                        )))
+                        Err(AppError::database_busy("db locked"))
                     }
                 })
                 .await
-                .map_err(SharedRefreshError::into_app_error)
             }));
         }
 
@@ -324,20 +279,5 @@ mod tests {
             );
         }
         assert_eq!(runs.load(Ordering::SeqCst), 1);
-
-        let coded = SharedRefreshError::from_app_error(AppError::coded(
-            StatusCode::TOO_MANY_REQUESTS,
-            "RATE_LIMITED",
-            "slow down",
-        ))
-        .into_app_error();
-        assert!(matches!(
-            coded,
-            AppError::Coded {
-                status: StatusCode::TOO_MANY_REQUESTS,
-                code: "RATE_LIMITED",
-                ..
-            }
-        ));
     }
 }

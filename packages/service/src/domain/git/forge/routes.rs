@@ -8,7 +8,9 @@ use super::auth::{
     forge_to_app_error, host_configs, invalidate_cli_token, normalize_hostname,
     normalized_optional, resolve_credentials, save_host_config,
 };
-use super::poller::{refresh_all, refresh_all_coalesced, refresh_feature_coalesced};
+use super::poller::{
+    refresh_all, refresh_all_coalesced, refresh_feature_coalesced, request_refresh,
+};
 use super::provider::{
     FeaturePrParams, ForgeAuthContext, ForgeAuthSource, ForgeAuthStatus, ForgeCredentials,
     ForgeHostConfig, ForgeTokenDeleteParams, ForgeTokenDeleteResponse, ForgeTokenRequest,
@@ -140,6 +142,9 @@ pub async fn delete_forge_token_handler(
         save_host_config(&hostname, config).await?;
     }
     invalidate_cli_token(&hostname);
+    // Snapshots polled with these credentials must give way to the "add a
+    // token" prompt now, not whenever the periodic poller next sweeps.
+    request_refresh(&state);
     Ok(Json(ForgeTokenDeleteResponse {
         deleted: deleted || cli_auth_disabled,
     }))

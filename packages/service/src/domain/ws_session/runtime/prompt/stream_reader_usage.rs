@@ -254,6 +254,7 @@ mod tests {
         let mut session = spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
             command,
             spawn_guard: None,
+            wire_transform: None,
             client_info: AcpClientInfo::default(),
             stderr_policy: AcpStderrPolicy::Log,
             process_tree_policy: AcpProcessTreePolicy::Inherit,

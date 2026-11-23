@@ -52,21 +52,34 @@ async fn scan_now(state: &AppState) -> Result<Vec<FeaturePorts>, AppError> {
     Ok(attribute(resolved, &cwds, &feature_dirs))
 }
 
+/// Stable code of a scan that timed out; the scan cache backs off from it.
+pub(super) const PORT_SCAN_TIMEOUT: &str = "PORT_SCAN_TIMEOUT";
+/// Stable code of a scan whose tool is not installed.
+pub(super) const PORT_SCAN_TOOL_MISSING: &str = "PORT_SCAN_TOOL_MISSING";
+
 /// A missing `lsof` is an install problem the user can fix, so it gets a
-/// stable code and an actionable message; anything else stays internal.
+/// stable code and an actionable message; a timeout gets its own retryable
+/// code; anything else stays internal.
 #[track_caller]
 fn scan_error(context: &str, error: anyhow::Error) -> AppError {
+    if let Some(timeout) = error.downcast_ref::<scan::ScanTimeout>() {
+        return AppError::coded(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            PORT_SCAN_TIMEOUT,
+            format!("{context}: {timeout}. Ports will be checked again shortly."),
+        );
+    }
     match error.downcast_ref::<scan::MissingTool>() {
-        Some(missing) => AppError::Coded {
-            status: axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            code: "PORT_SCAN_TOOL_MISSING",
-            message: format!(
+        Some(missing) => AppError::coded(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            PORT_SCAN_TOOL_MISSING,
+            format!(
                 "{missing}. Install `{}` with your package manager (for example \
                  `sudo apt install {0}`, `sudo dnf install {0}` or `sudo pacman -S {0}`) \
                  to see the servers your features are running.",
                 missing.program
             ),
-        },
+        ),
         None => AppError::internal(format!("{context}: {error}")),
     }
 }
@@ -101,6 +114,20 @@ mod tests {
             AppError::Coded { code, message, .. } => {
                 assert_eq!(code, "PORT_SCAN_TOOL_MISSING");
                 assert!(message.contains("sudo apt install lsof"), "{message}");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_scan_timeout_maps_to_a_retryable_coded_error() {
+        let error = anyhow::Error::from(scan::ScanTimeout {
+            program: "lsof".into(),
+        });
+        match scan_error("ctx", error) {
+            AppError::Coded { status, code, .. } => {
+                assert_eq!(code, PORT_SCAN_TIMEOUT);
+                assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
             }
             other => panic!("unexpected {other:?}"),
         }

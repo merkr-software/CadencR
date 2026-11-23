@@ -5,7 +5,8 @@
 //! The process tree comes from `shared::process_table`, and process working
 //! directories are read directly from the kernel (`proc_pidinfo` on macOS,
 //! `/proc/<pid>/cwd` on Linux) to avoid a second `lsof` pass that can wedge
-//! on unreachable mounts.
+//! on unreachable mounts. Other platforms have neither table, so port
+//! scanning reports an error there instead of falling back to `lsof`.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -20,10 +21,6 @@ pub struct ListenSocket {
     pub command: String,
     pub port: u16,
 }
-
-/// Cap on how many pids we hand to a single `lsof -p` invocation on fallback
-/// platforms, so a machine with many listeners can't build an over-long argv.
-const CWD_BATCH: usize = 256;
 
 /// `lsof` stats every mount it reports on and is known to wedge on an
 /// unreachable network or FUSE mount. Give up after a short timeout and let
@@ -47,6 +44,21 @@ impl std::fmt::Display for MissingTool {
 
 impl std::error::Error for MissingTool {}
 
+/// A scan tool outlived [`COMMAND_TIMEOUT`] (typically `lsof` stuck on an
+/// unreachable mount). Kept distinct so the cache can back off from it.
+#[derive(Debug)]
+pub struct ScanTimeout {
+    pub program: String,
+}
+
+impl std::fmt::Display for ScanTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}` timed out after {COMMAND_TIMEOUT:?}", self.program)
+    }
+}
+
+impl std::error::Error for ScanTimeout {}
+
 pub async fn listening_sockets() -> anyhow::Result<Vec<ListenSocket>> {
     let out = capture("lsof", &["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]).await?;
     Ok(parse_listen_sockets(&out))
@@ -61,39 +73,22 @@ pub async fn parent_map() -> anyhow::Result<HashMap<i32, i32>> {
 
 /// Working directory of each requested pid. Pids that have exited between the
 /// socket scan and this call (or belong to another user) are simply absent.
+/// Paths that are not UTF-8 are kept lossily: the feature directories they
+/// are matched against are UTF-8, and a lossy name below one still matches.
 pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
     if pids.is_empty() {
         return Ok(HashMap::new());
     }
-    match crate::shared::process_table::cwds(pids).await {
-        Ok(paths) => Ok(paths
-            .into_iter()
-            .filter_map(|(pid, path)| {
-                let path = path.to_str()?;
-                (!path.is_empty()).then(|| (pid, path.to_owned()))
-            })
-            .collect()),
-        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
-            cwd_map_via_lsof(pids).await
-        }
-        Err(error) => Err(anyhow::anyhow!(
-            "could not read process directories: {error}"
-        )),
-    }
-}
-
-async fn cwd_map_via_lsof(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
-    let mut cwds = HashMap::new();
-    for chunk in pids.chunks(CWD_BATCH) {
-        let list = chunk
-            .iter()
-            .map(i32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let out = capture("lsof", &["-a", "-d", "cwd", "-F", "pn", "-p", &list]).await?;
-        cwds.extend(parse_cwd_map(&out));
-    }
-    Ok(cwds)
+    let paths = crate::shared::process_table::cwds(pids)
+        .await
+        .map_err(|error| anyhow::anyhow!("could not read process directories: {error}"))?;
+    Ok(paths
+        .into_iter()
+        .filter_map(|(pid, path)| {
+            let path = path.to_string_lossy().into_owned();
+            (!path.is_empty()).then_some((pid, path))
+        })
+        .collect())
 }
 
 /// Run a command and return stdout. `lsof` exits non-zero when nothing matched,
@@ -110,7 +105,11 @@ async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
         .output();
     let output = tokio::time::timeout(COMMAND_TIMEOUT, run)
         .await
-        .map_err(|_| anyhow::anyhow!("`{program}` timed out after {COMMAND_TIMEOUT:?}"))?
+        .map_err(|_| {
+            anyhow::Error::from(ScanTimeout {
+                program: program.to_owned(),
+            })
+        })?
         .map_err(|error| spawn_error(program, error))?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     if !output.status.success() && stdout.trim().is_empty() {
@@ -164,27 +163,6 @@ fn parse_listen_sockets(output: &str) -> Vec<ListenSocket> {
         }
     }
     sockets
-}
-
-/// Parse `lsof -d cwd -F pn` output into pid -> working directory.
-fn parse_cwd_map(output: &str) -> HashMap<i32, String> {
-    let mut cwds = HashMap::new();
-    let mut pid: Option<i32> = None;
-    for line in output.lines() {
-        let Some((tag, value)) = split_field(line) else {
-            continue;
-        };
-        match tag {
-            'p' => pid = value.trim().parse().ok(),
-            'n' => {
-                if let Some(pid) = pid {
-                    cwds.entry(pid).or_insert_with(|| value.to_owned());
-                }
-            }
-            _ => {}
-        }
-    }
-    cwds
 }
 
 fn split_field(line: &str) -> Option<(char, &str)> {
@@ -250,16 +228,6 @@ mod tests {
 
         assert_eq!(sockets.len(), 1);
         assert_eq!(sockets[0].port, 4000);
-    }
-
-    #[test]
-    fn keeps_the_first_cwd_reported_for_a_pid() {
-        let out = "p11\nn/Users/me/work\np22\nn/tmp\nn/ignored\n";
-
-        let cwds = parse_cwd_map(out);
-
-        assert_eq!(cwds.get(&11).map(String::as_str), Some("/Users/me/work"));
-        assert_eq!(cwds.get(&22).map(String::as_str), Some("/tmp"));
     }
 
     #[test]
