@@ -9,9 +9,9 @@ use std::time::Duration;
 use tokio::process::{Child, Command};
 
 #[cfg(windows)]
-use crate::shared::process_group::wait_bounded;
-#[cfg(windows)]
 use super::process_tree_windows as windows_job;
+#[cfg(windows)]
+use crate::shared::process_group::wait_bounded;
 
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,7 +298,11 @@ mod unix_tests {
         #[cfg(target_os = "linux")]
         {
             if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                if let Some(state) = stat.rsplit(')').next().and_then(|s| s.trim_start().chars().next()) {
+                if let Some(state) = stat
+                    .rsplit(')')
+                    .next()
+                    .and_then(|s| s.trim_start().chars().next())
+                {
                     if state == 'Z' {
                         return true;
                     }
@@ -356,8 +360,8 @@ mod unix_tests {
 
         let descendant = wait_for_pid(&pid_file).await;
         // Register the descendant itself so a failed assertion cannot leave it running.
-        let _descendant_cleanup = crate::shared::test_processes::KillOnDrop::default()
-            .process(descendant as u32);
+        let _descendant_cleanup =
+            crate::shared::test_processes::KillOnDrop::default().process(descendant as u32);
         control
             .terminate(&mut child, Duration::from_secs(1))
             .await

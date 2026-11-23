@@ -66,9 +66,8 @@ pub(super) fn attach(job: Option<&OwnedHandle>, child: &Child) -> io::Result<()>
     let process = child
         .raw_handle()
         .ok_or_else(|| io::Error::other("isolated child has no process handle"))?;
-    let result = unsafe {
-        AssignProcessToJobObject(job.as_raw_handle().cast(), process.cast::<c_void>())
-    };
+    let result =
+        unsafe { AssignProcessToJobObject(job.as_raw_handle().cast(), process.cast::<c_void>()) };
     if result == 0 {
         Err(io::Error::last_os_error())
     } else {
