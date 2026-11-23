@@ -342,7 +342,10 @@ echo '{{"type":"result","subtype":"success","uuid":"u2","session_id":"s","durati
         )
     }
 
-    async fn capture_initialize_request(system_prompt: Option<String>) -> serde_json::Value {
+    async fn capture_initialize_request(
+        system_prompt: Option<String>,
+        append_system_prompt: Option<String>,
+    ) -> serde_json::Value {
         let dir = TempDir::new().unwrap();
         let captured = dir.path().join("init.json");
         let script_path = write_mock_cli(dir.path(), &init_capture_script(&captured));
@@ -350,6 +353,7 @@ echo '{{"type":"result","subtype":"success","uuid":"u2","session_id":"s","durati
             path_to_cli: Some(script_path),
             mcp_servers: Some(mock_mcp_servers()),
             system_prompt,
+            append_system_prompt,
             ..Options::default()
         };
         let mut q = query(serde_json::Value::String("hi".into()), options)
@@ -365,7 +369,7 @@ echo '{{"type":"result","subtype":"success","uuid":"u2","session_id":"s","durati
     /// omitted entirely (CLI then uses its full default preset).
     #[tokio::test]
     async fn initialize_omits_system_prompt_when_unset() {
-        let req = capture_initialize_request(None).await;
+        let req = capture_initialize_request(None, None).await;
         assert_eq!(req["request"]["subtype"], "initialize");
         assert!(
             req["request"].get("systemPrompt").is_none(),
@@ -374,8 +378,18 @@ echo '{{"type":"result","subtype":"success","uuid":"u2","session_id":"s","durati
     }
 
     #[tokio::test]
+    async fn initialize_omits_system_prompt_when_only_append_system_prompt_is_set() {
+        let req = capture_initialize_request(None, Some("Use rich Markdown".to_string())).await;
+        assert_eq!(req["request"]["subtype"], "initialize");
+        assert!(
+            req["request"].get("systemPrompt").is_none(),
+            "append_system_prompt must not populate initialize.systemPrompt, got: {req}"
+        );
+    }
+
+    #[tokio::test]
     async fn initialize_includes_system_prompt_when_set() {
-        let req = capture_initialize_request(Some("custom prompt".to_string())).await;
+        let req = capture_initialize_request(Some("custom prompt".to_string()), None).await;
         assert_eq!(req["request"]["subtype"], "initialize");
         assert_eq!(req["request"]["systemPrompt"], "custom prompt");
     }

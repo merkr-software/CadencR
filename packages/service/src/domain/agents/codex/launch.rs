@@ -1,7 +1,7 @@
 use codex_app_server_sdk_rs::CodexAppServerClient;
 use serde_json::Value;
 
-use super::instructions::{codex_developer_instructions, CODEX_MCP_INSTRUCTIONS};
+use super::instructions::codex_developer_instructions;
 use super::mcp::thread_config;
 use super::native_config::reasoning_summary;
 use super::thread_params::{thread_resume_params, thread_start_params};
@@ -9,26 +9,17 @@ use crate::domain::agents::adapter::{RuntimeError, RuntimeSpawnConfig};
 
 pub(super) fn effective_thread_config(config: &RuntimeSpawnConfig, effective: &Value) -> Value {
     let native = effective.get("config").unwrap_or(effective);
-    let native_instructions = native
-        .get("developer_instructions")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let cadencr_instructions = codex_developer_instructions();
-    let instructions = native_instructions
-        .map(|value| format!("{value}\n\n{CODEX_MCP_INSTRUCTIONS}"))
-        .unwrap_or(cadencr_instructions);
-    let mut result = thread_config(config.mcp_servers.as_ref(), Some(&instructions));
+    let native_instructions = native.get("developer_instructions").and_then(Value::as_str);
+    let instructions = codex_developer_instructions(config, native_instructions);
+    let mut result = thread_config(config.mcp_servers.as_ref(), instructions);
     if let Some(summary) = reasoning_summary(native) {
-        result["model_reasoning_summary"] = Value::String(summary.to_string());
+        ensure_object_mut(&mut result).insert(
+            "model_reasoning_summary".to_string(),
+            Value::String(summary.to_string()),
+        );
     }
     if let Some(native_servers) = native.get("mcp_servers").and_then(Value::as_object) {
-        if result.is_null() {
-            result = serde_json::json!({});
-        }
-        let target = result
-            .as_object_mut()
-            .expect("Codex thread config is an object")
+        let target = ensure_object_mut(&mut result)
             .entry("mcp_servers")
             .or_insert_with(|| serde_json::json!({}))
             .as_object_mut()
@@ -40,16 +31,14 @@ pub(super) fn effective_thread_config(config: &RuntimeSpawnConfig, effective: &V
         }
     }
     if config.resume_session_id.is_some() {
-        let target = result
-            .as_object_mut()
-            .expect("Codex thread config is an object");
         if let Some(model) = config
             .overrides
             .model
             .as_deref()
             .or_else(|| native.get("model").and_then(Value::as_str))
         {
-            target.insert("model".to_string(), Value::String(model.to_string()));
+            ensure_object_mut(&mut result)
+                .insert("model".to_string(), Value::String(model.to_string()));
         }
         if let Some(effort) = config
             .overrides
@@ -57,7 +46,7 @@ pub(super) fn effective_thread_config(config: &RuntimeSpawnConfig, effective: &V
             .as_deref()
             .or_else(|| native.get("model_reasoning_effort").and_then(Value::as_str))
         {
-            target.insert(
+            ensure_object_mut(&mut result).insert(
                 "model_reasoning_effort".to_string(),
                 Value::String(effort.to_string()),
             );
@@ -68,10 +57,19 @@ pub(super) fn effective_thread_config(config: &RuntimeSpawnConfig, effective: &V
             .map(super::fast_service_tier_value)
             .or_else(|| native.get("service_tier").cloned());
         if let Some(tier) = tier {
-            target.insert("service_tier".to_string(), tier);
+            ensure_object_mut(&mut result).insert("service_tier".to_string(), tier);
         }
     }
     result
+}
+
+fn ensure_object_mut(value: &mut Value) -> &mut serde_json::Map<String, Value> {
+    if !value.is_object() {
+        *value = serde_json::json!({});
+    }
+    value
+        .as_object_mut()
+        .expect("Codex thread config is an object")
 }
 
 // `config/read` includes null optional MCP fields. Thread overrides are converted
@@ -111,8 +109,11 @@ pub(super) async fn start_or_resume_thread(
 #[cfg(test)]
 mod tests {
     use super::effective_thread_config;
-    use crate::domain::agents::adapter::{RuntimeMcpServerConfig, RuntimeSpawnConfig};
+    use crate::domain::agents::adapter::{
+        RuntimeMcpServerConfig, RuntimePurpose, RuntimeSpawnConfig,
+    };
     use crate::domain::agents::codex::thread_params::{thread_resume_params, thread_start_params};
+    use crate::domain::agents::response_style::RICH_MARKDOWN_INSTRUCTION;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -170,12 +171,36 @@ mod tests {
                 "mcp_servers": {"native": {"command": "native"}, "shared": {"command": "old"}}
             }}),
         );
-        assert!(result["developer_instructions"]
-            .as_str()
-            .unwrap()
-            .starts_with("Native instruction"));
+        let instructions = result["developer_instructions"].as_str().unwrap();
+        assert!(instructions.starts_with("Native instruction"));
+        assert!(instructions.contains(RICH_MARKDOWN_INSTRUCTION));
         assert_eq!(result["mcp_servers"]["native"]["command"], "native");
         assert_eq!(result["mcp_servers"]["shared"]["command"], "cadencr");
+    }
+
+    #[test]
+    fn auto_name_omits_cadencr_developer_instructions() {
+        let config = RuntimeSpawnConfig {
+            purpose: Some(RuntimePurpose::AutoName),
+            system_prompt: Some("Name this session.".to_string()),
+            ..RuntimeSpawnConfig::default()
+        };
+        let result = effective_thread_config(
+            &config,
+            &json!({"config": {"developer_instructions": "Native instruction"}}),
+        );
+        assert!(result.get("developer_instructions").is_none());
+
+        let resumed_non_openai = RuntimeSpawnConfig {
+            purpose: Some(RuntimePurpose::AutoName),
+            resume_session_id: Some("thread-1".to_string()),
+            ..RuntimeSpawnConfig::default()
+        };
+        let bedrock = effective_thread_config(
+            &resumed_non_openai,
+            &json!({"config": {"model_provider": "amazon-bedrock"}}),
+        );
+        assert!(bedrock.is_null());
     }
 
     #[test]

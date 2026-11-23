@@ -52,12 +52,7 @@ fn base_thread_params(config: &RuntimeSpawnConfig) -> Value {
     ) {
         params["collaborationMode"] = mode;
     }
-    if let Some(system_prompt) = config
-        .system_prompt
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(system_prompt) = config.trimmed_system_prompt() {
         params["baseInstructions"] = Value::String(system_prompt.to_string());
     }
     params
@@ -156,7 +151,7 @@ mod tests {
                         env: None,
                     },
                 )])),
-                Some("Use rich Markdown"),
+                Some("Use rich Markdown".to_string()),
             ),
         );
 

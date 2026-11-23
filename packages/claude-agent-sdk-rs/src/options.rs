@@ -23,8 +23,10 @@ pub struct Options {
     pub model: Option<String>,
     /// Model effort level for effort-capable models.
     pub effort: Option<String>,
-    /// System prompt prepended to every turn.
+    /// System prompt replacing Claude Code's default system prompt.
     pub system_prompt: Option<String>,
+    /// System prompt appended to Claude Code's default system prompt.
+    pub append_system_prompt: Option<String>,
     /// Session ID to resume an existing conversation.
     pub resume: Option<String>,
     /// Tool names that are auto-approved without prompting.
@@ -169,6 +171,11 @@ impl Options {
             args.push(prompt.clone());
         }
 
+        if let Some(prompt) = &self.append_system_prompt {
+            args.push("--append-system-prompt".to_string());
+            args.push(prompt.clone());
+        }
+
         if let Some(tools) = &self.allowed_tools {
             for tool in tools {
                 args.push("--allowedTools".to_string());
@@ -202,5 +209,29 @@ impl Options {
         }
 
         args
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Options;
+
+    #[test]
+    fn to_cli_args_includes_append_system_prompt_without_system_prompt() {
+        let args = Options::builder()
+            .append_system_prompt("Use rich Markdown")
+            .build()
+            .to_cli_args();
+
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--append-system-prompt", "Use rich Markdown"]));
+        assert!(!args.iter().any(|arg| arg == "--system-prompt"));
+    }
+
+    #[test]
+    fn to_cli_args_omits_append_system_prompt_when_unset() {
+        let args = Options::default().to_cli_args();
+        assert!(!args.iter().any(|arg| arg == "--append-system-prompt"));
     }
 }
