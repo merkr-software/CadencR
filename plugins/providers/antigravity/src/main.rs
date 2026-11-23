@@ -4,6 +4,7 @@ mod catalog;
 mod cli;
 mod config;
 mod events;
+mod native_compat;
 mod provider;
 mod relay;
 mod slash_commands;

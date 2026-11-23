@@ -123,6 +123,11 @@ pub fn access_mode_role_meta() -> Meta {
     cadencr(json!({ "role": ACCESS_MODE_ROLE }))
 }
 
+/// The agent accepts another `session/prompt` as steering during an active turn.
+pub fn prompt_steering_meta() -> Meta {
+    cadencr(json!({ "promptSteering": true }))
+}
+
 /// Keep a session working after a real turn result, or release that hold.
 pub fn background_work_meta(pending: bool) -> Meta {
     cadencr(json!({ "backgroundWorkPending": pending }))

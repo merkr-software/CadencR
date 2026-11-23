@@ -1,46 +1,33 @@
 //! Track root commands and dispatched children across real ACP turn boundaries.
 use std::collections::{HashMap, VecDeque};
+mod session;
+use session::Session;
 
 use cadencr_provider_sdk::meta::{background_work_meta, merge_meta};
 use serde_json::{json, Value};
+use tokio::time::Instant;
 
-use super::detached::Replies;
-use super::tools::call_name;
+use super::detached::{EndedPrompt, Replies};
 use super::{is_terminal_tool_status, session_update};
 
 #[derive(Default)]
 pub(super) struct Working {
     sessions: HashMap<String, Session>,
-    releases: VecDeque<Release>,
-}
-
-enum Release {
-    Settled(String),
-    Reset(String),
-}
-
-#[derive(Default)]
-struct Session {
-    calls: HashMap<String, Call>,
-    announced: bool,
-}
-
-#[derive(Clone, Copy)]
-enum Call {
-    CurrentCommand,
-    DetachedCommand,
-    Child,
+    resets: VecDeque<String>,
 }
 
 impl Working {
-    pub(super) fn observe_request(&mut self, frame: &Value) {
+    pub(super) fn observe_request(&mut self, frame: &Value, generation: Option<u64>) {
         let params = &frame["params"];
         let Some(id) = params["sessionId"].as_str() else {
             return;
         };
         match frame["method"].as_str() {
-            Some("session/prompt") => {
-                self.sessions.entry(id.to_owned()).or_default();
+            Some("session/prompt") if let Some(generation) = generation => {
+                self.sessions
+                    .entry(id.to_owned())
+                    .or_default()
+                    .begin_prompt(generation);
             }
             Some("session/cancel" | "session/close" | "session/load" | "session/resume")
                 if self
@@ -48,43 +35,22 @@ impl Working {
                     .remove(id)
                     .is_some_and(|session| session.announced) =>
             {
-                self.releases.push_back(Release::Reset(id.to_owned()));
+                self.resets.push_back(id.to_owned());
             }
             _ => {}
         }
     }
 
     /// Returns true for activity unrelated to the reply's current tool step.
-    pub(super) fn observe_tool(&mut self, frame: &Value) -> bool {
-        let Some((id, call, update)) = root_tool(frame) else {
-            return false;
-        };
-        let Some(session) = self.sessions.get_mut(id) else {
-            return false;
-        };
-        let terminal = is_terminal_tool_status(update["status"].as_str());
-        match session.calls.get(call).copied() {
-            Some(Call::Child) => return true,
-            Some(command @ (Call::CurrentCommand | Call::DetachedCommand)) if terminal => {
-                session.calls.remove(call);
-                if session.is_settled() {
-                    self.releases.push_back(Release::Settled(id.to_owned()));
-                }
-                return matches!(command, Call::DetachedCommand);
-            }
-            Some(Call::DetachedCommand) => return true,
-            Some(Call::CurrentCommand) => return false,
-            None => {}
-        }
-        if update.pointer("/_meta/cadencr/subagent/background") == Some(&Value::Bool(true)) {
-            session.calls.insert(call.to_owned(), Call::Child);
-        } else if !terminal && update.as_object().and_then(call_name) == Some("run_command") {
-            session.calls.insert(call.to_owned(), Call::CurrentCommand);
-        }
-        false
+    pub(super) fn observe_update(&mut self, frame: &Value) -> bool {
+        let params = &frame["params"];
+        params["sessionId"]
+            .as_str()
+            .and_then(|id| self.sessions.get_mut(id))
+            .is_some_and(|session| session.observe_update(&params["update"]))
     }
 
-    pub(super) fn observe_child(&mut self, frame: &Value) {
+    pub(super) fn observe_child(&mut self, frame: &Value, parent_acted: bool) {
         let Some((id, call, update)) = root_tool(frame) else {
             return;
         };
@@ -93,7 +59,9 @@ impl Working {
                 .pointer("/_meta/cadencr/subagent/status")
                 .and_then(Value::as_str),
         ) {
-            self.forget_child(id, call);
+            if let Some(session) = self.sessions.get_mut(id) {
+                session.remove_child(call, !parent_acted);
+            }
         }
     }
 
@@ -101,61 +69,78 @@ impl Working {
         let Some(session) = self.sessions.get_mut(id) else {
             return;
         };
-        if matches!(session.calls.get(call), Some(Call::Child)) {
-            session.calls.remove(call);
-            if session.is_settled() {
-                self.releases.push_back(Release::Settled(id.to_owned()));
-            }
-        }
+        session.remove_child(call, false);
     }
 
     pub(super) fn decorate_boundary(&mut self, id: &str, body: &mut Value) {
         let Some(session) = self.sessions.get_mut(id) else {
             return;
         };
-        let pending = !session.calls.is_empty();
+        let pending = session.boundary();
+        Self::announce(session, pending, body);
+    }
+
+    pub(super) fn end_prompt(
+        &mut self,
+        ended: &EndedPrompt,
+        result: Option<&mut Value>,
+        success: bool,
+    ) -> bool {
+        let Some(session) = self.sessions.get_mut(&ended.session) else {
+            return false;
+        };
+        session.end_prompt(ended, success);
+        let pending = session.has_tasks() || session.wake_until.is_some();
+        if let Some(body) = result {
+            Self::announce(session, pending, body);
+        }
+        session.announced
+    }
+
+    fn announce(session: &mut Session, pending: bool, body: &mut Value) {
         if pending || session.announced {
             if let Some(body) = body.as_object_mut() {
                 merge_meta(body, background_work_meta(pending));
                 session.announced = pending;
-                for call in session.calls.values_mut() {
-                    if matches!(call, Call::CurrentCommand) {
-                        *call = Call::DetachedCommand;
-                    }
-                }
             }
         }
     }
 
-    pub(super) fn has_releases(&self) -> bool {
-        !self.releases.is_empty()
+    fn releasable(&self, replies: &Replies, now: Instant) -> Option<&str> {
+        self.sessions.iter().find_map(|(id, session)| {
+            (session.announced
+                && !session.has_tasks()
+                && session.wake_until.is_none_or(|deadline| now >= deadline)
+                && !replies.has_boundary(id))
+            .then_some(id.as_str())
+        })
     }
 
-    pub(super) fn take_finished(&mut self, replies: &Replies) -> Option<Value> {
-        while let Some(release) = self.releases.pop_front() {
-            match release {
-                Release::Settled(id) => {
-                    let Some(session) = self.sessions.get_mut(&id) else {
-                        continue;
-                    };
-                    if session.is_settled() && !replies.has_boundary(&id) {
-                        session.announced = false;
-                        return Some(finished(&id));
-                    }
-                }
-                Release::Reset(id) if !self.sessions.contains_key(&id) => {
-                    return Some(finished(&id));
-                }
-                Release::Reset(_) => {}
+    pub(super) fn wake_deadline(&self, replies: &Replies) -> Option<Instant> {
+        self.sessions
+            .iter()
+            .filter(|(id, session)| {
+                session.announced && !session.has_tasks() && !replies.has_boundary(id)
+            })
+            .filter_map(|(_, session)| session.wake_until)
+            .min()
+    }
+
+    pub(super) fn has_releases(&self, replies: &Replies) -> bool {
+        !self.resets.is_empty() || self.releasable(replies, Instant::now()).is_some()
+    }
+
+    pub(super) fn take_finished(&mut self, replies: &Replies, now: Instant) -> Option<Value> {
+        while let Some(id) = self.resets.pop_front() {
+            if !self.sessions.contains_key(&id) {
+                return Some(finished(&id));
             }
         }
-        None
-    }
-}
-
-impl Session {
-    fn is_settled(&self) -> bool {
-        self.announced && self.calls.is_empty()
+        let id = self.releasable(replies, now)?.to_owned();
+        let session = self.sessions.get_mut(&id)?;
+        session.announced = false;
+        session.wake_until = None;
+        Some(finished(&id))
     }
 }
 
@@ -183,6 +168,7 @@ fn finished(session: &str) -> Value {
 mod tests {
     use super::*;
     use crate::events::EventMapper;
+    use std::time::Duration;
     const SESSION: &str = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 
     fn tool(mapper: &mut EventMapper, id: &str, kind: &str, name: &str, status: &str) {
@@ -233,9 +219,68 @@ mod tests {
         assert!(mapper.take_finished_work().is_none());
         tool(&mut mapper, "child", "tool_call_update", "", "completed");
         assert!(mapper.take_finished_work().is_none());
-        mapper.observe_child(&session_update(SESSION,json!({"sessionUpdate":"tool_call_update","toolCallId":"child","_meta":{"cadencr":{"subagent":{"status":"completed"}}}})));
-        assert_eq!(mapper.take_finished_work(), Some(finished(SESSION)));
+        mapper.observe_child(&mut session_update(SESSION,json!({"sessionUpdate":"tool_call_update","toolCallId":"child","_meta":{"cadencr":{"subagent":{"status":"completed"}}}})));
         assert!(mapper.take_finished_work().is_none());
+        let timeout = mapper.next_deadline().unwrap();
+        assert_eq!(
+            mapper.working.take_finished(&mapper.detached, timeout),
+            Some(finished(SESSION))
+        );
+        assert!(mapper.take_finished_work().is_none());
+    }
+
+    #[test]
+    fn a_consumed_child_report_neither_arms_a_second_wake_nor_clears_a_siblings_hold() {
+        use crate::events::subagents::PARENT_ACTED;
+
+        for other_child_awaits_wake in [false, true] {
+            let mut mapper = EventMapper::default();
+            prompt(&mut mapper, 1);
+            for id in ["answered", "unanswered"]
+                .into_iter()
+                .take(1 + usize::from(other_child_awaits_wake))
+            {
+                tool(
+                    &mut mapper,
+                    id,
+                    "tool_call",
+                    "invoke_subagent",
+                    "in_progress",
+                );
+                tool(&mut mapper, id, "tool_call_update", "", "completed");
+            }
+            assert_eq!(result(&mut mapper, 1), true);
+            mapper.map_agent(&mut session_update(SESSION, json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Received the first child report"}})));
+            mapper.map_agent(&mut session_update(
+                SESSION,
+                json!({"sessionUpdate":"usage_update","used":5,"size":100}),
+            ));
+            let boundary = mapper
+                .take_completed_detached_reply(Instant::now() + Duration::from_secs(2))
+                .unwrap();
+            assert_eq!(
+                boundary.pointer("/params/update/_meta/cadencr/backgroundWorkPending"),
+                Some(&Value::Bool(true))
+            );
+
+            let child_end = |id| {
+                session_update(
+                    SESSION,
+                    json!({"sessionUpdate":"tool_call_update","toolCallId":id,"_meta":{"cadencr":{"subagent":{"status":"completed"}}}}),
+                )
+            };
+            if other_child_awaits_wake {
+                mapper.observe_child(&mut child_end("unanswered"));
+            }
+            let mut answered = child_end("answered");
+            answered[PARENT_ACTED] = json!(true);
+            mapper.observe_child(&mut answered);
+            assert!(answered.get(PARENT_ACTED).is_none());
+            assert_eq!(
+                mapper.take_finished_work(),
+                (!other_child_awaits_wake).then(|| finished(SESSION))
+            );
+        }
     }
 
     #[test]
@@ -287,14 +332,31 @@ mod tests {
         tool(&mut mapper, "cmd", "tool_call_update", "", "completed");
         tool(&mut mapper, "cmd", "tool_call_update", "", "completed");
         assert_eq!(mapper.detached_reply_deadline(), Some(deadline));
-        assert!(mapper.has_work_release());
+        assert!(
+            !mapper.has_work_release(),
+            "the pending boundary owns the release"
+        );
         assert!(mapper.take_finished_work().is_none());
         let end = mapper.take_completed_detached_reply(deadline).unwrap();
         assert_eq!(
             end["params"]["update"]["_meta"]["cadencr"],
-            json!({"detachedReplyEnded":true,"backgroundWorkPending":false})
+            json!({"detachedReplyEnded":true,"backgroundWorkPending":true})
         );
         assert!(mapper.take_finished_work().is_none());
+        mapper.map_agent(&mut session_update(SESSION, json!({
+            "sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"The command returned."}
+        })));
+        mapper.map_agent(&mut session_update(
+            SESSION,
+            json!({"sessionUpdate":"usage_update","used":7,"size":100}),
+        ));
+        let end = mapper
+            .take_completed_detached_reply(mapper.detached_reply_deadline().unwrap())
+            .unwrap();
+        assert_eq!(
+            end["params"]["update"]["_meta"]["cadencr"]["backgroundWorkPending"],
+            false
+        );
     }
 
     #[test]
@@ -312,7 +374,10 @@ mod tests {
 
         prompt(&mut mapper, 2);
         tool(&mut mapper, "cmd", "tool_call_update", "", "completed");
-        assert!(mapper.has_work_release());
+        assert!(
+            !mapper.has_work_release(),
+            "the pending boundary owns the release"
+        );
         assert!(mapper.take_finished_work().is_none());
         assert_eq!(result(&mut mapper, 2), false);
         assert!(mapper.take_finished_work().is_none());
@@ -359,7 +424,91 @@ mod tests {
         );
 
         tool(&mut mapper, "cmd", "tool_call_update", "", "completed");
-        assert_eq!(mapper.take_finished_work(), Some(finished(SESSION)));
+        assert!(mapper.take_finished_work().is_none());
+        let timeout = mapper.next_deadline().unwrap();
+        assert!(mapper
+            .working
+            .take_finished(&mapper.detached, timeout - Duration::from_millis(1))
+            .is_none());
+        assert_eq!(
+            mapper.working.take_finished(&mapper.detached, timeout),
+            Some(finished(SESSION))
+        );
+    }
+
+    #[test]
+    fn a_rejected_steer_keeps_the_first_commands_continuation() {
+        for request_cancelled in [false, true] {
+            let mut mapper = EventMapper::default();
+            prompt(&mut mapper, 1);
+            tool(
+                &mut mapper,
+                "original",
+                "tool_call",
+                "run_command",
+                "in_progress",
+            );
+            prompt(&mut mapper, 2);
+            assert_eq!(result(&mut mapper, 1), true);
+            if request_cancelled {
+                mapper.map_host(&mut json!({"method":"$/cancel_request","params":{"requestId":2}}));
+            } else {
+                mapper.map_agent(&mut json!({"id":2,"error":{"code":-32603,"message":"rejected"}}));
+            }
+            assert!(mapper.take_finished_work().is_none());
+            tool(&mut mapper, "original", "tool_call_update", "", "completed");
+            assert!(mapper.take_finished_work().is_none());
+            mapper.map_agent(&mut session_update(SESSION, json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The command returned."}})));
+            mapper.map_agent(&mut session_update(
+                SESSION,
+                json!({"sessionUpdate":"usage_update","used":7,"size":100}),
+            ));
+            let end = mapper
+                .take_completed_detached_reply(mapper.detached_reply_deadline().unwrap())
+                .unwrap();
+            assert_eq!(
+                end["params"]["update"]["_meta"]["cadencr"],
+                json!({"detachedReplyEnded":true,"backgroundWorkPending":false})
+            );
+        }
+    }
+
+    #[test]
+    fn a_command_finishing_inside_steered_text_keeps_its_own_wake() {
+        let mut mapper = EventMapper::default();
+        prompt(&mut mapper, 1);
+        tool(
+            &mut mapper,
+            "original",
+            "tool_call",
+            "run_command",
+            "in_progress",
+        );
+        prompt(&mut mapper, 2);
+        result(&mut mapper, 1);
+        let text = |t| {
+            session_update(
+                SESSION,
+                json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":t}}),
+            )
+        };
+        mapper.map_agent(&mut text("I'm "));
+        tool(&mut mapper, "original", "tool_call_update", "", "completed");
+        mapper.map_agent(&mut text("working on the new request."));
+        assert_eq!(result(&mut mapper, 2), true);
+        assert!(mapper.take_finished_work().is_none());
+        mapper.map_agent(&mut text("Original command succeeded."));
+        mapper.map_agent(&mut session_update(
+            SESSION,
+            json!({"sessionUpdate":"usage_update","used":8,"size":100}),
+        ));
+        let end = mapper
+            .take_completed_detached_reply(mapper.detached_reply_deadline().unwrap())
+            .unwrap();
+        assert_eq!(
+            end["params"]["update"]["_meta"]["cadencr"]["backgroundWorkPending"],
+            false
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 
 use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::{
@@ -27,6 +27,7 @@ use super::events_stream_blocks::EventIndexer;
 use super::lifecycle::{negotiate_session, NegotiatedSession};
 use super::permissions::PendingPermissions;
 use super::prompt_receipts::PendingPromptReceipts;
+use super::prompt_turn_lock::PromptTurns;
 use super::provider_hooks::AcpProviderHooks;
 use super::server_requests::{spawn_event_loop, EventLoopConfig};
 use super::session::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
@@ -325,7 +326,7 @@ impl AcpRuntimeSession {
             indexer,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
-            prompt_turn_lock: Arc::new(AsyncMutex::new(())),
+            prompt_turn_lock: Arc::new(PromptTurns::new(negotiated.supports_prompt_steering)),
             prompt_cancel,
         }
     }

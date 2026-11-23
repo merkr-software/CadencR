@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value;
 
-use super::{children, read_bounded, read_skill, Skills};
+use super::files::{children, optional, read_bounded};
+use super::{read_skill, Skills};
 
 #[derive(Default, Deserialize)]
 #[serde(default)]
@@ -104,10 +105,8 @@ impl<'a> Discovery<'a> {
         let mut pending = vec![(file.to_owned(), Selection::default())];
         let mut seen = HashSet::new();
         while let Some((file, mut selection)) = pending.pop() {
-            let path = match file.canonicalize() {
-                Ok(path) => path,
-                Err(e) if super::missing(&e) => continue,
-                Err(e) => return Err(e),
+            let Some(path) = optional(&file, file.canonicalize())? else {
+                continue;
             };
             if !seen.insert((path.clone(), selection.clone())) {
                 continue;

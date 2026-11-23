@@ -11,11 +11,13 @@ use std::time::{Duration, Instant};
 use cadencr_provider_sdk::meta::{merge_meta, subagent_background_meta};
 use serde_json::Value;
 
-use self::journal::ChildJournal;
-use self::store::{native_brain, uuid_segment, Discovery};
+use self::journal::{ChildJournal, JournalPoll, ParentReports};
+use self::store::{native_brain, parent_transcript, uuid_segment, Discovery};
 use super::tools::{call_name, is_subagent_launch};
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
+// Kept on synthesized frames only until EventMapper consumes it.
+pub(super) const PARENT_ACTED: &str = "_agyParentActed";
 
 #[derive(Default)]
 pub(super) struct Subagents {
@@ -83,7 +85,7 @@ impl Subagents {
                 });
                 merge_meta(update, subagent_background_meta());
             }
-            (Some("tool_call_update"), Some("failed")) => {
+            (Some("tool_call_update"), Some("failed" | "cancelled")) => {
                 starting.remove(carrier);
             }
             _ => {}
@@ -117,6 +119,7 @@ struct Session {
     discovery: Discovery,
     awaiting_child: HashMap<String, Instant>,
     children: HashMap<String, ChildJournal>,
+    reports: ParentReports,
 }
 
 impl SubagentTracker {
@@ -134,18 +137,27 @@ impl SubagentTracker {
             .all(|session| session.awaiting_child.is_empty() && session.children.is_empty())
     }
 
-    pub(crate) fn has_pending_launches(&self) -> bool {
-        self.sessions
-            .values()
-            .any(|session| !session.awaiting_child.is_empty())
+    pub(crate) fn has_pending_work(&self) -> bool {
+        self.sessions.values().any(|session| {
+            !session.awaiting_child.is_empty()
+                || (!session.children.is_empty() && session.reports.has_backlog())
+                || session.children.values().any(ChildJournal::has_backlog)
+        })
     }
 
     pub(crate) fn poll(&mut self, operations: Vec<SubagentOperation>) -> Vec<Value> {
         let Some(brain) = self.brain.as_ref() else {
+            let mut dispatched = false;
             for op in operations {
                 if let SubagentOperation::Dispatched { session, carrier } = op {
                     self.unobserved.push((session, carrier));
+                    dispatched = true;
                 }
+            }
+            if dispatched {
+                crate::native_compat::warn_journal(
+                    "the CLI app data directory could not be resolved",
+                );
             }
             return Vec::new();
         };
@@ -170,6 +182,9 @@ impl SubagentTracker {
                 .awaiting_child
                 .extract_if(|_, started| now.duration_since(*started) >= DISCOVERY_TIMEOUT)
             {
+                crate::native_compat::warn_journal(
+                    "the launch was acknowledged but its child journal could not be linked within 30 seconds",
+                );
                 self.unobserved.push((id.clone(), carrier));
             }
             if session.awaiting_child.is_empty() {
@@ -180,14 +195,27 @@ impl SubagentTracker {
                     .discovery
                     .take_children(|carrier| session.awaiting_child.remove(carrier).is_some())
                 {
-                    session
-                        .children
-                        .insert(child.id.clone(), ChildJournal::new(child));
+                    let child_id = child.id.clone();
+                    let mut journal = ChildJournal::new(child);
+                    journal.set_parent(id);
+                    session.children.insert(child_id, journal);
                 }
             }
-            session
-                .children
-                .retain(|_, journal| journal.poll(id, &mut frames));
+            if !session.children.is_empty() {
+                if let Some(path) = parent_transcript(brain, id) {
+                    session.reports.poll(&path);
+                }
+            }
+            session.children.retain(|_, journal| {
+                match journal.poll_for_parent(brain, id, &mut frames, &session.reports) {
+                    JournalPoll::Tracking => true,
+                    JournalPoll::Finished => false,
+                    JournalPoll::Unobservable => {
+                        self.unobserved.push((id.clone(), journal.carrier().into()));
+                        false
+                    }
+                }
+            });
         }
         frames
     }
@@ -270,6 +298,188 @@ mod tests {
     }
 
     #[test]
+    fn parent_wake_matches_only_the_child_report_that_preceded_its_reply() {
+        let temp = tempfile::tempdir().unwrap();
+        let brain = temp.path();
+        let report = "Both tools returned";
+        let transcript = brain
+            .join(ROOT)
+            .join(".system_generated/logs/transcript_full.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        let delivered = |index, child| {
+            json!({"step_index":index,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE",
+                "content":format!("<SYSTEM_MESSAGE>\n[Message] timestamp=t sender={child} priority=high content={report}\n</SYSTEM_MESSAGE>")})
+        };
+        let parent_reply = json!({"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"The child report confirms it"});
+        append(
+            &transcript,
+            &format!(
+                "{}\n{}\n{}\n",
+                delivered(2, CHILD_A),
+                parent_reply,
+                delivered(4, CHILD_B)
+            ),
+        );
+
+        let mut operations = Vec::new();
+        for (child, carrier) in [(CHILD_A, "answered"), (CHILD_B, "unanswered")] {
+            let transcript = put_child(brain, child, 1);
+            put_message(brain, child, MESSAGE_A, launch(ROOT, child, 1, carrier));
+            let staged = json!({"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"send_message","args":{"Recipient":ROOT,"Message":report}}]});
+            let done = json!({"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"Delivered"});
+            append(&transcript, &format!("{staged}\n{done}\n"));
+            operations.push(SubagentOperation::Dispatched {
+                session: ROOT.into(),
+                carrier: carrier.into(),
+            });
+        }
+        let mut tracker = SubagentTracker {
+            brain: Some(brain.into()),
+            unobserved: Vec::new(),
+            sessions: HashMap::new(),
+        };
+        let frames = tracker.poll(operations);
+        let finished = |carrier: &str| {
+            frames
+                .iter()
+                .find(|frame| {
+                    update(frame)["toolCallId"] == carrier
+                        && update(frame)
+                            .pointer("/_meta/cadencr/subagent/status")
+                            .is_some()
+                })
+                .unwrap()
+        };
+        assert_eq!(finished("answered")[PARENT_ACTED], true);
+        assert!(finished("unanswered").get(PARENT_ACTED).is_none());
+    }
+
+    #[tokio::test]
+    async fn an_oversized_parent_delivery_uses_the_full_report_as_wake_evidence() {
+        let temp = tempfile::tempdir().unwrap();
+        let brain = temp.path();
+        let root = brain
+            .join(ROOT)
+            .join(".system_generated/logs/transcript_full.jsonl");
+        fs::create_dir_all(root.parent().unwrap()).unwrap();
+        let prefix = "x".repeat(260 * 1024);
+        let reply = json!({"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"Processed the received report"});
+        let mut tracker = SubagentTracker {
+            brain: Some(brain.into()),
+            unobserved: Vec::new(),
+            sessions: HashMap::new(),
+        };
+        let mut operations = Vec::new();
+        for (child, carrier, delivered_suffix) in
+            [(CHILD_A, "exact", "A"), (CHILD_B, "different", "B")]
+        {
+            let transcript = put_child(brain, child, 1);
+            put_message(brain, child, MESSAGE_A, launch(ROOT, child, 1, carrier));
+            let received = format!("<SYSTEM_MESSAGE>\n[Message] timestamp=t sender={child} priority=high content={prefix}{delivered_suffix}\n</SYSTEM_MESSAGE>");
+            let message = json!({"step_index":2,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","content":received});
+            append(&root, &format!("{message}\n"));
+            let report = json!({"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"send_message","args":{"Message":format!("{prefix}A"),"Recipient":ROOT}}]});
+            let done = json!({"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"Report sent"});
+            append(&transcript, &format!("{report}\n{done}\n"));
+            operations.push(SubagentOperation::Dispatched {
+                session: ROOT.into(),
+                carrier: carrier.into(),
+            });
+        }
+        append(&root, &format!("{reply}\n"));
+        let mut frames = tracker.poll(operations);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !tracker.is_idle() {
+                assert!(tracker.has_pending_work());
+                frames.extend(tracker.poll(Vec::new()));
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for (carrier, expected) in [("exact", true), ("different", false)] {
+            let finished = frames
+                .iter()
+                .find(|frame| update(frame)["toolCallId"] == carrier)
+                .unwrap();
+            assert_eq!(
+                finished[PARENT_ACTED].as_bool().unwrap_or_default(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn a_cancelled_launch_cannot_later_dispatch_from_a_stale_completion() {
+        let mut observer = Subagents::default();
+        observer.observe_request(&json!({"method":"session/prompt","params":{"sessionId":ROOT}}));
+        for (kind, status) in [
+            ("tool_call", "pending"),
+            ("tool_call_update", "cancelled"),
+            ("tool_call_update", "completed"),
+        ] {
+            observer.observe_update(&mut session_update(ROOT, json!({
+                "sessionUpdate":kind,"status":status,"toolCallId":"launch","name":"invoke_subagent"
+            })));
+        }
+        assert!(observer.take_operations().is_empty());
+    }
+
+    #[tokio::test]
+    async fn silent_oversized_backlog_keeps_polling_and_completes_with_usage() {
+        let temp = tempfile::tempdir().unwrap();
+        let brain = temp.path();
+        let transcript = put_child(brain, CHILD_A, 1);
+        put_message(
+            brain,
+            CHILD_A,
+            MESSAGE_A,
+            launch(ROOT, CHILD_A, 1, "launch"),
+        );
+        let content = "x".repeat(768 * 1024);
+        append(
+            &transcript,
+            &format!(
+                r#"{{"content":"{content}","step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","model":"test-model","input_tokens":5,"output_tokens":7}}"#
+            ),
+        );
+        append(&transcript, "\n");
+        let mut tracker = SubagentTracker {
+            brain: Some(brain.to_owned()),
+            unobserved: Vec::new(),
+            sessions: HashMap::new(),
+        };
+        let operations = vec![SubagentOperation::Dispatched {
+            session: ROOT.into(),
+            carrier: "launch".into(),
+        }];
+        assert!(tracker.poll(operations).is_empty());
+        assert!(tracker.has_pending_work());
+        assert!(tracker.poll(Vec::new()).is_empty());
+        assert!(tracker.has_pending_work());
+
+        let completed = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let frames = tracker.poll(Vec::new());
+                if let Some(frame) = frames.into_iter().next() {
+                    break frame;
+                }
+                assert!(tracker.has_pending_work());
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(tracker.is_idle());
+        assert_eq!(
+            update(&completed).pointer("/_meta/cadencr/subagent"),
+            Some(&json!({
+                "status":"completed","summary":"x".repeat(2048),"resolvedModel":"test-model","totalTokens":12
+            }))
+        );
+    }
+
+    #[test]
     fn batched_launches_share_a_registry_step_but_each_follow_their_own_call() {
         let test = tempfile::tempdir().unwrap();
         let brain = test.path();
@@ -307,7 +517,7 @@ mod tests {
             assert!(actions
                 .iter()
                 .map(update)
-                .any(|u| u["parentToolCallId"] == carrier && u["rawInput"]["file_path"] == id));
+                .any(|u| u["parentToolCallId"] == carrier && u["rawInput"]["Path"] == id));
             append(
                 &log,
                 &format!(
@@ -443,8 +653,11 @@ mod tests {
         let frames = tracker.poll(observer.take_operations());
         assert_eq!(frames.len(), 1, "only verified child B can be displayed");
         assert_eq!(update(&frames[0])["parentToolCallId"], "call-b");
-        assert_eq!(update(&frames[0])["name"], "Bash");
-        assert_eq!(update(&frames[0])["rawInput"]["command"], "printf fixture");
+        assert_eq!(update(&frames[0])["name"], "run_command");
+        assert_eq!(
+            update(&frames[0])["rawInput"]["CommandLine"],
+            "printf fixture"
+        );
 
         put_message(
             brain,
@@ -464,7 +677,7 @@ mod tests {
             .map(update)
             .find(|u| u["parentToolCallId"] == "call-a")
             .unwrap();
-        assert_eq!(action_a["rawInput"]["file_path"], "/fixture.txt");
+        assert_eq!(action_a["rawInput"]["Path"], "/fixture.txt");
         let result_b = frames
             .iter()
             .map(update)

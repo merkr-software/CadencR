@@ -24,8 +24,11 @@ pub async fn discover(
 ) -> Result<Vec<SessionConfigOption>, ProviderError> {
     let mut command = cli::command(binary);
     command.arg("models").current_dir(cwd).stdin(Stdio::null());
-    let output = tokio::time::timeout(MODELS_TIMEOUT, command.output())
-        .await
+    let (output, steering) = tokio::join!(
+        tokio::time::timeout(MODELS_TIMEOUT, command.output()),
+        steering_supported(binary, cwd)
+    );
+    let output = output
         .map_err(|_| ProviderError::new("`agy models` timed out."))?
         .map_err(|error| ProviderError::new(format!("Could not run `agy models`: {error}")))?;
     if !output.status.success() {
@@ -52,7 +55,28 @@ pub async fn discover(
         .clone();
     let model = SessionConfigOption::select("model", "Model", current, models)
         .category(SessionConfigOptionCategory::Model);
+    let model = if steering {
+        model.meta(cadencr_provider_sdk::meta::prompt_steering_meta())
+    } else {
+        model
+    };
     Ok(vec![model, serde_json::from_value(config::catalog_mode())?])
+}
+
+async fn steering_supported(binary: &Path, cwd: &Path) -> bool {
+    let mut command = cli::command(binary);
+    command
+        .arg("--version")
+        .current_dir(cwd)
+        .stdin(Stdio::null());
+    match tokio::time::timeout(Duration::from_secs(2), command.output()).await {
+        Ok(Ok(output)) if output.status.success() => std::str::from_utf8(&output.stdout)
+            .is_ok_and(|version| crate::native_compat::supports_prompt_steering(version.trim())),
+        _ => {
+            eprintln!("Could not read the agy version. Mid-turn prompts will be queued.");
+            false
+        }
+    }
 }
 
 fn parse(stdout: &str) -> Vec<SessionConfigSelectOption> {

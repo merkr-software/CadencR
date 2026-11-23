@@ -7,6 +7,7 @@ use crate::domain::agents::adapter::BackgroundAgentSignal;
 #[derive(Default)]
 pub(super) struct BackgroundWork {
     pending: bool,
+    held_at_result: bool,
 }
 
 pub(super) fn pending(body: &Value) -> Option<bool> {
@@ -19,9 +20,28 @@ impl BackgroundWork {
         self.pending
     }
 
+    pub(super) fn held_at_result(&self) -> bool {
+        self.held_at_result
+    }
+
+    /// An overlapping prompt can report work while the logical turn is open.
+    pub(super) fn observe_progress(&mut self, pending: bool) -> Option<BackgroundAgentSignal> {
+        if self.pending == pending {
+            return None;
+        }
+        self.held_at_result &= pending;
+        self.update(pending)
+    }
+
     /// Restate a hold on each result while the connector still owes work.
-    /// A finishing edge is accepted only after an observed hold.
-    pub(super) fn observe(&mut self, pending: bool) -> Option<BackgroundAgentSignal> {
+    /// An omitted snapshot carries no news about an existing hold.
+    pub(super) fn observe(&mut self, pending: Option<bool>) -> Option<BackgroundAgentSignal> {
+        let pending = pending.unwrap_or(self.pending);
+        self.held_at_result = pending;
+        self.update(pending)
+    }
+
+    fn update(&mut self, pending: bool) -> Option<BackgroundAgentSignal> {
         if !pending && !self.pending {
             return None;
         }

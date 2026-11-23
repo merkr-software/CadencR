@@ -374,10 +374,101 @@ mod tests {
     use super::*;
     use crate::domain::agents::adapter::{
         AgentRuntimeSession, BackgroundAgentSignal, RuntimeError, RuntimeEventKind,
-        RuntimeEventMetadata, RuntimeSpawnConfig,
+        RuntimeEventMetadata, RuntimeSpawnConfig, RuntimeStreamEvent,
     };
     use crate::domain::runtime_stream::RuntimeUsageSnapshot;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn held_acp_boundaries_keep_one_clock_and_one_persisted_turn_summary() {
+        use crate::domain::session_status::AgentStatus;
+
+        let (task, _runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        let mut state = StreamReaderState::new(RuntimeUsageSnapshot {
+            input_tokens: 0,
+            output_tokens: 0,
+            context_window: None,
+        });
+        let id = task.db_session_id;
+        let pool = &task.write_pool;
+        let mut persistence =
+            WsSessionPersistence::with_session_id(pool.clone(), task.feature_id, Some(id));
+        task.record_running().await;
+        let statuses = &task.session_status_tx;
+        statuses.broadcast_running(id, task.feature_id);
+        let session = id.to_string();
+        let started_at = statuses.snapshot().states[&session]
+            .clock
+            .turn_started_at_ms;
+        assert!(started_at.is_some());
+        let mut status_rx = statuses.subscribe();
+
+        let detached_end = || {
+            RuntimeEvent::new(
+                RuntimeEventMetadata::default(),
+                RuntimeEventKind::DetachedReplyEnded,
+            )
+        };
+        let hold = || {
+            Some(BackgroundAgentSignal::Started {
+                agent_id: "acp-background-work".into(),
+            })
+        };
+        let resumed = || {
+            RuntimeEvent::new(
+                RuntimeEventMetadata::default(),
+                RuntimeEventKind::StreamEvent {
+                    event: RuntimeStreamEvent::MessageStart {
+                        model: None,
+                        input_tokens: None,
+                    },
+                    parent_tool_use_id: None,
+                },
+            )
+        };
+        for event in [
+            RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Result)
+                .with_background_agent(hold()),
+            resumed(),
+            detached_end().with_background_agent(hold()),
+            resumed(),
+            RuntimeEvent::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
+                .with_background_agent(Some(BackgroundAgentSignal::Finished {
+                    agent_id: "acp-background-work".into(),
+                })),
+        ] {
+            task.handle_runtime_event(&mut state, None, &mut persistence, event)
+                .await;
+            let active = &statuses.snapshot().states[&session];
+            assert_eq!(active.status, AgentStatus::Agent);
+            assert_eq!(active.clock.turn_started_at_ms, started_at);
+        }
+
+        let summaries = "SELECT content FROM agent_messages WHERE session_id = ? AND message_type = 'turn_summary'";
+        let journal = statuses.journal();
+        journal.flush(pool, &task.feature_senders).await;
+        let interim = sqlx::query_scalar::<_, String>(summaries)
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        assert!(interim.is_empty());
+        assert!(status_rx.try_recv().is_err());
+
+        task.handle_runtime_event(&mut state, None, &mut persistence, detached_end())
+            .await;
+        assert_eq!(status_rx.try_recv().unwrap().status, AgentStatus::Idle);
+        assert!(status_rx.try_recv().is_err());
+        journal.flush(pool, &task.feature_senders).await;
+        let completed = sqlx::query_scalar::<_, String>(summaries)
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        assert_eq!(completed.len(), 1);
+        let summary: serde_json::Value = serde_json::from_str(&completed[0]).unwrap();
+        assert_eq!(summary["startedAtMs"].as_i64(), started_at);
+    }
 
     #[tokio::test]
     async fn detached_completion_preserves_prompt_delivery_and_an_open_gate() {

@@ -133,7 +133,9 @@ function processMessageBlocks(
       currentSession.blocks,
       allMutations,
       state,
-      pendingPromptTailStartIndex(currentSession.blocks),
+      currentSession.promptReceiptsAtSubmission
+        ? currentSession.blocks.length
+        : pendingPromptTailStartIndex(currentSession.blocks),
     );
     const messagePatch = buildMessagePatch(newBlocks, allMutations, { enterPlanModeRequested });
     if (newBlocks !== currentSession.blocks) patch.blocks = newBlocks;

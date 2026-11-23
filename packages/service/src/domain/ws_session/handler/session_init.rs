@@ -1,6 +1,6 @@
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
-use super::helpers::{saved_or_report, setting_or_report};
+use super::helpers::setting_or_report;
 use super::{send_error, thinking_effort, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
@@ -44,11 +44,10 @@ pub(super) async fn handle_init(
 
     // Find or create DB session row
     let mut persistence = WsSessionPersistence::new(app_state.write_pool.clone(), feature_id);
-    let pm_str = payload.permission_mode.as_deref();
     let db_session_id = match persistence
         .find_or_create_session_for_binding(
             payload.model.as_deref(),
-            pm_str,
+            None,
             configured_initial_access_wire,
         )
         .await
@@ -74,29 +73,15 @@ pub(super) async fn handle_init(
     else {
         return Some(db_session_id);
     };
-    if let Some((payload, runtime)) =
-        binding::live_session_payload(app_state, &sdk_sessions, db_session_id, row.as_ref()).await
-    {
-        binding::reply_and_restore(
-            app_state,
-            sender,
-            &envelope.id,
-            payload,
-            feature_id,
-            row.as_ref()
-                .and_then(|row| row.runtime_session_id.as_deref()),
-            runtime.map(|query| (&sdk_sessions, query)),
-        )
-        .await;
-        return Some(db_session_id);
-    }
-    if let Err(error) = persistence.reopen_session(db_session_id, pm_str).await {
-        send_error(
-            sender,
-            &envelope.id,
-            "DB_ERROR",
-            &format!("Failed to reopen session: {error}"),
-        );
+    let binding = binding::Binding::builder()
+        .app_state(app_state)
+        .sdk_sessions(&sdk_sessions)
+        .id(db_session_id)
+        .feature_id(feature_id)
+        .sender(sender)
+        .ref_id(&envelope.id)
+        .build();
+    if binding.initialize(row.as_ref(), None).await {
         return Some(db_session_id);
     }
     let effective_cwd = match worktree::resolve_feature_cwd(&app_state.read_pool, feature_id).await
@@ -200,38 +185,27 @@ pub(super) async fn handle_init(
         thinking_effort: effective_thinking_effort.clone(),
         ..Default::default()
     };
-    let requested_mode = payload.permission_mode.as_deref().or_else(|| {
-        row.as_ref()
-            .and_then(|session| session.permission_mode.as_deref())
-    });
-    let permission_mode = match adapter
-        .resolve_initial_permission_mode(&runtime_config.cwd, requested_mode)
+    let Some(mode::Prepared {
+        mode: permission_mode,
+        wire: effective_permission_mode_wire,
+        warning: permission_mode_warning,
+    }) = mode::prepare()
+        .app_state(app_state)
+        .sender(sender)
+        .ref_id(&envelope.id)
+        .session_id(db_session_id)
+        .adapter(&*adapter)
+        .cwd(&runtime_config.cwd)
+        .maybe_requested(payload.permission_mode.as_deref())
+        .maybe_row(row.as_ref())
+        .call()
         .await
-    {
-        Ok(mode) => mode,
-        Err(error) => {
-            send_error(
-                sender,
-                &envelope.id,
-                "PROVIDER_MODE_DISCOVERY_FAILED",
-                &error.to_string(),
-            );
-            return Some(db_session_id);
-        }
-    };
-    let persisted_mode = mode::persist(
-        app_state,
-        db_session_id,
-        requested_mode,
-        permission_mode.as_ref(),
-    )
-    .await;
-    let Some(effective_permission_mode_wire) =
-        saved_or_report(sender, &envelope.id, "permission mode", persisted_mode)
     else {
         return Some(db_session_id);
     };
     runtime_config.permission_mode = permission_mode;
+    runtime_config.validate_restored_permission_mode =
+        permission_mode_warning.is_some() && effective_permission_mode_wire.is_some();
     let initial = (initial_provider.as_str(), configured_initial_access_mode);
     let read = provider::access_mode_for(app_state, initial, &effective_provider);
     let Some(configured_access_mode) =
@@ -361,37 +335,30 @@ pub(super) async fn handle_init(
         .feature_id(feature_id)
         .runtime_provider(effective_provider.clone())
         .maybe_profile(effective_profile.clone())
-        .maybe_resume_session_id(resume_session_id.clone())
+        .maybe_resume_session_id(resume_session_id)
         .call();
 
-    binding::finalize_pending_or_live()
-        .app_state(app_state)
-        .sdk_sessions(&sdk_sessions)
-        .sender(sender)
-        .ref_id(&envelope.id)
-        .db_session_id(db_session_id)
-        .feature_id(feature_id)
-        .maybe_row(row.as_ref())
-        .pending(handle)
-        .pending_payload(SessionInitializedPayload {
-            session_id: db_session_id.to_string(),
-            provider: Some(effective_provider.clone()),
-            model: effective_model,
-            thinking_effort: effective_thinking_effort,
-            fast_mode: effective_fast_mode,
-            profile: effective_profile,
-            runtime_overrides,
-            permission_mode: effective_permission_mode_wire,
-            codex_permission_mode: adapter
-                .legacy_access_mode_wire(effective_access_mode_wire.as_deref()),
-            access_mode: effective_access_mode_wire,
-            input_tokens: init_input_tokens.map(|v| v as u64),
-            output_tokens: init_output_tokens.map(|v| v as u64),
-            context_window: init_context_window.map(|v| v as u64),
-            supports_prompt_receipts: adapter.supports_prompt_receipts(),
-        })
-        .maybe_resume_session_id(resume_session_id.as_deref())
-        .call()
+    let pending_payload = SessionInitializedPayload {
+        session_id: db_session_id.to_string(),
+        provider: Some(effective_provider.clone()),
+        model: effective_model,
+        thinking_effort: effective_thinking_effort,
+        fast_mode: effective_fast_mode,
+        profile: effective_profile,
+        runtime_overrides,
+        permission_mode: effective_permission_mode_wire,
+        codex_permission_mode: adapter
+            .legacy_access_mode_wire(effective_access_mode_wire.as_deref()),
+        access_mode: effective_access_mode_wire,
+        input_tokens: init_input_tokens.map(|v| v as u64),
+        output_tokens: init_output_tokens.map(|v| v as u64),
+        context_window: init_context_window.map(|v| v as u64),
+        supports_prompt_receipts: adapter.supports_prompt_receipts(),
+        prompt_receipts_at_submission: adapter.prompt_receipts_at_submission(),
+    };
+    binding
+        .initialize(row.as_ref(), Some((handle, pending_payload)))
         .await;
+    mode::report_warning(sender, &envelope.id, permission_mode_warning);
     Some(db_session_id)
 }

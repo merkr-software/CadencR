@@ -1,12 +1,12 @@
 //! agy 1.5 has no session-free command-list RPC. Its ACP menu consists of
 //! prompt commands followed by invocable skills sorted by their declared name.
 //! TUI-only commands such as /exit are not valid ACP prompts.
+mod files;
 mod manifests;
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::io::{self, BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use cadencr_provider_sdk::{
     is_valid_slash_command_name, sanitize_slash_command_description, SlashCommand,
@@ -14,35 +14,10 @@ use cadencr_provider_sdk::{
 };
 use serde::Deserialize;
 
-const COMMANDS: &[(&str, &str)] = &[
-    (
-        "goal",
-        "Run until the specified goal is completely finished.",
-    ),
-    (
-        "compact",
-        "Compact the conversation now (summarize history to free up the context window).",
-    ),
-    (
-        "schedule",
-        "Run an instruction on a recurring schedule or as a one-time timer.",
-    ),
-    ("browser", "Invoke a browser agent for web tasks."),
-    ("plan", "Plan carefully before executing a task."),
-    ("grill-me", "Interview me to align on a plan."),
-    (
-        "teamwork",
-        "Invoke a team of agents to autonomously tackle large projects.",
-    ),
-    (
-        "learn",
-        "Reflect on recent successes or corrections to capture reusable skills or rules.",
-    ),
-    (
-        "boost",
-        "Invoke the Boost multi-agent orchestrator for complex tasks.",
-    ),
-];
+use files::optional_file;
+
+use crate::native_compat::{BUNDLED_SKILLS, PROMPT_COMMANDS};
+
 const ROOTS: [&str; 4] = [".agents", ".agent", "_agents", "_agent"];
 const FILE_LIMIT: u64 = 256 * 1024;
 
@@ -72,21 +47,16 @@ pub fn commands(cwd: &Path, home: Option<&Path>) -> io::Result<Vec<SlashCommand>
         let builtin = home.join(".gemini/antigravity-cli/builtin/skills");
         // These are mounted for the CLI. The same installation also holds
         // skills for other Google products which are not available via ACP.
-        for dir in [
-            "agy-customizations",
-            "antigravity_guide",
-            "run-workflow",
-            "native_swarm",
-        ] {
+        for &dir in BUNDLED_SKILLS {
             if dir != "native_swarm" || scan.plugin_enabled("swarm", true) {
                 read_skill(&builtin.join(dir), &mut skills)?;
             }
         }
     }
-    for &(name, _) in COMMANDS {
+    for &(name, _) in PROMPT_COMMANDS {
         skills.remove(name);
     }
-    Ok(COMMANDS
+    Ok(PROMPT_COMMANDS
         .iter()
         .map(|&(n, d)| (n.to_owned(), d.to_owned()))
         .chain(skills.into_iter().filter_map(|(n, d)| Some((n, d?))))
@@ -152,54 +122,10 @@ fn read_skill(dir: &Path, skills: &mut Skills) -> io::Result<()> {
     Ok(())
 }
 
-fn missing(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-    )
-}
-
-fn optional_file(path: &Path) -> io::Result<Option<fs::File>> {
-    match fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => fs::File::open(path).map(Some),
-        Ok(_) => Ok(None),
-        Err(e) if missing(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
-fn read_bounded(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    let Some(file) = optional_file(path)? else {
-        return Ok(None);
-    };
-    let mut bytes = Vec::new();
-    file.take(FILE_LIMIT + 1).read_to_end(&mut bytes)?;
-    if bytes.len() > FILE_LIMIT as usize {
-        eprintln!(
-            "Skipping oversized Antigravity configuration {}",
-            path.display()
-        );
-        return Ok(None);
-    }
-    Ok(Some(bytes))
-}
-
-fn children(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) if missing(&e) => return Ok(Vec::new()),
-        Err(e) => return Err(e),
-    };
-    let mut paths: Vec<_> = entries
-        .map(|e| e.map(|x| x.path()))
-        .collect::<io::Result<_>>()?;
-    paths.sort();
-    Ok(paths)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn cold_catalog_matches_native_project_global_and_bundled_skill_discovery() {
@@ -327,6 +253,24 @@ mod tests {
         let mut skills = Skills::new();
         read_skill(temp.path(), &mut skills).unwrap();
         assert_eq!(skills["example"].as_deref(), Some("header only"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_entries_do_not_hide_siblings_or_native_commands() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let skills = root.join(".agents/skills");
+        fs::create_dir_all(skills.join("visible")).unwrap();
+        fs::write(skills.join("visible/SKILL.md"), "---\nname: visible\n---\n").unwrap();
+        symlink("lost", skills.join("lost")).unwrap();
+        symlink("skills.json", root.join(".agents/skills.json")).unwrap();
+        fs::create_dir_all(root.join(".gemini/config")).unwrap();
+        symlink("config.json", root.join(".gemini/config/config.json")).unwrap();
+        let entries = commands(root, Some(root)).unwrap();
+        assert!(entries.iter().any(|c| c.name == "goal"));
+        assert!(entries.iter().any(|c| c.name == "visible"));
     }
 
     #[test]

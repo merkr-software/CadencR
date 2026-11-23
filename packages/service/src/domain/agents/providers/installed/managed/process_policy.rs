@@ -373,13 +373,20 @@ mod tests {
             "CADENCR_AUTH_TOKEN",
             "cadencr_remote_secret",
             "CADENCR_DB_PATH",
+            "CADENCR_ANTIGRAVITY_COMMAND",
             "CADENCR_PUSH_PRIVATE_KEY",
             "VITE_API_TOKEN",
             "VITE_DEV_SERVER_URL",
         ] {
             assert!(is_cadencr_host_secret_env_key(key.as_ref()), "{key}");
         }
-        for key in ["HOME", "PATH", "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
+        for key in [
+            "HOME",
+            "PATH",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTIGRAVITY_CLI_PATH",
+        ] {
             assert!(!is_cadencr_host_secret_env_key(key.as_ref()), "{key}");
         }
     }

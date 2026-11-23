@@ -33,7 +33,7 @@ impl EventMapper {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
                 self.subagents.observe_update(message);
-                if !self.working.observe_tool(message) {
+                if !self.working.observe_update(message) {
                     self.detached.observe_update(message, Instant::now);
                 }
                 let names = self.mcp.for_params(message.get("params"));
@@ -49,9 +49,15 @@ impl EventMapper {
             }
             None => {
                 self.mcp.observe_response(message);
-                if let Some(session) = self.detached.observe_response(message) {
-                    self.working
-                        .decorate_boundary(&session, &mut message["result"]);
+                match self.detached.observe_response(message) {
+                    Some(detached::PromptEnd::Completed(ended)) => {
+                        self.working
+                            .end_prompt(&ended, message.get_mut("result"), true);
+                    }
+                    Some(detached::PromptEnd::Interrupted(ended)) => {
+                        self.interrupt_request(&ended, message.get_mut("result"));
+                    }
+                    None => {}
                 }
             }
             _ => {}
@@ -59,9 +65,18 @@ impl EventMapper {
     }
 
     pub(crate) fn map_host(&mut self, message: &mut Value) {
-        self.working.observe_request(message);
         self.subagents.observe_request(message);
-        self.detached.observe_request(message);
+        if message["method"] == "$/cancel_request" {
+            if let Some(ended) = message
+                .pointer("/params/requestId")
+                .and_then(|id| self.detached.remove_prompt(id))
+            {
+                self.interrupt_request(&ended, None);
+            }
+        } else {
+            let generation = self.detached.observe_request(message);
+            self.working.observe_request(message, generation);
+        }
         self.mcp.observe_request(message);
         if message.get("method").is_none() {
             let question = message
@@ -70,6 +85,12 @@ impl EventMapper {
             if let (Some(question), Some(result)) = (question, message.get_mut("result")) {
                 *result = question.native_response(result);
             }
+        }
+    }
+
+    fn interrupt_request(&mut self, ended: &detached::EndedPrompt, result: Option<&mut Value>) {
+        if self.working.end_prompt(ended, result, false) {
+            self.detached.allow_detached(&ended.session);
         }
     }
 
@@ -85,6 +106,13 @@ impl EventMapper {
         self.detached.next_deadline()
     }
 
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        self.detached_reply_deadline()
+            .into_iter()
+            .chain(self.working.wake_deadline(&self.detached))
+            .min()
+    }
+
     pub(crate) fn take_completed_detached_reply(&mut self, now: Instant) -> Option<Value> {
         let mut frame = self.detached.take_completed(now)?;
         let session = frame.pointer("/params/sessionId")?.as_str()?.to_owned();
@@ -94,15 +122,30 @@ impl EventMapper {
     }
 
     pub(crate) fn take_finished_work(&mut self) -> Option<Value> {
-        self.working.take_finished(&self.detached)
+        self.working.take_finished(&self.detached, Instant::now())
     }
 
     pub(crate) fn has_work_release(&self) -> bool {
-        self.working.has_releases()
+        self.working.has_releases(&self.detached)
     }
 
-    pub(crate) fn observe_child(&mut self, frame: &Value) {
-        self.working.observe_child(frame);
+    pub(crate) fn observe_child(&mut self, frame: &mut Value) {
+        let parent_acted = frame
+            .as_object_mut()
+            .and_then(|object| object.remove(subagents::PARENT_ACTED))
+            .is_some_and(|value| value == Value::Bool(true));
+        self.working.observe_child(frame, parent_acted);
+        let names = self.mcp.for_params(frame.get("params"));
+        if let Some(update) = frame.pointer_mut("/params/update") {
+            // Nested launches remain child actions, not additional root agent cards.
+            if !update
+                .as_object()
+                .and_then(tools::call_name)
+                .is_some_and(tools::is_subagent_launch)
+            {
+                tools::normalize_update(update, names);
+            }
+        }
     }
 
     pub(crate) fn forget_child(&mut self, session: &str, carrier: &str) {
@@ -143,6 +186,85 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn aborted_prompts_discard_current_commands_and_preserve_earlier_background_work() {
+        let prompt = |id| json!({"id":id,"method":"session/prompt","params":{"sessionId":"root"}});
+        let command = |id, status| {
+            session_update(
+                "root",
+                json!({
+                    "sessionUpdate":if status == "completed" { "tool_call_update" } else { "tool_call" },
+                    "toolCallId":id, "name":"run_command","status":status
+                }),
+            )
+        };
+        for ending in [
+            json!({"id":2,"error":{"code":-32603,"message":"failed"}}),
+            json!({"id":2,"result":{"stopReason":"max_tokens"}}),
+            json!({"id":2,"result":{"stopReason":"cancelled"}}),
+            json!({"method":"$/cancel_request","params":{"requestId":2}}),
+        ] {
+            for settled_before_error in [true, false] {
+                let mut mapper = EventMapper::default();
+                mapper.map_host(&mut prompt(1));
+                mapper.map_agent(&mut command("previous", "in_progress"));
+                let mut boundary = json!({"id":1, "result":{"stopReason":"end_turn"}});
+                mapper.map_agent(&mut boundary);
+                assert_eq!(
+                    boundary["result"]["_meta"]["cadencr"]["backgroundWorkPending"],
+                    true
+                );
+                mapper.map_host(&mut prompt(2));
+                if settled_before_error {
+                    mapper.map_agent(&mut command("previous", "completed"));
+                    assert!(mapper.take_finished_work().is_none());
+                }
+                mapper.map_agent(&mut command("interrupted", "in_progress"));
+                let mut frame = ending.clone();
+                if frame["method"] == "$/cancel_request" {
+                    mapper.map_host(&mut frame);
+                } else {
+                    mapper.map_agent(&mut frame);
+                }
+                if frame.get("result").is_some() {
+                    assert_eq!(
+                        frame["result"]["stopReason"],
+                        ending["result"]["stopReason"]
+                    );
+                    assert_eq!(
+                        frame["result"]["_meta"]["cadencr"]["backgroundWorkPending"],
+                        true
+                    );
+                } else {
+                    assert_eq!(ending, frame);
+                }
+                if !settled_before_error {
+                    assert!(mapper.take_finished_work().is_none());
+                    mapper.map_agent(&mut command("previous", "completed"));
+                }
+                // Rejection cannot consume the earlier command's promised wake.
+                assert!(mapper.take_finished_work().is_none());
+                mapper.map_agent(&mut session_update("root", json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The prior task finished."}})));
+                mapper.map_agent(&mut session_update(
+                    "root",
+                    json!({"sessionUpdate":"usage_update","used":17,"size":1024}),
+                ));
+                let release = mapper
+                    .take_completed_detached_reply(mapper.detached_reply_deadline().unwrap())
+                    .unwrap();
+                assert_eq!(
+                    release["params"]["update"]["_meta"]["cadencr"]["backgroundWorkPending"],
+                    false
+                );
+                assert!(mapper.take_finished_work().is_none());
+                mapper.map_host(&mut prompt(3));
+                let mut next = json!({"id":3,"result":{"stopReason":"end_turn"}});
+                mapper.map_agent(&mut next);
+                assert!(next["result"].get("_meta").is_none());
+            }
+        }
+    }
 
     #[test]
     fn native_text_plan_usage_and_unknown_events_pass_through() {

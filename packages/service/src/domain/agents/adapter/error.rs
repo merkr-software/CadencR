@@ -33,6 +33,12 @@ pub enum RuntimeError {
     /// A follow-up waited for the running turn and a Stop ended that turn
     /// first: the runtime dropped it rather than start a turn of its own.
     InputWithdrawn(String),
+    /// An individual prompt failed after dispatch. The runtime stream settles
+    /// the logical turn independently of this receipt.
+    PromptDeliveryFailed {
+        message: String,
+        surfaced_on_stream: bool,
+    },
     /// The runtime refused a request Cadencr sent it, without running it: a
     /// protocol or request error (an unknown method, invalid parameters, a
     /// state the request is not allowed in). Never a provider overload; the
@@ -61,6 +67,7 @@ impl Display for RuntimeError {
             | Self::StopEscalated(message)
             | Self::InputWithdrawn(message)
             | Self::RequestRejected(message) => f.write_str(message),
+            Self::PromptDeliveryFailed { message, .. } => f.write_str(message),
             Self::NothingToInterrupt => f.write_str("No turn was running to stop"),
         }
     }

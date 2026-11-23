@@ -504,6 +504,29 @@ platform resource controls, redacted quarantine, and a cached signed blocklist.
 They still do not claim filesystem/network sandboxing; that release gate remains
 explicit in `BOUNDARIES.md` Phase 8.
 
+## Steering a running prompt
+
+A connector whose ACP server accepts a second `session/prompt` for the same
+session while another prompt is active can announce this in the `initialize`
+result at `agentCapabilities._meta.cadencr.promptSteering`. Set the Boolean
+to `true` and include the same metadata on the primary model selector in
+`models` discovery so the composer can offer immediate follow-ups before the
+runtime starts. Once connected, the composer uses the capability negotiated
+by that session, including after reconnecting.
+
+Use independent request IDs, accept the new prompt without a preceding
+`session/cancel`, and respond to every accepted prompt. Each response
+acknowledges its prompt on success and accounts for its own reported usage.
+A rejected follow-up has its own failed delivery receipt. Earlier accepted
+work can finish and report its result. A cooperative Stop preserves the delivery
+of the turn's first submitted prompt and any follow-up the agent already
+acknowledged. An unacknowledged concurrent input can still fail delivery.
+The transcript shows
+each submitted prompt in its original position while its receipt is pending,
+so its response can stream directly below it. CadencR completes the visible
+turn when the last outstanding prompt has returned and any advertised
+background work has finished. Connectors without live opt-in use serial prompts.
+
 ## Detached replies
 
 A connector that receives an unsolicited reply after a successful
@@ -513,7 +536,9 @@ forwarding the reply's text or thought chunks and any tool steps, with the
 same `sessionId` and while no prompt is in flight. If the agent reports
 usage after each model step, forward those updates normally. Once the reply
 ends, the connector can send a separate `usage_update` with the marker and
-the last reported context-budget values.
+the last reported context-budget values. To acknowledge `session/cancel`
+before the reply reports a context budget, send a `session_info_update` with
+the same marker.
 
 Cadencr accepts the marker only after seeing a successful prompt result and
 subsequent streamed reply content for that session outside a host prompt.
@@ -531,9 +556,11 @@ that ends while work continues, set the same field on the `usage_update`
 carrying `detachedReplyEnded`. Each prompt retains its response and accounting.
 CadencR keeps the conversation working between replies.
 
-Track each task by its native ID. When the last task ends during a reply, send
-its normal completion boundary with `backgroundWorkPending: false`. Between
+Track each task by its native ID. Keep the hold while a completed task is
+expected to wake the model. If work settles during a reply, send its completion
+boundary with `backgroundWorkPending: false`. When work settles between
 replies, send a `session_info_update` for that session with
-`_meta.cadencr.backgroundWorkPending: false`. This releases the hold even
-when the agent sends no further text. Providers that only expose a launch
-acknowledgement can continue to use sub-agent metadata on its own.
+`_meta.cadencr.backgroundWorkPending: false`. A release that reaches CadencR
+during a streamed reply leaves the reply open until its own completion marker.
+An omitted field preserves the last reported state. Providers that only expose
+a launch acknowledgement can continue to use sub-agent metadata on its own.

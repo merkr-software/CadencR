@@ -101,11 +101,14 @@ impl AcpClient {
 
     /// Insert the runtime event fence at the prompt response's position on the
     /// wire. The SDK keeps later messages behind this callback until it returns.
+    /// A JSON-RPC rejection still has a fence. The outer error means the
+    /// request failed before receiving any wire response.
     pub(super) async fn request_prompt_with_event_barrier(
         &self,
         params: Value,
         barrier: AcpEventBarrier,
-    ) -> Result<Value, AcpError> {
+        submitted: impl FnOnce(),
+    ) -> Result<Result<Value, AcpError>, AcpError> {
         let request = UntypedMessage::new("session/prompt", params).map_err(AcpError::from_acp)?;
         let mut closed = self.inner.closed.subscribe();
         let (respond, response) = oneshot::channel();
@@ -120,9 +123,10 @@ impl AcpClient {
                 Ok(())
             })
             .map_err(AcpError::from_acp)?;
+        submitted();
         tokio::select! {
             biased;
-            result = response => result.map_err(|_| AcpError::ConnectionClosed("session/prompt"))?,
+            result = response => result.map_err(|_| AcpError::ConnectionClosed("session/prompt")),
             _ = closed.wait_for(|closed| *closed) => Err(AcpError::ConnectionClosed("session/prompt")),
         }
     }

@@ -5,11 +5,11 @@ import type { PendingPermission } from "@/types/agent-permission";
 import { blocksPatchWithDerived, parseTodosFromBlocks } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parsePermissionPayload } from "./ws-envelope-payload";
-import { movePendingPromptBlocksToTail, trimTailPromptTurnBoundary } from "./ws-pending-prompts";
+import { trimTailPromptTurnBoundary } from "./ws-pending-prompts";
 import { type PersistedStatePayload, type SessionEntry, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { parseAccessMode } from "@/types/access-mode";
-import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
+import { mergeCanonicalBlocks, orderPendingPrompts } from "./ws-user-message-reconciliation";
 
 interface DecodedQuestion {
   questions: AgentQuestion[];
@@ -168,7 +168,11 @@ export function applyPersistedState(
 
   if (existing && existing.blocks.length > 0) {
     const liveBlocks = tailPromptBoundary?.blocks ?? existing.blocks;
-    const mergedBlocks = mergeCanonicalBlocks(liveBlocks, blocks);
+    const mergedBlocks = mergeCanonicalBlocks(
+      liveBlocks,
+      blocks,
+      existing.promptReceiptsAtSubmission,
+    );
     const todos = parseTodosFromBlocks(mergedBlocks);
     ctx.set(
       updateSession(ctx.get(), sessionId, {
@@ -182,7 +186,7 @@ export function applyPersistedState(
     return;
   }
 
-  const orderedBlocks = movePendingPromptBlocksToTail(blocks);
+  const orderedBlocks = orderPendingPrompts(blocks, existing?.promptReceiptsAtSubmission);
   const todos = parseTodosFromBlocks(orderedBlocks);
   const session = ctx.getSession(sessionId);
 

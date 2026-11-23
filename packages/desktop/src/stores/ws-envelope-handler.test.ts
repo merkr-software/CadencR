@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 import type { AgentBlockData } from "@/types/agent-block";
+import { handleMessageBatch } from "./ws-message-envelope-handler";
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
@@ -163,6 +164,129 @@ describe("handleEnvelope canonical user_message", () => {
     expect(last?.content).toBe("hello from another device");
     expect(last?.id).toBe("msg-42");
     expect(last?.messageUuid).toBe("a48cc11a-8a72-47f7-8577-d5c533d7909c");
+  });
+
+  it.each([false, true])(
+    "keeps concurrent prompts in database order with late initialization %s",
+    (lateInit) => {
+      const ctx = createTestContext(createSessionEntry());
+      const initialized = {
+        domain: "session",
+        action: "initialized",
+        payload: { supports_prompt_receipts: true, prompt_receipts_at_submission: true },
+      };
+      const uuid = crypto.randomUUID();
+      if (!lateInit) handleEnvelope(ctx, "s1", initialized);
+      handleEnvelope(ctx, "s1", {
+        domain: "session",
+        action: "user_message",
+        payload: {
+          message_id: 12,
+          message_uuid: uuid,
+          text: "steer now",
+          created_at: "2026-11-22T21:00:00Z",
+          prompt_delivery_state: "pending_agent",
+        },
+      });
+      handleMessageBatch(ctx, "s1", [
+        {
+          blocks: [
+            {
+              type: "stream_event",
+              agent_message_id: 13,
+              session_id: "s1",
+              event: {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "steered reply" },
+              },
+            },
+          ],
+        },
+      ]);
+      if (lateInit) {
+        expect(ctx.getSession("s1").rootBlocks.map((block) => block.id)).toEqual([
+          "msg-13",
+          "msg-12",
+        ]);
+        handleEnvelope(ctx, "s1", initialized);
+      }
+      expect(ctx.getSession("s1").rootBlocks.map((block) => block.id)).toEqual([
+        "msg-12",
+        "msg-13",
+      ]);
+      expect(ctx.getSession("s1").rootBlocks[0].promptDeliveryState).toBe("pending_agent");
+      handleEnvelope(ctx, "s1", {
+        domain: "session",
+        action: "prompt_received",
+        payload: { message_uuid: uuid, delivery_state: "received_agent" },
+      });
+      expect(ctx.getSession("s1").rootBlocks.map((block) => block.id)).toEqual([
+        "msg-12",
+        "msg-13",
+      ]);
+      expect(ctx.getSession("s1").rootBlocks[0].promptDeliveryState).toBe("received_agent");
+    },
+  );
+
+  it("applies negotiated prompt steering only to its bound session", () => {
+    const session = createSessionEntry();
+    session.sessionDbId = 42;
+    const ctx = createTestContext(session);
+    const announce = (id: string, value: unknown) =>
+      handleEnvelope(ctx, "s1", {
+        domain: "session",
+        action: "prompt_steering",
+        payload: { session_id: id, supported: value },
+      });
+    announce("43", true);
+    announce("42", "true");
+    expect(ctx.getSession("s1").supportsPromptReceipts).toBe(false);
+    announce("42", true);
+    expect(ctx.getSession("s1")).toMatchObject({
+      supportsPromptReceipts: true,
+      promptReceiptsAtSubmission: true,
+    });
+    const negotiated = ctx.getSession("s1");
+    announce("42", true);
+    expect(ctx.getSession("s1")).toBe(negotiated);
+    announce("42", false);
+    expect(ctx.getSession("s1")).toMatchObject({
+      supportsPromptReceipts: false,
+      promptReceiptsAtSubmission: false,
+    });
+  });
+
+  it("moves only pending messages when the live handshake changes their placement", () => {
+    const session = createSessionEntry();
+    session.sessionDbId = 42;
+    session.promptReceiptsAtSubmission = true;
+    const pending: AgentBlockData = {
+      id: "msg-2",
+      type: "user_message",
+      content: "pending",
+      promptDeliveryState: "pending_agent",
+    };
+    const received: AgentBlockData = {
+      id: "msg-3",
+      type: "user_message",
+      content: "received",
+      promptDeliveryState: "received_agent",
+    };
+    const answer: AgentBlockData = { id: "msg-4", type: "text", content: "answer" };
+    session.blocks = [pending, received, answer];
+    session.rootBlocks = session.blocks;
+    const ctx = createTestContext(session);
+    for (const supported of [false, true]) {
+      handleEnvelope(ctx, "s1", {
+        domain: "session",
+        action: "prompt_steering",
+        payload: { session_id: "42", supported },
+      });
+      const expected = supported ? [pending, received, answer] : [received, answer, pending];
+      expect(ctx.getSession("s1").blocks).toEqual(expected);
+      expect(ctx.getSession("s1").rootBlocks).toEqual(expected);
+    }
   });
 
   it("surfaces a malformed payload instead of silently losing the message", () => {

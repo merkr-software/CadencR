@@ -248,6 +248,7 @@ async fn pending_spawn_config(
         options: RuntimeSpawnConfig {
             cwd: handle.config.cwd.clone(),
             permission_mode: spawned_permission_mode,
+            validate_restored_permission_mode: pending.validate_restored_permission_mode,
             access_mode: spawned_access_mode,
             model: spawned_model,
             thinking_effort: spawned_thinking_effort,

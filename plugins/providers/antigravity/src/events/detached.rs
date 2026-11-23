@@ -14,19 +14,31 @@ const QUIET_WINDOW: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
 pub(super) struct Replies {
+    generation: u64,
     requests: HashMap<String, PendingRequest>,
     post_turn: HashMap<String, Reply>,
 }
 
+pub(super) enum PromptEnd {
+    Completed(EndedPrompt),
+    Interrupted(EndedPrompt),
+}
+
+pub(super) struct EndedPrompt {
+    pub(super) session: String,
+    pub(super) generation: u64,
+    pub(super) remaining: Option<u64>,
+}
+
 enum PendingRequest {
-    Prompt(String),
+    Prompt(String, u64),
     Restore(String),
 }
 
 impl PendingRequest {
     fn session(&self) -> &str {
         match self {
-            Self::Prompt(session) | Self::Restore(session) => session,
+            Self::Prompt(session, _) | Self::Restore(session) => session,
         }
     }
 }
@@ -55,78 +67,92 @@ struct Usage {
 
 struct Completion {
     deadline: Instant,
-    usage: Usage,
     cancelled: bool,
 }
 
 impl Replies {
-    pub(super) fn observe_request(&mut self, message: &Value) {
+    pub(super) fn observe_request(&mut self, message: &Value) -> Option<u64> {
         let method = message.get("method").and_then(Value::as_str);
-        if method == Some("$/cancel_request") {
-            if let Some(id) = message.pointer("/params/requestId") {
-                self.requests.remove(&id.to_string());
-            }
-            return;
-        }
-        let Some(session) = message.pointer("/params/sessionId").and_then(Value::as_str) else {
-            return;
-        };
+        let session = message.pointer("/params/sessionId")?.as_str()?;
         match method {
             Some("session/cancel") => {
-                if let Some(Phase::Closing(completion)) = self
-                    .post_turn
-                    .get_mut(session)
-                    .map(|reply| &mut reply.phase)
-                {
-                    // The native prompt has already ended. Deliver the boundary
-                    // so the host can finish the interrupted detached turn.
-                    completion.cancelled = true;
-                    completion.deadline = Instant::now();
-                } else {
-                    self.clear(session);
+                if self.active_prompt(session).is_none() {
+                    if let Some(reply) = self.post_turn.get_mut(session) {
+                        if !matches!(reply.phase, Phase::AwaitingContent) {
+                            reply.phase = Phase::Closing(Completion {
+                                cancelled: true,
+                                deadline: Instant::now(),
+                            });
+                            return None;
+                        }
+                    }
                 }
+                self.clear(session);
             }
             Some("session/close") => self.clear(session),
             Some("session/prompt" | "session/load" | "session/resume") => {
-                let Some(id) = message
+                let id = message
                     .get("id")
-                    .filter(|id| id.is_string() || id.is_number())
-                else {
-                    return;
-                };
-                let request = if method == Some("session/prompt") {
-                    self.post_turn.remove(session);
-                    PendingRequest::Prompt(session.to_owned())
-                } else {
-                    self.clear(session);
-                    PendingRequest::Restore(session.to_owned())
-                };
-                self.requests.insert(id.to_string(), request);
+                    .filter(|id| id.is_string() || id.is_number())?;
+                if method == Some("session/prompt") {
+                    if self.active_prompt(session).is_none() {
+                        self.post_turn.remove(session);
+                    }
+                    self.generation += 1;
+                    self.requests.insert(
+                        id.to_string(),
+                        PendingRequest::Prompt(session.to_owned(), self.generation),
+                    );
+                    return Some(self.generation);
+                }
+                self.clear(session);
+                self.requests
+                    .insert(id.to_string(), PendingRequest::Restore(session.to_owned()));
             }
             _ => {}
         }
+        None
     }
 
-    pub(super) fn observe_response(&mut self, message: &Value) -> Option<String> {
-        let Some(PendingRequest::Prompt(session)) = message
-            .get("id")
-            .and_then(|id| self.requests.remove(&id.to_string()))
+    fn active_prompt(&self, session: &str) -> Option<u64> {
+        self.requests
+            .values()
+            .filter_map(|request| match request {
+                PendingRequest::Prompt(id, generation) if id == session => Some(*generation),
+                _ => None,
+            })
+            .max()
+    }
+
+    pub(super) fn remove_prompt(&mut self, id: &Value) -> Option<EndedPrompt> {
+        let PendingRequest::Prompt(session, generation) = self.requests.remove(&id.to_string())?
         else {
             return None;
         };
+        let remaining = self.active_prompt(&session);
+        Some(EndedPrompt {
+            session,
+            generation,
+            remaining,
+        })
+    }
+
+    pub(super) fn allow_detached(&mut self, session: &str) {
+        self.post_turn.entry(session.to_owned()).or_default();
+    }
+
+    pub(super) fn observe_response(&mut self, message: &Value) -> Option<PromptEnd> {
+        let ended = self.remove_prompt(message.get("id")?)?;
         if message
             .pointer("/result/stopReason")
             .and_then(Value::as_str)
             == Some("end_turn")
-            && !self
-                .requests
-                .values()
-                .any(|request| request.session() == session)
         {
-            self.post_turn.insert(session.clone(), Reply::default());
-            return Some(session);
+            self.allow_detached(&ended.session);
+            Some(PromptEnd::Completed(ended))
+        } else {
+            Some(PromptEnd::Interrupted(ended))
         }
-        None
     }
 
     pub(super) fn has_boundary(&self, session: &str) -> bool {
@@ -140,11 +166,15 @@ impl Replies {
     }
 
     pub(super) fn observe_update(&mut self, message: &Value, now: impl FnOnce() -> Instant) {
-        let Some(reply) = message
-            .pointer("/params/sessionId")
-            .and_then(Value::as_str)
-            .and_then(|session| self.post_turn.get_mut(session))
-        else {
+        let Some(session) = message.pointer("/params/sessionId").and_then(Value::as_str) else {
+            return;
+        };
+        // A successful overlapping RPC permits a future wake. Its sibling's
+        // stream is still part of a host prompt until that sibling settles.
+        if !self.post_turn.contains_key(session) || self.active_prompt(session).is_some() {
+            return;
+        }
+        let Some(reply) = self.post_turn.get_mut(session) else {
             return;
         };
         if matches!(&reply.phase, Phase::Closing(completion) if completion.cancelled) {
@@ -154,7 +184,7 @@ impl Replies {
             return;
         };
         match update.get("sessionUpdate").and_then(Value::as_str) {
-            Some("agent_message_chunk" | "agent_thought_chunk") if has_text(update) => {
+            _ if is_model_content(update) => {
                 // The model advanced beyond the earlier tool step. Its tools
                 // can continue in the background without holding this reply.
                 reply.tools.clear();
@@ -178,14 +208,20 @@ impl Replies {
 
     pub(super) fn take_completed(&mut self, now: Instant) -> Option<Value> {
         let (frame, cancelled) = self.post_turn.iter_mut().find_map(|(session, reply)| {
-            let Phase::Closing(completion) = &reply.phase else { return None };
+            let Phase::Closing(completion) = &reply.phase else {
+                return None;
+            };
             if completion.deadline > now {
                 return None;
             }
-            let frame = session_update(session, json!({
-                "sessionUpdate": "usage_update", "used": completion.usage.used, "size": completion.usage.size,
-                "_meta": {"cadencr": {"detachedReplyEnded": true}}
-            }));
+            let mut update = match reply.last_usage {
+                Some(usage) => {
+                    json!({"sessionUpdate":"usage_update","used":usage.used,"size":usage.size})
+                }
+                None => json!({"sessionUpdate":"session_info_update"}),
+            };
+            update["_meta"] = json!({"cadencr":{"detachedReplyEnded":true}});
+            let frame = session_update(session, update);
             let cancelled = completion.cancelled.then(|| session.clone());
             *reply = Reply::default();
             Some((frame, cancelled))
@@ -240,14 +276,16 @@ impl Reply {
         }
         self.phase = Phase::Closing(Completion {
             deadline: now() + QUIET_WINDOW,
-            usage,
             cancelled: false,
         });
     }
 }
 
-fn has_text(update: &Value) -> bool {
-    update.pointer("/content/type").and_then(Value::as_str) == Some("text")
+pub(super) fn is_model_content(update: &Value) -> bool {
+    matches!(
+        update["sessionUpdate"].as_str(),
+        Some("agent_message_chunk" | "agent_thought_chunk")
+    ) && update.pointer("/content/type").and_then(Value::as_str) == Some("text")
         && update
             .pointer("/content/text")
             .and_then(Value::as_str)
@@ -464,6 +502,24 @@ mod tests {
         unchanged(&mut mapper, chunk("s", "Late update after error"));
         unchanged(&mut mapper, usage("s", 100));
         assert_eq!(mapper.detached_reply_deadline(), None);
+    }
+
+    #[test]
+    fn stop_before_the_first_usage_ends_the_wake_without_inventing_a_budget() {
+        let mut mapper = EventMapper::default();
+        mapper.map_host(&mut request("session/prompt", json!(3), "s"));
+        unchanged(&mut mapper, result(json!(3)));
+        unchanged(&mut mapper, chunk("s", "Detached reply"));
+        mapper.map_host(&mut request("session/cancel", Value::Null, "s"));
+        let end = mapper
+            .take_completed_detached_reply(mapper.detached_reply_deadline().unwrap())
+            .unwrap();
+        assert_eq!(
+            end["params"]["update"],
+            json!({"sessionUpdate":"session_info_update",
+            "_meta":{"cadencr":{"detachedReplyEnded":true}}})
+        );
+        assert!(mapper.next_deadline().is_none());
     }
 
     #[test]

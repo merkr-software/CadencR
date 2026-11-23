@@ -125,6 +125,23 @@ describe("useSessionControls catalog scoping", () => {
     expect(result.current.steeringAcknowledged).toBe(true);
   });
 
+  it.each([true, false])(
+    "uses the session receipt capability when the cached catalog disagrees (%s)",
+    (supported) => {
+      mocks.useWebSocketSession.mockReturnValue({
+        ...ws("installed-provider"),
+        supportsPromptReceipts: supported,
+      });
+      mocks.useAgentCatalog.mockReturnValue({
+        data: {
+          providers: [{ id: "installed-provider", steering_acknowledged: !supported, models: [] }],
+        },
+      });
+      const { result } = renderHook(() => useSessionControls("session", 1, 1, "/work"));
+      expect(result.current.steeringAcknowledged).toBe(supported);
+    },
+  );
+
   it("uses the native mode choices once an installed provider starts", () => {
     const providerId = "example-acp";
     const modes = [

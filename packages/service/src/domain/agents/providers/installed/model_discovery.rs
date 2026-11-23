@@ -16,6 +16,7 @@ use agent_client_protocol::schema::v1::{
 };
 use serde::Deserialize;
 
+use crate::domain::agents::acp::runtime::prompt_turn::supports_prompt_steering;
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
 mod modes;
@@ -37,6 +38,7 @@ pub struct DiscoveredModels {
     pub models: Vec<ModelCatalogEntry>,
     /// Optional mode / access-mode selectors mapped onto host modes.
     pub modes: ProviderModeMap,
+    pub prompt_steering: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +174,7 @@ fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
         default_model,
         models,
         modes: ProviderModeMap::parse(&options)?,
+        prompt_steering: supports_prompt_steering(primary.meta.as_ref()),
     })
 }
 
@@ -315,6 +318,7 @@ mod tests {
             "category": "model",
             "type": "select",
             "currentValue": "vendor/opus",
+            "_meta": { "cadencr": { "promptSteering": true }},
             "options": [{
                 "value": "vendor/opus",
                 "name": "Opus",
@@ -329,6 +333,7 @@ mod tests {
         let parsed = parse_models(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert_eq!(parsed.config_id, "model");
         assert_eq!(parsed.default_model, "vendor/opus");
+        assert!(parsed.prompt_steering);
         assert_eq!(parsed.models[0].label, "Opus");
         assert_eq!(parsed.models[0].supports_effort, Some(true));
         assert_eq!(

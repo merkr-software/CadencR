@@ -791,6 +791,7 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::SessionDeletedPayload,
         ws_protocol::SessionClearedPayload,
         ws_protocol::SessionMcpServersPayload,
+        ws_protocol::SessionPromptSteeringPayload,
         ws_protocol::McpServerStatusPayload,
         ws_protocol::HistoryResultPayload,
         ws_protocol::HistoryAddedPayload,

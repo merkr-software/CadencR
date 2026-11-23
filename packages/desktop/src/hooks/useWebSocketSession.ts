@@ -50,6 +50,7 @@ export interface UseWebSocketSessionReturn {
    *  Manual compaction is driven by `compact.started`; runtime/auto compaction
    *  is driven by `session.compacting`. Drives the "Compacting…" indicator. */
   isCompacting: boolean;
+  supportsPromptReceipts?: boolean;
   isConnected: boolean;
   sessionId: string;
   sessionDbId: number | null;
@@ -261,6 +262,7 @@ function useSessionSnapshot(
       // Compaction is backend status: every device reads the same flag, and
       // a turn going idle clears it even for one that missed its end.
       isCompacting: (session?.pendingManualCompact ?? false) || (liveEntry?.compacting ?? false),
+      supportsPromptReceipts: session?.serverSessionId ? session.supportsPromptReceipts : undefined,
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,

@@ -110,6 +110,23 @@ pub(super) async fn fail_followup_stream(
             );
         }
     }
+    if let RuntimeError::PromptDeliveryFailed {
+        surfaced_on_stream, ..
+    } = error
+    {
+        if !context.wait_for_delivery && !surfaced_on_stream {
+            crate::domain::ws_session::runtime::helpers::send_warning(
+                &context.sender,
+                &context.envelope_id,
+                "PROMPT_DELIVERY_FAILED",
+                &message,
+            );
+        }
+        return Err(message);
+    }
+    if error.is_stop_escalation() {
+        return Err(message);
+    }
     // Refusing this queued steer does not end the already-running turn.
     // The control caller surfaces the error on the durable queue entry.
     if preserve_running_turn {

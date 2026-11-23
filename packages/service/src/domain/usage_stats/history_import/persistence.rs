@@ -123,9 +123,11 @@ mod tests {
             }],
         );
         live_usage.correlate_event_id(
-            Some(crate::domain::usage_stats::provider_message_event_id(
-                "msg-1",
-            )),
+            || {
+                Some(crate::domain::usage_stats::provider_message_event_id(
+                    "msg-1",
+                ))
+            },
             None,
         );
         record_runtime_usage(&pool, 1, Some(attribution), live_usage).await;
@@ -186,9 +188,11 @@ mod tests {
             }],
         );
         replay.correlate_event_id(
-            Some(crate::domain::usage_stats::provider_message_event_id(
-                "msg-1",
-            )),
+            || {
+                Some(crate::domain::usage_stats::provider_message_event_id(
+                    "msg-1",
+                ))
+            },
             None,
         );
         record_runtime_usage(
