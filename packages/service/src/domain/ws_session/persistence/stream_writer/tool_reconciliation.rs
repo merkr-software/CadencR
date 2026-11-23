@@ -142,12 +142,12 @@ mod session_tool_reconciliation_tests {
             },
         );
         persistence
-            .persist_runtime_event(&initial)
+            .persist_event_then_flush_due(&initial)
             .await
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&assistant_event(RuntimeAssistantMessage {
+            .persist_event_then_flush_due(&assistant_event(RuntimeAssistantMessage {
                 model: Some("openai/gpt-5.4".to_string()),
                 content: vec![RuntimeContentBlock::ToolUse {
                     id: "tool_1".to_string(),
@@ -186,7 +186,7 @@ mod session_tool_reconciliation_tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&assistant_event(RuntimeAssistantMessage {
+            .persist_event_then_flush_due(&assistant_event(RuntimeAssistantMessage {
                 model: Some("openai/gpt-5.4".to_string()),
                 content: vec![RuntimeContentBlock::ToolUse {
                     id: "tool_2".to_string(),
@@ -241,13 +241,13 @@ mod session_tool_reconciliation_tests {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
-        p.persist_runtime_event(&stream_ev(RuntimeStreamEvent::MessageStart {
+        p.persist_event_then_flush_due(&stream_ev(RuntimeStreamEvent::MessageStart {
             model: Some("claude-opus-4-8".to_string()),
             input_tokens: None,
         }))
         .await
         .expect("persist runtime event");
-        p.persist_runtime_event(&stream_ev(RuntimeStreamEvent::ContentBlockStart {
+        p.persist_event_then_flush_due(&stream_ev(RuntimeStreamEvent::ContentBlockStart {
             index: 0,
             block: RuntimeContentBlock::Text {
                 text: "Hello".to_string(),
@@ -256,7 +256,7 @@ mod session_tool_reconciliation_tests {
         .await
         .expect("persist runtime event");
 
-        p.persist_runtime_event(&RuntimeEvent::new(
+        p.persist_event_then_flush_due(&RuntimeEvent::new(
             RuntimeEventMetadata {
                 session_id: Some("ses_1".to_string()),
                 usage: None,
@@ -300,7 +300,7 @@ mod session_tool_reconciliation_tests {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
-        p.persist_runtime_event(&RuntimeEvent::new(
+        p.persist_event_then_flush_due(&RuntimeEvent::new(
             RuntimeEventMetadata {
                 session_id: Some("ses_1".to_string()),
                 usage: None,

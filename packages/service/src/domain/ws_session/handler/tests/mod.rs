@@ -33,6 +33,7 @@ mod stale_model;
 mod stream_reader;
 mod stream_reader_background_agents;
 mod stream_reader_background_tasks;
+mod stream_reader_delta_flush;
 mod stream_reader_interruption;
 mod stream_reader_mcp;
 mod stream_reader_subagents;

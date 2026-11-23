@@ -65,6 +65,10 @@ pub(super) async fn handle_init(
         }
     };
 
+    // This viewer receives the live stream from now on, but its history was
+    // read before: have a running reader re-send its live blocks' full text.
+    crate::domain::ws_session::stream_readers::request_live_catch_up(db_session_id);
+
     let sdk_sessions = app_state
         .session_runtimes
         .bind_feature(db_session_id, feature_id, sdk_sessions)

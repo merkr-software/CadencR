@@ -89,7 +89,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -128,7 +128,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -187,7 +187,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "ses_1",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -206,7 +206,7 @@ mod tests {
         // every fragment is rejected by the buffer).
 
         persistence
-            .persist_runtime_event(&assistant_event(
+            .persist_event_then_flush_due(&assistant_event(
                 "ses_1",
                 None,
                 RuntimeAssistantMessage {
@@ -226,7 +226,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "ses_1",
                 None,
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },
@@ -251,7 +251,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockStart {
@@ -267,7 +267,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&assistant_event(
+            .persist_event_then_flush_due(&assistant_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeAssistantMessage {
@@ -287,7 +287,7 @@ mod tests {
             .expect("persist runtime event");
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "child_a",
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },
@@ -311,7 +311,7 @@ mod tests {
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
@@ -329,7 +329,7 @@ mod tests {
             .await
             .expect("persist runtime event");
         persistence
-            .persist_runtime_event(&stream_event(
+            .persist_event_then_flush_due(&stream_event(
                 "thread",
                 None,
                 RuntimeStreamEvent::ContentBlockDelta {

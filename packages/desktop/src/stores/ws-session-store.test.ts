@@ -1097,6 +1097,127 @@ describe("ws-session-store", () => {
     expect(session.persistedLoaded).toBe(true);
   });
 
+  // Found in review: the history snapshot is read before the socket joins the
+  // stream, and the backend writes text deltas up to one flush window after
+  // forwarding them. The next delta then extended the snapshot's shorter copy
+  // and the text in between never showed. The reader's catch-up restates the
+  // whole block first.
+  it("a mid-stream catch-up restores text the history snapshot was missing", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", {
+      blocks: [{ id: "msg-5", type: "text" as const, content: "Hel" }],
+      lifecycle: { phase: "active" },
+    });
+    const stream = (seq: number, event: Record<string, unknown>): void =>
+      ws.simulateMessage({
+        domain: "session",
+        action: "message",
+        payload: {
+          seq,
+          blocks: [{ type: "stream_event", session_id: "rt", agent_message_id: 5, event }],
+        },
+      });
+    stream(1, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: true,
+      content_block: { type: "text", text: "Hello" },
+    });
+    stream(2, {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: " world" },
+    });
+
+    const blocks = useWsSessionStore.getState().sessions.s1.blocks;
+    expect(blocks.filter((block) => block.id === "msg-5")).toEqual([
+      expect.objectContaining({ type: "text", content: "Hello world" }),
+    ]);
+  });
+
+  it("a catch-up keeps the block's model and time, and claims only a free open index", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", {
+      blocks: [
+        {
+          id: "msg-5",
+          type: "text" as const,
+          content: "Hel",
+          model: "model-a",
+          createdAt: "2026-11-23 10:00:00",
+        },
+      ],
+      lifecycle: { phase: "active" },
+    });
+    const send = (seq: number, id: number, event: Record<string, unknown>): void =>
+      ws.simulateMessage({
+        domain: "session",
+        action: "message",
+        payload: {
+          seq,
+          blocks: [{ type: "stream_event", session_id: "rt", agent_message_id: id, event }],
+        },
+      });
+    send(1, 5, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: true,
+      content_block: { type: "text", text: "Hello" },
+    });
+    // An ended block of another scope at index 0 must not take the index.
+    send(2, 4, {
+      type: "content_block_snapshot",
+      index: 0,
+      streaming: false,
+      content_block: { type: "text", text: "earlier", created_at: "2026-11-23 09:59:00" },
+    });
+    send(3, 5, { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "!" } });
+
+    const blocks = useWsSessionStore.getState().sessions.s1.blocks;
+    expect(blocks.find((block) => block.id === "msg-5")).toMatchObject({
+      content: "Hello!",
+      model: "model-a",
+      createdAt: "2026-11-23 10:00:00",
+    });
+    expect(blocks.find((block) => block.id === "msg-4")?.content).toBe("earlier");
+  });
+
+  it("a catch-up for a block the snapshot lacks appends it once", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    store.setPersistedState("s1", { blocks: [], lifecycle: { phase: "active" } });
+    ws.simulateMessage({
+      domain: "session",
+      action: "message",
+      payload: {
+        seq: 1,
+        blocks: [
+          {
+            type: "stream_event",
+            session_id: "rt",
+            agent_message_id: 9,
+            event: {
+              type: "content_block_snapshot",
+              index: 1,
+              content_block: { type: "thinking", thinking: "weighing" },
+            },
+          },
+        ],
+      },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.blocks).toEqual([
+      expect.objectContaining({ id: "msg-9", type: "thinking", content: "weighing" }),
+    ]);
+  });
+
   it("setPersistedState restores provider, model, and runtime session metadata", () => {
     useWsSessionStore.getState().connect("s1");
     useWsSessionStore.getState().setPersistedState("s1", {

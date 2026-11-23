@@ -193,6 +193,7 @@ pub(super) mod tests {
             app_state: state,
             cleanup_session_on_end: false,
             row_read_failed: Default::default(),
+            signals: Default::default(),
         };
         (task, query, closed)
     }

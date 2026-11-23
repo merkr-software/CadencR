@@ -707,3 +707,23 @@ impl AgentRuntimeSession for RecordingRuntime {
         None
     }
 }
+
+/// Under `start_paused`, tokio jumps the clock to the next timer whenever
+/// the runtime idles — including while sqlx waits on its SQLite worker
+/// thread, which then trips the pool's acquire timeout. A task that keeps
+/// yielding keeps the runtime busy, so only `time::advance` moves the clock.
+pub(crate) struct FrozenClock(tokio::task::JoinHandle<()>);
+
+impl Drop for FrozenClock {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+pub(crate) fn freeze_paused_clock() -> FrozenClock {
+    FrozenClock(tokio::spawn(async {
+        loop {
+            tokio::task::yield_now().await;
+        }
+    }))
+}
