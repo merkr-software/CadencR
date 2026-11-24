@@ -138,3 +138,27 @@ describe("useSidebarController across a layout flip", () => {
     expect(panel.calls).toEqual([]);
   });
 });
+
+describe("useSidebarController with a docked phone sidebar", () => {
+  it("starts expanded, collapses to the rail and keeps the drawer's state apart", () => {
+    const view = renderHook(
+      ({ docked }: { docked: boolean }) => useSidebarController(true, docked),
+      { initialProps: { docked: true } },
+    );
+    expect(view.result.current.collapsed).toBe(false);
+
+    act(() => view.result.current.setCollapsed(true));
+    expect(view.result.current.collapsed).toBe(true);
+    // A navigation closes the drawer, never a docked sidebar.
+    act(() => view.result.current.closeMobileDrawer());
+    expect(view.result.current.collapsed).toBe(true);
+    act(() => view.result.current.setCollapsed(false));
+    expect(view.result.current.collapsed).toBe(false);
+
+    // Turned upright: the drawer, closed, whatever the docked sidebar showed.
+    view.rerender({ docked: false });
+    expect(view.result.current.collapsed).toBe(true);
+    // Nothing reaches the desktop's persisted state.
+    expect(mocks.writes).toEqual([]);
+  });
+});

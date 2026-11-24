@@ -38,16 +38,22 @@ function clampSidebarWidth(raw: string | null): number {
  * mounts at the state it will show (collapsed at 0px when the desktop state is
  * collapsed, so no expanded frame paints) and is driven only once it is ready
  * (`useSidebarPanelReady`).
+ *
+ * A docked phone sidebar (`useDockedSidebar`: a foldable on its side) has its
+ * own collapsed state, the rail, kept apart from the drawer's and from the
+ * desktop's persisted one: it starts expanded and follows the user's toggles
+ * for the session.
  */
-export function useSidebarController(isMobile: boolean) {
+export function useSidebarController(isMobile: boolean, docked = false) {
   const leftWidth = useSetting("sidebar_left_width");
   const collapsedSetting = useSetting("sidebar_collapsed");
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const phone = usePhoneSidebarState(docked);
+  const setPhoneCollapsed = phone.setCollapsed;
   const leftSidebarRef = useRef<HTMLDivElement>(null);
   const sidebarPanelRef = useRef<PanelImperativeHandle>(null);
   const autoCollapse = useSidebarAutoCollapse(isMobile);
   const desktopCollapsed = collapsedSetting.value === "true" || autoCollapse.autoCollapsed;
-  const collapsed = isMobile ? !mobileDrawerOpen : desktopCollapsed;
+  const collapsed = isMobile ? phone.collapsed : desktopCollapsed;
   const storedWidth = clampSidebarWidth(leftWidth.value);
   const defaultLeftSize = usePanelMountSize(isMobile, desktopCollapsed ? 0 : storedWidth);
   const widthAppliedRef = useRef(false);
@@ -66,7 +72,7 @@ export function useSidebarController(isMobile: boolean) {
 
   const setCollapsed = useCallback(
     (nextCollapsed: boolean): void => {
-      if (isMobile) setMobileDrawerOpen(!nextCollapsed);
+      if (isMobile) setPhoneCollapsed(nextCollapsed);
       else {
         // Resize while the Panel is still collapsible; the next render makes
         // it non-collapsible so pointer and keyboard resizing clamp at minSize.
@@ -78,12 +84,10 @@ export function useSidebarController(isMobile: boolean) {
         void collapsedSetting.setValue(nextCollapsed ? "true" : "false");
       }
     },
-    [autoCollapse, collapsedSetting, isMobile, panelReadyRef, restoreWidth],
+    [autoCollapse, collapsedSetting, isMobile, panelReadyRef, restoreWidth, setPhoneCollapsed],
   );
-  const closeMobileDrawer = useCallback((): void => setMobileDrawerOpen(false), []);
-  useEffect(() => {
-    document.documentElement.dataset.sidebarCollapsed = collapsed ? "true" : "false";
-  }, [collapsed]);
+  const closeMobileDrawer = phone.closeDrawer;
+  useCollapsedAttribute(collapsed);
 
   // The panel comes back with its mount-time default after the phone layout:
   // ignore its layout events until the stored width is applied again.
@@ -156,6 +160,43 @@ export function useSidebarController(isMobile: boolean) {
 }
 
 export type SidebarController = ReturnType<typeof useSidebarController>;
+
+/** Mirrors the sidebar's collapsed state on `<html data-sidebar-collapsed>` for the stylesheets. */
+function useCollapsedAttribute(collapsed: boolean): void {
+  useEffect(() => {
+    document.documentElement.dataset.sidebarCollapsed = collapsed ? "true" : "false";
+  }, [collapsed]);
+}
+
+interface PhoneSidebarState {
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+  /** Closes the drawer (a navigation); leaves a docked sidebar as it is. */
+  closeDrawer: () => void;
+}
+
+/**
+ * The phone layout's collapsed states: the drawer's (closed = collapsed) and,
+ * docked, the rail's. Two states, so turning the foldable back upright does
+ * not open the drawer because the docked sidebar was expanded.
+ */
+function usePhoneSidebarState(docked: boolean): PhoneSidebarState {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [dockedRail, setDockedRail] = useState(false);
+  const setCollapsed = useCallback(
+    (next: boolean): void => {
+      if (docked) setDockedRail(next);
+      else setDrawerOpen(!next);
+    },
+    [docked],
+  );
+  const closeDrawer = useCallback((): void => setDrawerOpen(false), []);
+  const collapsed = docked ? dockedRail : !drawerOpen;
+  return useMemo(
+    () => ({ collapsed, setCollapsed, closeDrawer }),
+    [closeDrawer, collapsed, setCollapsed],
+  );
+}
 
 /**
  * The sidebar panel's `defaultSize`, frozen while it is mounted (a Panel prop

@@ -188,13 +188,13 @@ describe("AppShell layout flips", () => {
     const view = render(shell(false));
     const probe = screen.getByTestId("main-probe");
     expect(screen.getByTestId("panel-sidebar")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Close menu" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-drawer-panel]")).toBeNull();
 
     // Desktop → phone (a window crossing 767px, a tablet rotating, a fold).
     view.rerender(shell(true));
     expect(screen.getByTestId("main-probe")).toBe(probe);
     expect(screen.queryByTestId("panel-sidebar")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Close menu" })).toBeInTheDocument();
+    expect(document.querySelector("[data-drawer-panel]")).not.toBeNull();
     expect(screen.getByRole("main").getAttribute("tabindex")).toBeNull();
 
     // And back.
@@ -232,5 +232,77 @@ describe("AppShell layout flips", () => {
     expect(sampler?.hasAttribute("data-drawer-open")).toBe(false);
     view.rerender(phone(false));
     expect(sampler?.hasAttribute("data-drawer-open")).toBe(true);
+  });
+
+  it("docks the sidebar beside the page on a wide touch screen, the rail once collapsed", () => {
+    const docked = (collapsed: boolean): ReactNode => (
+      <AppShell
+        isMobile
+        docked
+        collapsed={collapsed}
+        setCollapsed={() => {}}
+        onSearch={() => {}}
+        sidebarPanelRef={createRef<PanelImperativeHandle | null>()}
+        leftSidebarRef={createRef<HTMLDivElement | null>()}
+        defaultLeftSize="256px"
+        onLayoutChanged={() => {}}
+        onSidebarResize={() => {}}
+      >
+        <MainProbe />
+      </AppShell>
+    );
+    mounts = 0;
+    const view = render(docked(false));
+    const probe = screen.getByTestId("main-probe");
+    expect(document.querySelector("[data-drawer-panel]")).toBeNull();
+    expect(document.querySelector("[data-docked-sidebar]")).toHaveClass("w-xs");
+    expect(screen.queryByTestId("sidebar-rail")).not.toBeInTheDocument();
+
+    view.rerender(docked(true));
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    // Still mounted at zero width behind the rail, as on the desktop.
+    const dockedSidebar = document.querySelector("[data-docked-sidebar]");
+    expect(dockedSidebar).toHaveClass("w-0");
+    expect(dockedSidebar).toHaveAttribute("inert");
+    expect(screen.getByTestId("main-probe")).toBe(probe);
+    expect(mounts).toBe(1);
+    // The status bar keeps the page's color: no drawer covers it.
+    expect(document.querySelector(".mobile-status-bar")?.hasAttribute("data-drawer-open")).toBe(
+      false,
+    );
+  });
+
+  it("keeps the main content mounted as a foldable turns between the drawer and the docked sidebar", () => {
+    const phone = (docked: boolean): ReactNode => (
+      <AppShell
+        isMobile
+        docked={docked}
+        collapsed
+        setCollapsed={() => {}}
+        onSearch={() => {}}
+        sidebarPanelRef={createRef<PanelImperativeHandle | null>()}
+        leftSidebarRef={createRef<HTMLDivElement | null>()}
+        defaultLeftSize="256px"
+        onLayoutChanged={() => {}}
+        onSidebarResize={() => {}}
+      >
+        <MainProbe />
+      </AppShell>
+    );
+    mounts = 0;
+    const view = render(phone(false));
+    const probe = screen.getByTestId("main-probe");
+    expect(document.querySelector("[data-drawer-panel]")).not.toBeNull();
+    expect(screen.queryByTestId("sidebar-rail")).not.toBeInTheDocument();
+
+    view.rerender(phone(true));
+    expect(document.querySelector("[data-drawer-panel]")).toBeNull();
+    expect(screen.getByTestId("sidebar-rail")).toBeInTheDocument();
+    expect(screen.getByTestId("main-probe")).toBe(probe);
+
+    view.rerender(phone(false));
+    expect(document.querySelector("[data-drawer-panel]")).not.toBeNull();
+    expect(screen.getByTestId("main-probe")).toBe(probe);
+    expect(mounts).toBe(1);
   });
 });

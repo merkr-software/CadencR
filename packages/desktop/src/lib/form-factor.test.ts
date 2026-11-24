@@ -107,7 +107,8 @@ describe("panes by device", () => {
   it.each<[string, Viewport, boolean]>([
     ["Duo folded", { width: 382, height: 580, ...TOUCH, screen: [382, 640] }, false],
     ["Duo unfolded", { width: 669, height: 825, ...TOUCH, screen: DUO_UNFOLDED_SCREEN }, true],
-    ["Duo unfolded, landscape", { width: 951, height: 543, ...TOUCH, screen: [825, 669] }, true],
+    // Wide enough to dock the sidebar instead.
+    ["Duo unfolded, landscape", { width: 951, height: 543, ...TOUCH, screen: [825, 669] }, false],
     ["iPhone portrait", { width: 402, height: 874, ...TOUCH, screen: IPHONE_SCREEN }, false],
     // Wide enough, but the screen's short side leaves no room for a transcript.
     ["iPhone landscape", { width: 874, height: 370, ...TOUCH, screen: IPHONE_SCREEN }, false],
@@ -134,7 +135,8 @@ describe("panes by device", () => {
 
   it("writes data-panes and follows folding, without notifying when nothing changed", async () => {
     viewport.state = { width: 382, height: 580, ...TOUCH, screen: [382, 640] };
-    const { installShellAttribute, subscribeFormFactor } = await import("./form-factor");
+    const { getDockedSidebarSnapshot, installShellAttribute, subscribeFormFactor } =
+      await import("./form-factor");
     installShellAttribute();
     const onChange = vi.fn();
     subscribeFormFactor(onChange);
@@ -145,12 +147,16 @@ describe("panes by device", () => {
     expect(document.documentElement.dataset.shell).toBe("phone");
     expect(onChange).toHaveBeenCalledTimes(1);
 
+    // On its side: the docked sidebar takes the inbox pane's place.
     setViewport({ width: 951, height: 543, ...TOUCH, screen: [825, 669] });
-    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.panes).toBe("1");
+    expect(getDockedSidebarSnapshot()).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(2);
 
     setViewport({ width: 382, height: 580, ...TOUCH, screen: [382, 640] });
     expect(document.documentElement.dataset.panes).toBe("1");
-    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(getDockedSidebarSnapshot()).toBe(false);
+    expect(onChange).toHaveBeenCalledTimes(3);
   });
 
   it("keeps one pane on a phone turning on its side and opening its keyboard", async () => {
@@ -164,6 +170,28 @@ describe("panes by device", () => {
     setViewport({ width: 874, height: 180, ...TOUCH, screen: IPHONE_SCREEN });
     expect(document.documentElement.dataset.panes).toBe("1");
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("docked sidebar by device", () => {
+  it.each<[string, Viewport, boolean]>([
+    ["Duo unfolded, landscape", { width: 951, height: 543, ...TOUCH, screen: [825, 669] }, true],
+    [
+      "Duo unfolded, portrait",
+      { width: 669, height: 825, ...TOUCH, screen: DUO_UNFOLDED_SCREEN },
+      false,
+    ],
+    ["Duo folded", { width: 382, height: 580, ...TOUCH, screen: [382, 640] }, false],
+    ["iPhone landscape", { width: 874, height: 370, ...TOUCH, screen: IPHONE_SCREEN }, false],
+    ["iPhone Pro Max landscape", { width: 956, height: 400, ...TOUCH, screen: [440, 956] }, true],
+    ["just under the threshold", { width: 899, height: 600, ...TOUCH }, false],
+    ["iPad mini portrait", { width: 744, height: 1133, ...TOUCH, screen: [744, 1133] }, false],
+    ["iPad landscape (desktop layout)", { width: 1180, height: 820, ...TOUCH }, false],
+    ["desktop window (mouse)", { width: 950, height: 700, ...FINE }, false],
+  ])("%s → docked: %s", async (_name, device, expected) => {
+    viewport.state = device;
+    const { getDockedSidebarSnapshot } = await import("./form-factor");
+    expect(getDockedSidebarSnapshot()).toBe(expected);
   });
 });
 
@@ -228,11 +256,16 @@ describe("store notifications", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(getCoarsePointerSnapshot()).toBe(true);
 
+    // The phone layout, with the sidebar docked.
     setViewport({ width: 900, height: 700, ...TOUCH });
     expect(onChange).toHaveBeenCalledTimes(2);
 
+    // Still the phone layout, but too narrow to dock the sidebar.
     setViewport({ width: 800, height: 700, ...TOUCH });
-    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledTimes(3);
+
+    setViewport({ width: 760, height: 700, ...TOUCH });
+    expect(onChange).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -249,7 +282,7 @@ describe("useIsMobile", () => {
     const touch = renderHook(() => useIsTouchDevice());
     expect(first.result.current).toBe(false);
     // One listener per media query, however many consumers subscribe.
-    expect(viewport.listeners).toHaveLength(4);
+    expect(viewport.listeners).toHaveLength(5);
 
     const before = renders;
     setViewport({ width: 1200, height: 800, ...FINE });

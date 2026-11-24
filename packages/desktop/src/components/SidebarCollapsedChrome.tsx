@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { PanelLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PhoneMenuAttentionDot } from "@/components/PhoneMenuAttentionDot";
+import { useDockedSidebar } from "@/hooks/useDockedSidebar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTrafficLightsAnchor } from "@/hooks/useTrafficLightsAnchor";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
@@ -34,7 +35,11 @@ export function SidebarCollapsedChrome({
   menuBadge = true,
   currentFeatureId = null,
 }: SidebarCollapsedChromeProps): ReactElement {
-  const isMobile = useIsMobile();
+  // A docked phone sidebar collapses to the rail, which owns expand: like the
+  // desktop, not the drawer's menu button.
+  const phoneLayout = useIsMobile();
+  const docked = useDockedSidebar();
+  const isMobile = phoneLayout && !docked;
   const railHidden = useSidebarOption("rail") === "none";
   const hasContent = isMobile || railHidden || HAS_MAC_WINDOW_CONTROLS;
   const shown = visible && hasContent;
@@ -113,6 +118,8 @@ function TitlebarActions({ onExpand }: { onExpand: () => void }): ReactElement {
   const actionButtonClass = cn(
     "text-muted-foreground hover:text-foreground",
     !HAS_MAC_WINDOW_CONTROLS && "size-7",
+    // A docked phone sidebar with its rail turned off lands here: thumb-sized.
+    "phone:size-11",
   );
   return (
     <>

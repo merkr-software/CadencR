@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 
 interface AppShellProps {
   isMobile: boolean;
+  /** Phone layout on a wide touch screen: the sidebar docked beside the page (`useDockedSidebar`). */
+  docked?: boolean;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
   onSearch: () => void;
@@ -24,12 +26,16 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-/** The phone layout's drawer and the status-bar sampler, after the main column. */
+/**
+ * The phone layout's drawer and the status-bar sampler, after the main column.
+ * A docked sidebar has no drawer, and the bar keeps the page's color.
+ */
 function PhoneShellChrome({
   collapsed,
   setCollapsed,
   onSearch,
-}: Pick<AppShellProps, "collapsed" | "setCollapsed" | "onSearch">): ReactNode {
+  docked,
+}: Pick<AppShellProps, "collapsed" | "setCollapsed" | "onSearch" | "docked">): ReactNode {
   const { t } = useUiTranslation();
   return (
     <>
@@ -37,17 +43,47 @@ function PhoneShellChrome({
       <div
         aria-hidden
         className="mobile-status-bar"
-        data-drawer-open={collapsed ? undefined : ""}
+        data-drawer-open={collapsed || docked ? undefined : ""}
       />
-      <MobileDrawer
-        collapsed={collapsed}
-        onClose={() => setCollapsed(true)}
-        onOpen={() => setCollapsed(false)}
-        closeLabel={t("shell.navigation.closeMenu", "Close menu")}
-      >
-        <Sidebar onSearch={onSearch} />
-      </MobileDrawer>
+      {!docked && (
+        <MobileDrawer
+          collapsed={collapsed}
+          onClose={() => setCollapsed(true)}
+          onOpen={() => setCollapsed(false)}
+          closeLabel={t("shell.navigation.closeMenu", "Close menu")}
+        >
+          <Sidebar onSearch={onSearch} />
+        </MobileDrawer>
+      )}
     </>
+  );
+}
+
+/**
+ * The phone layout's docked sidebar (a foldable on its side), beside the page
+ * at the drawer's width (its touch-sized header and rows are laid out for
+ * it). Collapsed, the rail shows in front of it and it stays mounted at zero
+ * width, inert, as on the desktop, so expanding it again keeps its scroll and
+ * open sections.
+ */
+function DockedPhoneSidebar({
+  collapsed,
+  onSearch,
+}: {
+  collapsed: boolean;
+  onSearch: () => void;
+}): ReactNode {
+  return (
+    <div
+      data-docked-sidebar
+      aria-hidden={collapsed || undefined}
+      inert={collapsed || undefined}
+      className={cn("h-full shrink-0 overflow-hidden", collapsed ? "w-0" : "w-xs")}
+    >
+      <div className="h-full w-xs">
+        <Sidebar onSearch={onSearch} />
+      </div>
+    </div>
   );
 }
 
@@ -94,6 +130,8 @@ function focusMainContent(event: FocusEvent<HTMLElement>): void {
  * - Phone: the group holds the main panel alone, full-bleed; the sidebar is an
  *   off-canvas drawer after the column (collapsed = closed), so a 390px
  *   viewport isn't eaten by a 200px+ rail.
+ * - Phone on a wide touch screen (`docked`, a foldable on its side): the
+ *   sidebar before the column, collapsing to the rail as on the desktop.
  *
  * Both drive the same `collapsed`/`setCollapsed` contract from
  * `SidebarContext`, so the topbar's expand button doubles as the drawer
@@ -104,6 +142,7 @@ function focusMainContent(event: FocusEvent<HTMLElement>): void {
  */
 export function AppShell({
   isMobile,
+  docked = false,
   collapsed,
   setCollapsed,
   onSearch,
@@ -131,7 +170,11 @@ export function AppShell({
           isMobile ? "relative flex h-[var(--app-vh)] w-full overflow-hidden" : "flex h-full w-full"
         }
       >
-        {!isMobile && collapsed ? <SidebarRail onExpand={expand} /> : null}
+        {/* The rail: a collapsed desktop sidebar, or a collapsed docked one. */}
+        {collapsed && (!isMobile || docked) ? <SidebarRail onExpand={expand} /> : null}
+        {isMobile && docked ? (
+          <DockedPhoneSidebar collapsed={collapsed} onSearch={onSearch} />
+        ) : null}
         <div className="h-full min-w-0 flex-1">
           <ResizablePanelGroup
             data-app-shell-resize={isMobile || isDragging ? undefined : "fluid"}
@@ -174,7 +217,12 @@ export function AppShell({
           </ResizablePanelGroup>
         </div>
         {isMobile ? (
-          <PhoneShellChrome collapsed={collapsed} setCollapsed={setCollapsed} onSearch={onSearch} />
+          <PhoneShellChrome
+            collapsed={collapsed}
+            setCollapsed={setCollapsed}
+            onSearch={onSearch}
+            docked={docked}
+          />
         ) : null}
       </div>
     </SidebarAttentionProvider>

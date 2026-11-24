@@ -34,6 +34,14 @@
  * orientation, so a pane never comes and goes while typing or turning. Mirrored
  * on `<html data-panes="1|2">`. A narrow desktop window (fine pointer) keeps
  * one pane.
+ *
+ * A third answer, the **docked sidebar**: a touch screen in the phone layout
+ * 900px wide or more (a foldable unfolded on its side, ≈951px; the largest
+ * phones on their side, ≈930-956px) keeps the sidebar on screen beside the
+ * page, collapsible to the rail as on the desktop, instead of the drawer. The
+ * sidebar then lists what the inbox pane would, so two panes give way to it.
+ * The viewport's width alone, not the screen: what a browser reports as the
+ * screen of a foldable does not reliably tell the unfolded one.
  */
 
 /** At or below this width every device gets the phone layout (the Tailwind `md` floor). */
@@ -45,6 +53,8 @@ const TOUCH_PHONE_MAX_WIDTH = 1023;
  * a touch screen in the phone layout shows two panes (inbox + conversation).
  */
 const TWO_PANES_MIN_SIZE = 600;
+/** From this viewport width a touch screen in the phone layout docks the sidebar. */
+const DOCKED_SIDEBAR_MIN_WIDTH = 900;
 
 /** The media query answers the layout is computed from. */
 interface MediaSignals {
@@ -56,6 +66,8 @@ interface MediaSignals {
   coarsePointer: boolean;
   /** `(min-width: 600px)` */
   paneWidth: boolean;
+  /** `(min-width: 900px)` */
+  dockWidth: boolean;
 }
 
 interface FormFactorSignals extends MediaSignals {
@@ -69,14 +81,25 @@ const SIGNAL_QUERIES: Readonly<Record<keyof MediaSignals, string>> = {
   compactWidth: `(max-width: ${TOUCH_PHONE_MAX_WIDTH}px)`,
   coarsePointer: "(pointer: coarse)",
   paneWidth: `(min-width: ${TWO_PANES_MIN_SIZE}px)`,
+  dockWidth: `(min-width: ${DOCKED_SIDEBAR_MIN_WIDTH}px)`,
 };
 
 function isPhoneShell(signals: FormFactorSignals): boolean {
   return signals.phoneWidth || (signals.coarsePointer && signals.compactWidth);
 }
 
+function hasDockedSidebar(signals: FormFactorSignals): boolean {
+  return isPhoneShell(signals) && signals.coarsePointer && signals.dockWidth;
+}
+
 function hasTwoPanes(signals: FormFactorSignals): boolean {
-  return isPhoneShell(signals) && signals.coarsePointer && signals.paneWidth && signals.roomyScreen;
+  return (
+    isPhoneShell(signals) &&
+    signals.coarsePointer &&
+    signals.paneWidth &&
+    signals.roomyScreen &&
+    !hasDockedSidebar(signals)
+  );
 }
 
 /**
@@ -102,6 +125,7 @@ let lists: SignalLists | null = null;
 let phoneShell = false;
 let coarsePointer = false;
 let twoPanes = false;
+let dockedSidebar = false;
 let mirrorsAttribute = false;
 const listeners = new Set<() => void>();
 
@@ -111,6 +135,7 @@ function readSignals(current: SignalLists): FormFactorSignals {
     compactWidth: current.compactWidth.matches,
     coarsePointer: current.coarsePointer.matches,
     paneWidth: current.paneWidth.matches,
+    dockWidth: current.dockWidth.matches,
     roomyScreen: readRoomyScreen(),
   };
 }
@@ -127,10 +152,13 @@ function refresh(): void {
   const signals = readSignals(lists);
   const nextPhoneShell = isPhoneShell(signals);
   const nextTwoPanes = hasTwoPanes(signals);
-  const shellChanged = nextPhoneShell !== phoneShell || nextTwoPanes !== twoPanes;
+  const nextDocked = hasDockedSidebar(signals);
+  const shellChanged =
+    nextPhoneShell !== phoneShell || nextTwoPanes !== twoPanes || nextDocked !== dockedSidebar;
   if (!shellChanged && signals.coarsePointer === coarsePointer) return;
   phoneShell = nextPhoneShell;
   twoPanes = nextTwoPanes;
+  dockedSidebar = nextDocked;
   coarsePointer = signals.coarsePointer;
   if (mirrorsAttribute && shellChanged) writeShellAttributes();
   for (const listener of listeners) listener();
@@ -143,11 +171,13 @@ function ensureStarted(): void {
     compactWidth: window.matchMedia(SIGNAL_QUERIES.compactWidth),
     coarsePointer: window.matchMedia(SIGNAL_QUERIES.coarsePointer),
     paneWidth: window.matchMedia(SIGNAL_QUERIES.paneWidth),
+    dockWidth: window.matchMedia(SIGNAL_QUERIES.dockWidth),
   };
   lists = created;
   const signals = readSignals(created);
   phoneShell = isPhoneShell(signals);
   twoPanes = hasTwoPanes(signals);
+  dockedSidebar = hasDockedSidebar(signals);
   coarsePointer = signals.coarsePointer;
   for (const list of Object.values(created)) list.addEventListener("change", refresh);
 }
@@ -169,6 +199,12 @@ export function getPhoneShellSnapshot(): boolean {
 export function getTwoPanesSnapshot(): boolean {
   ensureStarted();
   return twoPanes;
+}
+
+/** Whether the phone layout docks the sidebar beside the page (touch, 900px wide or more). */
+export function getDockedSidebarSnapshot(): boolean {
+  ensureStarted();
+  return dockedSidebar;
 }
 
 /**

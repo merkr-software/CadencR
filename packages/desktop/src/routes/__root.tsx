@@ -81,6 +81,7 @@ function RootLayout() {
           <RootWindowControls />
           <RootAppShell
             isMobile={controller.isMobile}
+            docked={controller.dockedSidebar}
             collapsed={sidebar.collapsed}
             setCollapsed={sidebar.setCollapsed}
             sidebarPanelRef={sidebar.sidebarPanelRef}

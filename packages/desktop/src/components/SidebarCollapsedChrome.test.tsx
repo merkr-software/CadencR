@@ -1,11 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import type { Feature } from "@/api/generated";
 import { SidebarAttentionContext } from "@/components/sidebar-attention-context";
 import type { ResolvedAttentionResult } from "@/hooks/useResolvedAttention";
 import { SidebarCollapsedChrome } from "./SidebarCollapsedChrome";
 
+const layout = vi.hoisted(() => ({ docked: false }));
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => true }));
+vi.mock("@/hooks/useDockedSidebar", () => ({ useDockedSidebar: () => layout.docked }));
+beforeEach(() => {
+  layout.docked = false;
+});
 vi.mock("@tanstack/react-router", () => ({ Link: () => null }));
 
 const ATTENTION: ResolvedAttentionResult = {
@@ -44,5 +49,13 @@ describe("SidebarCollapsedChrome on a phone", () => {
     renderChrome({});
     expect(screen.getByRole("button")).toHaveClass("ml-1");
     expect(screen.getByRole("button")).not.toHaveClass("ml-[68px]");
+  });
+});
+
+describe("SidebarCollapsedChrome beside a docked phone sidebar", () => {
+  it("leaves expanding to the rail, as on the desktop", () => {
+    layout.docked = true;
+    renderChrome({});
+    expect(screen.queryByRole("button", { name: /Open menu/ })).toBeNull();
   });
 });
