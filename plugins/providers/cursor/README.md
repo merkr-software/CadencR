@@ -152,8 +152,11 @@ first prompt is refused with an explicit error.
 Auto Review keeps the built-in's preflight: Cursor's ACP bootstrap ignores
 `--auto-review`, so a permission request whose only reasons are plain
 `Not in allowlist: <command>` shell misses is answered `allow_once` by the
-connector. Safety-policy reasons (delete protection, blocklists, hooks), MCP
-and other non-shell requests still reach the user.
+connector. On session creation and restore, the connector checks Cursor’s
+native MCP server inventory. After Cursor confirms setup, Cadencr can approve
+an ordinary request for an unambiguously identified tool once in Auto Review. Cursor's native policy applies to
+`browser_evaluate`, `browser_open_external_url`, `project_respond_gate`,
+third-party tools and explicit safety-policy requests.
 
 ### Tool calls
 

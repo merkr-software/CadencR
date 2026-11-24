@@ -8,6 +8,7 @@ mod child_messages;
 mod config;
 mod gates;
 mod host_requests;
+mod mcp_inventory;
 mod restart;
 mod rpc;
 mod state;
@@ -160,6 +161,9 @@ impl Proxy {
         {
             let mut state = self.state();
             state.generation = generation;
+            for session in state.sessions.values_mut() {
+                session.native_mcp_servers = None;
+            }
             state.access = access;
             state.child_access = access;
         }

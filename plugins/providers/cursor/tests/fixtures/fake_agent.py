@@ -10,6 +10,7 @@ assert what the connector sent to Cursor. Prompts drive scripted behavior:
 import json
 import os
 import sys
+import time
 
 LOG = os.environ.get("FAKE_AGENT_LOG")
 MODELS = {
@@ -104,6 +105,15 @@ def prompt(session_id, prompt_text):
             "todos": [{"id": "1", "content": "Do it", "status": "pending"}],
         })
         text(session_id, "plan " + reply["result"]["outcome"]["outcome"])
+    elif prompt_text == "workspace-approval":
+        request("session/request_permission", {
+            "sessionId": session_id,
+            "_meta": {"cadencr": {"attachedMcpApproval": "unverified"}},
+            "toolCall": {"toolCallId": "mcp-1", "kind": "other",
+                         "title": "cadencr-workspace-workspace_list_projects: workspace_list_projects",
+                         "content": [{"type": "content", "content": {"type": "text", "text": "{}"}}]},
+            "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+        })
     elif prompt_text == "tools":
         tools(session_id)
     elif prompt_text == "Plan approved. Proceed with execution.":
@@ -210,7 +220,7 @@ def handle(message):
         result = {"sessionId": "sess-1", "configOptions": config_options(),
                   "models": {"currentModelId": STATE["model"], "availableModels": []}}
     elif method == "session/load":
-        if prompted(params["sessionId"]):
+        if prompted(params["sessionId"]) and not params.get("cwd","").endswith("/missing-qa-project"):
             text(params["sessionId"], "replayed history")
             result = {"configOptions": config_options()}
         else:
@@ -245,6 +255,14 @@ def handle(message):
 def main():
     args = sys.argv[1:]
     log("spawn", argv=args)
+    if args == ["mcp", "list"]:
+        while os.path.exists("hold-inventory"):
+            time.sleep(0.02)
+        if os.path.exists("native-workspace"):
+            print("cadencr-workspace: not loaded (needs approval)")
+        else:
+            print("No MCP servers configured (expected in .cursor/mcp.json or ~/.cursor/mcp.json)")
+        return
     if args == ["models"]:
         print("Available models:")
         print("auto - Auto")

@@ -17,6 +17,9 @@ pub struct SessionState {
     /// `session/load` that restores the session after an access restart.
     pub cwd: Value,
     pub mcp_servers: Value,
+    pub native_mcp_servers: Option<super::mcp_inventory::Inventory>,
+    /// Discards late replies after a newer restore starts.
+    pub restore_revision: u64,
     pub config: SessionConfig,
     pub prompt_in_flight: bool,
     /// An approved Cursor plan waits for the current turn to end, then runs
