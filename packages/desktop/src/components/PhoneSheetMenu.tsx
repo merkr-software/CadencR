@@ -58,6 +58,11 @@ interface PopoverSheetProps extends SheetProps {
    * body under the title, which `sheetClassName` then styles.
    */
   sheetRows?: boolean;
+  /**
+   * Where the sheet hands the focus back on close, when its trigger may be
+   * gone by then (the desktop `onCloseAutoFocus` stays desktop-only).
+   */
+  sheetOnCloseAutoFocus?: (event: Event) => void;
 }
 
 function AdaptiveRoot({
@@ -91,6 +96,7 @@ export function AdaptivePopoverContent({
   sheetTitleVisible = false,
   sheetClassName,
   sheetRows = false,
+  sheetOnCloseAutoFocus,
   ...props
 }: ComponentProps<typeof PopoverContent> & PopoverSheetProps): ReactElement {
   if (!useContext(PhoneSheetModeContext)) return <PopoverContent {...props} />;
@@ -99,6 +105,7 @@ export function AdaptivePopoverContent({
       className={sheetRows ? undefined : sheetClassName}
       onEscapeKeyDown={props.onEscapeKeyDown}
       onKeyDown={props.onKeyDown}
+      onCloseAutoFocus={sheetOnCloseAutoFocus}
     >
       <PhoneSheetTitle title={sheetTitle} visible={sheetTitleVisible} />
       {sheetRows ? (

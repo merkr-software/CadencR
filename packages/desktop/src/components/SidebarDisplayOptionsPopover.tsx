@@ -9,9 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { SlidersHorizontal } from "lucide-react";
+import { AdaptivePopover, AdaptivePopoverContent } from "@/components/PhoneSheetMenu";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { PopoverAnchor } from "@/components/ui/popover";
 import { SidebarDisplayOptionsForm } from "@/components/SidebarDisplayOptions";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SidebarSectionId } from "@/lib/sidebar-config";
 import { cn } from "@/lib/utils";
 import { useSidebarPreviewStore } from "@/stores/sidebar-preview-store";
@@ -30,6 +32,8 @@ const HasOptionsContext = createContext(false);
  * stay visible, so each change previews live. One popover for the whole
  * sidebar, opened from any section's header: a header button may unmount
  * while it is open (the blocks swap to samples, an option hides a block).
+ * The phone's drawer leaves no room beside it: there they open in a bottom
+ * sheet, under the drawer's top rows.
  */
 export function SidebarDisplayOptionsHost({
   collapsed,
@@ -38,6 +42,7 @@ export function SidebarDisplayOptionsHost({
   collapsed: boolean;
   children: ReactNode;
 }): ReactElement {
+  const phone = useIsMobile();
   const open = useSidebarPreviewStore((state) => state.optionsOpen);
   const origin = useSidebarPreviewStore((state) => state.optionsOrigin);
   const closeOptions = useSidebarPreviewStore((state) => state.closeOptions);
@@ -49,15 +54,27 @@ export function SidebarDisplayOptionsHost({
   // Radix hands the focus back to its own trigger only, which these buttons are
   // not: on Escape, the section whose button takes it back.
   const returnFocusTo = useRef<SidebarSectionId | null>(null);
+  // The section they last opened from, kept past `closeOptions` clearing it.
+  const lastSection = useRef<SidebarSectionId | null>(null);
+  if (origin) lastSection.current = origin.section;
   const virtualRef = useMemo(
     () => ({ current: origin ? { getBoundingClientRect: () => origin.anchor } : null }),
     [origin],
   );
   return (
     <HasOptionsContext.Provider value>
-      <Popover open={open} onOpenChange={(next) => !next && closeOptions()}>
-        <PopoverAnchor virtualRef={virtualRef} />
-        <PopoverContent
+      <AdaptivePopover open={open} onOpenChange={(next) => !next && closeOptions()}>
+        {!phone && <PopoverAnchor virtualRef={virtualRef} />}
+        <AdaptivePopoverContent
+          sheetTitle="Display options"
+          sheetRows
+          sheetClassName="px-4 pb-4"
+          sheetOnCloseAutoFocus={(event) => {
+            // The sheet covers the drawer: the focus goes back to the
+            // section it opened from, which may have remounted meanwhile.
+            event.preventDefault();
+            if (lastSection.current) focusTrigger(lastSection.current);
+          }}
           side="right"
           align="start"
           sideOffset={POPOVER_GAP_PX}
@@ -73,8 +90,8 @@ export function SidebarDisplayOptionsHost({
           }}
         >
           <SidebarDisplayOptionsForm />
-        </PopoverContent>
-      </Popover>
+        </AdaptivePopoverContent>
+      </AdaptivePopover>
       {children}
     </HasOptionsContext.Provider>
   );
