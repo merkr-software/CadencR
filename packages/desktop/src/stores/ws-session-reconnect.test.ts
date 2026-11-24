@@ -4,7 +4,10 @@
  * a drop, the retry, and what the new socket replays.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearRateLimit, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
+import { AxiosError } from "axios";
+import { toast } from "sonner";
+import * as api from "@/api/generated";
+import { clearRateLimit, RECONNECT_INTERVAL_MS, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
 import { installSessionPresentationEffects, useWsSessionStore } from "./ws-session-store";
 import { WS_RECONNECTING_CODE } from "./ws-session-types";
 
@@ -66,6 +69,7 @@ class MockWebSocket {
 let disposePresentation: () => void;
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.useFakeTimers();
   disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   MockWebSocket.instances = [];
@@ -99,7 +103,113 @@ function runningSession(): MockWebSocket {
   return ws;
 }
 
+const recovered: api.FeatureAgentStateResponse = {
+  sessions: [
+    {
+      sessionDbId: 7,
+      agentType: "claude",
+      status: "idle",
+      accessMode: "local",
+      permissionMode: "default",
+      hasFileChanges: false,
+      hasMore: false,
+      isIncremental: true,
+      resumable: true,
+      wasCompacted: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      maxMessageId: 12,
+      blocks: [{ id: "msg-12", type: "text", content: "Written while disconnected" }],
+    },
+  ],
+};
+
+function session() {
+  return useWsSessionStore.getState().sessions.s1;
+}
+
 describe("agent session socket lifecycle", () => {
+  async function reopenSession() {
+    runningSession().dropAbnormally();
+    await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS);
+    const reopened = MockWebSocket.instances[1];
+    reopened.open();
+    await vi.advanceTimersByTimeAsync(0);
+    return reopened;
+  }
+
+  it("retries a failed history read on the open socket without replaying commands", async () => {
+    const read = vi
+      .spyOn(api, "getFeatureAgentState")
+      .mockRejectedValueOnce(new AxiosError("Network Error", "ERR_NETWORK"))
+      .mockResolvedValue(recovered);
+    const socket = await reopenSession();
+    const sent = [...socket.sent];
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(RECONNECT_INTERVAL_MS);
+    expect(read.mock.calls).toEqual([
+      [42, { session: 7 }],
+      [42, { session: 7 }],
+    ]);
+    expect(socket.sent).toEqual(sent);
+    expect(session().blocks.map((b) => b.content)).toEqual(["Written while disconnected"]);
+    expect(session().lastAppliedMessageId).toBe(12);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("offers a manual retry after repeated network failure and keeps the transcript", async () => {
+    const read = vi
+      .spyOn(api, "getFeatureAgentState")
+      .mockRejectedValue(new AxiosError("Network Error", "ERR_NETWORK"));
+    await reopenSession();
+    await vi.advanceTimersByTimeAsync(RECONNECT_INTERVAL_MS * 10);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(session().historyLoadFailure).toEqual({
+      resyncSessionDbId: 7,
+      retrying: false,
+      message: "Network Error",
+    });
+    expect(session().blocks.some((b) => b.errorCode === WS_RECONNECTING_CODE)).toBe(false);
+    expect(session().lastAppliedMessageId).toBeNull();
+    read.mockResolvedValue(recovered);
+    const store = useWsSessionStore.getState();
+    store.retryPersistedLoad("s1");
+    store.retryPersistedLoad("s1");
+    expect(session().historyLoadFailure?.retrying).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(session().historyLoadFailure).toBeNull();
+    expect(session().blocks.map((b) => b.content)).toEqual(["Written while disconnected"]);
+  });
+
+  it.each([
+    { sessions: [] },
+    { sessions: [{ ...recovered.sessions[0], hasMoreIncrementalMessages: true, maxMessageId: 0 }] },
+  ])("keeps incomplete history retryable without advancing its cursor", async (response) => {
+    const read = vi.spyOn(api, "getFeatureAgentState").mockResolvedValue(response);
+    await reopenSession();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(session().historyLoadFailure?.resyncSessionDbId).toBe(7);
+    expect(session().lastAppliedMessageId).toBeNull();
+    expect(session().blocks.some((b) => b.id === "msg-12")).toBe(false);
+    read.mockResolvedValue(recovered);
+    useWsSessionStore.getState().retryPersistedLoad("s1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session().lastAppliedMessageId).toBe(12);
+    expect(session().historyLoadFailure).toBeNull();
+  });
+
+  it("abandons a scheduled read when the session is disconnected", async () => {
+    const read = vi
+      .spyOn(api, "getFeatureAgentState")
+      .mockRejectedValueOnce(new AxiosError("Network Error", "ERR_NETWORK"));
+    await reopenSession();
+    useWsSessionStore.getState().disconnect("s1");
+    await vi.advanceTimersByTimeAsync(RECONNECT_INTERVAL_MS * 2);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("treats an abnormal drop mid-turn as a lost connection, not a turn error", () => {
     runningSession().dropAbnormally();
 

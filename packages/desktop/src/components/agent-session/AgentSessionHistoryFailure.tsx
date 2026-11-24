@@ -23,16 +23,20 @@ export function useIsHistoryLoading(sessionId: string | undefined): boolean {
 }
 
 function RetryButton({ sessionId, retrying }: { sessionId: string; retrying: boolean }) {
+  const waitingForSocket = useWsSessionStore((state) => {
+    const session = state.sessions[sessionId];
+    return session?.historyLoadFailure?.resyncSessionDbId !== undefined && !session.isConnected;
+  });
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      disabled={retrying}
+      disabled={retrying || waitingForSocket}
       onClick={() => useWsSessionStore.getState().retryPersistedLoad(sessionId)}
     >
       {retrying ? <Loader2Icon className="size-3.5 animate-spin" aria-hidden /> : null}
-      {retrying ? "Loading…" : "Retry"}
+      {waitingForSocket ? "Reconnecting…" : retrying ? "Loading…" : "Retry"}
     </Button>
   );
 }
@@ -67,7 +71,11 @@ export const AgentSessionHistoryFailure = memo(function AgentSessionHistoryFailu
         aria-hidden
       />
       <div className={cn("min-w-0", !empty && "flex-1")}>
-        <p className="text-sm font-medium text-foreground">{TITLE}</p>
+        <p className="text-sm font-medium text-foreground">
+          {failure.resyncSessionDbId === undefined
+            ? TITLE
+            : "Could not refresh conversation history"}
+        </p>
         <p className="mt-0.5 break-words text-muted-foreground">{failure.message}</p>
       </div>
       <RetryButton sessionId={sessionId} retrying={failure.retrying} />

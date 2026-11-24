@@ -40,6 +40,12 @@ export function createHistoryActions(ctx: StoreAccessors): HistoryActions {
     retryPersistedLoad(sessionId: string) {
       const failure = get().sessions[sessionId]?.historyLoadFailure;
       if (!failure || failure.retrying) return;
+      if (failure.resyncSessionDbId !== undefined) {
+        if (ctx.transport.get(sessionId)?.conn?.isOpen()) {
+          void resyncMessagesOnReconnect(ctx, sessionId);
+        }
+        return;
+      }
       set(
         updateSession(get(), sessionId, {
           persistedLoaded: false,
