@@ -314,12 +314,14 @@ mod unix_tests {
 
     #[tokio::test]
     async fn grouped_policy_leads_a_new_process_group() {
-        let directory = tempfile::tempdir().expect("test directory");
-        let mut command = helper_command(&directory.path().join("descendant.pid"));
+        // Start `sleep` directly: if grouping regresses, the only process this
+        // test started is the one the cleanup guard covers.
+        let mut command = Command::new("/bin/sleep");
+        command.arg("60");
         let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
             .expect("prepare grouped command");
-        let mut child = command.spawn().expect("spawn helper");
-        let pid = child.id().expect("helper pid");
+        let mut child = command.spawn().expect("spawn sleep");
+        let pid = child.id().expect("sleep pid");
         let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid);
         control.attach(&child).expect("attach grouped control");
 

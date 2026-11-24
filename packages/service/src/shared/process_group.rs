@@ -151,7 +151,10 @@ pub(crate) async fn terminate_process_group(
         }
         Err(_) => {
             signal_process_group(pid, libc::SIGKILL)?;
-            wait_group_gone(pid, deadline).await;
+            // The TERM deadline has passed; give the group a fresh bound to
+            // drain after SIGKILL so a lease-holding worker cannot outlive
+            // the ProcessExited event.
+            wait_group_gone(pid, tokio::time::Instant::now() + grace).await;
             wait_bounded(child, grace).await
         }
     }
