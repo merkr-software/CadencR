@@ -57,8 +57,8 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 
-vi.mock("../api/generated", () => ({
-  FeatureStatus: { active: "active", archived: "archived" },
+vi.mock("../api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/generated")>()),
   useListProjects: () => mocks.mockProjectsListQuery(),
   getListProjectsQueryKey: vi.fn(() => ["projects"]),
   useListFeatures: () => mocks.mockFeaturesListQuery(),
@@ -67,6 +67,9 @@ vi.mock("../api/generated", () => ({
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => mocks.phone.isMobile }));
 vi.mock("@/hooks/useStartConversation", () => ({
   useStartConversation: () => ({ start: mocks.phone.start, isPending: mocks.phone.isPending }),
+}));
+vi.mock("@/components/phone-inbox/PhoneInbox", () => ({
+  PhoneInbox: () => <div data-testid="phone-inbox" />,
 }));
 vi.mock("@/components/SidebarContext", () => ({
   useSidebarCollapsed: () => ({ collapsed: true, setCollapsed: vi.fn() }),
@@ -131,8 +134,47 @@ describe("HomePage route", () => {
     expect(screen.getByText("No features in this project yet")).toBeInTheDocument();
   });
 
-  it("offers a New conversation button and a menu on a phone", async () => {
+  it("shows the Agents inbox on a phone instead of reopening the last conversation", () => {
     mocks.phone.isMobile = true;
+    seedSavedFeature({ projectId: 1, featureId: 5 });
+    mocks.mockProjectsListQuery.mockReturnValue({
+      data: [{ id: 1, name: "Test", path: "/test" }],
+      isSuccess: true,
+      error: null,
+    });
+    mocks.mockFeaturesListQuery.mockReturnValue({
+      data: [{ id: 5, title: "Feature 1" }],
+      isSuccess: true,
+      error: null,
+    });
+    render(<HomePage />);
+    expect(screen.getByTestId("phone-inbox")).toBeInTheDocument();
+    expect(mocks.mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("opens an asked-for project on a phone as on desktop", () => {
+    mocks.phone.isMobile = true;
+    mocks.mockUseSearch.mockReturnValue({ projectId: 1 });
+    mocks.mockProjectsListQuery.mockReturnValue({
+      data: [{ id: 1, name: "Test", path: "/test" }],
+      isSuccess: true,
+      error: null,
+    });
+    mocks.mockFeaturesListQuery.mockReturnValue({
+      data: [{ id: 5, title: "Feature 1" }],
+      isSuccess: true,
+      error: null,
+    });
+    render(<HomePage />);
+    expect(screen.queryByTestId("phone-inbox")).toBeNull();
+    expect(mocks.mockNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { projectId: "1", featureId: "5" } }),
+    );
+  });
+
+  it("offers a New conversation button and a menu for an asked-for empty project on a phone", async () => {
+    mocks.phone.isMobile = true;
+    mocks.mockUseSearch.mockReturnValue({ projectId: 1 });
     mocks.mockProjectsListQuery.mockReturnValue({
       data: [{ id: 1, name: "Test", path: "/test" }],
       isSuccess: true,
@@ -150,6 +192,7 @@ describe("HomePage route", () => {
   it("disables New conversation while it is being created", () => {
     mocks.phone.isMobile = true;
     mocks.phone.isPending = true;
+    mocks.mockUseSearch.mockReturnValue({ projectId: 1 });
     mocks.mockProjectsListQuery.mockReturnValue({
       data: [{ id: 1, name: "Test", path: "/test" }],
       isSuccess: true,
@@ -157,15 +200,6 @@ describe("HomePage route", () => {
     });
     render(<HomePage />);
     expect(screen.getByRole("button", { name: "New conversation" })).toBeDisabled();
-  });
-
-  it("points a phone with no project at the menu", () => {
-    mocks.phone.isMobile = true;
-    render(<HomePage />);
-    expect(screen.getByText("No projects yet")).toBeInTheDocument();
-    expect(
-      screen.getByText("Open the menu and use its + button to add a project"),
-    ).toBeInTheDocument();
   });
 
   it("shows loading state initially", () => {

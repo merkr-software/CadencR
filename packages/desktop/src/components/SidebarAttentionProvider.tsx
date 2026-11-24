@@ -1,23 +1,14 @@
-import { createContext, useContext, useEffect, type ReactElement, type ReactNode } from "react";
+import { useEffect, type ReactElement, type ReactNode } from "react";
 import { ProjectAttentionBadges } from "@/components/ProjectAttentionBadges";
 import { useResolvedAttention } from "@/hooks/useResolvedAttention";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 import { reportUnreadRestoreError } from "@/stores/unread-marks-storage";
+import {
+  SidebarAttentionContext,
+  useSidebarAttention,
+} from "@/components/sidebar-attention-context";
 
-type SidebarAttention = ReturnType<typeof useResolvedAttention>;
-
-/** Outside the app shell (a sidebar part rendered alone), nothing needs attention. */
-const NO_ATTENTION: SidebarAttention = {
-  entries: [],
-  items: [],
-  queue: [],
-  byProject: new Map(),
-  loadingStates: [],
-  actions: [],
-  actionsLoading: false,
-};
-
-export const SidebarAttentionContext = createContext<SidebarAttention>(NO_ATTENTION);
+export { SidebarAttentionContext, useSidebarAttention };
 
 /**
  * Resolves the attention index once for the sidebar and the collapsed rail: the
@@ -33,10 +24,6 @@ export function SidebarAttentionProvider({ children }: { children: ReactNode }):
       {children}
     </SidebarAttentionContext.Provider>
   );
-}
-
-export function useSidebarAttention(): SidebarAttention {
-  return useContext(SidebarAttentionContext);
 }
 
 /**

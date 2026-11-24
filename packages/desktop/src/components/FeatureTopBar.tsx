@@ -252,7 +252,11 @@ function FeatureHeaderChrome(props: FeatureHeaderChromeProps): ReactElement {
         )}
       >
         {showSidebarChrome && (
-          <SidebarCollapsedChrome visible={sidebarCollapsed} onExpand={onExpandSidebar} />
+          <SidebarCollapsedChrome
+            visible={sidebarCollapsed}
+            onExpand={onExpandSidebar}
+            currentFeatureId={featureId}
+          />
         )}
         {phone ? <PhoneFeatureTitle {...props} /> : <DesktopFeatureTitle {...props} />}
         {/* Triggerless on phones: only its sheet, opened on an action's

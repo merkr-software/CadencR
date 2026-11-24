@@ -2,6 +2,7 @@ import { useRef, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import { PanelLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PhoneMenuAttentionDot } from "@/components/PhoneMenuAttentionDot";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTrafficLightsAnchor } from "@/hooks/useTrafficLightsAnchor";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
@@ -13,6 +14,10 @@ import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 interface SidebarCollapsedChromeProps {
   visible: boolean;
   onExpand: () => void;
+  /** Phone: the menu button counts For me entries (`PhoneMenuAttentionDot`); off on the inbox. */
+  menuBadge?: boolean;
+  /** Phone: the conversation on screen, left out of that count. */
+  currentFeatureId?: number | null;
 }
 
 /**
@@ -26,6 +31,8 @@ interface SidebarCollapsedChromeProps {
 export function SidebarCollapsedChrome({
   visible,
   onExpand,
+  menuBadge = true,
+  currentFeatureId = null,
 }: SidebarCollapsedChromeProps): ReactElement {
   const isMobile = useIsMobile();
   const railHidden = useSidebarOption("rail") === "none";
@@ -43,7 +50,11 @@ export function SidebarCollapsedChrome({
       inert={shown ? undefined : true}
     >
       {isMobile ? (
-        <MobileMenuButton onExpand={onExpand} />
+        <MobileMenuButton
+          onExpand={onExpand}
+          badge={menuBadge}
+          currentFeatureId={currentFeatureId}
+        />
       ) : railHidden ? (
         <TitlebarActions onExpand={onExpand} />
       ) : (
@@ -61,19 +72,28 @@ export function SidebarCollapsedChrome({
 // `ml-1` keeps the whole tap target to the right of `MobileDrawer`'s 16px
 // edge-swipe strip, which swallows touches to block the browser's back gesture.
 // 44px square: the smallest comfortable target for a finger.
-function MobileMenuButton({ onExpand }: { onExpand: () => void }): ReactElement {
+function MobileMenuButton({
+  onExpand,
+  badge,
+  currentFeatureId,
+}: {
+  onExpand: () => void;
+  badge: boolean;
+  currentFeatureId: number | null;
+}): ReactElement {
   const { t } = useUiTranslation();
   const openMenu = t("sidebar.openMenu", "Open menu");
   return (
     <Button
       variant="ghost"
       size="icon"
-      className="ml-1 size-11 shrink-0"
+      className="relative ml-1 size-11 shrink-0"
       title={openMenu}
       onClick={onExpand}
     >
       <PanelLeft className="size-5" />
       <span className="sr-only">{openMenu}</span>
+      {badge && <PhoneMenuAttentionDot exceptFeatureId={currentFeatureId} />}
     </Button>
   );
 }

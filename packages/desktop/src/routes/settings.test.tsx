@@ -29,6 +29,7 @@ vi.mock("@tanstack/react-router", () => ({
     useParams: vi.fn(() => ({})),
   }),
   useNavigate: () => vi.fn(),
+  useRouter: () => ({ history: { location: { state: { __TSR_index: 0 } }, go: vi.fn() } }),
   useSearch: (options?: { select?: (search: Record<string, unknown>) => unknown }) => {
     const search: Record<string, unknown> = mocks.mockUseSearch();
     return options?.select ? options.select(search) : search;

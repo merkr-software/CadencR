@@ -17,6 +17,7 @@ import {
   settingsNavGroups,
 } from "@/components/settings/settings-catalog";
 import { showSettingsTarget } from "@/components/settings/reveal-settings-anchor";
+import { useSettingsBack } from "@/components/settings/useSettingsBack";
 import {
   availableSettingsGroups,
   currentSettingsPlatform,
@@ -64,7 +65,7 @@ function SettingsPage() {
   );
   const wide = settingsPageMeta(pageId).wide === true;
 
-  const goBack = useCallback(() => void navigate({ to: "/" }), [navigate]);
+  const goBack = useSettingsBack(isMobile);
 
   // Escape first clears a visible search, then leaves Settings — including
   // from inside form controls, as it always has.

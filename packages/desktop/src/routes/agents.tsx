@@ -9,8 +9,8 @@ export const Route = createFileRoute("/agents")({
 
 /**
  * The unified agents grid is a dense desktop surface that makes no sense on a
- * phone, so mobile viewports bounce back to the workspace (home redirects to
- * the last-opened feature).
+ * phone: there, "Agents" is the inbox on the home page, so the phone layout is
+ * sent to `#/` (one inbox, one implementation).
  */
 function AgentsRoute(): ReactElement | null {
   const isMobile = useIsMobile();

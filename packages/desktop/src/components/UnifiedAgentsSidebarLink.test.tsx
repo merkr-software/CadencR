@@ -1,18 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test-utils";
-import { UnifiedAgentsSidebarLink } from "./UnifiedAgentsSidebarLink";
+import { PhoneInboxSidebarLink, UnifiedAgentsSidebarLink } from "./UnifiedAgentsSidebarLink";
 import { useSessionStatusStore, type SessionStatusEntry } from "@/stores/session-status-store";
+
+const router = vi.hoisted(() => ({ location: { pathname: "/", searchStr: "" } }));
 
 vi.mock("@tanstack/react-router", () => ({
   useRouterState: (options?: {
-    select?: (state: { location: { pathname: string } }) => unknown;
-  }) => {
-    const state = { location: { pathname: "/" } };
-    return options?.select ? options.select(state) : state;
-  },
-  Link: ({ children }: { children: unknown }) => {
+    select?: (state: { location: { pathname: string; searchStr: string } }) => unknown;
+  }) => (options?.select ? options.select(router) : router),
+  Link: ({ children, to, className }: { children: unknown; to: string; className?: string }) => {
     const React = require("react");
-    return React.createElement("a", {}, children);
+    return React.createElement("a", { href: to, className }, children);
   },
 }));
 
@@ -67,5 +66,25 @@ describe("UnifiedAgentsSidebarLink", () => {
 
     act(() => seedSession(1, { status: "idle", kind: null, featureId: 10, seq: 2 }));
     expect(screen.getByTitle("No agents working")).toBeInTheDocument();
+  });
+});
+
+describe("PhoneInboxSidebarLink", () => {
+  afterEach(() => {
+    router.location = { pathname: "/", searchStr: "" };
+  });
+
+  it("opens the inbox on the home page and shows as current there", () => {
+    render(<PhoneInboxSidebarLink />);
+    const link = screen.getByRole("link", { name: /Agents/ });
+    expect(link).toHaveAttribute("href", "/");
+    expect(link.className.split(" ")).toContain("bg-accent/50");
+  });
+
+  it("is not current on a project asked for by link, which is no inbox", () => {
+    router.location = { pathname: "/", searchStr: "?projectId=3" };
+    render(<PhoneInboxSidebarLink />);
+    const link = screen.getByRole("link", { name: /Agents/ });
+    expect(link.className.split(" ")).not.toContain("bg-accent/50");
   });
 });

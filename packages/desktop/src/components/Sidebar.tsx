@@ -30,7 +30,10 @@ import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { MarketplaceSidebarLink } from "@/components/MarketplaceSidebarLink";
 import { SchedulesSidebarLink } from "@/components/SchedulesSidebarLink";
-import { UnifiedAgentsSidebarLink } from "@/components/UnifiedAgentsSidebarLink";
+import {
+  PhoneInboxSidebarLink,
+  UnifiedAgentsSidebarLink,
+} from "@/components/UnifiedAgentsSidebarLink";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
 import { InternetStatusIndicator } from "@/components/InternetStatusIndicator";
 import { SidebarUpdateButton } from "@/components/SidebarUpdateButton";
@@ -108,9 +111,10 @@ export const Sidebar = memo(function Sidebar({ onSearch }: { onSearch: () => voi
                   <div className="mb-2 shrink-0 px-1">
                     <SidebarSearchButton onSearch={onSearch} />
                   </div>
-                  {/* The unified agents grid is desktop-only — hide its entry on phones.
-            Schedules is a plain list, so it works everywhere. */}
+                  {/* The unified agents grid is desktop-only: a phone's "Agents" is the
+            inbox on the home page, first. Schedules is a plain list, so it works everywhere. */}
                   <div data-sidebar-nav-links className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                    {isMobile && <PhoneInboxSidebarLink />}
                     <MarketplaceSidebarLink />
                     {!isMobile && <UnifiedAgentsSidebarLink />}
                     <SchedulesSidebarLink />

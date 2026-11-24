@@ -1,6 +1,6 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
-import { LayoutGridIcon } from "lucide-react";
+import { InboxIcon, LayoutGridIcon } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
@@ -36,16 +36,38 @@ export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink()
   );
 });
 
+/**
+ * The phone layout's "Agents": the inbox on the home page (`#/`), first in
+ * the drawer, so a conversation is always one tap from what waits elsewhere.
+ * The unified agents grid is desktop-only (`/agents` sends a phone home).
+ */
+export const PhoneInboxSidebarLink = memo(function PhoneInboxSidebarLink(): ReactElement {
+  // `#/?projectId=` opens a project's conversation, not the inbox.
+  const active = useRouterState({
+    select: (state) => state.location.pathname === "/" && state.location.searchStr === "",
+  });
+  const runningCount = useLiveTotalWorkingCount();
+  return (
+    <AgentsSidebarAnchor active={active} to="/">
+      <InboxIcon className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">Agents</span>
+      <RunningAgentsIndicator count={runningCount} />
+    </AgentsSidebarAnchor>
+  );
+});
+
 function AgentsSidebarAnchor({
   active,
+  to = "/agents",
   children,
 }: {
   active: boolean;
+  to?: "/agents" | "/";
   children: ReactNode;
 }): ReactElement {
   return (
     <Link
-      to="/agents"
+      to={to}
       data-nav-item
       data-nav-type="agents"
       className={cn(

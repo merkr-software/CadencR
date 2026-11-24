@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CiState, PrState, PrStatusSnapshot, ReviewState } from "@/api/generated";
 import type { AttentionEntry } from "@/lib/attention-index";
-import { deriveNextActions, prActionKey, prActionKind } from "./next-actions";
+import {
+  deriveNextActions,
+  newestFirstWithinTier,
+  prActionKey,
+  prActionKind,
+} from "./next-actions";
 
 interface PrInput {
   state?: PrState;
@@ -214,5 +219,22 @@ describe("deriveNextActions", () => {
       pr(2, { state: "draft", ci: "failing" }),
     );
     expect(deriveNextActions([], prs)).toEqual([{ featureId: 2, kind: "fix_ci" }]);
+  });
+});
+
+describe("newestFirstWithinTier", () => {
+  it("reverses each tier but the waiting one and keeps the tiers in order", () => {
+    const actions = [
+      { id: 1, kind: "waiting" },
+      { id: 2, kind: "waiting" },
+      { id: 3, kind: "failed" },
+      { id: 4, kind: "fix_ci" },
+      { id: 5, kind: "address_review" },
+      { id: 6, kind: "review" },
+      { id: 7, kind: "review" },
+    ] as const;
+    expect(newestFirstWithinTier(actions).map((action) => action.id)).toEqual([
+      1, 2, 3, 5, 4, 7, 6,
+    ]);
   });
 });

@@ -24,7 +24,7 @@ import { ATTENTION_LABEL } from "@/lib/sidebar-attention";
 import { paletteCommandGroupLabel } from "@/lib/command-palette/palette-shortcut-commands";
 import { formatSidebarFullTime, formatSidebarRelativeTime } from "@/lib/sidebar-time";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
-import { ConversationStatus } from "./PaletteRows";
+import { ConversationStatus } from "@/components/ConversationStatus";
 import { PaletteKeys, SnippetText } from "./PaletteText";
 import { PaletteProviderMark } from "./PaletteProviderMark";
 

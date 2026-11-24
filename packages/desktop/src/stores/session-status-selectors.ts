@@ -179,3 +179,16 @@ export function useBusyFeatureIds(featureIds: ReadonlySet<number>): readonly num
     }),
   );
 }
+
+/** The earliest running turn's start among `featureId`'s sessions (server clock), if any. */
+export function useFeatureTurnStartedAt(featureId: number): number | null {
+  return useSessionStatusStore((s) => {
+    let started: number | null = null;
+    for (const entry of Object.values(s.bySession)) {
+      if (entry.featureId !== featureId || entry.status !== "agent") continue;
+      const at = entry.turnStartedAtMs ?? null;
+      if (at != null && (started == null || at < started)) started = at;
+    }
+    return started;
+  });
+}

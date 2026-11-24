@@ -2,20 +2,14 @@ import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode, RefObject } from "react";
 import { GitBranchIcon } from "lucide-react";
 import type { Feature, FeatureWorktreeInfo } from "@/api/generated";
+import { ActivityTime } from "@/components/ActivityTime";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarStatusIndicator } from "@/components/SidebarStatusIndicator";
 import { SidebarShortcutBadge } from "@/components/SidebarShortcutBadge";
 import { SidebarProviderBadge } from "@/components/SidebarProviderBadge";
-import { useMinuteClock } from "@/hooks/useMinuteClock";
-import { parseUTCDateTime } from "@/lib/date-utils";
 import { getFileName } from "@/lib/file-language";
 import type { SidebarConfig } from "@/lib/sidebar-config";
 import type { Attention } from "@/lib/sidebar-attention";
-import {
-  formatSidebarAbsoluteTime,
-  formatSidebarFullTime,
-  formatSidebarRelativeTime,
-} from "@/lib/sidebar-time";
 import { cn } from "@/lib/utils";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 
@@ -182,30 +176,12 @@ function FeatureRowTime({ feature }: { feature: Feature }): ReactElement | null 
   const mode = useSidebarOption("time");
   const iso = feature.last_activity_at ?? feature.created_at;
   if (mode === "none" || !iso) return null;
-  return <FeatureRowTimeLabel iso={iso} mode={mode} />;
-}
-
-function FeatureRowTimeLabel({
-  iso,
-  mode,
-}: {
-  iso: string;
-  mode: "relative" | "absolute";
-}): ReactElement | null {
-  useUiTranslation();
-  const now = useMinuteClock();
-  const date = parseUTCDateTime(iso);
-  if (Number.isNaN(date.getTime())) return null;
   return (
-    <time
+    <ActivityTime
       data-feature-time
-      dateTime={date.toISOString()}
-      title={formatSidebarFullTime(date)}
+      iso={iso}
+      mode={mode}
       className="shrink-0 text-[10.5px] leading-6 tabular-nums text-muted-foreground"
-    >
-      {mode === "relative"
-        ? formatSidebarRelativeTime(date, now)
-        : formatSidebarAbsoluteTime(date, now)}
-    </time>
+    />
   );
 }
