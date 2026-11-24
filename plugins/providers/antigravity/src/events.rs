@@ -40,6 +40,10 @@ impl EventMapper {
         }
     }
 
+    pub(crate) fn set_mcp_config_home(&mut self, home: PathBuf) {
+        self.mcp.home = Some(home);
+    }
+
     pub(crate) fn map_agent(&mut self, message: &mut Value) {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
@@ -179,16 +183,23 @@ impl EventMapper {
         let Some(params) = message.get_mut("params") else {
             return;
         };
+        let mut verified = None;
         if let (Some(id), Some(question)) = (id, Question::from_permission(params)) {
             question.rewrite_permission(params);
             self.questions.insert(id, question);
         } else {
             let names = self.mcp.for_params(Some(params));
+            let native = self.mcp.native(params);
+            let ordinary = permissions::ordinary_once(params);
             if let Some(call) = params.get_mut("toolCall") {
+                if ordinary {
+                    verified = mcp::approval_name(call, names, native);
+                }
                 tools::normalize_permission(call, names);
             }
             permissions::display_security_warnings(params);
         }
+        cadencr_provider_sdk::meta::set_attached_mcp_approval(params, verified.as_deref());
     }
 }
 
