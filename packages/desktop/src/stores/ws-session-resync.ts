@@ -1,54 +1,27 @@
 /**
  * Stream-loss recovery. Separate persistence recovery replaces captured unsaved
  * copies only after confirmed repair and a complete, unchanged, idle snapshot.
- *   1. Orphan-delta synthesis  — live, in-turn, zero-network.
- *      `ws-message-processing-stream.ts` `processContentBlockDelta`. When a
- *      `content_block_delta` arrives for an index whose `content_block_start`
- *      was never applied (lost start envelope, or a start for a block type we
- *      couldn't render), it synthesises the block from the first surviving
- *      delta so this and every later chunk render. Repairs one in-flight block
- *      instantly with no DB round-trip. When this socket (re)binds, the
- *      backend reader also restates its live text/thinking blocks in full
- *      (`content_block_snapshot`): the history snapshot was read before the
- *      binding and the DB trails the stream by up to one flush window.
- *   2. Seq-gap detection       — mid-turn trigger. `trackStreamSeq` (below).
- *      Every `session.message` carries a per-stream monotonic `seq`; a skip
- *      means a whole envelope was dropped in transit. It reacts two ways:
- *      fires layer 3 *immediately* (surface any wholly-missed message now, not
- *      hours later on a long/background turn) and arms layer 4 for the turn end.
- *   3. Canonical resync        — reconnect / manual / gap. `resyncMessagesOnReconnect`.
- *      Pulls every persisted row after the last server-confirmed cursor and
- *      appends the ones we lack, upserted by message UUID / DB id. Triggered by
- *      socket reconnect (onOpen, e.g. a mobile client waking), the manual
- *      "Sync from CLI" action, or a layer-2 gap. Append-ONLY: it cannot fix a
- *      block we already hold whose deltas were truncated, because that block
- *      is already present — that is layer 4's job.
- *   4. Post-turn tail repair    — turn-end. `repairPersistedBlocksAfterTurn` +
- *      `repairBlockTree`. Runs at `turn_complete` when layer 2 saw a gap
- *      (`tailRepairNeeded`). With no more deltas racing in, the DB transcript is
- *      authoritative: overwrite any held block the DB has strictly more of, and
- *      graft server children that never arrived. Overwrites AND appends.
- *
- * Why layers 2+4 are not merged into one path (they look like they should be):
- * they cover complementary halves of a gap. Layer 3 (which layer 2 invokes)
- * only *appends* wholly-missed messages, and must do so immediately — the
- * guarantee that matters when a background agent streams for hours. Layer 4
- * only *overwrites/grafts* already-held blocks, and can only run once deltas
- * stop, because an in-place rewrite mid-turn would race live appends. They are
- * the two halves of one repair, split by *when each half is safe to run*, not
- * two redundant safety nets — so both stay.
+ *   1. Orphan deltas synthesise an in-flight block; rebind restates unflushed text.
+ *   2. A per-stream sequence gap triggers an immediate canonical resync and arms
+ *      tailRepairNeeded.
+ *   3. Reconnect, manual and gap resyncs append missed persisted rows, deduped
+ *      by UUID / DB id. Live deltas can still race these reads.
+ *   4. At turn completion repairPersistedBlocksAfterTurn can safely replace
+ *      truncated content and graft missing children from the DB.
  *
  * Cursor note (layers 3/4): only a completed server snapshot/resync advances
  * `lastAppliedMessageId`. A later live DB id is not a safe cursor because an
  * earlier envelope may have been dropped. Resync intentionally overlaps live
  * blocks, then merges the batch by canonical UUID / DB id.
  */
+import type { WsConnection } from "@/lib/ws-connection";
+import { recoverConnectedHistory, withoutReconnectNotices } from "./ws-session-history-recovery";
 import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { applyToolCallUpdates } from "@/hooks/useFeatureAgentState-merge";
 import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
-import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
+import { updateSession, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { pendingPromptFetchCursor } from "./ws-pending-prompts";
 import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
@@ -59,16 +32,20 @@ import {
   removeRepairedSyntheticTail,
 } from "./ws-persistence-repair-plan";
 
-const reconnectResyncs = new Map<string, Promise<void>>();
+const reconnectResyncs = new Map<
+  string,
+  { connection: WsConnection | null; dbId: number; pending: Promise<void> }
+>();
 
 /** One guarded cold repair; an active/racing turn retries at its next completion. */
 export async function resyncRecoveredPersistence(
   ctx: StoreAccessors,
   sessionId: string,
 ): Promise<void> {
-  await reconnectResyncs.get(sessionId);
+  await reconnectResyncs.get(sessionId)?.pending;
   const session = ctx.get().sessions[sessionId];
   if (session && capturePersistenceRepair(session)) {
+    if (session.featureId) invalidateFeatureSubagents(session.featureId);
     await performMessageResync(ctx, sessionId, undefined, true);
   }
 }
@@ -78,13 +55,33 @@ export function resyncMessagesOnReconnect(
   sessionId: string,
   target?: ResyncTarget,
 ): Promise<void> {
-  if (target) return performMessageResync(ctx, sessionId, target);
+  if (target) {
+    invalidateFeatureSubagents(target.featureId);
+    return performMessageResync(ctx, sessionId, target);
+  }
+  const session = ctx.get().sessions[sessionId];
+  if (!session?.featureId || !session.sessionDbId) return Promise.resolve();
+  const { featureId, sessionDbId: dbId } = session;
   const existing = reconnectResyncs.get(sessionId);
-  if (existing) return existing;
-  const pending = performMessageResync(ctx, sessionId).finally(() => {
-    if (reconnectResyncs.get(sessionId) === pending) reconnectResyncs.delete(sessionId);
+  const connection = ctx.transport.get(sessionId)?.conn ?? null;
+  if (existing?.connection === connection && existing.dbId === dbId) return existing.pending;
+  // A read started on a previous socket can predate this disconnect's missed rows.
+  // Finish it first so the new read uses the last confirmed cursor, even if the old read failed.
+  const read = async () => {
+    if ((ctx.transport.get(sessionId)?.conn ?? null) !== connection) return;
+    if (ctx.get().sessions[sessionId]?.sessionDbId !== dbId) return;
+    invalidateFeatureSubagents(featureId);
+    const fetchHistory = () => performMessageResync(ctx, sessionId);
+    if (connection?.isOpen()) {
+      await recoverConnectedHistory(ctx, sessionId, connection, fetchHistory);
+    } else {
+      await fetchHistory();
+    }
+  };
+  const pending = (existing ? existing.pending.then(read, read) : read()).finally(() => {
+    if (reconnectResyncs.get(sessionId)?.pending === pending) reconnectResyncs.delete(sessionId);
   });
-  reconnectResyncs.set(sessionId, pending);
+  reconnectResyncs.set(sessionId, { connection, dbId, pending });
   return pending;
 }
 
@@ -99,12 +96,11 @@ async function performMessageResync(
   const featureId = target?.featureId ?? session.featureId;
   const sessionDbId = target?.sessionDbId ?? session.sessionDbId;
   if (!featureId || !sessionDbId) return;
-  // Sub-agent pushes sent while disconnected are gone too.
-  invalidateFeatureSubagents(featureId);
   const cursor = target?.cursor ?? session.lastAppliedMessageId ?? 0;
   const fetchCursor = target ? cursor : pendingPromptFetchCursor(session.blocks, cursor);
   const revisionCursor = session.lastAppliedContentRevision ?? 0;
   const persistenceRepair = repairPersistence ? capturePersistenceRepair(session) : null;
+  const connection = !target && !repairPersistence ? ctx.transport.get(sessionId)?.conn : null;
   const pages = await drainResyncPages({
     featureId,
     sessionDbId,
@@ -112,9 +108,16 @@ async function performMessageResync(
     revisionCursor,
     fullSnapshot: !persistenceRepair && !target && fetchCursor === 0,
   });
-  if (!pages) return;
+  if (!pages) {
+    if (connection?.isOpen()) throw new Error("The service could not find this session’s history.");
+    return;
+  }
+  if (connection && pages.stalled) {
+    if (!connection.isOpen()) return;
+    throw new Error("The service returned an incomplete history page. Please retry.");
+  }
   const current = ctx.get().sessions[sessionId];
-  if (!current) return;
+  if (!current || (!target && current.sessionDbId !== sessionDbId)) return;
   const idPatch = current.sessionDbId === sessionDbId ? {} : { sessionDbId };
   const currentWithUpdates = applyToolCallUpdates(
     removeRepairedSyntheticTail(
@@ -131,44 +134,32 @@ async function performMessageResync(
     pages.toolCallUpdates,
     pages.truncatedToolCallUpdateIds,
   );
-  const merged = dropStaleReconnectNotices(
-    mergeCanonicalBlocks(
-      currentWithUpdates,
-      incomingWithUpdates,
-      current.promptReceiptsAtSubmission,
-    ),
+  const blocks = mergeCanonicalBlocks(
+    currentWithUpdates,
     incomingWithUpdates,
+    current.promptReceiptsAtSubmission,
   );
+  const caughtUp = connection?.isOpen() && ctx.transport.get(sessionId)?.conn === connection;
+  const merged =
+    caughtUp || incomingWithUpdates.some(isServiceStopMarker)
+      ? withoutReconnectNotices(blocks)
+      : blocks;
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       ...idPatch,
       ...(merged === current.blocks ? {} : blocksPatchWithDerived(current.streamingState, merged)),
-      lastAppliedMessageId: Math.max(
-        current.lastAppliedMessageId ?? 0,
-        cursor,
-        pages.messageCursor,
-      ),
+      lastAppliedMessageId:
+        target &&
+        current.sessionDbId === sessionDbId &&
+        cursor > (current.lastAppliedMessageId ?? 0)
+          ? current.lastAppliedMessageId
+          : Math.max(current.lastAppliedMessageId ?? 0, cursor, pages.messageCursor),
       lastAppliedContentRevision: Math.max(
         current.lastAppliedContentRevision ?? 0,
         pages.revisionCursor,
       ),
     }),
   );
-}
-
-/**
- * "Connection lost while streaming. Reconnecting…" is this client's guess at
- * why the stream stopped. When the catch-up brings the server's own account —
- * the turn was cut off by a Cadencr restart (usually resumed) or quit — the guess
- * is stale and would read as the agent failing.
- */
-function dropStaleReconnectNotices(
-  blocks: AgentBlockData[],
-  incoming: readonly AgentBlockData[],
-): AgentBlockData[] {
-  if (!incoming.some(isServiceStopMarker)) return blocks;
-  const kept = blocks.filter((block) => block.errorCode !== WS_RECONNECTING_CODE);
-  return kept.length === blocks.length ? blocks : kept;
 }
 
 interface ResyncPageRequest {
@@ -186,6 +177,7 @@ interface DrainedResyncPages {
   messageCursor: number;
   revisionCursor: number;
   complete: boolean;
+  stalled: boolean;
   settled: boolean;
 }
 
@@ -197,7 +189,7 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
   const truncatedToolCallUpdateIds = new Set<string>();
   let firstPage = true;
   let settled = true;
-  let complete = false;
+  let stalled = false;
   let incremental = true;
 
   while (true) {
@@ -241,10 +233,9 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     messageCursor = nextMessageCursor;
     revisionCursor = nextRevisionCursor;
     if (!continueMessages && !continueRevisions) {
-      complete =
-        incremental &&
-        !serverSession.hasMoreIncrementalMessages &&
-        !serverSession.hasMoreContentRevisions;
+      stalled = !!(
+        serverSession.hasMoreIncrementalMessages || serverSession.hasMoreContentRevisions
+      );
       break;
     }
   }
@@ -255,7 +246,8 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     truncatedToolCallUpdateIds,
     messageCursor,
     revisionCursor,
-    complete,
+    complete: incremental && !stalled,
+    stalled,
     settled,
   };
 }

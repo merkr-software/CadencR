@@ -131,6 +131,8 @@ export function createStreamHealth(): StreamHealth {
 // ---------------------------------------------------------------------------
 
 export interface HistoryLoadFailure {
+  /** A reconnect retries the unread range of this session, keeping its loaded history. */
+  resyncSessionDbId?: number;
   message: string;
   retrying: boolean;
 }
