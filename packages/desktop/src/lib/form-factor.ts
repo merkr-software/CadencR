@@ -1,3 +1,5 @@
+import { watchViewport } from "./viewport-settle";
+
 /**
  * Which layout the renderer shows: the phone layout (drawer sidebar, one tab
  * strip, Enter inserts a newline, no autofocus) or the desktop layout.
@@ -23,35 +25,29 @@
  * `phone:` / `desktop:` Tailwind variants in `index.css`).
  *
  * A second answer, the **panes**: the phone layout has room for two panes, the
- * Agents inbox beside the conversation, on a touch screen whose viewport is
- * 600px wide or more and whose physical screen's short side is 600px or more
- * (`Math.min(screen.width, screen.height)`): a foldable unfolded, a tablet in
- * portrait. A phone on its side is wide enough but only ≈370px tall, which
- * leaves the conversation pane no room for a transcript between its header,
- * its composer and its tab bar, so it keeps one pane: its screen's short side
- * is ≈400px. The screen, not the viewport's height: the screen does not shrink
- * when a keyboard opens and its short side does not change with the
- * orientation, so a pane never comes and goes while typing or turning. Mirrored
- * on `<html data-panes="1|2">`. A narrow desktop window (fine pointer) keeps
- * one pane.
+ * Agents inbox beside the conversation, on a touch viewport 600px wide and
+ * 600px tall or more: a foldable unfolded, a tablet in portrait. A phone on
+ * its side is wide enough but only ≈370px tall, which leaves the conversation
+ * pane no room for a transcript between its header, its composer and its tab
+ * bar, so it keeps one pane. The viewport, not `screen`: an iPhone Duo reports
+ * its outer (folded) screen, 466×678, while unfolded. A keyboard shortens the
+ * viewport (Android's `resizes-content`) but never changes its width, so a
+ * height drop at the same width keeps two panes: they don't come and go while
+ * typing. Mirrored on `<html data-panes="1|2">`. A narrow desktop window (fine
+ * pointer) keeps one pane.
  *
  * A third answer, the **docked sidebar**: a touch screen in the phone layout
  * 900px wide or more (a foldable unfolded on its side, ≈951px; the largest
  * phones on their side, ≈930-956px) keeps the sidebar on screen beside the
  * page, collapsible to the rail as on the desktop, instead of the drawer. The
  * sidebar then lists what the inbox pane would, so two panes give way to it.
- * The viewport's width alone, not the screen: what a browser reports as the
- * screen of a foldable does not reliably tell the unfolded one.
  */
 
 /** At or below this width every device gets the phone layout (the Tailwind `md` floor). */
 const PHONE_MAX_WIDTH = 767;
 /** A touch device keeps the phone layout up to this width (phones on their side, foldables, tablets in portrait). */
 const TOUCH_PHONE_MAX_WIDTH = 1023;
-/**
- * From this viewport width, on a screen whose short side is at least as long,
- * a touch screen in the phone layout shows two panes (inbox + conversation).
- */
+/** From this viewport width and height a touch screen in the phone layout shows two panes (inbox + conversation). */
 const TWO_PANES_MIN_SIZE = 600;
 /** From this viewport width a touch screen in the phone layout docks the sidebar. */
 const DOCKED_SIDEBAR_MIN_WIDTH = 900;
@@ -71,17 +67,21 @@ interface MediaSignals {
 }
 
 interface FormFactorSignals extends MediaSignals {
-  /** The physical screen's short side is 600px or more (`screen`, read on each refresh). */
-  roomyScreen: boolean;
+  /** Tall enough for two panes, a keyboard aside (`readPaneHeight`). */
+  roomyHeight: boolean;
 }
 
-/** Each signal's media query. Kept separate: Safari's support for `not`/`or` nesting is uneven. */
-const SIGNAL_QUERIES: Readonly<Record<keyof MediaSignals, string>> = {
+/** The media queries the store listens to: the signals, and the height behind `roomyHeight`. */
+type ListenedQuery = keyof MediaSignals | "paneHeight";
+
+/** Each media query. Kept separate: Safari's support for `not`/`or` nesting is uneven. */
+const SIGNAL_QUERIES: Readonly<Record<ListenedQuery, string>> = {
   phoneWidth: `(max-width: ${PHONE_MAX_WIDTH}px)`,
   compactWidth: `(max-width: ${TOUCH_PHONE_MAX_WIDTH}px)`,
   coarsePointer: "(pointer: coarse)",
   paneWidth: `(min-width: ${TWO_PANES_MIN_SIZE}px)`,
   dockWidth: `(min-width: ${DOCKED_SIDEBAR_MIN_WIDTH}px)`,
+  paneHeight: `(min-height: ${TWO_PANES_MIN_SIZE}px)`,
 };
 
 function isPhoneShell(signals: FormFactorSignals): boolean {
@@ -97,20 +97,9 @@ function hasTwoPanes(signals: FormFactorSignals): boolean {
     isPhoneShell(signals) &&
     signals.coarsePointer &&
     signals.paneWidth &&
-    signals.roomyScreen &&
+    signals.roomyHeight &&
     !hasDockedSidebar(signals)
   );
-}
-
-/**
- * Whether the screen's short side leaves room for two panes. No listener of
- * its own: the screen changes with a fold or a rotation, which also cross the
- * width queries (a fold crosses 600px), and its short side does not change
- * with the orientation.
- */
-function readRoomyScreen(): boolean {
-  const { screen } = window;
-  return Math.min(screen.width, screen.height) >= TWO_PANES_MIN_SIZE;
 }
 
 // ─── Live store ──────────────────────────────────────────────────────────
@@ -119,7 +108,7 @@ function readRoomyScreen(): boolean {
 // / `useTwoPanes()` consumer and the `data-shell` / `data-panes` attributes
 // share it, so no component adds a listener of its own.
 
-type SignalLists = Record<keyof MediaSignals, MediaQueryList>;
+type SignalLists = Record<ListenedQuery, MediaQueryList>;
 
 let lists: SignalLists | null = null;
 let phoneShell = false;
@@ -127,7 +116,31 @@ let coarsePointer = false;
 let twoPanes = false;
 let dockedSidebar = false;
 let mirrorsAttribute = false;
+/** The last `(min-height)` answer kept and the width it was read at (`readPaneHeight`). */
+let roomyHeight = false;
+let roomyHeightWidth = -1;
 const listeners = new Set<() => void>();
+
+/** Whether a text field has the focus, the only time an on-screen keyboard is up. */
+function isEditing(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  return active.isContentEditable || active.matches("input, textarea, select");
+}
+
+/**
+ * Whether the viewport is tall enough for two panes. A drop at an unchanged
+ * width while a field has the focus is a keyboard opening, so it keeps the
+ * previous answer. Without a field focused it is a fold or a rotation, which
+ * reports its new width before its new height.
+ */
+function readPaneHeight(tall: boolean): boolean {
+  const width = window.innerWidth;
+  const keyboard = !tall && roomyHeight && width === roomyHeightWidth && isEditing();
+  roomyHeightWidth = width;
+  if (!keyboard) roomyHeight = tall;
+  return roomyHeight;
+}
 
 function readSignals(current: SignalLists): FormFactorSignals {
   return {
@@ -136,7 +149,7 @@ function readSignals(current: SignalLists): FormFactorSignals {
     coarsePointer: current.coarsePointer.matches,
     paneWidth: current.paneWidth.matches,
     dockWidth: current.dockWidth.matches,
-    roomyScreen: readRoomyScreen(),
+    roomyHeight: readPaneHeight(current.paneHeight.matches),
   };
 }
 
@@ -172,6 +185,7 @@ function ensureStarted(): void {
     coarsePointer: window.matchMedia(SIGNAL_QUERIES.coarsePointer),
     paneWidth: window.matchMedia(SIGNAL_QUERIES.paneWidth),
     dockWidth: window.matchMedia(SIGNAL_QUERIES.dockWidth),
+    paneHeight: window.matchMedia(SIGNAL_QUERIES.paneHeight),
   };
   lists = created;
   const signals = readSignals(created);
@@ -180,6 +194,10 @@ function ensureStarted(): void {
   dockedSidebar = hasDockedSidebar(signals);
   coarsePointer = signals.coarsePointer;
   for (const list of Object.values(created)) list.addEventListener("change", refresh);
+  // A fold can change the viewport without crossing a query (669→678px wide
+  // between an unfolded Duo and a folded one on its side), and the height hold
+  // must see that width change: read again on every viewport change too.
+  watchViewport(refresh);
 }
 
 /** `useSyncExternalStore` subscribe: fires when the layout, the panes or the primary pointer flip. */
@@ -195,7 +213,7 @@ export function getPhoneShellSnapshot(): boolean {
   return phoneShell;
 }
 
-/** Whether the phone layout shows two panes (touch, 600px wide or more on a screen at least 600px on its short side). */
+/** Whether the phone layout shows two panes (touch, a viewport 600px wide and tall or more). */
 export function getTwoPanesSnapshot(): boolean {
   ensureStarted();
   return twoPanes;

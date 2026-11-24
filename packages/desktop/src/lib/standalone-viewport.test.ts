@@ -28,4 +28,26 @@ describe("initializeStandaloneViewport", () => {
     window.dispatchEvent(new Event("resize"));
     expect(root.style.getPropertyValue("--standalone-vh")).toBe("402px");
   });
+
+  it("keeps reading the height after a fold whose last change fires no event", () => {
+    vi.useFakeTimers();
+    try {
+      const height = vi.spyOn(window, "innerHeight", "get").mockReturnValue(648);
+      detach = initializeStandaloneViewport();
+      const root = document.documentElement;
+      // Unfolding: one resize with the folded height, then it grows silently.
+      window.dispatchEvent(new Event("resize"));
+      height.mockReturnValue(930);
+      vi.advanceTimersByTime(100);
+      expect(root.style.getPropertyValue("--standalone-vh")).toBe("930px");
+
+      // Settled: no more reads until the next event.
+      vi.advanceTimersByTime(1000);
+      height.mockReturnValue(500);
+      vi.advanceTimersByTime(1000);
+      expect(root.style.getPropertyValue("--standalone-vh")).toBe("930px");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

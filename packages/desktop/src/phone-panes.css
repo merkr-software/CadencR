@@ -1,9 +1,9 @@
 /* -------------------------------------------------------------------------
  * Two panes in the phone layout (`RoutedStage`, `data-stage-panes="2"`): on a
- * touch viewport 600px wide or more on a screen at least 600px on its short side
- * (`<html data-panes="2">`, `lib/form-factor.ts`), the Agents inbox
- * sits on the left of the inbox and conversation pages, the conversation (or
- * "Pick a conversation") on the right, with its own header and tab bar.
+ * touch viewport 600px wide and tall or more (`<html data-panes="2">`,
+ * `lib/form-factor.ts`), the Agents inbox sits on the left of the inbox and
+ * conversation pages, the conversation (or "Pick a conversation") on the
+ * right, with its own header and tab bar.
  *
  * The inbox takes 40% of the width, held between 280px and 380px, behind a
  * hairline. On a screen made of two segments side by side (a dual-screen
