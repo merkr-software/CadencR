@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { TabContext } from "@cadencr/tab-sdk/protocol";
 import type { PluginTabSummary } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { usePluginIdentity } from "./usePluginIdentity";
 import { usePluginSurface } from "./usePluginSurface";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
+import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
 import {
   activateFeatureTab,
   getFocusedTab,
@@ -57,6 +58,13 @@ export const PluginEditorSurface = memo(function PluginEditorSurface({
   const plugin = usePluginIdentity(summary, shortcuts);
   const appearance = useEditorAppearance();
   const documentVisible = useDocumentVisible();
+  // The workspace pool keeps old conversations mounted; only the active one
+  // may keep its native editor surface attached and on screen.
+  const activity = useWorkspaceActivity();
+  const workspaceActive = useSyncExternalStore(
+    (cb) => activity.subscribe(cb),
+    () => activity.isActive(),
+  );
   const blocked = staticOverlayState(summary, pluginTabsAvailable());
   const live = blocked === null && summary.editor != null;
   const guest = usePluginSurface({
@@ -67,7 +75,7 @@ export const PluginEditorSurface = memo(function PluginEditorSurface({
     surface,
     appearance,
     live,
-    visible: visible && documentVisible,
+    visible: visible && workspaceActive && documentVisible,
     placeholder,
     shortcuts,
   });
