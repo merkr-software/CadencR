@@ -1,6 +1,6 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { AdaptivePopover, AdaptivePopoverTrigger } from "@/components/PhoneSheetMenu";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
 import { revealPickerItem } from "./RuntimeModelPickerChrome";
 import { RuntimeModelPickerContent } from "./RuntimeModelPickerContent";
@@ -205,10 +205,13 @@ function usePickerSelection(params: {
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
+      // Only the desktop popover's close reads (and clears) the flag a pick
+      // sets: a pick in the phone sheet must not carry over to the next close.
+      if (nextOpen) restoreFocusAfterCloseRef.current = false;
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
       onOpenChange?.(nextOpen);
     },
-    [controlledOpen, onOpenChange, setInternalOpen],
+    [controlledOpen, onOpenChange, restoreFocusAfterCloseRef, setInternalOpen],
   );
 
   const handleActionSelect = useCallback(() => {
@@ -293,8 +296,8 @@ export function RuntimeModelPicker({
   );
 
   return (
-    <Popover open={resolvedOpen} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+    <AdaptivePopover open={resolvedOpen} onOpenChange={handleOpenChange}>
+      <AdaptivePopoverTrigger asChild>{trigger}</AdaptivePopoverTrigger>
       <RuntimeModelPickerContent
         action={action}
         align={align}
@@ -331,6 +334,6 @@ export function RuntimeModelPicker({
         selectedModelValue={selectedModelValue}
         setSearch={setSearch}
       />
-    </Popover>
+    </AdaptivePopover>
   );
 }

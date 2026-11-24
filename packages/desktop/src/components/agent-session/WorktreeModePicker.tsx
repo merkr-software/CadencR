@@ -11,7 +11,11 @@ import { CheckIcon, ChevronDownIcon, GitBranchIcon, LoaderCircle } from "lucide-
 
 import { cn } from "@/lib/utils";
 import { defaultWorktreeModeMutationKey } from "@/lib/default-worktree-mode";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AdaptivePopover,
+  AdaptivePopoverContent,
+  AdaptivePopoverTrigger,
+} from "@/components/PhoneSheetMenu";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
@@ -96,8 +100,8 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+    <AdaptivePopover open={open} onOpenChange={setOpen}>
+      <AdaptivePopoverTrigger asChild>
         <button
           type="button"
           className={
@@ -121,11 +125,14 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
           <SlidingText text={label} className="max-w-[140px]" />
           <ChevronDownIcon className="size-3 shrink-0 opacity-70" />
         </button>
-      </PopoverTrigger>
-      <PopoverContent
+      </AdaptivePopoverTrigger>
+      <AdaptivePopoverContent
         align={variant === "manifest" ? "start" : "end"}
         side="top"
         className="w-80 p-1"
+        sheetTitle={t("conversation.stream.worktreeModePicker.sheetTitle", "Where the agent works")}
+        sheetTitleVisible
+        sheetRows
       >
         {modes.map((m) => (
           <WorktreeModeRow
@@ -136,28 +143,41 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
             onPick={handlePick}
           />
         ))}
-        {(effectHint || enableModeShortcut) && (
-          <div className="mt-1 flex items-start gap-3 border-t px-2.5 py-2">
-            {effectHint && (
-              <p className="text-xs text-muted-foreground" role="note">
-                {effectHint}
-              </p>
-            )}
-            {enableModeShortcut && (
-              <span
-                {...KBD_HINT_PROPS}
-                className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                {t("conversation.stream.worktreeModePicker.cycle", "Cycle")}
-                <ResolvedShortcutHint shortcutId="agent-worktree-mode" />
-              </span>
-            )}
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+        <WorktreeModeFooter effectHint={effectHint} enableModeShortcut={enableModeShortcut} />
+      </AdaptivePopoverContent>
+    </AdaptivePopover>
   );
 });
+
+/** What the first prompt will do, and the cycle key; nothing when neither applies. */
+function WorktreeModeFooter({
+  effectHint,
+  enableModeShortcut,
+}: {
+  effectHint?: string | null;
+  enableModeShortcut: boolean;
+}): ReactElement | null {
+  const { t } = useUiTranslation();
+  if (!effectHint && !enableModeShortcut) return null;
+  return (
+    <div className="mt-1 flex items-start gap-3 border-t px-2.5 py-2">
+      {effectHint && (
+        <p className="text-xs text-muted-foreground" role="note">
+          {effectHint}
+        </p>
+      )}
+      {enableModeShortcut && (
+        <span
+          {...KBD_HINT_PROPS}
+          className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          {t("conversation.stream.worktreeModePicker.cycle", "Cycle")}
+          <ResolvedShortcutHint shortcutId="agent-worktree-mode" />
+        </span>
+      )}
+    </div>
+  );
+}
 
 interface WorktreeModeRowProps {
   mode: WorktreeMode;
@@ -177,7 +197,7 @@ function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps
       onClick={() => onPick(mode)}
       data-state={selected ? "checked" : "unchecked"}
       className={cn(
-        "flex w-full items-start gap-2 rounded-sm px-2.5 py-2 text-left",
+        "flex w-full items-start gap-2 rounded-sm px-2.5 py-2 text-left phone:min-h-11",
         disabled ? "cursor-not-allowed opacity-40" : "hover:bg-accent",
         selected && !disabled && "bg-accent/50",
       )}

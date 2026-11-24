@@ -248,6 +248,58 @@ describe("permission body", () => {
     expect(screen.getByRole("button", { name: /Allow once/ })).toHaveClass("h-11");
   });
 
+  it("lays a phone sheet's actions out as the phone gate, each answering as the provider listed it", async () => {
+    mockHook({
+      gate: permissionGate({
+        options: [
+          { decision: "deny", label: "Deny", description: "Reject" },
+          { decision: "allow_once", label: "Allow once", description: "Once" },
+          { decision: "allow_future", label: "Allow future requests", description: "Future" },
+        ],
+      }),
+    });
+    renderBody({ touch: true });
+    const actions = screen
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("data-gate-action"));
+
+    expect(actions.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Allow once"),
+      expect.stringContaining("Allow future requests"),
+      expect.stringContaining("Deny"),
+    ]);
+    expect(actions.map((button) => button.getAttribute("aria-keyshortcuts"))).toEqual([
+      "2",
+      "3",
+      "1",
+    ]);
+    expect(actions[0]).toHaveAttribute("data-variant", "default");
+    expect(actions[2].closest("[data-permission-deny-group]")).not.toBeNull();
+
+    await userEvent.click(actions[2]);
+    expect(respond).toHaveBeenLastCalledWith({ type: "permission", action: "deny" });
+  });
+
+  it("keeps the provider's order in the desktop popover", () => {
+    mockHook({
+      gate: permissionGate({
+        options: [
+          { decision: "deny", label: "Deny", description: "Reject" },
+          { decision: "allow_once", label: "Allow once", description: "Once" },
+        ],
+      }),
+    });
+    renderBody();
+    const actions = screen
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("data-gate-action"));
+    expect(actions.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Deny"),
+      expect.stringContaining("Allow once"),
+    ]);
+    expect(document.querySelector("[data-permission-deny-group]")).toBeNull();
+  });
+
   it("shows a long justification clamped, with a toggle", async () => {
     mockHook({ gate: permissionGate({ tool_input: { description: "x ".repeat(300) } }) });
     const scrollHeight = vi

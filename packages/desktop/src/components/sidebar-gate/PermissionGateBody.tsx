@@ -1,7 +1,15 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  PHONE_PERMISSION_DENY_GROUP_CLASS,
+  PHONE_PERMISSION_TONE_BUTTON_CLASS,
+  PHONE_PERMISSION_TONE_VARIANT,
+  phonePermissionSlots,
+  type PermissionOptionKind,
+  type PhonePermissionSlot,
+} from "@/components/agent-prompt-option-card";
+import { Button, type BUTTON_VARIANT_CLASS } from "@/components/ui/button";
 import { KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
 import {
   buildOptions,
@@ -16,6 +24,8 @@ import { ExpandableText } from "./ExpandableText";
 import { GATE_BODY_PADDING, GateMessage, gateButtonSize } from "./GateStates";
 import { isButton, isTextEntry, pressedDigit, useInitialFocus } from "./gate-keys";
 
+type ButtonVariant = keyof typeof BUTTON_VARIANT_CLASS;
+
 interface PermissionGateBodyProps {
   gate: FeaturePendingGateResponse;
   isSubmitting: boolean;
@@ -25,21 +35,27 @@ interface PermissionGateBodyProps {
   touch: boolean;
 }
 
+/** The desktop popover's look, in the provider's order. */
 const ACTION_VARIANT = {
   allow_once: "default",
   allow_always: "raised",
   deny: "ghost",
 } as const;
 
-function actionClass(option: PermissionOptionView, touch: boolean): string {
+function desktopActionClass(option: PermissionOptionView): string {
   const isDeny = option.action === "deny";
   return cn(
     // Labels stay whole: a row that can't hold them all wraps instead.
     "max-w-full",
-    touch ? "w-full" : isDeny ? "shrink-0" : "flex-auto",
-    gateButtonSize(touch),
+    isDeny ? "shrink-0" : "flex-auto",
+    gateButtonSize(false),
     isDeny && "text-destructive hover:bg-destructive/10 hover:text-destructive",
   );
+}
+
+function optionKind(option: PermissionOptionView): PermissionOptionKind {
+  if (option.action === "deny") return "deny";
+  return option.action === "allow_always" ? "allow_more" : "allow_once";
 }
 
 /** Permission request: context, the command, then primary / secondary / deny actions. */
@@ -123,9 +139,9 @@ export function PermissionGateBody({
       ) : (
         <PermissionActions
           options={options}
+          touch={touch}
           isSubmitting={isSubmitting}
           activeKey={activeKey}
-          touch={touch}
           onActivate={activate}
         />
       )}
@@ -133,45 +149,90 @@ export function PermissionGateBody({
   );
 }
 
-function PermissionActions({
-  options,
-  isSubmitting,
-  activeKey,
-  touch,
-  onActivate,
-}: {
-  options: readonly PermissionOptionView[];
+interface PermissionActionsProps {
+  options: PermissionOptionView[];
+  touch: boolean;
   isSubmitting: boolean;
   activeKey: string | null;
-  touch: boolean;
   onActivate: (option: PermissionOptionView) => void;
-}): ReactElement {
+}
+
+/**
+ * The request's actions: in the provider's order on desktop; on the phone's
+ * sheet, toned and ordered as the composer's gate is (`phonePermissionSlots`).
+ * Digit keys follow the provider's order either way.
+ */
+function PermissionActions({
+  options,
+  touch,
+  isSubmitting,
+  activeKey,
+  onActivate,
+}: PermissionActionsProps): ReactElement {
   const { t } = useUiTranslation();
+  const action = (
+    option: PermissionOptionView,
+    index: number,
+    variant: ButtonVariant,
+    className: string,
+  ): ReactElement => (
+    <Button
+      key={option.key}
+      type="button"
+      size="sm"
+      variant={variant}
+      data-gate-action=""
+      aria-keyshortcuts={String(index + 1)}
+      title={option.description || undefined}
+      disabled={isSubmitting}
+      className={className}
+      onClick={() => onActivate(option)}
+    >
+      {isSubmitting && activeKey === option.key ? (
+        <Loader2Icon
+          className="animate-spin"
+          aria-label={t("sidebar.permissionGateBody.sending", "Sending")}
+        />
+      ) : null}
+      <span className="truncate">{option.label}</span>
+      {index < 9 ? <KeyboardOnlyShortcutHint keys={[String(index + 1)]} /> : null}
+    </Button>
+  );
+  if (!touch) {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((option, index) =>
+          action(
+            option,
+            index,
+            ACTION_VARIANT[option.action ?? "allow_once"],
+            desktopActionClass(option),
+          ),
+        )}
+      </div>
+    );
+  }
+  const { allowing, denying } = phonePermissionSlots(options, optionKind);
+  const phoneAction = ({ option, index, tone }: PhonePermissionSlot<PermissionOptionView>) =>
+    action(
+      option,
+      index,
+      PHONE_PERMISSION_TONE_VARIANT[tone],
+      cn("w-full max-w-full", gateButtonSize(true), PHONE_PERMISSION_TONE_BUTTON_CLASS[tone]),
+    );
   return (
-    <div className={cn("flex gap-1.5", touch ? "flex-col" : "flex-wrap")}>
-      {options.map((option, index) => (
-        <Button
-          key={option.key}
-          type="button"
-          size="sm"
-          variant={ACTION_VARIANT[option.action ?? "allow_once"]}
-          data-gate-action=""
-          aria-keyshortcuts={String(index + 1)}
-          title={option.description || undefined}
-          disabled={isSubmitting}
-          className={actionClass(option, touch)}
-          onClick={() => onActivate(option)}
+    <div className="flex flex-col gap-2">
+      {allowing.map(phoneAction)}
+      {denying.length > 0 && (
+        <div
+          data-permission-deny-group=""
+          className={
+            allowing.length > 0 ? PHONE_PERMISSION_DENY_GROUP_CLASS : "flex flex-col gap-2"
+          }
         >
-          {isSubmitting && activeKey === option.key ? (
-            <Loader2Icon
-              className="animate-spin"
-              aria-label={t("sidebar.permissionGateBody.sending", "Sending")}
-            />
-          ) : null}
-          <span className="truncate">{option.label}</span>
-          {index < 9 ? <KeyboardOnlyShortcutHint keys={[String(index + 1)]} /> : null}
-        </Button>
-      ))}
+          {denying.map(phoneAction)}
+        </div>
+      )}
     </div>
   );
 }

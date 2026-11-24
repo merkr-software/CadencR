@@ -531,16 +531,19 @@
  * resolve to a ~2% white fill and a 12% rim in Frost — near-invisible against
  * the glass panel above. Give resting tiles a more present inset fill and a
  * crisper rim so each reads as a tappable surface. `:not(.border-primary)`
- * leaves the selected state (azure `border-primary` + `bg-primary/5`) untouched;
+ * leaves the selected state (azure `border-primary` + `bg-primary/5`) and the
+ * phone layout's outlined Deny (`data-tone="destructive"`) untouched;
  * the keyboard-highlight ring also survives — it's only the tile bg wash it
  * replaces. Per-theme tints live in the `--option-card-*` tokens. */
-:root[data-theme="frost-dark"] .agent-option-card:not(.border-primary),
-:root[data-theme="frost-light"] .agent-option-card:not(.border-primary) {
+:root[data-theme="frost-dark"] .agent-option-card:not(.border-primary, [data-tone="destructive"]),
+:root[data-theme="frost-light"] .agent-option-card:not(.border-primary, [data-tone="destructive"]) {
   background-color: var(--option-card-bg);
   border-color: var(--option-card-border);
 }
-:root[data-theme="frost-dark"] .agent-option-card:not(.border-primary):hover,
-:root[data-theme="frost-light"] .agent-option-card:not(.border-primary):hover {
+:root[data-theme="frost-dark"]
+  .agent-option-card:not(.border-primary, [data-tone="destructive"]):hover,
+:root[data-theme="frost-light"]
+  .agent-option-card:not(.border-primary, [data-tone="destructive"]):hover {
   background-color: var(--option-card-bg-hover);
   border-color: var(--option-card-border-hover);
 }

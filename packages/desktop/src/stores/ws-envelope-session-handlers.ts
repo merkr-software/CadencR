@@ -256,7 +256,14 @@ export function handlePermissionRequest(
     );
   } else if (p.tool_name === "AskUserQuestion") {
     const toolInput = p.tool_input ?? {};
-    const questions: AgentQuestion[] = parseAskUserQuestions(toolInput);
+    // A reconnect re-sends the waiting question under the same request id: keep
+    // the stored list so its identity (which names the request for the phone
+    // "Later" state) holds and a question put off stays put off.
+    const resent =
+      session?.pendingQuestions?.length && session.pendingRequestId === p.request_id
+        ? session.pendingQuestions
+        : null;
+    const questions: AgentQuestion[] = resent ?? parseAskUserQuestions(toolInput);
     ctx.set(
       updateSession(ctx.get(), sessionId, {
         pendingRequestId: p.request_id,

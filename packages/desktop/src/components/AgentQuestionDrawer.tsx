@@ -2,8 +2,10 @@ import { useUiTranslation } from "@/lib/i18n/ui";
 import type { QuestionDraftIdentity } from "@/stores/question-drafts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
 import { Loader2Icon, SendIcon } from "lucide-react";
+import { GateStopButton } from "./GatePhoneActions";
 import { AgentQuestionHeader } from "./agent-question/AgentQuestionHeader";
 import { AgentQuestionOptionList } from "./agent-question/AgentQuestionOptionList";
 import { useAgentQuestionForm } from "./agent-question/useAgentQuestionForm";
@@ -19,6 +21,12 @@ interface AgentQuestionDrawerProps {
   onSubmit: (response: AgentQuestionAnswers) => void;
   /** Called when the user closes the gate without answering it */
   onCancel?: () => void;
+  /**
+   * Folds the question away unanswered, the agent still waiting (phone
+   * layout: "Later" replaces the close button, Escape does the same, and
+   * stopping the agent asks first).
+   */
+  onLater?: () => void;
   /** Whether the drawer is visible */
   open: boolean;
   /** When true, uses tighter spacing for inline rendering inside AgentPromptBar */
@@ -31,14 +39,30 @@ interface AgentQuestionContentProps {
   form: ReturnType<typeof useAgentQuestionForm>;
   inline?: boolean;
   onCancel?: () => void;
+  /** Phone layout only (see `AgentQuestionDrawerProps.onLater`). */
+  onLater?: () => void;
   questionCount: number;
   isSubmitting?: boolean;
+}
+
+/**
+ * An option's preview, capped against the visible height (it shrinks with a
+ * phone keyboard up) so a tall diagram scrolls in place rather than pushing
+ * Submit below the fold.
+ */
+function QuestionPreview({ text }: { text: string }): React.ReactElement {
+  return (
+    <pre className="mb-2 max-h-[min(16rem,calc(var(--app-vh,100dvh)*0.3))] overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground">
+      {text}
+    </pre>
+  );
 }
 
 function AgentQuestionContent({
   form,
   inline,
   onCancel,
+  onLater,
   questionCount,
   isSubmitting,
 }: AgentQuestionContentProps): React.ReactElement {
@@ -55,7 +79,7 @@ function AgentQuestionContent({
         inline ? "px-3 py-2" : "border-t border-border px-4 py-3",
       )}
     >
-      {(questionCount > 1 || onCancel) && (
+      {(questionCount > 1 || onCancel || onLater) && (
         <AgentQuestionHeader
           questionsLength={questionCount}
           currentIndex={form.currentIndex}
@@ -63,24 +87,15 @@ function AgentQuestionContent({
           canGoForward={form.canGoForward}
           onBack={form.handleBack}
           onForward={form.handleForward}
-          onCancel={onCancel}
+          onCancel={onLater ? undefined : onCancel}
+          onLater={onLater}
         />
       )}
       <p className={cn("text-sm font-medium text-foreground", inline ? "mb-2" : "mb-3")}>
         {currentQuestion.question}
       </p>
-      {/* Capped against the visible height (it shrinks with a phone keyboard
-          up) so a tall diagram scrolls in place rather than pushing Submit
-          below the fold. Keyed so each option's diagram opens scrolled to its
-          top-left. */}
-      {selectedPreview && (
-        <pre
-          key={selectedPreview}
-          className="mb-2 max-h-[min(16rem,calc(var(--app-vh,100dvh)*0.3))] overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] leading-tight text-foreground"
-        >
-          {selectedPreview}
-        </pre>
-      )}
+      {/* Keyed so each option's diagram opens scrolled to its top-left. */}
+      {selectedPreview && <QuestionPreview key={selectedPreview} text={selectedPreview} />}
       {hasOptions && (
         <AgentQuestionOptionList
           options={currentQuestion.options!}
@@ -116,8 +131,14 @@ function AgentQuestionContent({
           />
         </div>
       )}
-      <div className="flex justify-end">
-        <Button size="sm" disabled={!hasAnswer} onClick={form.handleNext}>
+      <div className={cn("flex justify-end", onLater && "items-center justify-between")}>
+        {onLater && onCancel && <GateStopButton onStop={onCancel} disabled={isSubmitting} />}
+        <Button
+          size="sm"
+          disabled={!hasAnswer}
+          onClick={form.handleNext}
+          className={onLater ? "h-11 px-4" : undefined}
+        >
           {isSubmitting ? (
             <Loader2Icon className="mr-1.5 size-3 animate-spin" />
           ) : (
@@ -142,6 +163,7 @@ export function AgentQuestionDrawer({
   questions,
   onSubmit,
   onCancel,
+  onLater,
   open,
   inline,
   disableShortcuts,
@@ -149,11 +171,13 @@ export function AgentQuestionDrawer({
   isSubmitting,
 }: AgentQuestionDrawerProps) {
   const form = useAgentQuestionForm({ questions, onSubmit, draftIdentity });
+  const phoneLater = useIsMobile() ? onLater : undefined;
 
   useAgentQuestionShortcuts({
     open: open && !isSubmitting,
     disableShortcuts,
-    onCancel,
+    // On phone, Escape puts the question off like "Later": it never stops the agent.
+    onCancel: phoneLater ?? onCancel,
     currentQuestion: form.currentQuestion,
     showOther: form.showOther,
     freeTextFocused: form.freeTextFocused,
@@ -184,6 +208,7 @@ export function AgentQuestionDrawer({
         form={form}
         inline={inline}
         onCancel={onCancel}
+        onLater={phoneLater}
         questionCount={questions.length}
       />
     </fieldset>

@@ -30,7 +30,8 @@ interface AgentQuestionOptionListProps {
 }
 
 const LAYOUT_CARD_CLASS = {
-  drawer: "",
+  // The phone layout's in-chat form: every card a 44px touch target.
+  drawer: "phone:min-h-11",
   compact: "px-2.5 py-1.5",
   touch: "min-h-11 px-3 py-2.5",
 } as const;

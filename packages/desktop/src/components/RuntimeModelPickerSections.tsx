@@ -293,7 +293,8 @@ function FavoriteToggle({
         onToggle();
       }}
       className={cn(
-        "size-4 shrink-0 p-0",
+        // In the phone sheet the star is a 44px touch target that takes no more room.
+        "size-4 shrink-0 p-0 phone:-my-3.5 phone:-mr-2 phone:size-11",
         isFavorite
           ? "text-[var(--acc-yellow)]"
           : "text-muted-foreground opacity-0 group-hover/model:opacity-100 group-data-[selected=true]/model:opacity-100",

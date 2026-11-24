@@ -69,6 +69,7 @@ function SpecialPrompt({
         permission={special.visiblePermission}
         onDecision={props.onPermissionDecision}
         onCancel={props.onGateClose}
+        onLater={special.putPermissionOff}
         disableShortcuts={props.disableShortcuts}
         isSubmitting={!!props.isSubmittingPermission}
       />
@@ -99,6 +100,7 @@ function SpecialPrompt({
         open
         onSubmit={props.onQuestionResponse}
         onCancel={props.onGateClose}
+        onLater={special.putQuestionOff}
         inline
         disableShortcuts={props.disableShortcuts}
       />

@@ -12,21 +12,16 @@ import {
 } from "@/components/RuntimeModelPicker";
 import { SlidingText } from "@/components/SlidingText";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
-import { ThinkingEffortBars } from "@/components/ThinkingEffortBars";
-import {
-  nextThinkingEffort,
-  thinkingEffortLabel,
-  type ThinkingEffortLevel,
-} from "@/shared/thinking-effort";
+import { nextThinkingEffort, type ThinkingEffortLevel } from "@/shared/thinking-effort";
 import type { RuntimeSelection } from "@/shared/models";
 import { ShortcutTooltip } from "../ShortcutTooltip";
+import { MODEL_SEGMENT, ThinkingEffortSegment } from "./ThinkingEffortSegment";
 
 export type Model = RuntimeModelPickerModel;
 export type Provider = RuntimeModelPickerProvider;
 
 const MODEL_GROUP =
   "inline-flex h-8 items-stretch rounded-md border border-[var(--chip-violet-fg)]/15 bg-[var(--chip-violet-bg)]/12 text-[11px] font-medium text-[var(--chip-violet-soft)] shadow-sm";
-const MODEL_SEGMENT = "inline-flex h-full items-center gap-1.5 px-2.5 transition-colors";
 // Inside the composer card the model control is a run of plain instruments:
 // neutral ink, no border, wash or tint — the provider's icon is the only
 // color, so the row reads as one calm strip (DESIGN.md › Composer).
@@ -41,11 +36,6 @@ function modelLabelFor(
   const resolvedId = resolveProviderModelAlias(selection.providerId, selection.modelId, models);
   return models.find((model) => model.id === resolvedId)?.label ?? selection.modelId;
 }
-
-// In the composer these answer to the instrument row they sit in (either of
-// the card's two rows, which share its width): labels hold until the card
-// itself gets genuinely tight.
-const INSTRUMENT_LABELS = "@max-[26rem]:hidden";
 
 interface ModelMetaChipProps {
   open: boolean;
@@ -151,6 +141,7 @@ export function ModelMetaChip({
           selectedThinkingEffort={selectedThinkingEffort}
           supportedThinkingEfforts={supportedThinkingEfforts}
           onCycle={handleThinkingEffortCycle}
+          onChange={onThinkingEffortChange}
           trailingSegment={supportsFastMode && !!onFastModeChange}
           instrument={variant === "instrument"}
         />
@@ -252,73 +243,5 @@ function ModelIcon({
     <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
   ) : (
     <ProviderIcon providerId={providerId} alt={label} className="size-3.5 rounded-sm shrink-0" />
-  );
-}
-
-interface ThinkingEffortSegmentProps {
-  displayedThinkingEffort: ThinkingEffortLevel;
-  selectedThinkingEffort?: ThinkingEffortLevel;
-  supportedThinkingEfforts: ThinkingEffortLevel[];
-  onCycle: () => void;
-  trailingSegment: boolean;
-  /** Composer instrument row: neutral bars, the effort named beside them. */
-  instrument?: boolean;
-}
-
-function ThinkingEffortSegment({
-  displayedThinkingEffort,
-  selectedThinkingEffort,
-  supportedThinkingEfforts,
-  onCycle,
-  trailingSegment,
-  instrument = false,
-}: ThinkingEffortSegmentProps): ReactNode {
-  const { t } = useUiTranslation();
-  const thinkingKeys = useShortcutKeys("agent-thinking");
-  return (
-    <>
-      {!instrument && <div className="w-px bg-[var(--chip-violet-soft)]/15" aria-hidden="true" />}
-      <ShortcutTooltip
-        label={t(
-          "conversation.stream.modelMetaChip.thinkingEffort",
-          "Thinking effort: {{effort}}",
-          { effort: thinkingEffortLabel(displayedThinkingEffort) },
-        )}
-        keys={thinkingKeys}
-      >
-        <button
-          type="button"
-          onClick={onCycle}
-          className={
-            instrument
-              ? "composer-instrument gap-1.5 text-muted-foreground hover:text-foreground"
-              : cn(
-                  MODEL_SEGMENT,
-                  "px-2 text-[var(--chip-violet-soft)] hover:bg-[var(--chip-violet-bg)]/10",
-                  !trailingSegment && "rounded-r-md",
-                )
-          }
-          aria-label={t(
-            "conversation.stream.modelMetaChip.cycleThinkingEffort",
-            "Cycle thinking effort",
-          )}
-        >
-          <ThinkingEffortBars
-            levels={supportedThinkingEfforts}
-            value={selectedThinkingEffort}
-            compact
-            tone={instrument ? "neutral" : "violet"}
-          />
-          {instrument && (
-            <span aria-hidden="true" className={INSTRUMENT_LABELS}>
-              {/* Unset means the provider's own default — never claim a level. */}
-              {selectedThinkingEffort
-                ? thinkingEffortLabel(selectedThinkingEffort)
-                : t("conversation.stream.modelMetaChip.effort", "Effort")}
-            </span>
-          )}
-        </button>
-      </ShortcutTooltip>
-    </>
   );
 }

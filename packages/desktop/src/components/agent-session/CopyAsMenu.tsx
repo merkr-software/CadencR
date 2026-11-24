@@ -8,11 +8,11 @@ import {
   MessageSquareIcon,
 } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  AdaptiveMenu,
+  AdaptiveMenuContent,
+  AdaptiveMenuItem,
+  AdaptiveMenuTrigger,
+} from "@/components/PhoneSheetMenu";
 import { useIsTouchDevice } from "@/hooks/useIsTouchDevice";
 import { rangeToEmailHtml } from "@/lib/email-export";
 import { copyAs, type ExportFormat } from "@/lib/markdown-export";
@@ -61,7 +61,7 @@ interface CopyAsMenuProps {
 }
 
 /**
- * Touch-only "Copy as" dropdown for a message's action row. On desktop the
+ * Touch-only "Copy as" menu for a message's action row (a sheet in the phone layout). On desktop the
  * same formats live in the right-click block menu, which touch devices don't
  * get (see `useTouchSafeTriggerProps`).
  */
@@ -81,8 +81,8 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <AdaptiveMenu>
+      <AdaptiveMenuTrigger asChild>
         <button
           type="button"
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
@@ -90,15 +90,15 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
           <span>{t("conversation.stream.copyAsMenu.copyAs", "Copy as")}</span>
           <ChevronDownIcon className="size-3" />
         </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      </AdaptiveMenuTrigger>
+      <AdaptiveMenuContent align="start" sheetTitle="Copy as" sheetTitleVisible>
         {COPY_AS_FORMATS.map(({ format, label, icon: Icon }) => (
-          <DropdownMenuItem key={format} onSelect={() => copy(format)}>
+          <AdaptiveMenuItem key={format} onSelect={() => copy(format)}>
             <Icon className="size-4" />
             {label}
-          </DropdownMenuItem>
+          </AdaptiveMenuItem>
         ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </AdaptiveMenuContent>
+    </AdaptiveMenu>
   );
 }

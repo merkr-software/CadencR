@@ -2,6 +2,7 @@ import { memo } from "react";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { GateLaterButton } from "@/components/GatePhoneActions";
 import { MessageCircleQuestionIcon, ChevronLeftIcon, ChevronRightIcon, X } from "lucide-react";
 
 interface AgentQuestionHeaderProps {
@@ -12,9 +13,11 @@ interface AgentQuestionHeaderProps {
   onBack: () => void;
   onForward: () => void;
   onCancel?: () => void;
+  /** Phone layout: "Later" in place of the close button, which stops the agent. */
+  onLater?: () => void;
 }
 
-/** Progress indicator (multi-question) + dismiss X for the agent question drawer. */
+/** Progress indicator (multi-question) + dismiss X (or "Later" on phone) for the agent question drawer. */
 function AgentQuestionHeaderComponent({
   questionsLength,
   currentIndex,
@@ -23,6 +26,7 @@ function AgentQuestionHeaderComponent({
   onBack,
   onForward,
   onCancel,
+  onLater,
 }: AgentQuestionHeaderProps) {
   const { t } = useUiTranslation();
   return (
@@ -62,6 +66,7 @@ function AgentQuestionHeaderComponent({
           </button>
         </>
       )}
+      {onLater && <GateLaterButton onLater={onLater} />}
       {onCancel && (
         <Button
           type="button"

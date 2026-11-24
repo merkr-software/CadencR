@@ -100,8 +100,13 @@ function useSpecialPromptState(props: AgentPromptBarProps, state: PromptState) {
     !!deferred.visiblePermission ||
     !!deferred.visiblePlanApproval ||
     !!deferred.visibleQuestions?.length;
+  const putOffCount = Number(deferred.permissionLater) + Number(deferred.questionsLater);
+  const putOffCountRef = useRef(putOffCount);
   useEffect(() => {
+    const putOff = putOffCount > putOffCountRef.current;
+    putOffCountRef.current = putOffCount;
     if (hasSpecialState) {
+      if (state.hadSpecialStateRef.current) return;
       state.hadSpecialStateRef.current = true;
       state.shouldRestoreFocusRef.current = !!state.wrapperRef.current?.contains(
         document.activeElement,
@@ -110,11 +115,13 @@ function useSpecialPromptState(props: AgentPromptBarProps, state: PromptState) {
     }
     if (!state.hadSpecialStateRef.current) return;
     state.hadSpecialStateRef.current = false;
-    if (!state.shouldRestoreFocusRef.current) return;
+    const restore = state.shouldRestoreFocusRef.current;
     state.shouldRestoreFocusRef.current = false;
-    requestAnimationFrame(() => state.editorRef.current?.focus());
+    // A gate put off ("Later") hands focus to its pending row's button instead.
+    if (restore && !putOff) requestAnimationFrame(() => state.editorRef.current?.focus());
   }, [
     hasSpecialState,
+    putOffCount,
     state.editorRef,
     state.hadSpecialStateRef,
     state.shouldRestoreFocusRef,
@@ -160,7 +167,11 @@ function usePromptSending(
       state.attachments.attachments.length > 0 ||
       contextual.contextItemCount > 0;
   const canSend =
-    hasSendableContent && !props.disabled && !send.sending && !special.permissionDeferred;
+    hasSendableContent &&
+    !props.disabled &&
+    !send.sending &&
+    !special.permissionDeferred &&
+    !special.permissionLater;
   const handleSend = useCallback((): void => {
     if (!canSend) return;
     const run = isShellCommandMode ? props.onSend : contextual.withContext(props.onSend);
