@@ -528,37 +528,12 @@ mod tests {
             .unwrap();
         assert!(body.len() > 1024, "{body:?}");
 
-        // A static SPA asset on the remote listener: public, so no device
-        // token is needed to reach the compression layer.
-        let renderer = tempfile::tempdir().unwrap();
-        std::fs::create_dir(renderer.path().join("assets")).unwrap();
-        std::fs::write(
-            renderer.path().join("assets/app.js"),
-            "let x = 1;\n".repeat(4096),
-        )
-        .unwrap();
-        std::fs::write(renderer.path().join("index.html"), "<html></html>").unwrap();
-        let context = crate::remote::RemoteContext {
-            allowed_hosts: std::sync::Arc::new(vec!["remote.test".to_string()]),
-            allowed_origins: std::sync::Arc::new(Vec::new()),
-            pepper: std::sync::Arc::new(vec![7; 32]),
-        };
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        let remote = super::build_remote_router(
-            crate::app_state::AppState::with_pool(pool),
-            renderer.path(),
-            context,
-        );
-        let asset = Request::get("/assets/app.js")
-            .header("host", "remote.test")
-            .header("accept-encoding", "br, gzip")
-            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
-                [192, 168, 1, 20],
-                50_000,
-            ))))
-            .body(Body::empty())
-            .unwrap();
-        let compressed = remote.oneshot(asset).await.unwrap();
+        // A static SPA asset without a build-time copy on the remote
+        // listener: compressed as it is served.
+        let renderer = crate::remote::spa_test_support::renderer(false);
+        let compressed =
+            crate::remote::spa_test_support::get(renderer.path(), "/assets/app.js", "br, gzip")
+                .await;
         assert!(
             compressed.status().is_success(),
             "{:?}",

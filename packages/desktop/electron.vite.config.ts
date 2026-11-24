@@ -25,6 +25,7 @@ import {
   excalidrawFontFallbackVitePlugin,
 } from "./electron/excalidraw-font-fallback";
 import { rendererBuildInfo } from "./electron/renderer-build-info";
+import { precompressRendererPlugin } from "./electron/precompress-renderer";
 import pkg from "./package.json" with { type: "json" };
 
 const rendererDiagnostics = rendererBuildInfo(pkg.version);
@@ -276,6 +277,8 @@ export default defineConfig(({ mode }) => {
           generatedRouteTree: "src/routeTree.gen.ts",
           routeFileIgnorePattern: ".test.tsx?$",
         }),
+        // Last: compresses what every plugin above wrote into the output.
+        precompressRendererPlugin(),
       ],
       build: {
         // Opt-in diagnostics: retain mappings without automatic browser downloads.
