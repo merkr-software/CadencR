@@ -2,10 +2,12 @@ mod close;
 mod compact;
 mod compact_turn;
 mod implementation;
+mod interrupt;
 mod modes;
 mod prompt;
 
 pub use implementation::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
+pub(super) use interrupt::queue_stop_escalation;
 pub(super) use modes::select_value;
 
 use crate::domain::agents::adapter::RuntimeError;
@@ -596,6 +598,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn interrupt_does_not_deadlock_when_admission_lock_is_held() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let session = assembled_session(&client, "s-cancel-admission", false);
+        let _held_admission = session.prompt_turn_lock.lock_admission().await;
+
+        tokio::time::timeout(Duration::from_secs(2), session.interrupt())
+            .await
+            .expect("interrupt must not deadlock behind a held admission lock")
+            .unwrap();
+        let cancel = read_one_request(&mut agent_stdin).await;
+        assert_eq!(cancel["method"], "session/cancel");
+    }
+
+    #[tokio::test]
     async fn requires_prompt_queue_tracks_live_compaction_lifecycle() {
         struct CompactHooks;
         #[async_trait::async_trait]
@@ -651,6 +667,32 @@ mod tests {
             !session.requires_prompt_queue(),
             "compaction must clear requires_prompt_queue before Result"
         );
+    }
+
+    #[tokio::test]
+    async fn terminate_unresponsive_stop_queues_escalation_and_shuts_down_transport() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-force-stop", false);
+        let mut runtime_rx = session.take_message_rx();
+
+        assert!(
+            session
+                .terminate_unresponsive_stop("stuck detached reply".into())
+                .await
+        );
+        let escalation = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect_err("visible stop escalation");
+        assert!(escalation.is_stop_escalation(), "{escalation:?}");
+        assert!(escalation.to_string().contains("stuck detached reply"));
+        let mut line = String::new();
+        let read = tokio::time::timeout(Duration::from_secs(2), agent_stdin.read_line(&mut line))
+            .await
+            .expect("transport must be shut down")
+            .unwrap();
+        assert_eq!(read, 0);
     }
 
     #[tokio::test]

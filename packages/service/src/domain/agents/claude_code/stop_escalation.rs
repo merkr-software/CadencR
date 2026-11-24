@@ -51,6 +51,17 @@ async fn terminate_ignored_stop(
         "Claude Code did not stop within {}s; its process was terminated.",
         waited.as_secs().max(1)
     );
+    terminate_with_reason(query, message, events).await;
+}
+
+/// Kill the Claude Code process and surface `message` as a visible stop
+/// escalation on the runtime stream. Used both by `interrupt_or_terminate` and
+/// by the service-level stop watchdog (e.g. when only background agents remain).
+pub(super) async fn terminate_with_reason(
+    query: &claude_agent_sdk_rs::Query,
+    message: String,
+    events: Option<&RuntimeEventSender>,
+) {
     tracing::warn!("{message}");
     // Holding a sender keeps the stream open, so the reason still reaches the
     // reader ahead of the stream's end. It is sent from its own task: the

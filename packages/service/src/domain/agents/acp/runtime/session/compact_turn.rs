@@ -79,7 +79,14 @@ impl CompactTurn {
         else {
             return Ok(());
         };
-        let (response, resume_updates) = reply.after_prior_events().await?;
+        let (response, resume_updates) = match reply
+            .after_prior_events(&self.client, &self.prompt_cancel, &self.local_tx)
+            .await
+        {
+            Ok(pair) => pair,
+            Err(error) if error.is_stop_escalation() => return Ok(()),
+            Err(error) => return Err(error),
+        };
         let stop_reason = response.get("stopReason").and_then(Value::as_str);
         let cancelled = stop_reason == Some("cancelled");
         let provider_boundary_emitted = self
@@ -174,6 +181,8 @@ async fn emit_manual_compact_boundary(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::domain::agents::acp::runtime::standard_hooks::StandardAcpHooks;
     use crate::domain::agents::acp::runtime::test_support::{
@@ -266,6 +275,59 @@ mod tests {
             "cancelled compaction must not fabricate a CompactBoundary"
         );
         assert!(events.iter().any(RuntimeEvent::is_result));
+        assert!(!running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn barrier_stop_escalation_in_compact_turn_returns_ok_without_compact_error() {
+        let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+        // Keep reliable event receiver open without acknowledging barriers.
+        let _stalled = client.subscribe_reliable();
+        let (tx, mut rx) = mpsc::channel(8);
+        let running = Arc::new(AtomicBool::new(true));
+        let cancel = PromptCancel::new().with_cancel_grace(Duration::from_millis(80));
+        let turn = CompactTurn {
+            client: client.clone(),
+            session_id_lock: Arc::new(RwLock::new(Some("s-compact-esc".into()))),
+            current_model: Arc::new(RwLock::new(None)),
+            current_effort: Arc::new(RwLock::new(None)),
+            supports_set_config_option: Arc::new(AtomicBool::new(false)),
+            local_tx: tx,
+            indexer: Arc::new(StdMutex::new(EventIndexer::default())),
+            context_window: None,
+            prompt_turn_lock: PromptTurnLock::default(),
+            prompt_cancel: cancel.clone(),
+            closing: Arc::new(AtomicBool::new(false)),
+            running: Arc::clone(&running),
+            replay_suppression: Arc::new(AtomicBool::new(false)),
+            initial_session_id: "s-compact-esc".into(),
+            compact_prompt: Some("/compact".into()),
+            hooks: Arc::new(StandardAcpHooks),
+        };
+        let handle = tokio::spawn(turn.run());
+        let request = read_request(&mut stdin).await;
+        send_response(
+            &mut stdout,
+            request["id"].clone(),
+            json!({ "stopReason": "cancelled" }),
+        )
+        .await;
+        cancel.cancel_current_turn();
+
+        // Must return Ok(()) so spawn_compact_turn does not re-wrap as COMPACT_ERROR.
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("barrier escalation must settle CompactTurn")
+            .unwrap()
+            .expect("stop escalation must not bubble as COMPACT_ERROR");
+        let mut saw_escalation = false;
+        while let Ok(item) = rx.try_recv() {
+            if let Err(err) = item {
+                assert!(err.is_stop_escalation(), "{err:?}");
+                saw_escalation = true;
+            }
+        }
+        assert!(saw_escalation);
         assert!(!running.load(Ordering::SeqCst));
     }
 }

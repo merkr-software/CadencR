@@ -1,7 +1,7 @@
 //! Logical-turn generations and interruption identity for service-owned runtimes.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex as StdMutex, Weak};
 
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
@@ -43,6 +43,9 @@ struct InterruptedTurn {
     runtime: RuntimeSessionWeakHandle,
 }
 
+type StopWatchKey = (i64, Option<u64>);
+type StopWatchSet = Arc<StdMutex<HashSet<StopWatchKey>>>;
+
 /// Maps `agent_sessions.id` to its canonical runtime cell and logical turn.
 #[derive(Default)]
 pub struct ActiveTurnRegistry {
@@ -50,12 +53,46 @@ pub struct ActiveTurnRegistry {
     generation_changes: KeyedLocks<i64>,
     followup_delivery: KeyedLocks<i64>,
     prompt_queue_drain: KeyedLocks<i64>,
+    stop_watches: StopWatchSet,
     followups: FollowupStops,
+}
+
+/// Drop guard that releases an active stop-watchdog slot for `(session_id, generation)`.
+pub(in crate::domain::ws_session) struct StopWatchGuard {
+    watches: StopWatchSet,
+    key: StopWatchKey,
+}
+
+impl Drop for StopWatchGuard {
+    fn drop(&mut self) {
+        self.watches
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.key);
+    }
 }
 
 impl ActiveTurnRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Deduplicate Stop escalation watchdogs / reconcilers per `(session, generation)`.
+    pub(in crate::domain::ws_session) fn try_claim_stop_watch(
+        &self,
+        db_session_id: i64,
+        generation: Option<u64>,
+    ) -> Option<StopWatchGuard> {
+        let key = (db_session_id, generation);
+        let inserted = self
+            .stop_watches
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(key);
+        inserted.then(|| StopWatchGuard {
+            watches: Arc::clone(&self.stop_watches),
+            key,
+        })
     }
 
     /// Which follow-ups a user Stop cancels (see [`FollowupStops`]).
@@ -120,7 +157,10 @@ impl ActiveTurnRegistry {
 
     /// Keep the generation stable across a detached completion's status and
     /// transcript writes. Other sessions can still begin their own turns.
-    pub(super) async fn lock_turn_generation(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+    pub(in crate::domain::ws_session) async fn lock_turn_generation(
+        &self,
+        db_session_id: i64,
+    ) -> OwnedMutexGuard<()> {
         self.generation_changes
             .lock_for(&db_session_id)
             .await
@@ -246,6 +286,15 @@ impl ActiveTurnRegistry {
             .await
             .get(&db_session_id)
             .is_some_and(|turn| turn.generation == generation)
+    }
+
+    /// Whether `generation` is still the current turn and has not ended yet.
+    pub(crate) async fn is_running_generation(&self, db_session_id: i64, generation: u64) -> bool {
+        self.turns
+            .lock()
+            .await
+            .get(&db_session_id)
+            .is_some_and(|turn| turn.generation == generation && !turn.ended)
     }
 
     /// Resolve the runtime cell for a live logical turn. The service registry

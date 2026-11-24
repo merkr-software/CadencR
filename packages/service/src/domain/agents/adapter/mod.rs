@@ -42,7 +42,7 @@ pub use permission::{
 pub(crate) use session::test_support::DummySession;
 pub use session::{
     AgentRuntimeSession, RuntimeMessageRx, RuntimeSessionHandle, RuntimeSessionWeakHandle,
-    RuntimeToolPermissionHandler, WithdrawnInputs,
+    RuntimeToolPermissionHandler, WithdrawnInputs, STOP_ESCALATION_GRACE,
 };
 pub use session_config::{
     RuntimeSessionConfigChoices, RuntimeSessionConfigKind, RuntimeSessionConfigOption,

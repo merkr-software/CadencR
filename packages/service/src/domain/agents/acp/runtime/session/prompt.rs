@@ -84,6 +84,7 @@ impl AcpRuntimeSession {
         )
         .await;
         CompletePrompt::builder()
+            .client(&self.client)
             .tx(self.local_tx())
             .indexer(&self.indexer)
             .session_id(&session_id)
