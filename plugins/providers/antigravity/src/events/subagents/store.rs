@@ -22,7 +22,7 @@ pub(super) struct NativeChild {
     pub(super) transcript: PathBuf,
 }
 
-pub(super) fn native_brain(args: &[OsString]) -> Option<PathBuf> {
+pub(crate) fn native_brain(args: &[OsString]) -> Option<PathBuf> {
     let home = PathBuf::from(std::env::var_os("HOME")?);
     if !home.is_absolute() {
         return None;
@@ -63,7 +63,7 @@ fn relative_directory<'a>(
     .then_some(path)
 }
 
-pub(super) fn uuid_segment(value: &str) -> bool {
+pub(in crate::events) fn uuid_segment(value: &str) -> bool {
     value.len() == 36
         && value.bytes().enumerate().all(|(index, byte)| {
             if matches!(index, 8 | 13 | 18 | 23) {
@@ -197,7 +197,7 @@ pub(super) fn read_nested_child(brain: &Path, parent: &str, id: &str) -> Option<
     })
 }
 
-pub(super) fn parent_transcript(brain: &Path, parent: &str) -> Option<PathBuf> {
+pub(in crate::events) fn parent_transcript(brain: &Path, parent: &str) -> Option<PathBuf> {
     Some(directory(&generated(brain, parent)?, "logs")?.join("transcript_full.jsonl"))
 }
 

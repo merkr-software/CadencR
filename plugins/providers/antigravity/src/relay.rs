@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::Duration;
@@ -20,16 +20,145 @@ use tokio::time::{Instant, Sleep};
 
 use crate::cli;
 use crate::config::ConfigMapper;
-use crate::events::{EventMapper, SubagentTracker};
+use crate::events::{
+    native_brain, EventMapper, ObservedUserInput, ReceiptTracker, SubagentTracker,
+};
 
 const STOP_GRACE: Duration = Duration::from_secs(1);
-const SUBAGENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const SUBAGENT_IDLE_INTERVAL: Duration = Duration::from_secs(4);
+const JOURNAL_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const JOURNAL_IDLE_INTERVAL: Duration = Duration::from_secs(4);
 
-#[derive(Default)]
 struct FrameMapper {
     config: ConfigMapper,
     events: EventMapper,
+}
+
+impl FrameMapper {
+    fn new(brain: Option<PathBuf>) -> Self {
+        Self {
+            config: ConfigMapper::default(),
+            events: EventMapper::new(brain),
+        }
+    }
+}
+
+struct JournalTracker {
+    subagents: SubagentTracker,
+    receipts: ReceiptTracker,
+}
+
+impl JournalTracker {
+    fn new(brain: Option<PathBuf>) -> Self {
+        Self {
+            subagents: SubagentTracker::with_brain(brain.clone()),
+            receipts: ReceiptTracker::with_brain(brain),
+        }
+    }
+}
+
+struct JournalPollOutput {
+    polled_subagents: bool,
+    frames: Vec<Value>,
+    user_inputs: Vec<ObservedUserInput>,
+}
+
+struct JournalPoller {
+    tracker: Option<JournalTracker>,
+    reading: Option<tokio::task::JoinHandle<(JournalTracker, JournalPollOutput)>>,
+    queued: VecDeque<Value>,
+    subagent_delay: Duration,
+    next_subagent_poll: Instant,
+}
+
+impl JournalPoller {
+    fn new(tracker: JournalTracker) -> Self {
+        Self {
+            tracker: Some(tracker),
+            reading: None,
+            queued: VecDeque::new(),
+            subagent_delay: JOURNAL_POLL_INTERVAL,
+            next_subagent_poll: Instant::now(),
+        }
+    }
+
+    fn start(&mut self, state: &RefCell<FrameMapper>) {
+        let Some(current) = self.tracker.as_mut() else {
+            return;
+        };
+        let (subagent_ops, receipt_ops) = {
+            let mut state = state.borrow_mut();
+            (
+                state.events.take_subagent_operations(),
+                state.events.take_receipt_operations(),
+            )
+        };
+        current.receipts.apply_operations(receipt_ops);
+        let poll_subagents = !subagent_ops.is_empty()
+            || (!current.subagents.is_idle()
+                && self.queued.is_empty()
+                && Instant::now() >= self.next_subagent_poll);
+        let poll_receipts = current.receipts.is_watching();
+        if !poll_subagents && !poll_receipts {
+            return;
+        }
+        let mut current = self.tracker.take().expect("tracker present");
+        self.reading = Some(tokio::task::spawn_blocking(move || {
+            let frames = if poll_subagents {
+                current.subagents.poll(subagent_ops)
+            } else {
+                Vec::new()
+            };
+            let user_inputs = if poll_receipts {
+                current.receipts.poll_watched()
+            } else {
+                Vec::new()
+            };
+            (
+                current,
+                JournalPollOutput {
+                    polled_subagents: poll_subagents,
+                    frames,
+                    user_inputs,
+                },
+            )
+        }));
+    }
+
+    fn finish(
+        &mut self,
+        state: &RefCell<FrameMapper>,
+        mut finished: JournalTracker,
+        output: JournalPollOutput,
+    ) -> Vec<Value> {
+        let mut receipt_frames = Vec::new();
+        {
+            let mut state = state.borrow_mut();
+            for (session, carrier) in finished.subagents.unobserved.drain(..) {
+                state.events.forget_child(&session, &carrier);
+            }
+            for input in output.user_inputs {
+                if let Some(frame) = state.events.observe_user_input(input) {
+                    receipt_frames.push(frame);
+                }
+            }
+            finished
+                .receipts
+                .apply_operations(state.events.take_receipt_operations());
+        }
+        if output.polled_subagents {
+            self.subagent_delay =
+                if output.frames.is_empty() && !finished.subagents.has_pending_work() {
+                    (self.subagent_delay * 2).min(JOURNAL_IDLE_INTERVAL)
+                } else {
+                    JOURNAL_POLL_INTERVAL
+                };
+            self.next_subagent_poll = Instant::now() + self.subagent_delay;
+            self.queued.extend(output.frames);
+        }
+        self.reading = None;
+        self.tracker = Some(finished);
+        receipt_frames
+    }
 }
 
 pub async fn run(binary: &Path, args: &[OsString]) -> Result<ExitCode, ProviderError> {
@@ -52,7 +181,8 @@ pub async fn run(binary: &Path, args: &[OsString]) -> Result<ExitCode, ProviderE
             "Antigravity CLI stdio pipes were unavailable.",
         ));
     };
-    let state = RefCell::new(FrameMapper::default());
+    let brain = native_brain(args);
+    let state = RefCell::new(FrameMapper::new(brain.clone()));
     let host_changed = Notify::new();
     let mut host_output = tokio::io::stdout();
     let result = tokio::select! {
@@ -62,7 +192,7 @@ pub async fn run(binary: &Path, args: &[OsString]) -> Result<ExitCode, ProviderE
             state.events.map_host(message);
             host_changed.notify_one();
         }) => result.map(|()| false),
-        result = relay_agent(child_output, &mut host_output, &state, &host_changed, SubagentTracker::new(args)) => result.map(|()| true),
+        result = relay_agent(child_output, &mut host_output, &state, &host_changed, JournalTracker::new(brain)) => result.map(|()| true),
         result = stop_signal() => result.map(|()| false),
     };
     let status = stop_child(&mut child).await;
@@ -81,16 +211,12 @@ async fn relay_agent(
     mut writer: impl AsyncWrite + Unpin,
     state: &RefCell<FrameMapper>,
     host_changed: &Notify,
-    tracker: SubagentTracker,
+    tracker: JournalTracker,
 ) -> io::Result<()> {
     let mut lines = BufReader::new(reader).lines();
-    let mut poll = tokio::time::interval(SUBAGENT_POLL_INTERVAL);
+    let mut poll = tokio::time::interval(JOURNAL_POLL_INTERVAL);
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut tracker = Some(tracker);
-    let mut reading = None::<tokio::task::JoinHandle<(SubagentTracker, Vec<Value>)>>;
-    let mut queued = VecDeque::new();
-    let mut delay = SUBAGENT_POLL_INTERVAL;
-    let mut next_poll = Instant::now();
+    let mut poller = JournalPoller::new(tracker);
     let mut detached_deadline = None;
     let detached_timer = tokio::time::sleep_until(Instant::now());
     tokio::pin!(detached_timer);
@@ -138,27 +264,18 @@ async fn relay_agent(
             },
             () = host_changed.notified() => {}
             result = async {
-                match reading.as_mut() {
+                match poller.reading.as_mut() {
                     Some(task) => task.await,
                     None => std::future::pending().await,
                 }
             } => {
-                let (mut finished, frames) = result.map_err(io::Error::other)?;
-                for (session, carrier) in finished.unobserved.drain(..) {
-                    state.borrow_mut().events.forget_child(&session, &carrier);
+                let (finished, output) = result.map_err(io::Error::other)?;
+                for frame in poller.finish(state, finished, output) {
+                    write_message(&mut writer, &frame).await?;
                 }
-                reading = None;
-                delay = if frames.is_empty() && !finished.has_pending_work() {
-                    (delay * 2).min(SUBAGENT_IDLE_INTERVAL)
-                } else {
-                    SUBAGENT_POLL_INTERVAL
-                };
-                next_poll = Instant::now() + delay;
-                tracker = Some(finished);
-                queued.extend(frames);
             }
-            () = std::future::ready(()), if !queued.is_empty() => {
-                if let Some(mut frame) = queued.pop_front() {
+            () = std::future::ready(()), if !poller.queued.is_empty() => {
+                if let Some(mut frame) = poller.queued.pop_front() {
                     let forward = state.borrow().events.can_forward_subagent(&frame);
                     if forward {
                         state.borrow_mut().events.observe_child(&mut frame);
@@ -167,19 +284,7 @@ async fn relay_agent(
                 }
             }
             _ = poll.tick() => {
-                if let Some(mut current) = tracker.take() {
-                    let operations = state.borrow_mut().events.take_subagent_operations();
-                    if operations.is_empty()
-                        && (current.is_idle() || !queued.is_empty() || Instant::now() < next_poll)
-                    {
-                        tracker = Some(current);
-                    } else {
-                        reading = Some(tokio::task::spawn_blocking(move || {
-                            let frames = current.poll(operations);
-                            (current, frames)
-                        }));
-                    }
-                }
+                poller.start(state);
             }
         }
     }
