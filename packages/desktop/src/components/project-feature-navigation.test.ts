@@ -1,10 +1,11 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Feature } from "@/api/generated";
 import {
   adjacentFeatureOutsideIds,
   archiveNavigationTarget,
   archiveFeaturesInCachedLists,
+  navigateToFeatureIdOrHome,
   removeFeatureFromCachedLists,
 } from "@/components/project-feature-navigation";
 
@@ -115,5 +116,21 @@ describe("project feature navigation cache helpers", () => {
     removeFeatureFromCachedLists(queryClient, 2);
     expect(queryClient.getQueryData<Feature[]>(key)).toBe(archived);
     queryClient.clear();
+  });
+
+  it("keeps the current project on the home route when no active conversation remains", () => {
+    const navigate = vi.fn();
+    navigateToFeatureIdOrHome(navigate as never, 7, null);
+    expect(navigate).toHaveBeenCalledWith({ to: "/", search: { projectId: 7 } });
+
+    navigate.mockClear();
+    navigateToFeatureIdOrHome(navigate as never, 7, undefined);
+    expect(navigate).toHaveBeenCalledWith({ to: "/", search: { projectId: 7 } });
+
+    navigate.mockClear();
+    navigateToFeatureIdOrHome(navigate as never, 0, null);
+    navigateToFeatureIdOrHome(navigate as never, -1, null);
+    expect(navigate).toHaveBeenNthCalledWith(1, { to: "/" });
+    expect(navigate).toHaveBeenNthCalledWith(2, { to: "/" });
   });
 });
