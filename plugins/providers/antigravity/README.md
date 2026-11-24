@@ -53,7 +53,8 @@ open, and disconnected after its last connection closes.
 With a compatible agy 1.x CLI (1.5.0 or later), pressing Enter during a turn
 sends a second ACP prompt to the same session. The agent can act on it while
 an earlier command is still running. The message appears at its submission
-position and shows a pending receipt until ACP acknowledges it. The composer's
+position and shows a pending receipt until Antigravity ingests it into the
+session transcript (or ACP settles the request). The composer's
 queue action keeps a message for the end of the turn. A new major CLI version uses the queue until
 its concurrent prompt behavior has been verified.
 
@@ -79,8 +80,8 @@ If the connector cannot find a
 readable child journal within 30 seconds, it releases that child's hold on the
 conversation. The card retains the last observed status until its runtime closes.
 
-The pre-session slash menu and child-journal format are verified with
-`agy 1.5.14`. After the session opens, ACP supplies the live command list.
+The pre-session slash menu, prompt transcript receipts, and child-journal format are verified with
+`agy 1.5.14`–`1.5.15`. After the session opens, ACP supplies the live command list.
 When investigating missing commands or child actions, check `agy --version`
 and the connector diagnostics. An unreadable optional skill or manifest is
 skipped individually. The journal determines which actions CadencR can show. Parallel calls can appear without individually

@@ -118,9 +118,17 @@ def child_journal(stage):
         raise ValueError(f"unknown child journal stage: {stage}")
 
 
-def journal_step(step_index, step_type, **fields):
-    return json.dumps(dict(step_index=step_index, source="MODEL", type=step_type,
+def journal_step(step_index, step_type, source="MODEL", **fields):
+    return json.dumps(dict(step_index=step_index, source=source, type=step_type,
                            status="DONE", **fields)) + "\n"
+
+
+def append_user_input(step_index, text):
+    transcript = Path.home() / ".gemini/antigravity-cli/brain" / session_id / ".system_generated/logs/transcript_full.jsonl"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    content = f"<USER_REQUEST>\n{text}\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nnow\n</ADDITIONAL_METADATA>"
+    with transcript.open("a") as log:
+        log.write(journal_step(step_index, "USER_INPUT", source="USER_EXPLICIT", content=content))
 
 
 def mcp_permission():
@@ -207,10 +215,25 @@ def run():
             send(id=request_id, result={"configOptions": updated})
         elif method == "fixture/finish-task":
             update("tool_call_update", toolCallId="task", status="completed")
+        elif method == "fixture/ingest-steer":
+            append_user_input(3, params["text"])
+        elif method == "fixture/finish-steer":
+            send(id=pending, result={"stopReason": "end_turn"})
+            pending = None
         elif method == "fixture/wake":
             update("agent_message_chunk", content={"type": "text", "text": "The task returned."})
             update("usage_update", used=185, size=1048576)
         elif method == "session/prompt":
+            if scenario == "steer-receipt":
+                if pending is None:
+                    pending = request_id
+                    append_user_input(0, params["prompt"][0]["text"])
+                    update("tool_call", toolCallId="task", name="run_command", status="in_progress")
+                else:
+                    previous = pending
+                    pending = request_id
+                    send(id=previous, result={"stopReason": "end_turn"})
+                continue
             if scenario == "steer-during-command":
                 if pending is None:
                     pending = request_id
