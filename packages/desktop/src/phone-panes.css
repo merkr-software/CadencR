@@ -1,0 +1,38 @@
+/* -------------------------------------------------------------------------
+ * Two panes in the phone layout (`RoutedStage`, `data-stage-panes="2"`): on a
+ * touch viewport 600px wide or more on a screen at least 600px on its short side
+ * (`<html data-panes="2">`, `lib/form-factor.ts`), the Agents inbox
+ * sits on the left of the inbox and conversation pages, the conversation (or
+ * "Pick a conversation") on the right, with its own header and tab bar.
+ *
+ * The inbox takes 40% of the width, held between 280px and 380px, behind a
+ * hairline. On a screen made of two segments side by side (a dual-screen
+ * device spanning both, `horizontal-viewport-segments: 2`) the inbox fills the
+ * first segment and the gap between the panes is the hinge, so nothing renders
+ * under the fold. Progressive: where the media feature is unknown (Safari) the
+ * clamp stands.
+ * Unlayered, like `phone-tab-bar.css`, so it wins over Tailwind utilities.
+ * ------------------------------------------------------------------------- */
+[data-stage-pane="inbox"] {
+  flex: none;
+  width: clamp(280px, 40%, 380px);
+  height: 100%;
+  min-width: 0;
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+@media (horizontal-viewport-segments: 2) {
+  [data-stage-panes="2"] {
+    column-gap: calc(env(viewport-segment-left 1 0, 0px) - env(viewport-segment-right 0 0, 0px));
+  }
+  [data-stage-pane="inbox"] {
+    width: env(viewport-segment-width 0 0, 40%);
+    box-shadow: none;
+  }
+}
+
+/* The inbox's row carries the menu button: the pane beside it drops its own
+ * (the conversation header's), so one button opens the drawer. */
+[data-stage-panes="2"] [data-stage-pane="main"] [data-sidebar-collapsed-chrome] {
+  display: none;
+}

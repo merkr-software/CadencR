@@ -9,6 +9,8 @@ interface Viewport {
   width: number;
   height: number;
   coarsePointer: boolean;
+  /** `screen.width × screen.height`; the viewport's size when omitted. */
+  screen?: readonly [number, number];
 }
 
 const viewport = vi.hoisted(() => ({
@@ -20,6 +22,8 @@ const viewport = vi.hoisted(() => ({
 function evaluate(query: string): boolean {
   const maxWidth = /^\(max-width: (\d+)px\)$/.exec(query);
   if (maxWidth) return viewport.state.width <= Number(maxWidth[1]);
+  const minWidth = /^\(min-width: (\d+)px\)$/.exec(query);
+  if (minWidth) return viewport.state.width >= Number(minWidth[1]);
   if (query === "(pointer: coarse)") return viewport.state.coarsePointer;
   throw new Error(`unexpected media query: ${query}`);
 }
@@ -34,8 +38,15 @@ const TOUCH = { coarsePointer: true };
 
 let originalMatchMedia: typeof window.matchMedia;
 
+function screenSide(index: 0 | 1): number {
+  const { screen, width, height } = viewport.state;
+  return screen ? screen[index] : index === 0 ? width : height;
+}
+
 beforeAll(() => {
   originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window.screen, "width", { configurable: true, get: () => screenSide(0) });
+  Object.defineProperty(window.screen, "height", { configurable: true, get: () => screenSide(1) });
   window.matchMedia = (query: string) =>
     ({
       media: query,
@@ -50,6 +61,8 @@ beforeAll(() => {
 
 afterAll(() => {
   window.matchMedia = originalMatchMedia;
+  Reflect.deleteProperty(window.screen, "width");
+  Reflect.deleteProperty(window.screen, "height");
 });
 
 beforeEach(() => {
@@ -57,6 +70,7 @@ beforeEach(() => {
   viewport.listeners.length = 0;
   viewport.state = { width: 1280, height: 800, ...FINE };
   delete document.documentElement.dataset.shell;
+  delete document.documentElement.dataset.panes;
 });
 
 describe("phone layout by device", () => {
@@ -82,6 +96,74 @@ describe("phone layout by device", () => {
     viewport.state = device;
     const { getPhoneShellSnapshot } = await import("./form-factor");
     expect(getPhoneShellSnapshot()).toBe(expected);
+  });
+});
+
+// The physical screens: iOS reports the portrait screen in either orientation.
+const IPHONE_SCREEN = [402, 874] as const;
+const DUO_UNFOLDED_SCREEN = [669, 825] as const;
+
+describe("panes by device", () => {
+  it.each<[string, Viewport, boolean]>([
+    ["Duo folded", { width: 382, height: 580, ...TOUCH, screen: [382, 640] }, false],
+    ["Duo unfolded", { width: 669, height: 825, ...TOUCH, screen: DUO_UNFOLDED_SCREEN }, true],
+    ["Duo unfolded, landscape", { width: 951, height: 543, ...TOUCH, screen: [825, 669] }, true],
+    ["iPhone portrait", { width: 402, height: 874, ...TOUCH, screen: IPHONE_SCREEN }, false],
+    // Wide enough, but the screen's short side leaves no room for a transcript.
+    ["iPhone landscape", { width: 874, height: 370, ...TOUCH, screen: IPHONE_SCREEN }, false],
+    [
+      "iPhone landscape, keyboard open",
+      { width: 874, height: 180, ...TOUCH, screen: IPHONE_SCREEN },
+      false,
+    ],
+    ["iPad mini portrait", { width: 744, height: 1133, ...TOUCH, screen: [744, 1133] }, true],
+    ["just under the threshold", { width: 599, height: 900, ...TOUCH }, false],
+    [
+      "wide viewport on a short screen",
+      { width: 800, height: 599, ...TOUCH, screen: [800, 599] },
+      false,
+    ],
+    ["iPad landscape (desktop layout)", { width: 1180, height: 820, ...TOUCH }, false],
+    ["desktop window, narrow (mouse)", { width: 700, height: 900, ...FINE }, false],
+    ["desktop window, wide (mouse)", { width: 1440, height: 900, ...FINE }, false],
+  ])("%s → two panes: %s", async (_name, device, expected) => {
+    viewport.state = device;
+    const { getTwoPanesSnapshot } = await import("./form-factor");
+    expect(getTwoPanesSnapshot()).toBe(expected);
+  });
+
+  it("writes data-panes and follows folding, without notifying when nothing changed", async () => {
+    viewport.state = { width: 382, height: 580, ...TOUCH, screen: [382, 640] };
+    const { installShellAttribute, subscribeFormFactor } = await import("./form-factor");
+    installShellAttribute();
+    const onChange = vi.fn();
+    subscribeFormFactor(onChange);
+    expect(document.documentElement.dataset.panes).toBe("1");
+
+    setViewport({ width: 669, height: 825, ...TOUCH, screen: DUO_UNFOLDED_SCREEN });
+    expect(document.documentElement.dataset.panes).toBe("2");
+    expect(document.documentElement.dataset.shell).toBe("phone");
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    setViewport({ width: 951, height: 543, ...TOUCH, screen: [825, 669] });
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    setViewport({ width: 382, height: 580, ...TOUCH, screen: [382, 640] });
+    expect(document.documentElement.dataset.panes).toBe("1");
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one pane on a phone turning on its side and opening its keyboard", async () => {
+    viewport.state = { width: 402, height: 874, ...TOUCH, screen: IPHONE_SCREEN };
+    const { installShellAttribute, subscribeFormFactor } = await import("./form-factor");
+    installShellAttribute();
+    const onChange = vi.fn();
+    subscribeFormFactor(onChange);
+
+    setViewport({ width: 874, height: 370, ...TOUCH, screen: IPHONE_SCREEN });
+    setViewport({ width: 874, height: 180, ...TOUCH, screen: IPHONE_SCREEN });
+    expect(document.documentElement.dataset.panes).toBe("1");
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 
@@ -167,7 +249,7 @@ describe("useIsMobile", () => {
     const touch = renderHook(() => useIsTouchDevice());
     expect(first.result.current).toBe(false);
     // One listener per media query, however many consumers subscribe.
-    expect(viewport.listeners).toHaveLength(3);
+    expect(viewport.listeners).toHaveLength(4);
 
     const before = renders;
     setViewport({ width: 1200, height: 800, ...FINE });

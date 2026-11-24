@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
   gates: {} as Record<number, unknown>,
 }));
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mocks.navigate }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mocks.navigate,
+  useMatch: () => undefined,
+}));
 vi.mock("@/lib/conversation-route", () => ({
   navigateToConversation: mocks.navigateToConversation,
 }));

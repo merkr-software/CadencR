@@ -1,5 +1,5 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { useCallback, type ReactNode, type RefObject } from "react";
+import { useCallback, type FocusEvent, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Sidebar } from "@/components/Sidebar";
@@ -19,24 +19,20 @@ interface AppShellProps {
   leftSidebarRef: RefObject<HTMLDivElement | null>;
   defaultLeftSize: string;
   onLayoutChanged: () => void;
+  /** The sidebar panel's resizes; the first after it mounts says it can be driven. */
+  onSidebarResize: () => void;
   children: ReactNode;
 }
 
-function MobileAppShell({
+/** The phone layout's drawer and the status-bar sampler, after the main column. */
+function PhoneShellChrome({
   collapsed,
   setCollapsed,
   onSearch,
-  children,
-}: Pick<AppShellProps, "collapsed" | "setCollapsed" | "onSearch" | "children">): ReactNode {
+}: Pick<AppShellProps, "collapsed" | "setCollapsed" | "onSearch">): ReactNode {
   const { t } = useUiTranslation();
   return (
-    <div className="relative flex h-[var(--app-vh)] w-full overflow-hidden">
-      <main
-        data-focus-zone="main-content"
-        className="h-full w-full min-w-0 overflow-hidden outline-none pt-[env(safe-area-inset-top)]"
-      >
-        {children}
-      </main>
+    <>
       <div aria-hidden className="mobile-status-bar" />
       <MobileDrawer
         collapsed={collapsed}
@@ -46,99 +42,60 @@ function MobileAppShell({
       >
         <Sidebar onSearch={onSearch} />
       </MobileDrawer>
+    </>
+  );
+}
+
+/** The desktop layout's sidebar, inside its resizable panel. */
+function DesktopSidebar({
+  leftSidebarRef,
+  onSearch,
+}: Pick<AppShellProps, "leftSidebarRef" | "onSearch">): ReactNode {
+  return (
+    <div
+      ref={leftSidebarRef}
+      data-focus-zone="left-sidebar"
+      tabIndex={0}
+      className="h-full outline-none"
+      onFocus={(event) => {
+        if (event.target === event.currentTarget && !event.currentTarget.matches(":active")) {
+          event.currentTarget.querySelector<HTMLElement>("[data-nav-item]")?.focus();
+        }
+      }}
+    >
+      <Sidebar onSearch={onSearch} />
     </div>
   );
 }
 
-function DesktopAppShell({
-  collapsed,
-  setCollapsed,
-  onSearch,
-  sidebarPanelRef,
-  leftSidebarRef,
-  defaultLeftSize,
-  onLayoutChanged,
-  children,
-  isDragging,
-}: Omit<AppShellProps, "isMobile"> & { isDragging: boolean }): ReactNode {
-  const expand = useCallback(() => setCollapsed(false), [setCollapsed]);
-  return (
-    <div className="flex h-full w-full">
-      {collapsed && <SidebarRail onExpand={expand} />}
-      <div className="h-full min-w-0 flex-1">
-        <ResizablePanelGroup
-          data-app-shell-resize={isDragging ? undefined : "fluid"}
-          orientation="horizontal"
-          onLayoutChanged={onLayoutChanged}
-        >
-          <ResizablePanel
-            id="sidebar"
-            panelRef={sidebarPanelRef}
-            collapsible={collapsed}
-            collapsedSize={0}
-            defaultSize={defaultLeftSize}
-            minSize={`${SIDEBAR_MIN_WIDTH}px`}
-            maxSize={`${SIDEBAR_MAX_WIDTH}px`}
-          >
-            <div
-              ref={leftSidebarRef}
-              data-focus-zone="left-sidebar"
-              tabIndex={0}
-              className="h-full outline-none"
-              onFocus={(event) => {
-                if (
-                  event.target === event.currentTarget &&
-                  !event.currentTarget.matches(":active")
-                ) {
-                  event.currentTarget.querySelector<HTMLElement>("[data-nav-item]")?.focus();
-                }
-              }}
-            >
-              <Sidebar onSearch={onSearch} />
-            </div>
-          </ResizablePanel>
-          <ResizableHandle
-            data-app-shell-handle=""
-            className={cn("cursor-col-resize", collapsed && "pointer-events-none opacity-0")}
-          />
-          <ResizablePanel id="main">
-            <main
-              data-focus-zone="main-content"
-              tabIndex={0}
-              className="h-full overflow-hidden outline-none"
-              onFocus={(event) => {
-                if (
-                  event.target !== event.currentTarget ||
-                  event.currentTarget.matches(":active")
-                ) {
-                  return;
-                }
-                const firstItem = event.currentTarget.querySelector<HTMLElement>("[data-nav-item]");
-                const textarea = event.currentTarget.querySelector<HTMLElement>("textarea");
-                (firstItem ?? textarea)?.focus();
-              }}
-            >
-              {children}
-            </main>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
-    </div>
-  );
+/** Desktop: focusing the main zone itself hands focus to its first item or the prompt. */
+function focusMainContent(event: FocusEvent<HTMLElement>): void {
+  if (event.target !== event.currentTarget || event.currentTarget.matches(":active")) return;
+  const firstItem = event.currentTarget.querySelector<HTMLElement>("[data-nav-item]");
+  const textarea = event.currentTarget.querySelector<HTMLElement>("textarea");
+  (firstItem ?? textarea)?.focus();
 }
 
 /**
- * The sidebar + main split. Desktop renders a resizable two-panel layout;
- * mobile renders the main content full-bleed with the sidebar as an
- * off-canvas drawer (collapsed = closed) so a 390px viewport isn't eaten by a
- * 200px+ rail. Both paths drive the same `collapsed`/`setCollapsed` contract
- * from `SidebarContext`, so the topbar's expand button doubles as the mobile
- * drawer trigger.
+ * The sidebar + main split, one tree for both layouts. The main content sits
+ * at the same place in it whatever the layout (shell div → column → panel
+ * group → `main` panel → `<main>`), so flipping between the phone and desktop
+ * layouts (a rotation, a fold, a window crossing the phone width) never
+ * remounts it: open dialogs stay open, the conversation keeps its scroll.
+ * Only the sidebar's container changes:
  *
- * Mobile heights flow from the `--app-vh` variable (`app-viewport.css`), which is
- * `dvh` in a browser and accounts for the installed status-bar mode in a PWA.
- * The sidebar rides in a `MobileDrawer`, positioned `absolute` within this
- * `relative` shell (see that component for the iOS-standalone rationale).
+ * - Desktop: a resizable sidebar panel and its handle before the main panel,
+ *   plus the collapsed rail before the column.
+ * - Phone: the group holds the main panel alone, full-bleed; the sidebar is an
+ *   off-canvas drawer after the column (collapsed = closed), so a 390px
+ *   viewport isn't eaten by a 200px+ rail.
+ *
+ * Both drive the same `collapsed`/`setCollapsed` contract from
+ * `SidebarContext`, so the topbar's expand button doubles as the drawer
+ * trigger. Phone heights flow from `--app-vh` (`app-viewport.css`), which is
+ * `dvh` in a browser and accounts for the installed status-bar mode in a PWA;
+ * the drawer is positioned `absolute` within the `relative` shell (see
+ * `MobileDrawer` for the iOS-standalone rationale).
  */
 export function AppShell({
   isMobile,
@@ -149,6 +106,7 @@ export function AppShell({
   leftSidebarRef,
   defaultLeftSize,
   onLayoutChanged,
+  onSidebarResize,
   children,
 }: AppShellProps): ReactNode {
   // `isDragging` is the global resize flag used only to suspend fluid layout
@@ -157,30 +115,63 @@ export function AppShell({
   // initiating pointerdown makes react-resizable-panels unregister the only
   // mounted Group before that Group can start its own drag.
   const isDragging = useIsResizing();
+  const expand = useCallback(() => setCollapsed(false), [setCollapsed]);
   // One attention resolve shared by the sidebar and the collapsed rail: the
   // sidebar stays mounted (at zero width) while the rail shows.
   return (
     <SidebarAttentionProvider>
-      {isMobile ? (
-        <MobileAppShell
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-          onSearch={onSearch}
-          children={children}
-        />
-      ) : (
-        <DesktopAppShell
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-          onSearch={onSearch}
-          sidebarPanelRef={sidebarPanelRef}
-          leftSidebarRef={leftSidebarRef}
-          defaultLeftSize={defaultLeftSize}
-          onLayoutChanged={onLayoutChanged}
-          children={children}
-          isDragging={isDragging}
-        />
-      )}
+      <div
+        data-app-shell={isMobile ? "phone" : "desktop"}
+        className={
+          isMobile ? "relative flex h-[var(--app-vh)] w-full overflow-hidden" : "flex h-full w-full"
+        }
+      >
+        {!isMobile && collapsed ? <SidebarRail onExpand={expand} /> : null}
+        <div className="h-full min-w-0 flex-1">
+          <ResizablePanelGroup
+            data-app-shell-resize={isMobile || isDragging ? undefined : "fluid"}
+            orientation="horizontal"
+            onLayoutChanged={onLayoutChanged}
+          >
+            {isMobile ? null : (
+              <ResizablePanel
+                id="sidebar"
+                panelRef={sidebarPanelRef}
+                collapsible={collapsed}
+                collapsedSize={0}
+                defaultSize={defaultLeftSize}
+                minSize={`${SIDEBAR_MIN_WIDTH}px`}
+                maxSize={`${SIDEBAR_MAX_WIDTH}px`}
+                onResize={onSidebarResize}
+              >
+                <DesktopSidebar leftSidebarRef={leftSidebarRef} onSearch={onSearch} />
+              </ResizablePanel>
+            )}
+            {isMobile ? null : (
+              <ResizableHandle
+                data-app-shell-handle=""
+                className={cn("cursor-col-resize", collapsed && "pointer-events-none opacity-0")}
+              />
+            )}
+            <ResizablePanel id="main">
+              <main
+                data-focus-zone="main-content"
+                tabIndex={isMobile ? undefined : 0}
+                className={cn(
+                  "h-full overflow-hidden outline-none",
+                  isMobile && "w-full min-w-0 pt-[env(safe-area-inset-top)]",
+                )}
+                onFocus={isMobile ? undefined : focusMainContent}
+              >
+                {children}
+              </main>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+        {isMobile ? (
+          <PhoneShellChrome collapsed={collapsed} setCollapsed={setCollapsed} onSearch={onSearch} />
+        ) : null}
+      </div>
     </SidebarAttentionProvider>
   );
 }

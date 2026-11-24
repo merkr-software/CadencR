@@ -325,13 +325,17 @@ vi.mock("@/hooks/useGitStatusSubscription", () => ({
   useGitStatusSubscription: vi.fn(),
 }));
 
-import { Route } from "./ws-session.$sessionId";
+import { WorkspacePool } from "@/components/workspace-pool/WorkspacePool";
 import { AgentSession } from "@/components/agent-session";
+/**
+ * The conversation as the root's conversation layer shows it: the route's
+ * params and search, through the pool (the route component itself renders
+ * nothing; see `ConversationLayer`).
+ */
 function WsSessionPage() {
-  const Component = (Route as unknown as { options: { component: React.ComponentType } }).options
-    ?.component;
-  if (!Component) return null;
-  return <Component />;
+  const { sessionId } = mocks.mockUseParams();
+  const search = mocks.mockUseSearch() as { cwd: string; featureId: number; projectId: number };
+  return <WorkspacePool target={{ sessionId, ...search, focusTab: undefined }} />;
 }
 
 function lastAgentSessionProps(): Record<string, unknown> {

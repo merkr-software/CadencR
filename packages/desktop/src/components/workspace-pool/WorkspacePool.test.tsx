@@ -173,6 +173,24 @@ describe("WorkspacePool", () => {
     expect(rendersOf(1)).toBe(rendersBefore);
   });
 
+  it("hides every workspace without a target and shows the same one again (the phone inbox)", () => {
+    const view = showConversations(2);
+    const rendersBefore = rendersOf(2);
+    mocks.markRead.mockClear();
+
+    view.rerender(<WorkspacePool target={null} />);
+    expect(slotOf(1).dataset.workspaceSlot).toBe("hidden");
+    expect(slotOf(2).dataset.workspaceSlot).toBe("hidden");
+    expect(slotOf(2).inert).toBe(true);
+    expect(screen.getByTestId("activity-ws-feature-2")).toHaveTextContent("hidden");
+    expect(mocks.markRead).not.toHaveBeenCalled();
+
+    view.rerender(<WorkspacePool target={target(2)} />);
+    expect(slotOf(2).dataset.workspaceSlot).toBe("active");
+    expect(mocks.mounts.get("ws-feature-2")).toBe(1);
+    expect(rendersOf(2)).toBe(rendersBefore);
+  });
+
   it("does not render a workspace shown again in the frames and tasks that follow", () => {
     vi.useFakeTimers();
     const view = render(<WorkspacePool target={target(1)} />);

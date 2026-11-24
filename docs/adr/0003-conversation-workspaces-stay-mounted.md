@@ -2,8 +2,9 @@
 
 Opening a conversation shows a workspace that is already mounted whenever it
 can, instead of unmounting the previous one and mounting a new one. The
-`ws-session` route keeps the most recently shown workspaces alive
-(`WorkspacePool`); the visible one is laid out normally and the others are
+root's conversation layer (`ConversationLayer`, shown for the `ws-session`
+route and kept mounted, all hidden, behind the phone inbox) keeps the most
+recently shown workspaces alive (`WorkspacePool`); the visible one is laid out normally and the others are
 hidden with CSS, moved out of the viewport, inert, and told they are hidden
 through a per-workspace activity store. A workspace shown for the first time
 mounts next to the previous one, from data fetched ahead of the click, and

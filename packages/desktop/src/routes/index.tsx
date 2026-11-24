@@ -12,6 +12,7 @@ import { CenteredMessage, PhoneHomeFrame } from "@/components/PhoneHomeChrome";
 import { NewConversation } from "@/components/phone-inbox/PhoneInboxNewConversation";
 import { PhoneInbox } from "@/components/phone-inbox/PhoneInbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useTwoPanes } from "@/hooks/useTwoPanes";
 import { readSavedFeature } from "@/lib/saved-feature";
 
 export const Route = createFileRoute("/")({
@@ -102,13 +103,41 @@ function HomePageStatus({
  * `#/`. The desktop layout opens the conversation last opened on this device
  * (else the project's first); the phone layout shows the "Agents" inbox
  * instead, unless a project is asked for (`?projectId=`), which opens as on
- * desktop. A link to a conversation opens it in either layout.
+ * desktop. A link to a conversation opens it in either layout. With two panes
+ * the inbox is the stage's left pane (`RoutedStage`), and this page is the
+ * right one: "Pick a conversation".
  */
 function HomePage(): ReactElement {
   const isMobile = useIsMobile();
+  const twoPanes = useTwoPanes();
   const { projectId: searchProjectId } = Route.useSearch();
-  if (isMobile && searchProjectId == null) return <PhoneInbox />;
+  if (isMobile && searchProjectId == null) {
+    return twoPanes ? <PickConversation /> : <PhoneInbox />;
+  }
   return <RestoreConversation phone={isMobile} searchProjectId={searchProjectId} />;
+}
+
+/**
+ * The right pane before a conversation is opened from the inbox beside it.
+ * New conversation shows once there is a project to start one in; a projects
+ * error shows in the inbox beside it, with its Retry.
+ */
+function PickConversation(): ReactElement {
+  const projectsQuery = useListProjects();
+  if (projectsQuery.isPending) return <CenteredMessage title="Loading..." />;
+  const projects = projectsQuery.data ?? [];
+  return (
+    <CenteredMessage
+      tone="foreground"
+      title="Pick a conversation"
+      detail={
+        projects.length > 0
+          ? "Choose one in the list, or start a new one."
+          : "Choose one in the list."
+      }
+      action={projects.length > 0 ? <NewConversation projects={projects} variant="button" /> : null}
+    />
+  );
 }
 
 function RestoreConversation({

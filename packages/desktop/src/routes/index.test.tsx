@@ -9,10 +9,11 @@ const mocks = vi.hoisted(() => {
     data: TData;
     isSuccess: boolean;
     error: Error | null;
+    isPending?: boolean;
   }
 
   const mockNavigate = vi.fn();
-  const phone = { isMobile: false, start: vi.fn(), isPending: false };
+  const phone = { isMobile: false, twoPanes: false, start: vi.fn(), isPending: false };
   const mockUseSearch = vi.fn(() => ({}));
   const mockProjectsListQuery = vi.fn<() => MockQueryResult<unknown[]>>(() => ({
     data: [],
@@ -65,6 +66,7 @@ vi.mock("../api/generated", async (importOriginal) => ({
 }));
 
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => mocks.phone.isMobile }));
+vi.mock("@/hooks/useTwoPanes", () => ({ useTwoPanes: () => mocks.phone.twoPanes }));
 vi.mock("@/hooks/useStartConversation", () => ({
   useStartConversation: () => ({ start: mocks.phone.start, isPending: mocks.phone.isPending }),
 }));
@@ -95,6 +97,7 @@ describe("HomePage route", () => {
     window.localStorage.clear();
     mocks.mockNavigate.mockClear();
     mocks.phone.isMobile = false;
+    mocks.phone.twoPanes = false;
     mocks.phone.isPending = false;
     mocks.phone.start.mockClear();
     mocks.mockUseSearch.mockReturnValue({});
@@ -150,6 +153,48 @@ describe("HomePage route", () => {
     render(<HomePage />);
     expect(screen.getByTestId("phone-inbox")).toBeInTheDocument();
     expect(mocks.mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("shows Pick a conversation beside the inbox pane when two panes show", () => {
+    mocks.phone.isMobile = true;
+    mocks.phone.twoPanes = true;
+    seedSavedFeature({ projectId: 1, featureId: 5 });
+    mocks.mockProjectsListQuery.mockReturnValue({
+      data: [{ id: 1, name: "Test", path: "/test" }],
+      isSuccess: true,
+      error: null,
+    });
+    render(<HomePage />);
+    // The inbox is the stage's own pane: this page is the right one.
+    expect(screen.queryByTestId("phone-inbox")).not.toBeInTheDocument();
+    expect(screen.getByText("Pick a conversation")).toBeInTheDocument();
+    screen.getByRole("button", { name: "New conversation" }).click();
+    expect(mocks.phone.start).toHaveBeenCalledWith(1);
+    expect(mocks.mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("shows a loader in the right pane while the projects load", () => {
+    mocks.phone.isMobile = true;
+    mocks.phone.twoPanes = true;
+    mocks.mockProjectsListQuery.mockReturnValue({
+      data: [],
+      isSuccess: false,
+      error: null,
+      isPending: true,
+    });
+    render(<HomePage />);
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+    expect(screen.queryByText("Pick a conversation")).not.toBeInTheDocument();
+  });
+
+  it("offers no new conversation in the right pane without a project", () => {
+    mocks.phone.isMobile = true;
+    mocks.phone.twoPanes = true;
+    mocks.mockProjectsListQuery.mockReturnValue({ data: [], isSuccess: true, error: null });
+    render(<HomePage />);
+    expect(screen.getByText("Pick a conversation")).toBeInTheDocument();
+    expect(screen.getByText("Choose one in the list.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New conversation" })).not.toBeInTheDocument();
   });
 
   it("opens an asked-for project on a phone as on desktop", () => {

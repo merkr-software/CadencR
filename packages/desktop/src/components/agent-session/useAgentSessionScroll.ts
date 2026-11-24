@@ -294,6 +294,7 @@ export function useAgentSessionScroll(
     setAutoScrollEnabled: pinning.setAutoScrollEnabled,
     onScrollActivity: gaps.schedule,
     onUserInput: gaps.resumeFromInput,
+    pinToEnd: pinning.pinToEnd,
   });
   return useMemo(
     () => ({

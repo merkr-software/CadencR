@@ -1,15 +1,15 @@
 import { memo, useMemo } from "react";
-import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
 import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
 import { AppWindowControls } from "@/components/AppWindowControls";
+import { RoutedStage } from "@/components/app-stage/RoutedStage";
 import { CliRequestBridge } from "@/components/cli/CliRequestBridge";
 import { CustomActionEditorHost } from "@/components/custom-actions/CustomActionEditorDialog";
 import { RunVariablesDialogHost } from "@/components/custom-actions/RunVariablesDialog";
 import { GlobalOperationToasts } from "@/components/GlobalOperationToasts";
 import { NotchChannelBridge } from "@/components/notch/NotchChannelBridge";
-import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { RootOverlays } from "@/components/RootOverlays";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { SidebarContext } from "@/components/SidebarContext";
@@ -64,34 +64,8 @@ const RootHosts = memo(function RootHosts() {
 const RootWindowControls = memo(AppWindowControls);
 const RootAppShell = memo(AppShell);
 
-/**
- * What the routed content is keyed on. Every conversation shares one key: the
- * `ws-session` page keeps its workspaces mounted across a switch
- * (`WorkspacePool`), so a switch must re-render that page, not remount it.
- */
-function routedContentKey(pathname: string): string {
-  return pathname.startsWith("/ws-session/") ? "/ws-session" : pathname;
-}
-
-/**
- * The routed page. A leaf that selects its own key, so a conversation switch
- * (same key) renders nothing in the root chain above the page.
- */
-const RoutedContent = memo(function RoutedContent() {
-  const contentKey = useRouterState({
-    select: (state) => routedContentKey(state.location.pathname),
-  });
-  return (
-    <RootErrorBoundary>
-      <div key={contentKey} className="h-full animate-in fade-in-0 duration-200 ease-out">
-        <Outlet />
-      </div>
-    </RootErrorBoundary>
-  );
-});
-
 // One element for the root's lifetime: `RootAppShell` compares its children too.
-const ROUTED_CONTENT = <RoutedContent />;
+const ROUTED_CONTENT = <RoutedStage outlet={<Outlet />} />;
 
 function RootLayout() {
   const controller = useRootLayoutController();
@@ -113,6 +87,7 @@ function RootLayout() {
             leftSidebarRef={sidebar.leftSidebarRef}
             defaultLeftSize={sidebar.defaultLeftSize}
             onLayoutChanged={sidebar.handleLayoutChanged}
+            onSidebarResize={sidebar.onSidebarResize}
             onSearch={controller.openCommandPalette}
           >
             {ROUTED_CONTENT}

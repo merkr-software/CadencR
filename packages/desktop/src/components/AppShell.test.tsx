@@ -1,4 +1,4 @@
-import { createRef, type ReactNode } from "react";
+import { createRef, useEffect, type ReactNode } from "react";
 import type { GroupProps, PanelImperativeHandle, PanelProps } from "react-resizable-panels";
 import { render, act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,6 +65,7 @@ function renderShell(collapsed: boolean, isMobile = false, setCollapsed = () => 
       leftSidebarRef={createRef<HTMLDivElement | null>()}
       defaultLeftSize="256px"
       onLayoutChanged={() => {}}
+      onSidebarResize={() => {}}
     >
       <div>main</div>
     </AppShell>,
@@ -149,6 +150,64 @@ describe("AppShell global sidebar collapsible", () => {
       pushResize();
     });
 
+    expect(appShellGroupProps.at(-1)?.["data-app-shell-resize"]).toBeUndefined();
+  });
+});
+
+describe("AppShell layout flips", () => {
+  afterEach(cleanup);
+
+  let mounts = 0;
+  function MainProbe(): ReactNode {
+    useEffect(() => {
+      mounts += 1;
+    }, []);
+    return <div data-testid="main-probe">main</div>;
+  }
+
+  function shell(isMobile: boolean): ReactNode {
+    return (
+      <AppShell
+        isMobile={isMobile}
+        collapsed={false}
+        setCollapsed={() => {}}
+        onSearch={() => {}}
+        sidebarPanelRef={createRef<PanelImperativeHandle | null>()}
+        leftSidebarRef={createRef<HTMLDivElement | null>()}
+        defaultLeftSize="256px"
+        onLayoutChanged={() => {}}
+        onSidebarResize={() => {}}
+      >
+        <MainProbe />
+      </AppShell>
+    );
+  }
+
+  it("keeps the main content mounted while only the sidebar's container changes", () => {
+    mounts = 0;
+    const view = render(shell(false));
+    const probe = screen.getByTestId("main-probe");
+    expect(screen.getByTestId("panel-sidebar")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close menu" })).not.toBeInTheDocument();
+
+    // Desktop → phone (a window crossing 767px, a tablet rotating, a fold).
+    view.rerender(shell(true));
+    expect(screen.getByTestId("main-probe")).toBe(probe);
+    expect(screen.queryByTestId("panel-sidebar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close menu" })).toBeInTheDocument();
+    expect(screen.getByRole("main").getAttribute("tabindex")).toBeNull();
+
+    // And back.
+    view.rerender(shell(false));
+    expect(screen.getByTestId("main-probe")).toBe(probe);
+    expect(probe.isConnected).toBe(true);
+    expect(screen.getByTestId("panel-sidebar")).toBeInTheDocument();
+    expect(screen.getByRole("main").getAttribute("tabindex")).toBe("0");
+    expect(mounts).toBe(1);
+  });
+
+  it("does not animate the phone's lone main panel", () => {
+    render(shell(true));
     expect(appShellGroupProps.at(-1)?.["data-app-shell-resize"]).toBeUndefined();
   });
 });

@@ -1,4 +1,8 @@
 import { useCallback, useRef } from "react";
+import {
+  useWorkspaceActivity,
+  type WorkspaceActivity,
+} from "@/components/workspace-pool/workspace-activity";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
 import { isResizing } from "@/lib/resize-coordinator";
@@ -9,6 +13,7 @@ import {
   type ScrollRef,
   USER_SCROLL_EVENTS,
 } from "./agent-session-scroll-utils";
+import { observeResizeSettle } from "./stream-resize-settle";
 import type { ScrollAnchorGuard } from "./stream-scroll-anchor";
 import type { StreamScrollWriter } from "./stream-scroll-writer";
 
@@ -28,6 +33,8 @@ interface ScrollInputParams {
   onScrollActivity: () => void;
   /** The reader's own input (wheel, touch, pointer, key) reached the transcript. */
   onUserInput: () => void;
+  /** Pins to the bottom the platform's way: the resize settle's re-pin. Identity-stable. */
+  pinToEnd: () => void;
 }
 
 interface Disconnectable {
@@ -42,6 +49,8 @@ interface ScrollContainerRefParams {
   lastScrollTopRef: ScrollInputParams["lastScrollTopRef"];
   growthObserverRef: React.MutableRefObject<Disconnectable | null>;
   onUserInput: () => void;
+  pinToEnd: () => void;
+  activity: WorkspaceActivity;
   onKeyDown: (event: KeyboardEvent) => void;
   onPointerDown: (event: PointerEvent) => void;
   onWheel: (event: WheelEvent) => void;
@@ -64,6 +73,8 @@ function useScrollContainerRef({
   lastScrollTopRef,
   growthObserverRef,
   onUserInput,
+  pinToEnd,
+  activity,
   onKeyDown,
   onPointerDown,
   onWheel,
@@ -101,11 +112,17 @@ function useScrollContainerRef({
           element.addEventListener(type, onUserInput, { passive: true });
         }
         writer.attach(element);
-        growthObserverRef.current = observeListGrowth(element, stickRef, writer);
+        growthObserverRef.current = observeStreamViewport(element, {
+          stickRef,
+          writer,
+          pinToEnd,
+          activity,
+        });
         anchorGuard.attach(element, writer);
       }
     },
     [
+      activity,
       anchorGuard,
       growthObserverRef,
       lastScrollTopRef,
@@ -116,11 +133,42 @@ function useScrollContainerRef({
       onTouchStart,
       onUserInput,
       onWheel,
+      pinToEnd,
       scrollerElRef,
       stickRef,
       writer,
     ],
   );
+}
+
+/**
+ * Everything that keeps the view in place as the transcript or its viewport
+ * changes: off iOS the growth and viewport-shrink pins; on iOS, where those
+ * cannot run, the resize settle (`observeResizeSettle`), so a rotation or a
+ * fold keeps a pinned transcript pinned and a scrolled-up one on its row.
+ */
+function observeStreamViewport(
+  scroller: HTMLElement,
+  {
+    stickRef,
+    writer,
+    pinToEnd,
+    activity,
+  }: {
+    stickRef: React.MutableRefObject<boolean>;
+    writer: StreamScrollWriter;
+    pinToEnd: () => void;
+    /** A hidden workspace's resize settle stands down. */
+    activity: WorkspaceActivity;
+  },
+): Disconnectable {
+  if (!isIos()) return observeListGrowth(scroller, stickRef, writer);
+  return observeResizeSettle(scroller, {
+    isFollowing: () => stickRef.current,
+    pinToEnd,
+    writer,
+    isActive: activity.isActive,
+  });
 }
 
 /**
@@ -143,9 +191,11 @@ export function useAgentSessionScrollInput({
   setAutoScrollEnabled,
   onScrollActivity,
   onUserInput,
+  pinToEnd,
 }: ScrollInputParams): ScrollRef {
   const touchStartYRef = useRef(0);
   const growthObserverRef = useRef<Disconnectable | null>(null);
+  const activity = useWorkspaceActivity();
   const armUserScrollIntent = useCallback((): void => {
     userScrollIntentRef.current = true;
   }, [userScrollIntentRef]);
@@ -218,6 +268,8 @@ export function useAgentSessionScrollInput({
     lastScrollTopRef,
     growthObserverRef,
     onUserInput,
+    pinToEnd,
+    activity,
     onKeyDown,
     onPointerDown,
     onWheel,
@@ -260,14 +312,14 @@ export function useAgentSessionScrollInput({
  * we write again. It never converges, because the list's height oscillates
  * between the two states, so no value-comparison guard can break it. Left
  * running it pegs the main thread and eventually trips React's nested-update
- * guard (error #185). `followOutput` keeps iOS pinned, one frame later.
+ * guard (error #185). `followOutput` keeps iOS pinned, one frame later, and
+ * `observeStreamViewport` runs the resize settle there instead of this.
  */
 function observeListGrowth(
   scroller: HTMLElement,
   stickRef: React.MutableRefObject<boolean>,
   writer: Pick<StreamScrollWriter, "followBottom" | "pinToBottom">,
-): Disconnectable | null {
-  if (isIos()) return null;
+): Disconnectable {
   const mayPin = (): boolean => stickRef.current && !isAutoScrollPinSuppressed() && !isResizing();
   const viewportObserver = observeViewportShrink(scroller, mayPin, writer);
   const list = findStreamItemList(scroller);

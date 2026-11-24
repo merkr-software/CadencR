@@ -55,16 +55,20 @@ interface SlotSize {
  * recently shown ones beyond `WORKSPACE_POOL_LIMIT` are unmounted when the main
  * thread is idle, never during the switch. The tab a navigation asks for is
  * applied here on every activation (`useApplyFocusRequest`).
+ *
+ * `target` is null while the page on screen is not a conversation but the pool
+ * outlives it (the phone inbox, `ConversationLayer`): every workspace is then
+ * hidden, and showing one again is the same flip as a switch.
  */
-export function WorkspacePool({ target }: { target: WorkspaceTarget }): ReactElement {
+export function WorkspacePool({ target }: { target: WorkspaceTarget | null }): ReactElement {
   const [state, setState] = useState<WorkspacePoolState>(() =>
-    activateWorkspace(EMPTY_WORKSPACE_POOL, target),
+    target ? activateWorkspace(EMPTY_WORKSPACE_POOL, target) : EMPTY_WORKSPACE_POOL,
   );
   // Derived from the route during render: the workspace to show must be in
   // this very commit, not one effect later.
-  const pool = activateWorkspace(state, target);
+  const pool = target ? activateWorkspace(state, target) : state;
   if (pool !== state) setState(pool);
-  const activeId = target.sessionId;
+  const activeId = target?.sessionId ?? null;
   const rootRef = useRef<HTMLDivElement>(null);
 
   useTrimWhenIdle(pool, setState);
@@ -75,7 +79,9 @@ export function WorkspacePool({ target }: { target: WorkspaceTarget }): ReactEle
 
   return (
     <div ref={rootRef} className="relative h-full">
-      <ActiveConversationEffects projectId={target.projectId} featureId={target.featureId} />
+      {target && (
+        <ActiveConversationEffects projectId={target.projectId} featureId={target.featureId} />
+      )}
       {pool.entries.map((entry) => (
         <WorkspaceSlot key={entry.sessionId} target={entry} active={entry.sessionId === activeId} />
       ))}

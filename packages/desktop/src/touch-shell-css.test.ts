@@ -79,3 +79,39 @@ describe("phone tab bar CSS", () => {
     expect(order.indexOf("./phone-tab-bar.css")).toBeGreaterThan(order.indexOf("tailwindcss"));
   });
 });
+
+describe("phone panes CSS", () => {
+  const panes = cssRules("./phone-panes.css");
+
+  it("sizes the inbox pane at 40%, between 280px and 380px", () => {
+    expect(panes).toMatch(
+      /\[data-stage-pane="inbox"\]\s*{[^}]*width:\s*clamp\(280px,\s*40%,\s*380px\);/,
+    );
+  });
+
+  it("fits the inbox to the first viewport segment and puts the gap on the hinge", () => {
+    const segments =
+      /@media \(horizontal-viewport-segments: 2\)\s*{([\s\S]*)}\s*\[data-stage-panes/.exec(
+        panes,
+      )?.[1];
+    expect(segments).toBeDefined();
+    expect(segments).toMatch(
+      /column-gap:\s*calc\(env\(viewport-segment-left 1 0, 0px\) - env\(viewport-segment-right 0 0, 0px\)\)/,
+    );
+    expect(segments).toMatch(/width:\s*env\(viewport-segment-width 0 0, 40%\)/);
+  });
+
+  it("leaves one menu button, the inbox's", () => {
+    expect(selectors(panes)).toContain(
+      '[data-stage-panes="2"] [data-stage-pane="main"] [data-sidebar-collapsed-chrome]',
+    );
+  });
+
+  it("is imported unlayered, after Tailwind", () => {
+    const imports = [...cssRules("./index.css").matchAll(/@import\s+"([^"]+)"([^;]*);/g)];
+    const entry = imports.find(([, path]) => path === "./phone-panes.css");
+    expect(entry?.[2].trim()).toBe("");
+    const order = imports.map(([, path]) => path);
+    expect(order.indexOf("./phone-panes.css")).toBeGreaterThan(order.indexOf("tailwindcss"));
+  });
+});
