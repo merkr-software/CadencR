@@ -85,18 +85,11 @@ function useProjectFeaturesData({
       isFiltering ? [] : features.filter((feature) => feature.status === ARCHIVED_FEATURE_STATUS),
     [features, isFiltering],
   );
-  const shownFeatures = useSortedShownFeatures(activeFeatures, filterMatch);
-  const worktreeData = useMemo(() => {
-    const worktreeFeatureIds = new Set<number>();
-    const liveWorktreeFeatureIds = new Set<number>();
-    const worktreeByFeatureId = new Map<number, FeatureWorktreeInfo>();
-    for (const worktree of featureWorktrees) {
-      worktreeFeatureIds.add(worktree.feature_id);
-      worktreeByFeatureId.set(worktree.feature_id, worktree);
-      if (worktree.live) liveWorktreeFeatureIds.add(worktree.feature_id);
-    }
-    return { worktreeFeatureIds, liveWorktreeFeatureIds, worktreeByFeatureId };
-  }, [featureWorktrees]);
+  const { sortedActiveFeatures, shownFeatures } = useSortedActiveFeatures(
+    activeFeatures,
+    filterMatch,
+  );
+  const worktreeData = useMemo(() => indexFeatureWorktrees(featureWorktrees), [featureWorktrees]);
   const forest = useMemo(
     () => buildFeatureForest(shownFeatures.filter((feature) => !feature.is_pinned)),
     [shownFeatures],
@@ -135,7 +128,6 @@ function useProjectFeaturesData({
     ...groupedFeatures,
     ...worktreeData,
     activeFeature: features.find((feature) => feature.id === activeFeatureId),
-    activeFeatures,
     archivedFeatures,
     browserCountsByFeatureId,
     dormantFeatures,
@@ -150,26 +142,45 @@ function useProjectFeaturesData({
     rootNodeByFeatureId,
     shellCountsByFeatureId,
     shownFeatures,
+    sortedActiveFeatures,
   };
 }
 
 type ProjectFeaturesData = ReturnType<typeof useProjectFeaturesData>;
 
-/** The active conversations the tree shows: the filter's matches, in the chosen sort. */
-function useSortedShownFeatures(
+function indexFeatureWorktrees(featureWorktrees: readonly FeatureWorktreeInfo[]) {
+  const worktreeFeatureIds = new Set<number>();
+  const liveWorktreeFeatureIds = new Set<number>();
+  const worktreeByFeatureId = new Map<number, FeatureWorktreeInfo>();
+  for (const worktree of featureWorktrees) {
+    worktreeFeatureIds.add(worktree.feature_id);
+    worktreeByFeatureId.set(worktree.feature_id, worktree);
+    if (worktree.live) liveWorktreeFeatureIds.add(worktree.feature_id);
+  }
+  return { worktreeFeatureIds, liveWorktreeFeatureIds, worktreeByFeatureId };
+}
+
+/** Active conversations in the sidebar's chosen sort order, plus the filter's matches. */
+function useSortedActiveFeatures(
   activeFeatures: readonly Feature[],
   filterMatch: ProjectFilterMatch | undefined,
-): readonly Feature[] {
+): { sortedActiveFeatures: readonly Feature[]; shownFeatures: readonly Feature[] } {
   const sort = useSidebarOption("conversationSort");
   const manualOrder = useManualConversationOrder();
-  return useMemo(
+  const sortedActiveFeatures = useMemo(
+    () => sortConversations(activeFeatures, sort, manualOrder),
+    [activeFeatures, manualOrder, sort],
+  );
+  const shownFeatures = useMemo(
     () =>
-      sortConversations(
-        filterMatch ? activeFeatures.filter((f) => filterMatch.has(f.id)) : activeFeatures,
-        sort,
-        manualOrder,
-      ),
-    [activeFeatures, filterMatch, manualOrder, sort],
+      filterMatch
+        ? sortedActiveFeatures.filter((feature) => filterMatch.has(feature.id))
+        : sortedActiveFeatures,
+    [filterMatch, sortedActiveFeatures],
+  );
+  return useMemo(
+    () => ({ sortedActiveFeatures, shownFeatures }),
+    [shownFeatures, sortedActiveFeatures],
   );
 }
 
@@ -225,12 +236,12 @@ function useProjectFeatureActions(props: ProjectFeaturesProps, data: ProjectFeat
   const closeFeatureActivity = useCloseFeatureActivity();
   const archiveFeature = useArchiveFeatureAction({
     activeFeatureId: props.activeFeatureId,
-    activeFeatures: data.activeFeatures,
+    activeFeatures: data.sortedActiveFeatures,
     projectId: props.projectId,
   });
   const mutations = useFeatureRowMutations({
     activeFeatureId: props.activeFeatureId,
-    activeFeatures: data.activeFeatures,
+    activeFeatures: data.sortedActiveFeatures,
     projectId: props.projectId,
   });
   // Read at click time: the row callbacks must keep their identity when the
@@ -309,7 +320,7 @@ export function useProjectFeaturesController(props: ProjectFeaturesProps) {
   const data = useProjectFeaturesData(props);
   const { showArchived, toggleArchived } = useArchivedSectionOpen(
     props.projectId,
-    data.activeFeature?.status === ARCHIVED_FEATURE_STATUS,
+    data.activeFeature,
   );
   const collapsedSubtrees = usePersistedIdSet(SIDEBAR_COLLAPSED_SUBTREES_KEY);
   const labels = useProjectFeatureLabels(data);

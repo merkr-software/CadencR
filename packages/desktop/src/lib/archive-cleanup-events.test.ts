@@ -10,6 +10,8 @@ import {
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { queryClient } from "@/lib/queryClient";
 import { handleArchiveCleanupEvent } from "@/lib/archive-cleanup-events";
+import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 
 const navigate = vi.hoisted(() => vi.fn(async () => undefined));
 const closeFeatureSession = vi.hoisted(() => vi.fn());
@@ -35,6 +37,7 @@ describe("handleArchiveCleanupEvent", () => {
     vi.clearAllMocks();
     queryClient.clear();
     window.location.hash = "";
+    useSidebarConfigStore.setState({ config: DEFAULT_SIDEBAR_CONFIG });
   });
 
   it("applies an archive made elsewhere: cached lists, live sessions, cleanup queries", () => {
@@ -82,6 +85,80 @@ describe("handleArchiveCleanupEvent", () => {
       expect(navigate).toHaveBeenCalledWith({
         to: "/projects/$projectId/features/$featureId",
         params: { projectId: "1", featureId: "1" },
+      }),
+    );
+  });
+
+  it("still picks the next neighbour when a refetch marked the viewed conversation archived first", async () => {
+    queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
+      feature(1),
+      feature(2, "archived"),
+      feature(3),
+    ]);
+    window.location.hash = "#/ws-session/ws-feature-2?featureId=2&projectId=1";
+
+    handleArchiveCleanupEvent(event({}, [2]));
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId/features/$featureId",
+        params: { projectId: "1", featureId: "3" },
+      }),
+    );
+
+    // Multi-feature archive where relatives are also already archived in the refetched list.
+    navigate.mockClear();
+    queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
+      feature(1, "archived"),
+      feature(2, "archived"),
+      feature(3, "archived"),
+      feature(4),
+    ]);
+    handleArchiveCleanupEvent(event({}, [1, 2, 3]));
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId/features/$featureId",
+        params: { projectId: "1", featureId: "4" },
+      }),
+    );
+  });
+
+  it("picks the next neighbour in the sidebar's configured sort order", async () => {
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, conversationSort: "title" },
+    });
+    // Raw cache order: [2: Alpha, 1: Zeta, 3: Middle]; Title sort: [2: Alpha, 3: Middle, 1: Zeta].
+    queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
+      { ...feature(2), title: "Alpha" },
+      { ...feature(1), title: "Zeta" },
+      { ...feature(3), title: "Middle" },
+    ]);
+    window.location.hash = "#/ws-session/ws-feature-2?featureId=2&projectId=1";
+
+    handleArchiveCleanupEvent(event({}, [2]));
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId/features/$featureId",
+        params: { projectId: "1", featureId: "3" },
+      }),
+    );
+  });
+
+  it("navigates to the project home screen when archiving the last active conversation", async () => {
+    queryClient.setQueryData(getListFeaturesQueryKey({ project_id: 1 }), [
+      feature(2),
+      feature(4, "archived"),
+    ]);
+    window.location.hash = "#/ws-session/ws-feature-2?featureId=2&projectId=1";
+
+    handleArchiveCleanupEvent(event({}, [2]));
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/",
+        search: { projectId: 1 },
       }),
     );
   });
