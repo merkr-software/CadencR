@@ -28,12 +28,18 @@ impl BackendSupervisor {
             if slots.closed {
                 return Err(super::quitting());
             }
-            slots
+            let slot = slots
                 .by_key
                 .entry(Key::of(&launch))
-                .or_default()
-                .events
-                .subscribe()
+                .or_default();
+            let rx = slot.events.subscribe();
+            // A slot that was explicitly stopped must not restart on a
+            // restored subscription (e.g. after a socket reconnect): only
+            // the first subscription starts the backend.
+            if slot.stops > 0 {
+                return Ok(rx);
+            }
+            rx
         };
         let (this, grants) = (self.clone(), grants.clone());
         Budget::starting_now(crate::domain::plugin_tabs::exec::DEFAULT_TIMEOUT)

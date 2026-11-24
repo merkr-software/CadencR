@@ -64,9 +64,22 @@ export class BackendStreams {
     } catch (error) {
       // A newer connection took over while registering: it rebinds this
       // logical subscription, so the failure is transient, not terminal.
-      if (generation !== this.connectionGeneration) return { unsubscribe: () => this.close(sub) };
+      // Wait until that rebind completes so a caller starting work right
+      // after `await subscribe(...)` does not race the listener setup.
+      if (generation !== this.connectionGeneration) {
+        await this.waitForRebind(sub, this.connectionGeneration);
+        return { unsubscribe: () => this.close(sub) };
+      }
       this.close(sub);
       throw error;
+    }
+  }
+
+  /** Resolve once `sub` is bound on `generation`, or the generation moves on. */
+  private async waitForRebind(sub: Subscription, generation: number): Promise<void> {
+    for (let i = 0; i < 500 && sub.active && this.connectionGeneration === generation; i++) {
+      if (sub.id !== null) return;
+      await new Promise((r) => setTimeout(r, 10));
     }
   }
 
