@@ -18,12 +18,15 @@ import { translateUi } from "./lib/i18n/ui";
 import { readSystemLocale } from "./lib/i18n/renderer-language";
 import { applyRendererLanguage } from "./lib/i18n/language-document";
 import { getPhoneShellSnapshot, installShellAttribute } from "./lib/form-factor";
+import { installSideStrip } from "./lib/side-strip";
 import { prefetchAgentSession } from "./components/lazy/agent-session-chunk";
 import "./index.css";
 
 // Phone or desktop layout on `<html data-shell>`, before the first paint, so the
 // `phone:` / `desktop:` CSS already matches what `useIsMobile()` will render.
 installShellAttribute();
+// An iPhone Duo's status-bar strip on <html data-side-strip / data-strip-rail>.
+installSideStrip();
 
 // iOS caches the status-bar mode when installing a PWA. Seed its viewport
 // before React mounts so both new/default and older/translucent installs fit.

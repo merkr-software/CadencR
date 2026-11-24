@@ -33,11 +33,22 @@ export function splitPhoneTabs(tabIds: readonly TabKind[], tabs: FeatureTabs): P
   };
 }
 
-/** Next tab to focus for an arrow key in a horizontal tablist (wraps), or null. */
-export function rovingTabIndex(key: string, index: number, count: number): number | null {
+/**
+ * Next tab to focus for an arrow key in the tablist (wraps), or null: the
+ * orientation's arrows, Left/Right for the bar, Up/Down for a rail in a side
+ * strip.
+ */
+export function rovingTabIndex(
+  key: string,
+  index: number,
+  count: number,
+  orientation: "horizontal" | "vertical" = "horizontal",
+): number | null {
   if (count === 0) return null;
-  if (key === "ArrowRight") return (index + 1) % count;
-  if (key === "ArrowLeft") return (index - 1 + count) % count;
+  const [previous, next] =
+    orientation === "vertical" ? ["ArrowUp", "ArrowDown"] : ["ArrowLeft", "ArrowRight"];
+  if (key === next) return (index + 1) % count;
+  if (key === previous) return (index - 1 + count) % count;
   if (key === "Home") return 0;
   if (key === "End") return count - 1;
   return null;

@@ -46,6 +46,11 @@ describe("rovingTabIndex", () => {
     expect(rovingTabIndex("ArrowLeft", 0, 5)).toBe(4);
     expect(rovingTabIndex("Home", 3, 5)).toBe(0);
     expect(rovingTabIndex("End", 0, 5)).toBe(4);
+    expect(rovingTabIndex("ArrowDown", 1, 5)).toBeNull();
+    // The rail in a side strip runs top to bottom.
+    expect(rovingTabIndex("ArrowDown", 1, 5, "vertical")).toBe(2);
+    expect(rovingTabIndex("ArrowUp", 0, 5, "vertical")).toBe(4);
+    expect(rovingTabIndex("ArrowRight", 0, 5, "vertical")).toBeNull();
     expect(rovingTabIndex("Enter", 0, 5)).toBeNull();
     expect(rovingTabIndex("ArrowRight", 0, 0)).toBeNull();
   });

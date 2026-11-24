@@ -35,6 +35,7 @@
 @import "./touch-shell.css";
 @import "./phone-tab-bar.css";
 @import "./phone-panes.css";
+@import "./phone-side-strip.css";
 
 /* Reveal-on-hover only where hover actually exists. On touch devices (no hover)
  * `can-hover:` rules never apply, so hover-gated affordances stay fully visible

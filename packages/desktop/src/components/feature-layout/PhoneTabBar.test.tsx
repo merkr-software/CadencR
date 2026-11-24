@@ -12,6 +12,9 @@ import { AgentIcon } from "@/components/AgentIcon";
 import type { TabKind } from "@/stores/feature-layout-schema";
 
 import { PhoneTabBar } from "./PhoneTabBar";
+
+const strip = vi.hoisted(() => ({ rail: null as "left" | "right" | null }));
+vi.mock("@/hooks/useStripRail", () => ({ useStripRail: () => strip.rail }));
 import type { FeatureTabs } from "./types";
 
 const tabs: FeatureTabs = {
@@ -57,6 +60,24 @@ function renderBar(activeTabId: TabKind | null = "agent") {
 }
 
 describe("PhoneTabBar", () => {
+  it("is a vertical rail in the system's side strip, moved with Up and Down", () => {
+    strip.rail = "right";
+    try {
+      renderBar("agent");
+      const bar = screen.getByRole("tablist", { name: "Conversation tabs" });
+      expect(bar).toHaveAttribute("aria-orientation", "vertical");
+      expect(bar).toHaveAttribute("data-rail", "right");
+      const agent = screen.getByRole("tab", { name: "Agent" });
+      agent.focus();
+      fireEvent.keyDown(agent, { key: "ArrowDown" });
+      expect(screen.getByRole("tab", { name: "Terminal" })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement ?? bar, { key: "ArrowRight" });
+      expect(screen.getByRole("tab", { name: "Terminal" })).toHaveFocus();
+    } finally {
+      strip.rail = null;
+    }
+  });
+
   it("lists Agent, Terminal, Git, Files and More as tabs, the active one selected", () => {
     renderBar("git");
     const bar = screen.getByRole("tablist", { name: "Conversation tabs" });
