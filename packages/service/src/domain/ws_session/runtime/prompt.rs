@@ -34,7 +34,7 @@ mod stream_reader_idle;
 mod stream_reader_mode_change;
 mod stream_reader_persistence_health;
 mod stream_reader_reported_state;
-mod stream_reader_resume;
+pub(in crate::domain::ws_session) mod stream_reader_resume;
 mod stream_reader_stop;
 mod stream_reader_subagents;
 mod stream_reader_task;

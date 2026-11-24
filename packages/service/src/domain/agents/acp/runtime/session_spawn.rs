@@ -198,7 +198,10 @@ pub async fn spawn_acp_runtime_session(
     // sub-agent child-session events). Started after the event loop so the
     // listener's emitted events queue behind any spawn-time init events the
     // FE expects to see first.
-    session.side_channel_task = hooks.start_side_channel(
+    *session
+        .side_channel_task
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = hooks.start_side_channel(
         &negotiated.session_id,
         config.cwd.as_path(),
         session.context_window,
@@ -319,7 +322,7 @@ impl AcpRuntimeSession {
             mcp_servers: Arc::new(RwLock::new(negotiated.mcp_servers.clone())),
             message_rx: Some(rx),
             loop_task: None,
-            side_channel_task: None,
+            side_channel_task: StdMutex::new(None),
             terminals: Arc::new(TerminalRegistry::default()),
             local_tx: Some(local_tx),
             hooks,

@@ -91,6 +91,12 @@ impl SessionStatusBroadcaster {
         self.lock().is_waiting_on_gate(session_id)
     }
 
+    /// Feature id of `session_id` when it is actively working (`AgentStatus::Agent`,
+    /// not idle and not parked on a pending user-input gate).
+    pub fn busy_non_gate_feature_id(&self, session_id: i64) -> Option<i64> {
+        self.lock().busy_non_gate_feature_id(session_id)
+    }
+
     /// Broadcast a status transition of the current turn. Returns the new
     /// seq, or `None` when nothing changed.
     pub fn broadcast(

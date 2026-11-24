@@ -3,7 +3,7 @@ use tracing::{error, info};
 use crate::domain::agents::adapter::{BackgroundAgentSignal, RuntimeError, RuntimeEvent};
 use crate::domain::restart_continuations::forget_user_stop;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
+use crate::domain::ws_session::runtime::helpers::{report_if_unsaved, AGENT_STOP_ESCALATED};
 
 use super::super::QueryState;
 use super::stream_reader_background_agents::track_background_agents;
@@ -46,7 +46,7 @@ impl StreamReaderTask {
             if error.is_stop_escalation() {
                 // The stop happened, but by killing the runtime: whatever it
                 // held (processes, MCP servers, unsaved state) is gone.
-                self.persist_and_emit_error("AGENT_STOP_ESCALATED", error.to_string(), None)
+                self.persist_and_emit_error(AGENT_STOP_ESCALATED, error.to_string(), None)
                     .await;
             }
         } else if self.end_turn_cut_off_by_shutdown(state).await {

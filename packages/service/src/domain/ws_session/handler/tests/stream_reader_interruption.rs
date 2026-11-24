@@ -562,10 +562,15 @@ async fn a_turn_stopped_by_closing_its_gate_lets_the_queue_go_on() {
 
     end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
 
-    assert_ne!(
-        queued_prompt_status(&app_state, session_id).await,
-        "pending"
-    );
+    // Post-turn queue draining is spawned off `StreamReaderTask` so it never
+    // blocks `message_rx`; wait briefly for the background drain to claim the row.
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while queued_prompt_status(&app_state, session_id).await == "pending" {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("post-turn queue drain must claim the queued prompt");
 }
 
 /// A plain Stop keeps the queue waiting, as before: the user stopped the agent.
@@ -578,6 +583,7 @@ async fn a_plain_stop_keeps_the_queue_waiting() {
     queue_one_prompt(&app_state, session_id).await;
 
     end_interrupted_turn(&app_state, sdk_sessions, session_id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
 
     assert_eq!(
         queued_prompt_status(&app_state, session_id).await,

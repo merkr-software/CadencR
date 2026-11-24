@@ -1,5 +1,6 @@
 //! A follow-up's dispatch record (`agent_message_dispatches`), which control
-//! callers such as MCP steers and the prompt queue wait on.
+//! callers such as MCP steers wait on for settlement and queued user prompts
+//! update asynchronously after transport submission.
 
 use tracing::error;
 
@@ -83,12 +84,43 @@ pub(super) async fn claim_followup_shell_context(
     }
 }
 
+pub(super) async fn append_shell_context_or_fail<'a>(
+    context: &FollowupPromptContext,
+    shell_context: &PendingUserShellContext,
+    prompt_text: std::borrow::Cow<'a, str>,
+    dispatch_claim: Option<&(i64, String)>,
+) -> Result<std::borrow::Cow<'a, str>, String> {
+    match shell_context.append_to_prompt(prompt_text) {
+        Ok(prompt) => Ok(prompt),
+        Err(message) => {
+            shell_context
+                .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
+                .await;
+            mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
+            persist_pause_and_send_session_error()
+                .pool(&context.write_pool)
+                .session_status_tx(&context.session_status_tx)
+                .sender(&context.sender)
+                .ref_id(&context.envelope_id)
+                .feature_id(context.feature_id)
+                .session_id(context.db_session_id)
+                .code("USER_SHELL_CONTEXT_ERROR")
+                .message(&message)
+                .call()
+                .await;
+            Err(message)
+        }
+    }
+}
+
+#[bon::builder]
 pub(super) async fn fail_followup_stream(
     context: &FollowupPromptContext,
     dispatch_claim: Option<&(i64, String)>,
     receipt_message_uuid: Option<String>,
     error: &RuntimeError,
     preserve_running_turn: bool,
+    caller_still_waiting: bool,
 ) -> Result<(), String> {
     let message = error.to_string();
     mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
@@ -114,13 +146,8 @@ pub(super) async fn fail_followup_stream(
         surfaced_on_stream, ..
     } = error
     {
-        if !context.wait_for_delivery && !surfaced_on_stream {
-            crate::domain::ws_session::runtime::helpers::send_warning(
-                &context.sender,
-                &context.envelope_id,
-                "PROMPT_DELIVERY_FAILED",
-                &message,
-            );
+        if !caller_still_waiting && !surfaced_on_stream {
+            surface_followup_warning(context, "PROMPT_DELIVERY_FAILED", &message).await;
         }
         return Err(message);
     }
@@ -128,8 +155,12 @@ pub(super) async fn fail_followup_stream(
         return Err(message);
     }
     // Refusing this queued steer does not end the already-running turn.
-    // The control caller surfaces the error on the durable queue entry.
+    // The control caller surfaces the error on the durable queue entry; if it
+    // already returned on transport submission, surface a visible warning.
     if preserve_running_turn {
+        if !caller_still_waiting {
+            surface_followup_warning(context, error.session_error_code(), &message).await;
+        }
         return Err(message);
     }
     persist_pause_and_send_session_error()
@@ -143,5 +174,42 @@ pub(super) async fn fail_followup_stream(
         .message(&message)
         .call()
         .await;
+    // If a DeliveryWait::Submission caller already returned and dropped its
+    // headless output collector, broadcast the live session.error frame so
+    // viewers see the bubble immediately without waiting for reload.
+    if context.delivery_wait == super::prompt_followup::DeliveryWait::Submission
+        && !caller_still_waiting
+    {
+        crate::domain::ws_session::runtime::helpers::broadcast_session_error(
+            &context.ws_feature_senders,
+            context.feature_id,
+            error.session_error_code(),
+            message.clone(),
+        )
+        .await;
+    }
     Err(message)
+}
+
+async fn surface_followup_warning(
+    context: &FollowupPromptContext,
+    code: &'static str,
+    message: &str,
+) {
+    if context.delivery_wait == super::prompt_followup::DeliveryWait::None {
+        crate::domain::ws_session::runtime::helpers::send_warning(
+            &context.sender,
+            &context.envelope_id,
+            code,
+            message,
+        );
+        return;
+    }
+    crate::domain::ws_session::runtime::helpers::broadcast_session_warning(
+        &context.ws_feature_senders,
+        context.feature_id,
+        code,
+        message,
+    )
+    .await;
 }

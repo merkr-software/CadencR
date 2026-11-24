@@ -85,7 +85,7 @@ pub(super) async fn withdraw_followup(
             by.reason(),
         ),
     }
-    if context.wait_for_delivery {
+    if context.delivery_wait.waits_for_caller() {
         Err(by.reason().to_string())
     } else {
         Ok(())
@@ -188,9 +188,10 @@ pub(in crate::domain::ws_session) async fn fail_stopped_followups(
         .await
         {
             error!(session_id, %error, "failed to persist a withdrawn follow-up's dispatch");
-            broadcast_warning(
+            crate::domain::ws_session::runtime::helpers::broadcast_session_warning(
                 feature_senders,
                 feature_id,
+                "STATE_NOT_SAVED",
                 "Couldn't record that a message was not sent: Retry may not send it again. Copy it into a new message instead.",
             )
             .await;
@@ -227,19 +228,4 @@ impl super::stream_reader_task::StreamReaderTask {
             .await;
         }
     }
-}
-
-async fn broadcast_warning(
-    feature_senders: &WsFeatureSenderRegistry,
-    feature_id: i64,
-    message: &str,
-) {
-    use crate::domain::ws_session::protocol::{SessionWarningPayload, WsEnvelope, WsSessionEvent};
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::Warning(SessionWarningPayload {
-        code: "STATE_NOT_SAVED".into(),
-        message: message.into(),
-    }))
-    .expect("session warning should serialize");
-    let message = axum::extract::ws::Message::Text(String::from(envelope).into());
-    feature_senders.broadcast_all(feature_id, &message).await;
 }

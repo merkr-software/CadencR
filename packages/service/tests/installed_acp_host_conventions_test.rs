@@ -206,12 +206,18 @@ async fn exercise_runtime_conventions(cwd: &Path) {
         .iter()
         .any(|event| event.turn_started_source() == Some(RuntimeTurnStartedSource::ManualCompact)));
     assert!(streamed_text(&events).contains("compacted"));
-    let boundary = tokio::time::timeout(EVENT_TIMEOUT, receiver.recv())
-        .await
-        .expect("compact boundary")
-        .expect("runtime open")
-        .expect("runtime event");
-    assert!(boundary.is_compact_boundary());
+    let boundary_idx = events
+        .iter()
+        .position(RuntimeEvent::is_compact_boundary)
+        .expect("compact boundary before turn result");
+    let result_idx = events
+        .iter()
+        .position(RuntimeEvent::is_result)
+        .expect("turn result");
+    assert!(
+        boundary_idx < result_idx,
+        "compact boundary ({boundary_idx}) must precede turn result ({result_idx})"
+    );
 
     // --- documents ride as embedded resources --------------------------------
     let pdf = adapter.prompt_attachment_block(&RuntimePromptAttachment {

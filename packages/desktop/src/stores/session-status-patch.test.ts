@@ -39,4 +39,28 @@ describe("statusSyncPatch", () => {
       pendingQuestions: [],
     });
   });
+
+  it("clears pendingManualCompact when transitioning from busy to idle", () => {
+    const session = {
+      ...createSessionEntry(),
+      lifecycle: { phase: "active" } as const,
+      pendingManualCompact: true,
+    };
+    const previous = {
+      status: "agent",
+      kind: null,
+      requestId: null,
+      featureId: 7,
+      seq: 2,
+      compacting: true,
+    } as const;
+    expect(statusSyncPatch(session, { status: "idle", kind: null }, previous)).toMatchObject({
+      pendingManualCompact: false,
+      lifecycle: { phase: "terminal", reason: "completed" },
+    });
+    // Staying idle without a busy->idle transition does not clear a fresh compact flag.
+    expect(statusSyncPatch(session, { status: "idle", kind: null }, undefined)).toEqual({
+      lifecycle: { phase: "terminal", reason: "completed" },
+    });
+  });
 });

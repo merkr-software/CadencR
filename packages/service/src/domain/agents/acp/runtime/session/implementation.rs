@@ -8,10 +8,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
-use agent_client_protocol::schema::v1::CancelNotification;
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::domain::agents::acp::AcpClient;
@@ -26,8 +25,8 @@ use super::super::config_options::set_config_option_thinking_effort;
 use super::super::events_config_option::mirror_config_snapshot;
 use super::super::events_stream_blocks::EventIndexer;
 use super::super::permissions::{
-    pending_permission_response_kind, pending_permission_response_payload, reject_all_pending,
-    take_pending, PendingPermissions,
+    pending_permission_response_kind, pending_permission_response_payload, take_pending,
+    PendingPermissions,
 };
 use super::super::prompt_receipts::PendingPromptReceipts;
 use super::super::provider_hooks::{AcpProviderHooks, PermissionFallbackOutcome};
@@ -74,8 +73,8 @@ pub struct AcpRuntimeSession {
     /// Optional provider-spawned listener (e.g. OpenCode subscribes to its
     /// HTTP polling channel so live sub-agent child-session events that the
     /// ACP transport silently drops can be injected into the runtime
-    /// channel). Aborted on `close()`.
-    pub(in crate::domain::agents::acp::runtime) side_channel_task: Option<JoinHandle<()>>,
+    /// channel). Aborted on `close()` and `terminate_unresponsive_stop()`.
+    pub(in crate::domain::agents::acp::runtime) side_channel_task: StdMutex<Option<JoinHandle<()>>>,
     /// The session's terminals (shared with the event loop that serves
     /// `terminal/*`). Their process groups are stopped on `close()`.
     pub(in crate::domain::agents::acp::runtime) terminals: Arc<TerminalRegistry>,
@@ -186,12 +185,20 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             .await
     }
 
+    fn requires_prompt_queue(&self) -> bool {
+        self.manual_compact_running.load(Ordering::SeqCst)
+    }
+
+    fn signals_prompt_submission(&self) -> bool {
+        true
+    }
+
     async fn stream_input_with_client_message_id(
         &self,
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input(content, client_message_id, &mut None)
+        self.prompt_input(content, client_message_id, &mut None, &mut None)
             .await
     }
 
@@ -200,8 +207,10 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
         order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+        submitted: &mut Option<oneshot::Sender<()>>,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input(content, client_message_id, order).await
+        self.prompt_input(content, client_message_id, order, submitted)
+            .await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {
@@ -213,15 +222,11 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
-        let session_id = self.require_session_id().await?;
-        reject_all_pending(&self.client, &self.pending_permissions).await;
-        let _admission = self.prompt_turn_lock.lock_admission().await;
-        // The agent may report the interruption as soon as it sees the notification.
-        self.prompt_cancel.cancel_current_turn();
-        self.client
-            .send_notification_typed(CancelNotification::new(session_id))
-            .await
-            .map_err(|e| RuntimeError::new(format!("session/cancel failed: {e}")))
+        super::interrupt::interrupt(self).await
+    }
+
+    async fn terminate_unresponsive_stop(&self, reason: String) -> bool {
+        super::interrupt::terminate_unresponsive_stop(self, reason).await
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {
@@ -230,41 +235,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     async fn close(&mut self) -> Result<(), RuntimeError> {
-        // Only the first close tells the agent. A later one (an idle reader
-        // retiring the runtime the shutdown already closed, or a retry of a
-        // close the shutdown deadline cut short) finishes the local teardown,
-        // which is safe to repeat, without asking the agent again.
-        let first_close = !self.closing.swap(true, Ordering::SeqCst);
-        self.client.begin_close();
-        let session_id = if first_close {
-            self.current_session_id().await
-        } else {
-            None
-        };
-        if let Some(session_id) = session_id {
-            super::close::tell_agent(self, session_id).await;
-        }
-        reject_all_pending(&self.client, &self.pending_permissions).await;
-        // Drop session-scoped permission grants on close.
-        self.session_permissions.clear().await;
-        if let Some(task) = self.loop_task.take() {
-            task.abort();
-        }
-        if let Some(task) = self.side_channel_task.take() {
-            task.abort();
-        }
-        // After the event loop: no `terminal/create` can race the stop. The
-        // terminals lead their own process groups, so nothing else ends what
-        // they left running.
-        self.terminals.shutdown().await;
-        // The stream receiver is owned outside the runtime. Drop our last
-        // steady-state sender after stopping producer tasks so it observes EOF
-        // even while the closed runtime remains registered for resume metadata.
-        #[cfg(unix)]
-        self.mcp_connections.stop().await;
-        self.local_tx.take();
-        self.client.shutdown().await;
-        Ok(())
+        super::close::close_session(self).await
     }
 
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError> {

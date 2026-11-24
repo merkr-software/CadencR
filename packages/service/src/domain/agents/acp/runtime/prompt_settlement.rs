@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeResultError,
     RuntimeTokenUsage,
@@ -21,6 +22,7 @@ use super::turn_result::{accounting_token_usage, turn_result};
 
 #[derive(bon::Builder)]
 pub(super) struct CompletePrompt<'a> {
+    client: &'a AcpClient,
     tx: &'a mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     indexer: &'a Mutex<EventIndexer>,
     session_id: &'a str,
@@ -60,7 +62,7 @@ impl CompletePrompt<'_> {
         mut self,
         reply: Result<PromptReply, RuntimeError>,
     ) -> Result<(), RuntimeError> {
-        let (response, resumed) = ordered_response(reply).await;
+        let (response, resumed) = self.ordered_response(reply).await;
         let body = response.as_ref().ok();
         let reason = body.and_then(stop_reason);
         let retain = body.filter(|_| reason.is_some_and(|reason| reason != "cancelled"));
@@ -255,20 +257,20 @@ impl CompletePrompt<'_> {
         }));
         publish_prompt_boundary(self.tx, self.indexer, reason, pending, result).await;
     }
+    async fn ordered_response(
+        &self,
+        reply: Result<PromptReply, RuntimeError>,
+    ) -> (Result<Value, RuntimeError>, Option<oneshot::Sender<()>>) {
+        match reply {
+            Ok(reply) => match reply.ordered(self.client, self.cancel, self.tx).await {
+                Ok((response, resumed)) => (response, Some(resumed)),
+                Err(error) => (Err(error), None),
+            },
+            Err(error) => (Err(error), None),
+        }
+    }
 }
 
 fn stop_reason(body: &Value) -> Option<&str> {
     body.get("stopReason").and_then(Value::as_str)
-}
-
-async fn ordered_response(
-    reply: Result<PromptReply, RuntimeError>,
-) -> (Result<Value, RuntimeError>, Option<oneshot::Sender<()>>) {
-    match reply {
-        Ok(reply) => match reply.ordered().await {
-            Ok((response, resumed)) => (response, Some(resumed)),
-            Err(error) => (Err(error), None),
-        },
-        Err(error) => (Err(error), None),
-    }
 }

@@ -4227,6 +4227,37 @@ describe("ws-session-store", () => {
       expect(errorBlock?.errorCode).toBe("SDK_ERROR");
     });
 
+    it("clears pendingManualCompact when the turn ends without a compact_boundary", async () => {
+      for (const reason of ["turn_interrupted", "turn_complete", "stream_closed"] as const) {
+        const sessionId = `s1-${reason}`;
+        const store = useWsSessionStore.getState();
+        store.connect(sessionId);
+        await tick();
+        const ws = getWs();
+        ws.simulateMessage({
+          domain: "session",
+          action: "initialized",
+          payload: { session_id: `srv-${reason}` },
+        });
+
+        store.compactSession(sessionId);
+        ws.simulateMessage({
+          domain: "session",
+          action: "compact.started",
+          payload: null,
+        });
+        expect(useWsSessionStore.getState().sessions[sessionId].pendingManualCompact).toBe(true);
+
+        ws.simulateMessage({
+          domain: "session",
+          action: "ended",
+          payload: { reason },
+        });
+
+        expect(useWsSessionStore.getState().sessions[sessionId].pendingManualCompact).toBe(false);
+      }
+    });
+
     it("sets contextUsage.wasCompacted when compact_boundary arrives", async () => {
       const store = useWsSessionStore.getState();
       store.connect("s1");

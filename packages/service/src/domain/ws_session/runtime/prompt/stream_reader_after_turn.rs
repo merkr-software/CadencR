@@ -24,6 +24,26 @@ impl StreamReaderTask {
     }
 
     async fn drain_queued_message_after_result(&self) {
+        // Fast path: avoid write_pool read, AppState clone, and task spawn on
+        // the common empty-queue turn end.
+        match crate::domain::prompt_queue::store::has_pending(
+            &self.app_state.read_pool,
+            self.db_session_id,
+            crate::domain::prompt_queue::store::Pick::Next,
+        )
+        .await
+        {
+            Ok(false) => return,
+            Ok(true) => {}
+            Err(error) => {
+                tracing::error!(
+                    self.db_session_id,
+                    %error,
+                    "failed to check pending prompt queue after turn"
+                );
+                return;
+            }
+        }
         // Unknown gate state must not let a queued prompt run over a gate.
         let Ok(row) = self
             .read_session_row("Queued messages wait until the next turn ends.")
@@ -35,12 +55,15 @@ impl StreamReaderTask {
             return;
         }
         // One queue: the user's own prompts go first, then what other
-        // sessions' agents queued for this one.
-        crate::domain::prompt_queue::delivery::drain_next_after_turn(
-            &self.app_state,
-            self.db_session_id,
-        )
-        .await;
+        // sessions' agents queued for this one. Spawn off the stream reader so
+        // it never stops draining `self.message_rx` while a prompt dispatches
+        // (ACP streams events on this very channel as soon as the prompt runs).
+        let app_state = self.app_state.clone();
+        let db_session_id = self.db_session_id;
+        tokio::spawn(async move {
+            crate::domain::prompt_queue::delivery::drain_next_after_turn(&app_state, db_session_id)
+                .await;
+        });
     }
 
     async fn refresh_mcp_servers_after_turn(&self) {
