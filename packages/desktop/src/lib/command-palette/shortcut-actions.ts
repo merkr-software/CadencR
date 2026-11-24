@@ -10,7 +10,8 @@ import type { ShortcutId } from "@/lib/shortcuts/registry";
  * Several hosts may register one id (unified agents cards); the newest wins.
  */
 
-type ShortcutRun = () => void;
+/** Runs the handler; `false` when it looked and declined (it did not take the event). */
+type ShortcutRun = () => boolean | void;
 
 interface Registration {
   token: number;
@@ -43,10 +44,18 @@ export function registerShortcutAction(id: ShortcutId, run: ShortcutRun): () => 
 
 /** Runs the newest handler for `id`; `false` when nothing can run it now. */
 export function runShortcutAction(id: ShortcutId): boolean {
+  return runShortcutActionOutcome(id) !== "missing";
+}
+
+/**
+ * Runs the newest handler for `id` and says what happened: `missing` when
+ * nothing can run it now, `declined` when its handler looked and passed (the
+ * key binding would have let the chord through), else `handled`.
+ */
+export function runShortcutActionOutcome(id: ShortcutId): "missing" | "declined" | "handled" {
   const run = useShortcutActionStore.getState().byId[id]?.at(-1)?.run;
-  if (!run) return false;
-  run();
-  return true;
+  if (!run) return "missing";
+  return run() === false ? "declined" : "handled";
 }
 
 /**

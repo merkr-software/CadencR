@@ -7,6 +7,8 @@ import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";
+import { toast } from "sonner";
+import { PhoneCommitBar } from "../diff/PhoneCommitBar";
 import { GitActionButton } from "./GitActionButton";
 import {
   resetStashMutationCoordinatorForTest,
@@ -391,5 +393,56 @@ describe("GitActionButton shortcuts", () => {
     expect(activity.querySelector(".animate-spin")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: /more git actions/i }));
     expect(screen.getAllByText("Update request in progress").length).toBeGreaterThan(0);
+  });
+});
+
+function commitBarButton(): HTMLElement {
+  const bar = document.querySelector<HTMLElement>("[data-phone-commit-bar]");
+  if (!bar) throw new Error("no Commit bar");
+  return within(bar).getByRole("button", { name: "Commit" });
+}
+
+describe("the phone Commit bar", () => {
+  it("opens one commit dialog while two headers for the conversation are mounted", async () => {
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(
+      <>
+        <GitActionButton featureId={42} projectId={7} />
+        <GitActionButton featureId={42} projectId={7} />
+        <PhoneCommitBar featureId={42} />
+      </>,
+    );
+
+    await user.click(commitBarButton());
+    expect(await screen.findAllByRole("dialog", { name: "Commit progress" })).toHaveLength(1);
+  });
+
+  it("says why when the header cannot commit", async () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+    buttonMocks.updatePending = true;
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(
+      <>
+        <GitActionButton featureId={42} projectId={7} />
+        <PhoneCommitBar featureId={42} />
+      </>,
+    );
+
+    await user.click(commitBarButton());
+    expect(screen.queryByRole("dialog", { name: "Commit progress" })).not.toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith("Cannot commit", {
+      description: "Update request in progress",
+    });
+    error.mockRestore();
+  });
+
+  it("says so when no header can run the commit", async () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(<PhoneCommitBar featureId={42} />);
+
+    await user.click(commitBarButton());
+    expect(error).toHaveBeenCalledWith("Commit isn't available here");
+    error.mockRestore();
   });
 });

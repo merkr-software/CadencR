@@ -1,14 +1,5 @@
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
-import {
-  ArchiveIcon,
-  GitBranchIcon,
-  GitCommitVerticalIcon,
-  GitCompareArrowsIcon,
-  GitPullRequestIcon,
-  Loader2Icon,
-  PencilLineIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { Loader2Icon, type LucideIcon } from "lucide-react";
 import { memo, useMemo, type ReactElement, type ReactNode } from "react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { PR_ICON_STYLE, PR_TONE_DOT, type PrIndicatorTone } from "@/components/PrStatusIndicators";
@@ -17,6 +8,7 @@ import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 import { formatCombo } from "@/lib/shortcuts/format";
 import { cn } from "@/lib/utils";
+import { GIT_VIEW_SPINNER_DELAY_MS, gitTargetLabel, gitViews } from "./gitViews";
 import { useSegmentedThumb } from "./useSegmentedThumb";
 
 export type GitViewMode = "uncommitted" | "vs-target" | "pr" | "graph" | "branches" | "stashes";
@@ -31,43 +23,6 @@ export type GitViewMode = "uncommitted" | "vs-target" | "pr" | "graph" | "branch
  * root size the labels collapse nearer a 600px toolbar, which is the point.
  */
 const COMPACT_LABELS = "@max-[30rem]:hidden";
-
-/** Below this, a wait is not a wait — it is a flicker. */
-const SPINNER_DELAY_MS = 400;
-
-interface SecondaryGitTab {
-  mode: GitViewMode;
-  icon: LucideIcon;
-  label: string;
-  hint: string;
-  shortcutId: ShortcutId;
-}
-
-function secondaryGitTabs(t: UiTranslator): SecondaryGitTab[] {
-  return [
-    {
-      mode: "graph",
-      icon: GitCommitVerticalIcon,
-      label: t("workspace.git.gitTabToggle.commits", "Commits"),
-      hint: t("workspace.git.gitTabToggle.commitHistoryGraph", "Commit history graph"),
-      shortcutId: "git-show-commits",
-    },
-    {
-      mode: "branches",
-      icon: GitBranchIcon,
-      label: t("workspace.git.gitTabToggle.branches", "Branches"),
-      hint: t("workspace.git.gitTabToggle.localAndRemoteBranches", "Local and remote branches"),
-      shortcutId: "git-show-branches",
-    },
-    {
-      mode: "stashes",
-      icon: ArchiveIcon,
-      label: t("workspace.git.gitTabToggle.stashes", "Stashes"),
-      hint: t("workspace.git.gitTabToggle.stashedChanges", "Stashed changes"),
-      shortcutId: "git-show-stashes",
-    },
-  ];
-}
 
 export interface GitTabToggleProps {
   value: GitViewMode;
@@ -118,10 +73,9 @@ export const GitTabToggle = memo(function GitTabToggle({
   pendingValue = null,
 }: GitTabToggleProps) {
   const { t } = useUiTranslation();
-  const prLabel = providedPrLabel ?? t("workspace.git.gitTabToggle.pullRequest", "Pull request");
-  const targetLabel = targetBranch?.trim()
-    ? t("workspace.git.gitTabToggle.compareWithBranch", "vs {{branch}}", { branch: targetBranch })
-    : t("workspace.git.gitTabToggle.compareWithTarget", "vs target");
+  const [CHANGES_VIEW, TARGET_VIEW, PR_VIEW, ...SECOND_RANK] = useMemo(() => gitViews(t), [t]);
+  const prLabel = providedPrLabel ?? PR_VIEW.label;
+  const targetLabel = gitTargetLabel(targetBranch, t);
   // Every label and badge that can change the thumb's target width, in one
   // cheap string — see `useSegmentedThumb`.
   // `prAttention` belongs here even though it only rings a dot: the ring grows
@@ -134,7 +88,7 @@ export const GitTabToggle = memo(function GitTabToggle({
   // frames — which is every save, against a local database — would swap the
   // glyph out and back before the eye resolves it. That reads as the icon
   // blinking, not as progress.
-  const slowPending = useDelayedPending(pendingValue, SPINNER_DELAY_MS);
+  const slowPending = useDelayedPending(pendingValue, GIT_VIEW_SPINNER_DELAY_MS);
 
   return (
     <div
@@ -154,34 +108,34 @@ export const GitTabToggle = memo(function GitTabToggle({
         />
       )}
       <Tab
-        mode="uncommitted"
-        active={value === "uncommitted"}
-        pending={slowPending === "uncommitted"}
-        icon={PencilLineIcon}
-        label={t("workspace.git.gitTabToggle.changes", "Changes")}
+        mode={CHANGES_VIEW.mode}
+        active={value === CHANGES_VIEW.mode}
+        pending={slowPending === CHANGES_VIEW.mode}
+        icon={CHANGES_VIEW.icon}
+        label={CHANGES_VIEW.label}
         statusLabel={changesStatusLabel(uncommittedCount, conflictCount, t)}
-        hint={t("workspace.git.gitTabToggle.workingTreeChanges", "Working-tree changes")}
-        shortcutId="git-show-uncommitted"
+        hint={CHANGES_VIEW.hint}
+        shortcutId={CHANGES_VIEW.shortcutId}
         onChange={onChange}
       >
         <ChangesBadge uncommittedCount={uncommittedCount} conflictCount={conflictCount} />
       </Tab>
       <Tab
-        mode="vs-target"
-        active={value === "vs-target"}
-        pending={slowPending === "vs-target"}
-        icon={GitCompareArrowsIcon}
+        mode={TARGET_VIEW.mode}
+        active={value === TARGET_VIEW.mode}
+        pending={slowPending === TARGET_VIEW.mode}
+        icon={TARGET_VIEW.icon}
         label={targetLabel}
         labelClassName="max-w-36"
         hint={targetHint(targetBranch, t)}
-        shortcutId="git-show-vs-target"
+        shortcutId={TARGET_VIEW.shortcutId}
         onChange={onChange}
       />
       <Tab
-        mode="pr"
-        active={value === "pr"}
-        pending={slowPending === "pr"}
-        icon={GitPullRequestIcon}
+        mode={PR_VIEW.mode}
+        active={value === PR_VIEW.mode}
+        pending={slowPending === PR_VIEW.mode}
+        icon={PR_VIEW.icon}
         label={prNumber == null ? prLabel : `#${prNumber}`}
         // The visible label sheds the noun once there is a number to show, but
         // "#128" on its own is not a name — screen readers get the whole thing.
@@ -191,14 +145,14 @@ export const GitTabToggle = memo(function GitTabToggle({
           "{{proposal}} status, checks, and comments",
           { proposal: prLabel },
         )}
-        shortcutId="git-show-pull-request"
+        shortcutId={PR_VIEW.shortcutId}
         onChange={onChange}
       >
         <PrTabSignal tone={prTone} attention={prAttention} hasPr={prNumber != null} />
         <PrOthersBadge count={prOtherCount} tone={prOtherTone} />
       </Tab>
       <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-      {secondaryGitTabs(t).map((tab) => (
+      {SECOND_RANK.map((tab) => (
         <Tab
           key={tab.mode}
           compact

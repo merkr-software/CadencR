@@ -1,11 +1,11 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
-import { memo, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
-import type { ThemeAppearance, ThemeId } from "@/lib/themes";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
+import type { ChangedFile } from "@/api/generated";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PrThreadLine, ReviewNavigationTarget } from "@/lib/pr-review-threads";
 import { useSetting } from "@/hooks/useSetting";
 import { useTheme } from "@/hooks/useTheme";
 import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
-import { DiffContent } from "./DiffContent";
 import { DiffLayout } from "./DiffLayout";
 import { GitDiffToolbar } from "./GitDiffToolbar";
 import { GitDiffFileTree } from "./GitDiffFileTree";
@@ -16,9 +16,15 @@ import { useGitFileIndexActions } from "./useGitFileIndexActions";
 import { useGitFileListCollapse, type GitFileListCollapseState } from "./useGitFileListCollapse";
 import { useDiffViewerComments } from "./useDiffViewerComments";
 import { useDiffViewerNavigation } from "./useDiffViewerNavigation";
-import type { DiffViewerNavigationState } from "./useDiffViewerNavigation";
 import type { GitNavigationAdapterRegistrar } from "./gitNavigation";
-import { scrollReviewThreadToCenter } from "./scroll-to-review-thread";
+import { useReviewThreadJump } from "./useReviewThreadJump";
+import { PhoneDiffViewer } from "./PhoneDiffViewer";
+import { gitTargetLabel } from "./gitViews";
+import {
+  useDiffContentRenderer,
+  type DiffData,
+  type LoadedDiffViewerProps,
+} from "./useDiffContentRenderer";
 
 interface DiffViewerProps {
   featureId: number;
@@ -43,25 +49,7 @@ interface DiffViewerProps {
   onReviewThreadSelectedChange?: (threadId: string, selected: boolean) => void;
 }
 
-type DiffData = ReturnType<typeof useDiffData>;
-
-interface LoadedDiffViewerProps {
-  featureId: number;
-  mode: DiffMode;
-  targetBranch?: string;
-  data: DiffData;
-  fileList: GitFileListCollapseState;
-  diffMode: "unified" | "split";
-  themeAppearance: ThemeAppearance;
-  themeId: ThemeId;
-  openFileInEditor?: OpenDiffInEditor;
-  registerNavigationAdapter?: GitNavigationAdapterRegistrar;
-  remoteThreadLinesByFile?: Map<string, PrThreadLine[]>;
-  reviewCountsByFile?: ReadonlyMap<string, number>;
-  reviewTarget?: ReviewNavigationTarget | null;
-  selectedReviewThreadIds?: ReadonlySet<string>;
-  onReviewThreadSelectedChange?: (threadId: string, selected: boolean) => void;
-}
+const NONE_COLLAPSED: ReadonlySet<string> = new Set();
 
 function DiffViewerMessage({ children, error = false }: { children: ReactNode; error?: boolean }) {
   return (
@@ -112,82 +100,6 @@ const DiffViewerLayout = memo(function DiffViewerLayout({
   );
 });
 
-function useLoadedDiffContent(
-  props: LoadedDiffViewerProps,
-  diffAreaRef: RefObject<HTMLDivElement | null>,
-  navigation: DiffViewerNavigationState,
-  comments: ReturnType<typeof useDiffViewerComments>,
-  indexActions: ReturnType<typeof useGitFileIndexActions>,
-  indexMutable: boolean,
-): ReactNode {
-  const {
-    data,
-    diffMode,
-    featureId,
-    mode,
-    onReviewThreadSelectedChange,
-    openFileInEditor,
-    remoteThreadLinesByFile,
-    reviewTarget,
-    selectedReviewThreadIds,
-    targetBranch,
-    themeAppearance,
-    themeId,
-  } = props;
-  return useMemo(
-    () => (
-      <DiffContent
-        diffAreaRef={diffAreaRef}
-        files={data.changedFiles}
-        featureId={featureId}
-        mode={mode}
-        targetBranch={targetBranch}
-        selectedCommit={data.selectedCommit}
-        diffMode={diffMode}
-        collapsedFiles={navigation.collapsedFiles}
-        activeFilePath={navigation.activeFilePath}
-        viewedFilesSet={data.viewedFilesSet}
-        isViewedPending={data.markViewed.isPending || data.unmarkViewed.isPending}
-        commentLinesByFile={comments.commentLinesByFile}
-        remoteThreadLinesByFile={remoteThreadLinesByFile}
-        activeReviewThreadId={reviewTarget?.threadId}
-        selectedReviewThreadIds={selectedReviewThreadIds}
-        onReviewThreadSelectedChange={onReviewThreadSelectedChange}
-        activeCommentWidget={comments.activeCommentWidget}
-        memoizedActiveWidget={comments.activeWidget}
-        commentCallbacks={comments.callbacks}
-        onToggleFile={navigation.toggleFile}
-        onMarkViewedFile={navigation.markFileViewed}
-        onUnmarkViewedFile={navigation.unmarkFileViewed}
-        onOpenFileInEditor={openFileInEditor}
-        indexActions={indexMutable ? indexActions : undefined}
-        onAddComment={comments.addComment}
-        themeAppearance={themeAppearance}
-        themeId={themeId}
-      />
-    ),
-    [
-      comments,
-      data,
-      diffAreaRef,
-      diffMode,
-      featureId,
-      indexActions,
-      indexMutable,
-      mode,
-      navigation,
-      onReviewThreadSelectedChange,
-      openFileInEditor,
-      remoteThreadLinesByFile,
-      reviewTarget?.threadId,
-      selectedReviewThreadIds,
-      targetBranch,
-      themeAppearance,
-      themeId,
-    ],
-  );
-}
-
 function LoadedDiffViewer(props: LoadedDiffViewerProps) {
   const {
     featureId,
@@ -211,17 +123,27 @@ function LoadedDiffViewer(props: LoadedDiffViewerProps) {
     onOpenFileInEditor: openFileInEditor,
     indexMutable,
     reviewCountsByFile,
-    registerNavigationAdapter,
+    // The phone layout's steps register their own (`PhoneDiffViewer`): the
+    // tree's selection is hidden there and must never pick the file acted on.
+    registerNavigationAdapter: props.phone ? undefined : registerNavigationAdapter,
   });
   useReviewThreadJump(reviewTarget, navigation, diffAreaRef);
   const comments = useDiffViewerComments(featureId, data);
-  const content = useLoadedDiffContent(
+  const renderContent = useDiffContentRenderer(
     props,
     diffAreaRef,
     navigation,
     comments,
     indexActions,
     indexMutable,
+  );
+  const content = useMemo(
+    () => renderContent(data.changedFiles, navigation.collapsedFiles),
+    [data.changedFiles, navigation.collapsedFiles, renderContent],
+  );
+  const renderPhoneFiles = useCallback(
+    (files: ChangedFile[]) => renderContent(files, NONE_COLLAPSED),
+    [renderContent],
   );
   const tree = useMemo(
     () => (
@@ -242,58 +164,60 @@ function LoadedDiffViewer(props: LoadedDiffViewerProps) {
     ),
     [data.changedFiles, fileList, indexActions, indexMutable, navigation, openFileInEditor],
   );
+  if (props.phone) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-background">
+        <DiffQueryErrorBanner message={data.errorMessage} />
+        <PhoneDiffViewer
+          featureId={featureId}
+          files={data.changedFiles}
+          renderFiles={renderPhoneFiles}
+          diffAreaRef={diffAreaRef}
+          registerNavigationAdapter={registerNavigationAdapter}
+          backLabel={props.phone.backLabel}
+          showCommitBar={indexMutable}
+          viewedFiles={data.viewedFilesSet}
+          supportsViewed={data.selectedCommit === null}
+          isViewedPending={data.markViewed.isPending || data.unmarkViewed.isPending}
+          markFileViewed={navigation.markFileViewed}
+          unmarkFileViewed={navigation.unmarkFileViewed}
+          indexActions={indexMutable ? indexActions : undefined}
+          openFileInEditor={openFileInEditor}
+          reviewCountsByFile={reviewCountsByFile}
+          reviewTarget={reviewTarget}
+          appearance={props.themeAppearance}
+        />
+      </div>
+    );
+  }
   return <DiffViewerLayout data={data} fileList={fileList} tree={tree} content={content} />;
 }
 
-function useReviewThreadJump(
-  target: ReviewNavigationTarget | null | undefined,
-  navigation: DiffViewerNavigationState,
-  diffAreaRef: RefObject<HTMLDivElement | null>,
-): void {
-  const selectPath = navigation.tree.navigation.selectPath;
-  const revealFile = navigation.revealFile;
-  const cancelRevealScroll = navigation.cancelRevealScroll;
-  useEffect(() => {
-    if (!target) return;
-    selectPath(target.filePath);
-    revealFile(target.filePath);
-    let frame = 0;
-    let attempts = 0;
-    let cancelThreadScroll = (): void => {};
-    const findAndFocus = (): void => {
-      const container = diffAreaRef.current;
-      const element = visibleReviewThread(container, target.threadId);
-      if (container && element) {
-        cancelRevealScroll();
-        cancelThreadScroll = scrollReviewThreadToCenter(container, target.threadId);
-        element.focus({ preventScroll: true });
-        return;
-      }
-      attempts += 1;
-      // The outer diff virtualizer can continue reconciling estimated file
-      // heights after its first jump. Re-issue the intent periodically rather
-      // than accepting a mounted-but-zero-size annotation as a finished jump.
-      if (attempts % 12 === 0) revealFile(target.filePath);
-      if (attempts < 180) frame = requestAnimationFrame(findAndFocus);
-    };
-    frame = requestAnimationFrame(findAndFocus);
-    return () => {
-      cancelAnimationFrame(frame);
-      cancelRevealScroll();
-      cancelThreadScroll();
-    };
-  }, [cancelRevealScroll, diffAreaRef, revealFile, selectPath, target]);
+/** What the phone layout's list is called, on its Back button. */
+function diffListLabel(
+  mode: DiffMode,
+  targetBranch: string | undefined,
+  commitSha: string | null | undefined,
+  t: UiTranslator,
+): string {
+  if (commitSha) return t("workspace.git.diffViewer.files", "Files");
+  if (mode === "branch") return gitTargetLabel(targetBranch, t);
+  return t("workspace.git.gitTabToggle.changes", "Changes");
 }
 
-export function visibleReviewThread(
-  container: HTMLElement | null,
-  threadId: string,
-): HTMLElement | null {
-  const selector = `[data-review-thread-id="${CSS.escape(threadId)}"]`;
-  const element = container?.querySelector<HTMLElement>(selector) ?? null;
-  if (!element) return null;
-  const rect = element.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0 ? element : null;
+/** The phone layout's list, named on its Back button; `undefined` off the phone layout. */
+function usePhoneDiffLayout(
+  mode: DiffMode,
+  targetBranch: string | undefined,
+  commitSha: string | null | undefined,
+) {
+  const { t } = useUiTranslation();
+  const phone = useIsMobile();
+  const phoneLayout = useMemo(
+    () => (phone ? { backLabel: diffListLabel(mode, targetBranch, commitSha, t) } : undefined),
+    [commitSha, mode, phone, t, targetBranch],
+  );
+  return { phone, phoneLayout };
 }
 
 function DiffViewerImpl({
@@ -324,7 +248,9 @@ function DiffViewerImpl({
     isLoading: isDiffModeLoading,
     isSaving: isDiffModeSaving,
   } = useSetting(GIT_DIFF_VIEW_MODE_KEY);
-  const diffMode = parseGitDiffViewMode(value);
+  const { phone, phoneLayout } = usePhoneDiffLayout(mode, targetBranch, commitSha);
+  // The phone layout's diff is one column wide: always unified.
+  const diffMode = phone ? "unified" : parseGitDiffViewMode(value);
   const fileList = useGitFileListCollapse({
     controlledValue: fileListCollapsed,
     onControlledChange: onFileListCollapsedChange,
@@ -355,6 +281,8 @@ function DiffViewerImpl({
         targetBranch={targetBranch}
         data={data}
         fileList={fileList}
+        key={phone ? `phone:${mode}:${targetBranch ?? ""}:${commitSha ?? ""}` : "desktop"}
+        phone={phoneLayout}
         diffMode={diffMode}
         themeAppearance={theme.appearance}
         themeId={theme.id}
@@ -371,14 +299,16 @@ function DiffViewerImpl({
   const supportsViewed = data.selectedCommit === null;
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <GitDiffToolbar
-        diffMode={diffMode}
-        onDiffModeChange={setDiffMode}
-        isPreferenceLoading={isDiffModeLoading || isDiffModeSaving}
-        viewedCount={supportsViewed ? data.viewedFilesSet.size : undefined}
-        fileCount={supportsViewed ? data.changedFiles.length : undefined}
-        isViewedPending={data.markViewed.isPending || data.unmarkViewed.isPending}
-      />
+      {!phone && (
+        <GitDiffToolbar
+          diffMode={diffMode}
+          onDiffModeChange={setDiffMode}
+          isPreferenceLoading={isDiffModeLoading || isDiffModeSaving}
+          viewedCount={supportsViewed ? data.viewedFilesSet.size : undefined}
+          fileCount={supportsViewed ? data.changedFiles.length : undefined}
+          isViewedPending={data.markViewed.isPending || data.unmarkViewed.isPending}
+        />
+      )}
       {afterToolbar}
       {mode !== "branch" && supportsViewed && data.commentChecksNotice && (
         <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground" role="status">

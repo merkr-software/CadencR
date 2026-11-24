@@ -1,25 +1,17 @@
 import { GitDiffTreeHeader } from "./GitDiffTreeHeader";
-import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type KeyboardEvent, type MouseEvent } from "react";
 import type { ContextMenuItem, ContextMenuOpenContext, FileTree } from "@pierre/trees";
-import {
-  ChevronDownIcon,
-  ChevronUpIcon,
-  ClipboardCopyIcon,
-  FilePenLineIcon,
-  Loader2Icon,
-  MinusIcon,
-  PlusIcon,
-} from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { FileStageState, type ChangedFile } from "@/api/generated";
 import { CadencrFileTree } from "@/components/file-tree/CadencrFileTree";
 import { FileTreeContextMenuPortal } from "@/components/file-tree/FileTreeContextMenuPortal";
 import { ContextMenuActionButton } from "@/components/ContextMenuActionItem";
-import { copyToClipboard } from "@/lib/clipboard";
 import type { GitDiffTreeDisplayMode } from "./useGitDiffTreeDisplaySetting";
-import { getGitFileActionAvailability, type GitFileIndexActions } from "./useGitFileIndexActions";
-import { isUnavailableDeleteConflict, resolvedStageState } from "./useGitDiffFileTreeModel";
-import { deletedConflictTooltip, openGitFileInEditor } from "./gitFileEditorHandoff";
+import type { GitFileIndexActions } from "./useGitFileIndexActions";
+import { resolvedStageState } from "./useGitDiffFileTreeModel";
+import { gitFileActions } from "./gitFileActions";
+import { openGitFileInEditor } from "./gitFileEditorHandoff";
 import { parseGitTreePath } from "@/lib/git-display-path";
 import { useGitDiffStageCheckboxes } from "./useGitDiffStageCheckboxes";
 
@@ -68,11 +60,14 @@ function GitDiffTreeContextMenu({
   onOpenFileInEditor,
 }: GitDiffTreeContextMenuProps): React.JSX.Element {
   const { t } = useUiTranslation();
-  const unavailableReason = file && isUnavailableDeleteConflict(file);
-  const stageState = file ? resolvedStageState(file) : FileStageState.not_applicable;
-  const availability = getGitFileActionAvailability(stageState);
-  const exactPath = file?.file ?? parseGitTreePath(item.path);
-  const pathPending = indexActions.pendingPath === exactPath;
+  const entries = gitFileActions({
+    file,
+    path: file?.file ?? parseGitTreePath(item.path),
+    indexActions,
+    busy: indexActions.isPending,
+    onOpenFileInEditor,
+    t,
+  });
   const closeAndRun = (action: () => void): void => {
     context.close();
     action();
@@ -91,65 +86,23 @@ function GitDiffTreeContextMenu({
             : t("workspace.git.gitDiffFileTree.revealDiff", "Reveal diff")}
         </ContextMenuActionButton>
       ) : null}
-      {file && onOpenFileInEditor ? (
-        <ContextMenuActionButton
-          icon={FilePenLineIcon}
-          disabled={unavailableReason}
-          className="py-1"
-          onSelect={() =>
-            closeAndRun(() => openGitFileInEditor(file, () => onOpenFileInEditor(file.file)))
-          }
-        >
-          {t("workspace.git.gitDiffFileTree.openInEditor", "Open in Editor")}
-        </ContextMenuActionButton>
-      ) : null}
-      {unavailableReason ? (
-        <p className="px-2 py-1 text-xs text-muted-foreground" role="note">
-          {deletedConflictTooltip(t)}
-        </p>
-      ) : null}
-      <ContextMenuActionButton
-        icon={ClipboardCopyIcon}
-        className="py-1"
-        onSelect={() => closeAndRun(() => copyGitPath(exactPath))}
-      >
-        {t("workspace.git.gitDiffFileTree.copyPath", "Copy path")}
-      </ContextMenuActionButton>
-      {file && availability.canStage ? (
-        <ContextMenuActionButton
-          icon={pathPending && indexActions.pendingAction === "stage" ? Loader2Icon : PlusIcon}
-          disabled={indexActions.isPending}
-          className="py-1"
-          onSelect={() =>
-            closeAndRun(() =>
-              indexActions.stage(file.file, {
-                conflicted: resolvedStageState(file) === FileStageState.conflicted,
-              }),
-            )
-          }
-        >
-          {pathPending && indexActions.pendingAction === "stage"
-            ? t("workspace.git.gitDiffFileTree.staging", "Staging…")
-            : unavailableReason
-              ? t("workspace.git.gitDiffFileTree.stageDeletion", "Stage deletion")
-              : t("workspace.git.gitDiffFileTree.stageFile", "Stage file")}
-        </ContextMenuActionButton>
-      ) : null}
-      {file && availability.canReset ? (
-        <ContextMenuActionButton
-          icon={pathPending && indexActions.pendingAction === "reset" ? Loader2Icon : MinusIcon}
-          disabled={indexActions.isPending}
-          className="py-1"
-          onSelect={() => closeAndRun(() => indexActions.reset(file.file))}
-        >
-          {pathPending && indexActions.pendingAction === "reset"
-            ? t("workspace.git.gitDiffFileTree.unstaging", "Unstaging…")
-            : t(
-                "workspace.git.gitDiffFileTree.unstageFileKeepsWorktreeChanges",
-                "Unstage file (keeps worktree changes)",
-              )}
-        </ContextMenuActionButton>
-      ) : null}
+      {entries.map((entry) =>
+        entry.kind === "note" ? (
+          <p key={entry.id} className="px-2 py-1 text-xs text-muted-foreground" role="note">
+            {entry.text}
+          </p>
+        ) : (
+          <ContextMenuActionButton
+            key={entry.id}
+            icon={entry.icon}
+            disabled={entry.disabled}
+            className="py-1"
+            onSelect={() => closeAndRun(entry.run)}
+          >
+            {entry.label}
+          </ContextMenuActionButton>
+        ),
+      )}
     </FileTreeContextMenuPortal>
   );
 }
@@ -293,10 +246,3 @@ function GitDiffFileTreeImpl({
 
 export const GitDiffFileTree = memo(GitDiffFileTreeImpl);
 export { GitDiffTreeContextMenu };
-
-function copyGitPath(path: string): void {
-  void copyToClipboard(
-    path,
-    translateUi("workspace.git.gitDiffFileTree.pathCopied", "Path copied"),
-  );
-}

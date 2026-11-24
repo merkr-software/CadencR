@@ -7,6 +7,7 @@ import type { HastNode } from "@/components/markdown/agent-file-href-sanitize";
 import { highlightCode } from "@/components/markdown/highlight-cache";
 import { MarkdownLink } from "@/components/markdown/markdown-link";
 import { LargeCodeBlock, isLargeCodeBlock } from "@/components/markdown/LargeCodeBlock";
+import { MarkdownCodeBlock, MarkdownTable } from "@/components/markdown/RichBlocks";
 import { VisualLoading } from "@/components/visuals/VisualStatus";
 
 /** `load`, started at most once: its promise is shared by every caller. */
@@ -160,6 +161,11 @@ function DraftingVisual({
   return <VisualLoading label={label(t)} detail={writtenLines(position, t)} />;
 }
 
+/** Module-level, so a table keeps its identity (and an open viewer) across option changes. */
+const MarkdownTableOverride: NonNullable<Components["table"]> = ({ children }) => (
+  <MarkdownTable>{children}</MarkdownTable>
+);
+
 interface MarkdownComponentOptions {
   contentRef: RefObject<string>;
   sendToTerminal?: (command: string) => void;
@@ -212,16 +218,13 @@ function buildCodeComponent({
       const highlighted =
         highlightCode(highlightLanguage, code, { cache: cacheHighlights }) ?? children;
       return (
-        <CodeBlockShell
+        <MarkdownCodeBlock
           language={lang}
           code={code}
+          highlighted={highlighted}
           showTerminalButton={showTerminalButton}
           onSendToTerminal={sendToTerminal}
-        >
-          <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
-            <code className="hljs">{highlighted}</code>
-          </pre>
-        </CodeBlockShell>
+        />
       );
     }
     return (
@@ -289,11 +292,7 @@ export function buildMarkdownComponents({
     // Streamdown sets `text-sm` on these, undoing preflight's smaller size.
     sub: ({ children }) => <sub className="text-[0.8em]">{children}</sub>,
     sup: ({ children }) => <sup className="text-[0.8em]">{children}</sup>,
-    table: ({ children }) => (
-      <div className="my-2 overflow-x-auto">
-        <table className="min-w-full border-collapse text-xs">{children}</table>
-      </div>
-    ),
+    table: MarkdownTableOverride,
     th: ({ children }) => (
       <th className="border border-border bg-muted px-2 py-1 text-left font-semibold">
         {children}

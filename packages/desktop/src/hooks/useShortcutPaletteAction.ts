@@ -28,7 +28,10 @@ export function useShortcutPaletteAction(
     // render at each switch.
     return whileActive(activity, () =>
       registerShortcutAction(id, () => {
-        void callbackRef.current(paletteKeyboardEvent());
+        const event = paletteKeyboardEvent();
+        void callbackRef.current(event);
+        // A handler that takes the chord prevents its default.
+        return event.defaultPrevented;
       }),
     );
   }, [activity, enabled, id, listed]);

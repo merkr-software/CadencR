@@ -1,3 +1,5 @@
+import { useAnchoredZoom } from "@/hooks/useAnchoredZoom";
+import { useTouchPinch } from "@/hooks/useTouchPinch";
 import {
   useCallback,
   useEffect,
@@ -6,6 +8,7 @@ import {
   useRef,
   useState,
   type PointerEvent,
+  type RefCallback,
   type RefObject,
 } from "react";
 
@@ -20,14 +23,20 @@ const MAX_CONTAIN_FIT = 2;
 /**
  * `width`: fit the viewport's width, never enlarging (inline in a message).
  * `contain`: fit the whole diagram in the viewport (full screen).
+ * `preview`: fit the viewport's width at any size, never enlarging (the phone
+ * layout's clipped preview, which never scrolls).
  */
-type PanZoomFit = "width" | "contain";
+type PanZoomFit = "width" | "contain" | "preview";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
 export interface PanZoom {
-  /** The clipping/scrolling viewport. */
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  /**
+   * The clipping/scrolling viewport, as a callback ref: the wheel and pinch
+   * listeners follow it to a new element (the phone and desktop layouts render
+   * the viewport in different trees).
+   */
+  containerRef: RefCallback<HTMLDivElement>;
   /** The element the SVG is injected into; sized to the scaled diagram. */
   contentRef: React.RefObject<HTMLDivElement | null>;
   /** Inline style for the content wrapper (its scaled width/height). */
@@ -92,6 +101,7 @@ interface Size {
 function fitScale(natural: Size, container: HTMLElement | null, fit: PanZoomFit): number {
   const width = container?.clientWidth || natural.w;
   if (fit === "width") return clamp(width / natural.w, MIN_WIDTH_FIT, 1);
+  if (fit === "preview") return clamp(width / natural.w, 0, 1);
   const height = container?.clientHeight || natural.h;
   return clamp(Math.min(width / natural.w, height / natural.h), MIN_SCALE, MAX_CONTAIN_FIT);
 }
@@ -110,12 +120,12 @@ function useDiagramMeasurement(
 }
 
 function useWheelZoom(
-  containerRef: RefObject<HTMLDivElement | null>,
+  element: HTMLElement | null,
   zoomAt: (anchorX: number, anchorY: number, factor: number) => void,
+  enabled: boolean,
 ): void {
   useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
+    if (!enabled || !element) return;
     const onWheel = (event: WheelEvent): void => {
       // Trackpad pinch arrives as a ctrl/meta-modified wheel; plain scroll
       // falls through to the viewport's native scrolling.
@@ -126,7 +136,7 @@ function useWheelZoom(
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [containerRef, zoomAt]);
+  }, [element, enabled, zoomAt]);
 }
 
 /**
@@ -142,14 +152,26 @@ function useWheelZoom(
  * - Cmd/Ctrl + drag pans by adjusting scroll offset (pointer capture keeps the
  *   drag alive when the cursor leaves the viewport).
  *
+ * - With `pinch`, a two-finger touch pinch zooms around the fingers
+ *   (`useTouchPinch`); one finger pans natively.
+ * - The phone preview (`fit: "preview"`) never zooms: it is a still picture
+ *   that opens full screen.
+ *
  * `svg` is passed in only so a new diagram re-measures and re-fits.
  */
-export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
+export function usePanZoom(
+  svg: string,
+  fit: PanZoomFit = "width",
+  { pinch = false }: { pinch?: boolean } = {},
+): PanZoom {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const setContainerRef = useCallback((element: HTMLDivElement | null) => {
+    containerRef.current = element;
+    setContainer(element);
+  }, []);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const [scale, setScale] = useState(1);
-  // Scroll offset to apply after a zoom commits, to keep a point anchored.
-  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
+  const { scale, setScale, zoomAt } = useAnchoredZoom(containerRef, MIN_SCALE, MAX_SCALE);
   const natural = useDiagramMeasurement(svg, contentRef);
   // Re-reads the viewport on every call, so `reset` fits a resized window again.
   const computeFit = useCallback(
@@ -157,35 +179,11 @@ export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
     [natural, fit],
   );
   // Fit each newly measured diagram before it paints.
-  useLayoutEffect(() => setScale(computeFit()), [computeFit]);
+  useLayoutEffect(() => setScale(computeFit()), [computeFit, setScale]);
   const { isPanning, onPointerDown, onPointerMove, onPointerUp } = usePanHandlers(containerRef);
 
-  // Apply the anchored scroll offset once the new scale has laid out.
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (el && pendingScroll.current) {
-      el.scrollLeft = pendingScroll.current.left;
-      el.scrollTop = pendingScroll.current.top;
-      pendingScroll.current = null;
-    }
-  }, [scale]);
-
-  const zoomAt = useCallback((anchorX: number, anchorY: number, factor: number) => {
-    const el = containerRef.current;
-    if (!el) return;
-    setScale((prev) => {
-      const next = clamp(prev * factor, MIN_SCALE, MAX_SCALE);
-      if (next === prev) return prev;
-      const k = next / prev;
-      pendingScroll.current = {
-        left: (el.scrollLeft + anchorX) * k - anchorX,
-        top: (el.scrollTop + anchorY) * k - anchorY,
-      };
-      return next;
-    });
-  }, []);
-
-  useWheelZoom(containerRef, zoomAt);
+  useWheelZoom(container, zoomAt, fit !== "preview");
+  useTouchPinch(container, zoomAt, pinch);
 
   const zoomByCenter = useCallback(
     (factor: number) => {
@@ -206,7 +204,7 @@ export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
       el.scrollTop = 0;
     }
     setScale(computeFit());
-  }, [computeFit]);
+  }, [computeFit, setScale]);
 
   const contentStyle = useMemo<React.CSSProperties>(
     () =>
@@ -220,7 +218,7 @@ export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
 
   return useMemo<PanZoom>(
     () => ({
-      containerRef,
+      containerRef: setContainerRef,
       contentRef,
       contentStyle,
       scale,
@@ -233,6 +231,7 @@ export function usePanZoom(svg: string, fit: PanZoomFit = "width"): PanZoom {
       reset,
     }),
     [
+      setContainerRef,
       contentStyle,
       scale,
       isPanning,
