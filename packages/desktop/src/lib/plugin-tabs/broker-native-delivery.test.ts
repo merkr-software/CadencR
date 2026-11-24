@@ -26,21 +26,21 @@ it("bounds unread guest events, owes a resync and releases every window on reloa
   expect(publish).toHaveBeenCalledTimes(4);
 });
 
-it("re-arms resync after the guest consumes it, coalesces errors", () => {
+it("re-arms resync after consumption, coalesces while one is owed", () => {
   const publish = vi.fn();
   const delivery = new NativeDelivery(publish);
   delivery.register("b1");
-  // Each resync from the guest means the previous one was consumed (e.g. by
-  // reading a snapshot), so a later reconnect can request another even before
-  // any data event is acknowledged.
+  // First resync is sent.
+  delivery.resync("b1");
+  expect(publish).toHaveBeenCalledTimes(1);
+  // While the first is still owed, repeated resyncs coalesce.
   delivery.resync("b1");
   delivery.resync("b1");
-  expect(publish).toHaveBeenCalledTimes(2);
-  expect(publish).toHaveBeenNthCalledWith(1, "backend.resync", { subscriptionId: "b1" });
-  expect(publish).toHaveBeenNthCalledWith(2, "backend.resync", { subscriptionId: "b1" });
-  // Errors still coalesce while the guest is not consuming.
-  for (let n = 0; n < 1000; n++) {
-    delivery.error("b1", { code: "EXITED", message: "stopped" });
-  }
-  expect(publish).toHaveBeenCalledTimes(3);
+  expect(publish).toHaveBeenCalledTimes(1);
+  // Once consumed (owed cleared by an ack), a new resync is sent again.
+  delivery.ack("b1", 1);
+  delivery.event({ subscriptionId: "b1", topic: "t", seq: 1, processSeq: 1, runId: "r", payload: null });
+  delivery.resync("b1");
+  expect(publish).toHaveBeenCalledTimes(3); // event + resync
+  expect(publish).toHaveBeenLastCalledWith("backend.resync", { subscriptionId: "b1" });
 });

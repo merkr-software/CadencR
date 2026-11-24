@@ -60,10 +60,11 @@ export class NativeDelivery {
   resync(id: string): void {
     const window = this.windows.get(id);
     if (!window) return;
-    // The guest consumed the previous resync (e.g. by reading a snapshot),
-    // so a later reconnect must be able to request another one even before
-    // any data event is acknowledged.
-    window.resyncSent = false;
+    // A resync from the guest means the previous one was consumed (e.g. by
+    // reading a snapshot), so a later reconnect can request another even
+    // before any data event is acknowledged. But while a resync is still
+    // owed, repeated notifications coalesce into the one already sent.
+    if (!window.owed) window.resyncSent = false;
     window.owed = true;
     this.pay(id, window);
   }

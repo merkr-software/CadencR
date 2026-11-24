@@ -37,7 +37,7 @@ pub(in crate::domain::plugin_tabs::backend) fn spawn(
         child.stdout.take(),
         child.stderr.take(),
     ) else {
-        let _ = child.start_kill();
+        crate::shared::discard::cleanup(child.start_kill(), "kill already-exited child");
         return Err(unavailable("the backend's stdio was unavailable".into()).into());
     };
     let minted = grants.mint(
@@ -74,7 +74,7 @@ pub(in crate::domain::plugin_tabs::backend) fn spawn(
     let hello = match launch.hello(&minted.token) {
         Ok(hello) => hello,
         Err(error) => {
-            let _ = child.start_kill();
+            crate::shared::discard::cleanup(child.start_kill(), "kill already-exited child");
             grants.revoke_key(&minted.grant.key);
             return Err(error.into());
         }
@@ -117,7 +117,7 @@ fn spawn_child(
         .map_err(|error| unavailable(format!("the backend cannot be contained: {error}")))?;
     let mut child = command.spawn().map_err(SpawnError::Exec)?;
     if let Err(error) = tree.attach(&child) {
-        let _ = child.start_kill();
+        crate::shared::discard::cleanup(child.start_kill(), "kill already-exited child");
         return Err(unavailable(format!("the backend cannot be contained: {error}")).into());
     }
     Ok((child, tree))

@@ -7,6 +7,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use super::protocol::lock;
+use crate::shared::discard::IgnoreClosed;
 
 pub const EVENT_CAPACITY: usize = 64;
 
@@ -55,7 +56,7 @@ impl Events {
         let mut cursor = lock(&self.cursor);
         cursor.run_id = Some(run_id.to_owned());
         cursor.seq = 0;
-        let _ = self.tx.send(Update::Resync);
+        self.tx.send(Update::Resync).ignore_closed();
     }
 
     pub fn emit(&self, run_id: &str, event: Event) {
@@ -64,21 +65,21 @@ impl Events {
             return; // An old stdout reader finishing after a replacement started.
         }
         cursor.seq += 1;
-        let _ = self.tx.send(Update::Event(Arc::new(StampedEvent {
+        self.tx.send(Update::Event(Arc::new(StampedEvent {
             run_id: run_id.to_owned(),
             seq: cursor.seq,
             topic: event.topic,
             payload: event.payload,
-        })));
+        }))).ignore_closed();
     }
 
     pub fn error(&self, run_id: &str, code: &str, message: &str) {
         if lock(&self.cursor).run_id.as_deref() == Some(run_id) {
-            let _ = self.tx.send(Update::Error {
+            self.tx.send(Update::Error {
                 code: code.to_owned(),
                 message: message.to_owned(),
-            });
-            let _ = self.tx.send(Update::Resync);
+            }).ignore_closed();
+            self.tx.send(Update::Resync).ignore_closed();
         }
     }
 
@@ -88,11 +89,11 @@ impl Events {
             return;
         }
         cursor.run_id = None;
-        let _ = self.tx.send(Update::Resync);
-        let _ = self.tx.send(Update::Error {
+        self.tx.send(Update::Resync).ignore_closed();
+        self.tx.send(Update::Error {
             code: "PLUGIN_BACKEND_EXITED".into(),
             message: reason.to_owned(),
-        });
+        }).ignore_closed();
     }
 }
 

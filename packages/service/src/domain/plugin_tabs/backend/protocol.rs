@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use super::events::Events;
 use super::handshake::{self, Handshake, HandshakeState};
 use super::history::History;
+use crate::shared::discard::SendIgnoreClosed;
 use super::lines::{next_line, Line};
 use super::models::{PluginBackendCallError, PluginBackendResponse};
 use crate::domain::agents::providers::installed::managed::process_policy::MANAGED_MAX_STDERR_LINE_BYTES;
@@ -185,7 +186,7 @@ impl Consumer {
         match parse_response(&text) {
             Some((id, response)) => {
                 if let Some(waiter) = lock(pending).remove(&id) {
-                    let _ = waiter.send(Reply::Response(response));
+                    waiter.send_ignore_closed(Reply::Response(response));
                 }
             }
             None => history.push_stderr(format!(

@@ -37,18 +37,21 @@ export function VimMotionsSetting() {
       }
     })();
   };
+  const loading = backend.isLoading || vim.isLoading;
   return (
     <SettingsSwitchRow
       label="Vim motions"
       description={
         backend.isError || vim.isError
           ? "Editor settings could not be loaded."
-          : saving
-            ? "Saving Vim motions…"
-            : "Use modal editing in CodeMirror, independently of the selected editor."
+          : loading
+            ? "Loading Vim motions…"
+            : saving
+              ? "Saving Vim motions…"
+              : "Use modal editing in CodeMirror, independently of the selected editor."
       }
       checked={parseVimModeLevel(vim.data?.value) !== "0"}
-      disabled={saving || backend.isLoading || vim.isLoading || backend.isError || vim.isError}
+      disabled={saving || loading || backend.isError || vim.isError}
       onCheckedChange={change}
       divided
     />
