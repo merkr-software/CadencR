@@ -131,9 +131,11 @@ function PromptComposer({
         hidden={controller.special.hasSpecialState}
         aria-hidden={controller.special.hasSpecialState}
         className={cn(
-          // The phone keeps the sides' 12px under the card, above the tab
-          // bar or the keyboard.
-          "flex min-h-0 flex-col px-3 pb-4 phone:pb-3",
+          // On a phone the card reaches closer to the sides (8px) than to the
+          // tab bar or the keyboard (12px): the screen's dark bezel and round
+          // corners add to the side gap to the eye, the tab bar's rule does
+          // not, so equal measures read as a card sitting too low.
+          "flex min-h-0 flex-col px-3 pb-4 phone:px-2 phone:pb-3",
           props.noTopPadding ? "pt-0" : "pt-3",
           "group-data-[agent-dragover]/agent-section:ring-2 group-data-[agent-dragover]/agent-section:ring-inset group-data-[agent-dragover]/agent-section:ring-primary/50",
         )}
