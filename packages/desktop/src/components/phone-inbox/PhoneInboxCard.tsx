@@ -1,13 +1,16 @@
-import { memo, type ReactElement, type ReactNode } from "react";
+import { memo, useRef, type ReactElement, type ReactNode } from "react";
 import type { Feature } from "@/api/generated";
 import { ActivityTime } from "@/components/ActivityTime";
 import { ConversationStatus } from "@/components/ConversationStatus";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { useSidebarRowActions } from "@/components/SidebarRowActionsProvider";
+import { useCrossProjectRowSwipe } from "@/components/useFeatureRowSwipe";
 import { Button } from "@/components/ui/button";
 import { useFeatureAttention } from "@/hooks/useFeatureAttention";
 import { useFeatureTitle } from "@/hooks/useFeatureTitle";
 import { useNow } from "@/hooks/useNow";
 import { formatElapsed } from "@/lib/format-elapsed";
+import type { NextActionKind } from "@/lib/next-actions";
 import { serverToLocalMs } from "@/lib/server-clock";
 import { cn } from "@/lib/utils";
 import { useIsConversationOnScreen } from "@/components/app-stage/conversation-match";
@@ -33,6 +36,8 @@ export interface InboxCardProps {
   action?: InboxCardAction;
   /** Opens the conversation (`navigateToConversation`). */
   onOpen: (feature: Feature) => void;
+  /** A For me card's next action: its swipe tray leads with Done where it can be marked. */
+  nextAction?: NextActionKind;
 }
 
 /**
@@ -40,7 +45,9 @@ export interface InboxCardProps {
  * opens the conversation, its status first, then its title and the time of
  * its last activity, what it asks under them, and its project. A touch on the
  * body preloads the conversation and its view's chunk, so the workspace opens
- * on its transcript.
+ * on its transcript. Swiped left on a touch screen, it reveals the sidebar
+ * rows' actions (Pin, Archive, a For me card's Done) through the inbox's
+ * `SidebarRowActionsProvider`.
  * Memoized and self-subscribed (title, status) by id, so one conversation's
  * push re-renders its own card only.
  */
@@ -51,24 +58,39 @@ export const InboxCard = memo(function InboxCard({
   working = false,
   action,
   onOpen,
+  nextAction,
 }: InboxCardProps): ReactElement {
   const { title: liveTitle } = useFeatureTitle(feature.id);
   const title = liveTitle ?? feature.title;
+  const cardRef = useRef<HTMLLIElement>(null);
+  const swipe = useCrossProjectRowSwipe(
+    cardRef,
+    useSidebarRowActions(),
+    feature,
+    nextAction,
+    liveTitle,
+  );
   // Two panes: the conversation open beside the inbox.
   const onScreen = useIsConversationOnScreen(feature.id);
   return (
     <li
+      ref={cardRef}
       data-phone-inbox-card={feature.id}
       data-on-screen={onScreen || undefined}
+      {...swipe.rowProps}
       className={cn(
-        "flex min-h-14 min-w-0 items-center gap-1 rounded-xl border",
+        "relative flex min-h-14 min-w-0 items-center gap-1 rounded-xl border",
         onScreen ? "border-primary/50 bg-accent" : "border-border/60 bg-card/50",
       )}
     >
       <button
         type="button"
         aria-current={onScreen ? "page" : undefined}
-        className="flex min-h-14 min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pr-1 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/50"
+        className={cn(
+          "flex min-h-14 min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/50",
+          // The time keeps the card's inner margin; a verb after it brings its own.
+          action ? "pr-1" : "pr-3",
+        )}
         onPointerDown={() => preloadPressedConversation(feature.id)}
         onClick={() => onOpen(feature)}
       >
@@ -104,6 +126,7 @@ export const InboxCard = memo(function InboxCard({
           </Button>
         </div>
       )}
+      {swipe.tray}
     </li>
   );
 });

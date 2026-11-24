@@ -3,7 +3,6 @@ import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
-  useContext,
   useRef,
   type ReactElement,
   type ReactNode,
@@ -33,8 +32,8 @@ import { NO_PORTS } from "@/hooks/useFeaturePorts";
 import { useBrowserStore } from "@/stores/browser-store";
 import { openFeatureRowOnKey } from "@/components/ProjectFeatureRow";
 import { FeatureRowBody } from "@/components/FeatureRowBody";
-import { ForMeDoneContext, SidebarForMeDoneAction } from "@/components/SidebarForMeDoneAction";
-import { useFeatureRowSwipe } from "@/components/useFeatureRowSwipe";
+import { SidebarForMeDoneAction } from "@/components/SidebarForMeDoneAction";
+import { useCrossProjectRowSwipe } from "@/components/useFeatureRowSwipe";
 import type { AllocatedPort, Feature, FeatureWorktreeInfo } from "@/api/generated";
 import type { NextActionKind } from "@/lib/next-actions";
 
@@ -91,7 +90,7 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
   const label = useRowLabelEditor(feature);
   const reorder = useCrossProjectRowControls(navRef, actions, feature, state, label);
   const handleOpenConversation = useCallback(() => onNavigate(feature), [feature, onNavigate]);
-  const swipe = useCrossProjectRowSwipe(navRef, actions, feature, state, nextAction, liveTitle);
+  const swipe = useCrossProjectRowSwipe(navRef, actions, feature, nextAction, liveTitle);
 
   return (
     <CrossProjectRowMenu
@@ -177,35 +176,6 @@ function rowHoverAction(
   if (nextAction) return <SidebarForMeDoneAction featureId={featureId} kind={nextAction} />;
   return (
     showUnpin && actions && <UnpinAction onUnpin={() => actions.togglePin(featureId, false)} />
-  );
-}
-
-/**
- * The swipe actions of a row outside its project (phone layout): Mark done
- * first on a For me row whose action can be marked, then Pin and Archive.
- * None on a row rendered outside the sidebar.
- */
-function useCrossProjectRowSwipe(
-  rowRef: RefObject<HTMLDivElement | null>,
-  actions: SidebarRowActions | null,
-  feature: Feature,
-  state: Pick<ProjectFeatureRowState, "isArchived" | "isPinned">,
-  nextAction: NextActionKind | undefined,
-  liveTitle: string | null | undefined,
-): ReturnType<typeof useFeatureRowSwipe> {
-  const markDone = useContext(ForMeDoneContext);
-  return useFeatureRowSwipe(
-    rowRef,
-    actions && {
-      featureId: feature.id,
-      title: liveTitle ?? feature.title,
-      isArchived: state.isArchived,
-      isPinned: state.isPinned,
-      onTogglePin: actions.togglePin,
-      onArchiveOrDelete: () => actions.archiveOrDelete(feature),
-      onUnarchive: actions.unarchive,
-      onMarkDone: nextAction && nextAction !== "waiting" ? () => markDone(feature.id) : undefined,
-    },
   );
 }
 

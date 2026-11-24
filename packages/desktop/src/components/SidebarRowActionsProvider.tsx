@@ -33,7 +33,7 @@ export interface SidebarRowActions extends Pick<FeatureRowMutations, "togglePin"
 
 const SidebarRowActionsContext = createContext<SidebarRowActions | null>(null);
 
-/** Null outside the sidebar: such rows offer no context menu. */
+/** Null outside a provider (the sidebar, the phone inbox): such rows offer no menu or swipe actions. */
 export function useSidebarRowActions(): SidebarRowActions | null {
   return useContext(SidebarRowActionsContext);
 }
@@ -43,8 +43,9 @@ const NO_WORKTREES: FeatureWorktreeInfo[] = [];
 
 /**
  * The actions of the rows above the project list and of the cross-project
- * lists (Pinned, For me, In progress, Recent, lenses, views), with the one
- * archive dialog they share. A project's own rows keep theirs in its section.
+ * lists (Pinned, For me, In progress, Recent, lenses, views), and of the
+ * phone inbox's cards, with the one archive dialog they share. A project's own
+ * rows keep theirs in its section.
  */
 export function SidebarRowActionsProvider({ children }: { children: ReactNode }): ReactElement {
   const [confirmFeature, setConfirmFeature] = useState<Feature | null>(null);

@@ -32,7 +32,7 @@ export const ForMeCard = memo(function ForMeCard({ kind, ...props }: ForMeCardPr
 type CardProps = Omit<ForMeCardProps, "kind">;
 
 function WaitingCard(props: CardProps): ReactElement {
-  return <ForMeCardView {...props} view={useWaitingActionView(props.feature.id)} />;
+  return <ForMeCardView {...props} kind="waiting" view={useWaitingActionView(props.feature.id)} />;
 }
 
 function PlainCard({
@@ -40,7 +40,7 @@ function PlainCard({
   ...props
 }: CardProps & { kind: Exclude<NextActionKind, "waiting"> }): ReactElement {
   const prStatus = usePrStatusStore(selectPrStatus(props.feature.id));
-  return <ForMeCardView {...props} view={actionView(kind, prStatus)} />;
+  return <ForMeCardView {...props} kind={kind} view={actionView(kind, prStatus)} />;
 }
 
 function ForMeCardView({
@@ -49,7 +49,8 @@ function ForMeCardView({
   onOpen,
   onQuickReply,
   view,
-}: CardProps & { view: NextActionView }): ReactElement {
+  kind,
+}: CardProps & { view: NextActionView; kind: NextActionKind }): ReactElement {
   const summary = (
     <span
       data-phone-inbox-summary
@@ -69,6 +70,7 @@ function ForMeCardView({
         onPress: () => (view.quickReply ? onQuickReply(feature.id) : onOpen(feature)),
       }}
       onOpen={onOpen}
+      nextAction={kind}
     />
   );
 }

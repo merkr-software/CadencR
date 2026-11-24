@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { HistoryIcon, InboxIcon, Loader2Icon, LoaderIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
 import { CenteredMessage, PhoneHomeFrame } from "@/components/PhoneHomeChrome";
+import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvider";
 import { SidebarShowMoreButton } from "@/components/SidebarShowMore";
 import { Button } from "@/components/ui/button";
 import { InboxCard } from "@/components/phone-inbox/PhoneInboxCard";
@@ -56,7 +57,10 @@ export function PhoneInbox({ variant = "page" }: { variant?: "page" | "pane" }):
           variant === "pane" ? "px-3" : "px-4",
         )}
       >
-        <InboxContent inbox={inbox} onOpen={open} onQuickReply={openQuickReply} />
+        {/* A card's swipe actions and the archive dialog they share. */}
+        <SidebarRowActionsProvider>
+          <InboxContent inbox={inbox} onOpen={open} onQuickReply={openQuickReply} />
+        </SidebarRowActionsProvider>
       </div>
     </PhoneHomeFrame>
   );

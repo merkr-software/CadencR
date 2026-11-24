@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@/test-utils";
+import { act, fireEvent, render, screen, within } from "@/test-utils";
 import type { Feature, FeaturePendingGateResponse } from "@/api/generated";
 import { SidebarAttentionContext } from "@/components/SidebarAttentionProvider";
+import { ForMeDoneContext } from "@/components/SidebarForMeDoneAction";
 import type { ResolvedAttentionResult } from "@/hooks/useResolvedAttention";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarSurfaceStore } from "@/stores/sidebar-surface-store";
@@ -18,11 +19,15 @@ const mocks = vi.hoisted(() => ({
   projects: { data: [] as unknown[], error: null as unknown, isPending: false },
   refetchProjects: vi.fn(() => Promise.resolve()),
   gates: {} as Record<number, unknown>,
+  touch: false,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
   useMatch: () => undefined,
+  // The inbox's home route: no conversation open.
+  useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
+    select({ location: { pathname: "/", search: {} } }),
 }));
 vi.mock("@/lib/conversation-route", () => ({
   navigateToConversation: mocks.navigateToConversation,
@@ -56,6 +61,7 @@ vi.mock("@/hooks/useFeaturePendingGate", () => ({
 }));
 vi.mock("@/components/ProjectBadge", () => ({ ProjectBadge: () => null }));
 vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => true }));
+vi.mock("@/hooks/useIsTouchDevice", () => ({ useIsTouchDevice: () => mocks.touch }));
 vi.mock("@/components/SidebarContext", () => ({
   useSidebarCollapsed: () => ({ collapsed: true, setCollapsed: vi.fn() }),
 }));
@@ -117,6 +123,7 @@ beforeEach(() => {
     isPending: false,
   };
   mocks.gates = {};
+  mocks.touch = false;
   act(() => {
     useSessionStatusStore.setState({ isConnected: true, hasSnapshot: true, bySession: {} });
     useSidebarSurfaceStore.setState({ forMeShowAll: false });
@@ -310,5 +317,52 @@ describe("PhoneInbox conversation view prefetch", () => {
     expect(mocks.prefetchAgentSession).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS));
     expect(mocks.prefetchAgentSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PhoneInbox card swipe actions", () => {
+  it("offers a sidebar row's actions on a touch screen, Done only where it applies", () => {
+    mocks.touch = true;
+    mocks.gates = { 1: gate("question", "Which port?") };
+    mocks.recent.data = [feature(4, "Touched last")];
+    renderInbox({
+      actions: [
+        { feature: feature(1, "Old ask"), kind: "waiting" },
+        { feature: feature(5, "Read me"), kind: "review" },
+      ],
+    });
+    const recent = section("Recent");
+    expect(within(recent).getByRole("button", { name: "Pin “Touched last”" })).toBeInTheDocument();
+    expect(
+      within(recent).getByRole("button", { name: "Archive “Touched last”" }),
+    ).toBeInTheDocument();
+    const forMe = section("For me");
+    expect(within(forMe).getByRole("button", { name: "Done “Read me”" })).toBeInTheDocument();
+    // A request is answered, not marked done.
+    expect(within(forMe).queryByRole("button", { name: "Done “Old ask”" })).toBeNull();
+    expect(within(forMe).getByRole("button", { name: "Archive “Old ask”" })).toBeInTheDocument();
+  });
+
+  it("leaves a card without a tray under a mouse", () => {
+    mocks.recent.data = [feature(4, "Touched last")];
+    renderInbox();
+    expect(screen.queryByRole("button", { name: "Pin “Touched last”" })).toBeNull();
+  });
+
+  it("marks a For me entry done from its tray", () => {
+    mocks.touch = true;
+    const markDone = vi.fn();
+    render(
+      <ForMeDoneContext.Provider value={markDone}>
+        <SidebarAttentionContext.Provider
+          value={{ ...EMPTY, actions: [{ feature: feature(5, "Read me"), kind: "review" }] }}
+        >
+          <PhoneInbox />
+        </SidebarAttentionContext.Provider>
+      </ForMeDoneContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Done “Read me”" }));
+    expect(markDone).toHaveBeenCalledWith(5);
+    expect(mocks.navigateToConversation).not.toHaveBeenCalled();
   });
 });
