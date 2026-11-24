@@ -24,3 +24,13 @@
     pointer-events: none;
   }
 }
+
+/* The drawer covers the page up to the status bar: the bar takes the
+ * sidebar's color so the two read as one surface. A textured theme's sidebar
+ * (Frost, or a user theme with a texture base) is translucent, and the
+ * sampler needs an opaque color, so it keeps the page's. */
+@supports (-webkit-touch-callout: none) {
+  :root.is-standalone:not([data-texture-base]) .mobile-status-bar[data-drawer-open] {
+    background-color: var(--sidebar);
+  }
+}

@@ -210,4 +210,27 @@ describe("AppShell layout flips", () => {
     render(shell(true));
     expect(appShellGroupProps.at(-1)?.["data-app-shell-resize"]).toBeUndefined();
   });
+
+  it("tints the status bar like the drawer while it is open", () => {
+    const phone = (collapsed: boolean): ReactNode => (
+      <AppShell
+        isMobile
+        collapsed={collapsed}
+        setCollapsed={() => {}}
+        onSearch={() => {}}
+        sidebarPanelRef={createRef<PanelImperativeHandle | null>()}
+        leftSidebarRef={createRef<HTMLDivElement | null>()}
+        defaultLeftSize="256px"
+        onLayoutChanged={() => {}}
+        onSidebarResize={() => {}}
+      >
+        <div>main</div>
+      </AppShell>
+    );
+    const view = render(phone(true));
+    const sampler = document.querySelector(".mobile-status-bar");
+    expect(sampler?.hasAttribute("data-drawer-open")).toBe(false);
+    view.rerender(phone(false));
+    expect(sampler?.hasAttribute("data-drawer-open")).toBe(true);
+  });
 });

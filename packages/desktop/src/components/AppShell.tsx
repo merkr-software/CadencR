@@ -33,7 +33,12 @@ function PhoneShellChrome({
   const { t } = useUiTranslation();
   return (
     <>
-      <div aria-hidden className="mobile-status-bar" />
+      {/* Takes the sidebar's color while the drawer is open (`mobile-status-bar.css`). */}
+      <div
+        aria-hidden
+        className="mobile-status-bar"
+        data-drawer-open={collapsed ? undefined : ""}
+      />
       <MobileDrawer
         collapsed={collapsed}
         onClose={() => setCollapsed(true)}
