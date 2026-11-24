@@ -57,7 +57,7 @@ export const AssistMenu = memo(function AssistMenu(): ReactElement {
           "[&_button]:min-h-11 [&_button]:min-w-11",
           helpShown
             ? "overflow-y-auto"
-            : "min-h-0 gap-3 overflow-y-auto px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            : "min-h-0 gap-3 overflow-y-auto px-4 pb-[max(0.75rem,var(--app-inset-bottom))]",
         )}
         side="top"
         align="end"

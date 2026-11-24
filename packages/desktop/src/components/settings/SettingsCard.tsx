@@ -45,7 +45,7 @@ export function SettingsCard({
         tone === "danger"
           ? "border-[color-mix(in_oklab,var(--acc-red)_35%,transparent)] bg-[color-mix(in_oklab,var(--acc-red)_5%,var(--card))]"
           : "border-border/60 bg-[var(--surface-sunken)]",
-        padded && "p-5",
+        padded && "p-5 phone:p-4",
         className,
       )}
     >

@@ -42,12 +42,15 @@ vi.mock("../api/generated", async (importOriginal) => ({
 vi.mock("./custom-actions/CustomActionsManager", () => ({
   CustomActionsManager: () => null,
 }));
+const layout = vi.hoisted(() => ({ phone: false }));
+vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: () => layout.phone }));
 vi.mock("./ModelSelector", () => ({
   ModelSelector: () => <div data-testid="model-selector" />,
 }));
 
 describe("ProjectSettingsDialog", () => {
   beforeEach(() => {
+    layout.phone = false;
     generatedMocks.getPublicationReadiness.mockClear();
     generatedMocks.getProjectSettings.mockReturnValue({ data: [] });
     generatedMocks.getPublicationReadiness.mockReturnValue({
@@ -87,6 +90,20 @@ describe("ProjectSettingsDialog", () => {
       "href",
       "/marketplace?kind=lsp",
     );
+  });
+
+  it("opens as a full page on a phone, a centered box elsewhere", () => {
+    const dialog = (): HTMLElement => screen.getByRole("dialog");
+    const view = render(
+      <ProjectSettingsDialog projectId={1} projectName="My Project" open onOpenChange={vi.fn()} />,
+    );
+    expect(dialog()).not.toHaveClass("phone-page-dialog");
+    view.unmount();
+    layout.phone = true;
+    render(
+      <ProjectSettingsDialog projectId={1} projectName="My Project" open onOpenChange={vi.fn()} />,
+    );
+    expect(dialog()).toHaveClass("phone-page-dialog");
   });
 
   it("renders branch prefix input", () => {

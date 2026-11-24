@@ -5,16 +5,18 @@ import { cn } from "@/lib/utils";
 
 /**
  * A bottom sheet for the phone layout: the `Dialog` content pinned to the
- * bottom edge, full width, top corners rounded, a grab handle on top, clear of
- * the home indicator, at most 85% of the app viewport (`--app-vh`, which
- * shrinks with the on-screen keyboard). It never autofocuses (that would raise
+ * bottom of the app viewport, full width, top corners rounded, a grab handle on
+ * top, clear of the home indicator, at most 85% of that viewport. The app
+ * viewport (`--app-vh`) shrinks with the on-screen keyboard, so the sheet rises
+ * above it when one of its fields is focused, where the screen's bottom edge
+ * would leave it under the keyboard. It never autofocuses (that would raise
  * the on-screen keyboard over it).
  */
 const PHONE_SHEET_CLASS = cn(
   "flex flex-col gap-0 overflow-hidden p-0",
-  "top-auto bottom-0 left-0 w-full max-w-none translate-x-0 translate-y-0 sm:max-w-none",
+  "top-(--app-vh,100dvh) bottom-auto left-0 w-full max-w-none translate-x-0 -translate-y-full sm:max-w-none",
   "rounded-t-2xl rounded-b-none border-x-0 border-b-0",
-  "max-h-[calc(var(--app-vh,100dvh)*0.85)] pb-[env(safe-area-inset-bottom)]",
+  "max-h-[calc(var(--app-vh,100dvh)*0.85)] pb-(--app-inset-bottom)",
   "data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom",
   "data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
 );

@@ -8,7 +8,10 @@ import {
   useSetProjectSetting,
   getGetProjectSettingsQueryKey,
 } from "../api/generated";
+import { PHONE_PAGE_DIALOG_CLASS } from "@/components/FullscreenDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { cn } from "@/lib/utils";
 import { WorktreeList } from "./WorktreeList";
 import { CustomActionsManager } from "./custom-actions/CustomActionsManager";
 import { SettingsCard } from "@/components/settings/SettingsCard";
@@ -47,33 +50,20 @@ export function ProjectSettingsDialog({
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
   const { t } = useUiTranslation();
-  const queryClient = useQueryClient();
-  const { data: settingsArray } = useGetProjectSettings(projectId, { query: { enabled: open } });
-  const settings = useMemo(() => settingsArrayToMap(settingsArray), [settingsArray]);
-  // Toast only the user-driven saves — the field-level autosave fires often
-  // enough that a per-keystroke toast would be noise. We surface "Saved" on
-  // explicit color picker clicks via the swatch's onChange.
-  const setSettingMutation = useSetProjectSetting({
-    mutation: {
-      onSuccess: () => {
-        void queryClient.invalidateQueries({ queryKey: getGetProjectSettingsQueryKey(projectId) });
-      },
-      onError: (err: Error) => {
-        toast.error(err.message);
-      },
-    },
-  });
-
-  const saveProjectSetting = useCallback(
-    (key: ProjectSettingKey, value: string): void => {
-      setSettingMutation.mutate({ id: projectId, data: { key, value } });
-    },
-    [projectId, setSettingMutation],
-  );
+  // A page on a phone, not a box over the drawer.
+  const phone = useIsMobile();
+  const { settings, saveProjectSetting } = useProjectSettingsState(projectId, open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
+      <DialogContent
+        className={cn(
+          "flex flex-col gap-0 p-0",
+          phone
+            ? PHONE_PAGE_DIALOG_CLASS
+            : "max-h-[min(85vh,var(--dialog-max-h))] w-[90vw] sm:max-w-6xl",
+        )}
+      >
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
             <UiTrans
@@ -88,7 +78,12 @@ export function ProjectSettingsDialog({
           </p>
         </DialogHeader>
 
-        <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
+        <div
+          className={cn(
+            "flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6",
+            phone && "px-4 py-4",
+          )}
+        >
           <ConfigurationSection projectId={projectId} enabled={open} />
           <PublicationSection projectId={projectId} enabled={open} target={authoringTarget} />
           <IdentitySection
@@ -148,6 +143,40 @@ function PublicationSection({
       />
     </>
   ) : null;
+}
+
+/** The project's settings while the dialog is open, and the autosave of one. */
+function useProjectSettingsState(
+  projectId: number,
+  open: boolean,
+): {
+  settings: ReturnType<typeof settingsArrayToMap>;
+  saveProjectSetting: (key: ProjectSettingKey, value: string) => void;
+} {
+  const queryClient = useQueryClient();
+  const { data: settingsArray } = useGetProjectSettings(projectId, { query: { enabled: open } });
+  const settings = useMemo(() => settingsArrayToMap(settingsArray), [settingsArray]);
+  // Toast only the user-driven saves — the field-level autosave fires often
+  // enough that a per-keystroke toast would be noise. We surface "Saved" on
+  // explicit color picker clicks via the swatch's onChange.
+  const setSettingMutation = useSetProjectSetting({
+    mutation: {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: getGetProjectSettingsQueryKey(projectId) });
+      },
+      onError: (err: Error) => {
+        toast.error(err.message);
+      },
+    },
+  });
+
+  const saveProjectSetting = useCallback(
+    (key: ProjectSettingKey, value: string): void => {
+      setSettingMutation.mutate({ id: projectId, data: { key, value } });
+    },
+    [projectId, setSettingMutation],
+  );
+  return { settings, saveProjectSetting };
 }
 
 function ConfigurationSection({

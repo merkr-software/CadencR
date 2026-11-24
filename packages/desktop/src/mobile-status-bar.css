@@ -34,3 +34,12 @@
     background-color: var(--sidebar);
   }
 }
+
+/* A full-page dialog opened from the drawer (project settings) covers it: the
+ * bar goes back to the page's color. */
+@supports (-webkit-touch-callout: none) {
+  :root.is-standalone:has(.phone-page-dialog[data-state="open"])
+    .mobile-status-bar[data-drawer-open] {
+    background-color: var(--ambient-base, var(--background));
+  }
+}

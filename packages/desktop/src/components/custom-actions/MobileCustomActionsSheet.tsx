@@ -47,7 +47,7 @@ export function MobileCustomActionsSheet({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* The same sheet as the header's "…", which opens this one. */}
       <PhoneSheetContent
-        className="gap-4 px-3 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="gap-4 px-3 pt-5 pb-[max(1rem,var(--app-inset-bottom))]"
         onCloseAutoFocus={returnFocusToMoreTrigger}
       >
         <DialogHeader className={cn("px-1 text-left", details != null && "sr-only")}>
