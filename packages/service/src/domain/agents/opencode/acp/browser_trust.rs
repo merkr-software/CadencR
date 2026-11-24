@@ -9,7 +9,7 @@
 use opencode_sdk_rs::OpenCodeMcpServerStatus;
 
 use super::resolved_mcp::ResolvedServers;
-use crate::domain::mcp::trusted::{normalized_server_name, CadencrBrowserTrust};
+use crate::domain::mcp::trusted::{normalized_server_name, CadencrMcpTrust};
 
 /// The tool-name prefix Cadencr reads as its browser server's as is
 /// (`canonical_cadencr_tool_name` passes `mcp__cadencr-…` names through).
@@ -19,9 +19,9 @@ const CANONICAL_BROWSER_PREFIX: &str = "mcp__cadencr-browser__";
 /// parsed keeps the trust; otherwise the browser tools go through the
 /// permission prompt the user sees, which is the safe outcome.
 pub(super) fn opencode_browser_trust(
-    injected: CadencrBrowserTrust,
+    injected: CadencrMcpTrust,
     resolved: ResolvedServers,
-) -> CadencrBrowserTrust {
+) -> CadencrMcpTrust {
     match resolved {
         Ok(configured) => trust_beside(injected, &configured),
         Err(error) => {
@@ -29,7 +29,7 @@ pub(super) fn opencode_browser_trust(
                 %error,
                 "could not read OpenCode's resolved MCP config; Cadencr browser tools will ask for permission"
             );
-            CadencrBrowserTrust::default()
+            CadencrMcpTrust::default()
         }
     }
 }
@@ -37,12 +37,12 @@ pub(super) fn opencode_browser_trust(
 /// `configured`: the servers of OpenCode's own config, never the ones
 /// Cadencr passes over ACP.
 fn trust_beside(
-    injected: CadencrBrowserTrust,
+    injected: CadencrMcpTrust,
     configured: &[OpenCodeMcpServerStatus],
-) -> CadencrBrowserTrust {
+) -> CadencrMcpTrust {
     let names = || configured.iter().map(|server| server.name.as_str());
     if names().any(flattens_into_canonical_browser_names) {
-        return CadencrBrowserTrust::default();
+        return CadencrMcpTrust::default();
     }
     injected.shadowed_by(names())
 }
@@ -62,7 +62,7 @@ mod tests {
 
     use super::{opencode_browser_trust, trust_beside};
     use crate::domain::mcp::trusted::test_support::injected_browser_servers;
-    use crate::domain::mcp::trusted::CadencrBrowserTrust;
+    use crate::domain::mcp::trusted::CadencrMcpTrust;
     use std::sync::Arc;
 
     fn configured(name: &str) -> OpenCodeMcpServerStatus {
@@ -72,8 +72,8 @@ mod tests {
         }
     }
 
-    fn injected() -> CadencrBrowserTrust {
-        CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()))
+    fn injected() -> CadencrMcpTrust {
+        CadencrMcpTrust::injected_in(Some(&injected_browser_servers()))
     }
 
     #[test]

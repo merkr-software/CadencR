@@ -35,6 +35,14 @@ impl AgentType {
     pub const ALL: &'static [AgentType] =
         &[AgentType::Browser, AgentType::Project, AgentType::Workspace];
 
+    pub(crate) fn owns_tool(self, tool: &str) -> bool {
+        match self {
+            Self::Browser => super::tools::browser::BROWSER_TOOL_NAMES.contains(&tool),
+            Self::Project => project_schema::PROJECT_TOOL_NAMES.contains(&tool),
+            Self::Workspace => workspace::WORKSPACE_TOOL_NAMES.contains(&tool),
+        }
+    }
+
     /// Short identifier used in MCP server names (`cadencr-<short>`).
     pub fn short_name(self) -> &'static str {
         match self {

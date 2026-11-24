@@ -176,6 +176,21 @@ pub fn slash_command_kind_meta(kind: SlashCommandKind) -> Meta {
     cadencr(json!({ "kind": kind.wire_id() }))
 }
 
+/// Identify an ordinary MCP tool approval after resolving a session-attached
+/// server and ruling out a conflicting native registration. Always discard a
+/// same-named field from the incoming native permission.
+pub fn set_attached_mcp_approval(params: &mut Value, tool_name: Option<&str>) {
+    if let Some(fields) = params
+        .pointer_mut("/_meta/cadencr")
+        .and_then(Value::as_object_mut)
+    {
+        fields.remove("attachedMcpApproval");
+    }
+    if let (Some(object), Some(name)) = (params.as_object_mut(), tool_name) {
+        merge_meta(object, cadencr(json!({ "attachedMcpApproval": name })));
+    }
+}
+
 /// Merge `meta` into `object["_meta"]`, keeping keys already there. Top-level
 /// namespaces (`cadencr`, the agent's own) merge one level deep, so existing
 /// `_meta.cadencr.*` keys survive unless `meta` sets the same key.

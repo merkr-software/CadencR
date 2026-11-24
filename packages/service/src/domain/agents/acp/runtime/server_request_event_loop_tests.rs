@@ -6,7 +6,7 @@ use crate::domain::agents::acp::runtime::terminal_registry::TerminalRegistry;
 use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
 use crate::domain::agents::adapter::RuntimePermissionMode;
 use crate::domain::mcp::trusted::test_support::injected_browser_servers;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -105,6 +105,9 @@ pub(super) fn event_loop_config(cwd: PathBuf) -> EventLoopConfig {
         replay_suppression: Arc::new(AtomicBool::new(false)),
         pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
         browser_trust: Default::default(),
+        attached_mcp: Default::default(),
+        #[cfg(unix)]
+        connected_mcp: Default::default(),
         indexer: Arc::new(StdMutex::new(EventIndexer::default())),
         prompt_turn_lock: Default::default(),
     }
@@ -434,7 +437,7 @@ async fn normalized_cadencr_browser_permission_is_auto_allowed() {
     let (tx, mut rx) = mpsc::channel(8);
     let mut config = event_loop_config(PathBuf::from("/tmp"));
     config.hooks = Arc::new(NormalizingHooks);
-    config.browser_trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
+    config.browser_trust = CadencrMcpTrust::injected_in(Some(&injected_browser_servers()));
     let _loop = spawn_event_loop(client.clone(), client.subscribe_reliable(), tx, config);
 
     write_agent_request(

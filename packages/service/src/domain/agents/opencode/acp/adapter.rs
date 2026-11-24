@@ -23,7 +23,7 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::mcp_tool_names::McpToolNameResolver;
 use crate::domain::agents::opencode::questions::extract_question_answers;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 use async_trait::async_trait;
 use opencode_sdk_rs::OpenCodeClient;
 use serde_json::Value;
@@ -232,7 +232,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         session_id: &str,
         cwd: &Path,
         context_window: Option<u64>,
-        browser_trust: CadencrBrowserTrust,
+        browser_trust: CadencrMcpTrust,
         tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Option<JoinHandle<()>> {
         Some(
@@ -251,8 +251,8 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     async fn cadencr_browser_trust(
         &self,
         cwd: &Path,
-        injected: CadencrBrowserTrust,
-    ) -> CadencrBrowserTrust {
+        injected: CadencrMcpTrust,
+    ) -> CadencrMcpTrust {
         if !injected.is_trusted() {
             return injected;
         }

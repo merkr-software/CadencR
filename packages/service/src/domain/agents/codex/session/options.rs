@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::domain::agents::adapter::{RuntimeAccessMode, RuntimePermissionMode};
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 pub(in crate::domain::agents::codex) struct CodexSessionOptions {
     pub(in crate::domain::agents::codex) model: Option<String>,
@@ -15,6 +15,6 @@ pub(in crate::domain::agents::codex) struct CodexSessionOptions {
     pub(in crate::domain::agents::codex) access_mode: Option<RuntimeAccessMode>,
     pub(in crate::domain::agents::codex) cwd: PathBuf,
     pub(in crate::domain::agents::codex) context_window: Option<u64>,
-    /// Whether Cadencr's browser tools skip the approval prompt.
-    pub(in crate::domain::agents::codex) browser_trust: CadencrBrowserTrust,
+    /// Which attached Cadencr servers have unambiguous identities.
+    pub(in crate::domain::agents::codex) mcp_trust: CadencrMcpTrust,
 }

@@ -1,10 +1,10 @@
-//! Auto-approval of Cadencr's own browser MCP tools.
+//! Auto-approval of the built-in MCP servers attached to a runtime.
 //!
 //! A permission request only carries a server and tool *name*, and any MCP
 //! config the agent CLI reads (a project `.mcp.json`, `opencode.json`, the
 //! user's CLI config, a marketplace install) can register a server under
 //! Cadencr's names. So a name alone never earns trust: a
-//! [`CadencrBrowserTrust`] exists only when Cadencr itself attached its browser
+//! [`CadencrMcpTrust`] exists only when Cadencr itself attached the
 //! server to the runtime, and each provider adapter revokes it when it cannot
 //! rule out a foreign server answering under that name.
 
@@ -19,54 +19,66 @@ use crate::domain::agents::adapter::RuntimeMcpServerConfig;
 /// [`normalized_server_name`].
 const RESERVED_SERVER_PREFIX: &str = "cadencr";
 
-/// Whether Cadencr may auto-approve its browser tools for one runtime.
-///
-/// The default is untrusted: every browser tool then follows the provider's
-/// normal permission prompt.
+/// The built-in servers attached to this runtime, minus any shadowed names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CadencrBrowserTrust {
-    injected: bool,
+pub struct CadencrMcpTrust {
+    browser: bool,
+    project: bool,
+    workspace: bool,
 }
 
-impl CadencrBrowserTrust {
-    /// Trusted only when `servers` (the spawn config Cadencr built) holds
-    /// Cadencr's browser server: this service binary running
-    /// `mcp-serve --agent-type browser`.
+impl CadencrMcpTrust {
     pub fn injected_in(servers: Option<&HashMap<String, RuntimeMcpServerConfig>>) -> Self {
-        let injected = servers
-            .and_then(|servers| servers.get(&browser_server_name()))
-            .is_some_and(|config| is_cadencr_server(config, AgentType::Browser));
-        Self { injected }
-    }
-
-    /// Revoked when any server the agent loads besides Cadencr's own could
-    /// answer under the browser server's name: the same name, a spelling the
-    /// provider folds into it (`cadencr_browser`), or a prefix that flattened
-    /// tool names cannot tell apart (`cadencr-browser_x` + tool `y`).
-    pub fn shadowed_by<'a>(self, foreign_servers: impl IntoIterator<Item = &'a str>) -> Self {
-        let shadowed = foreign_servers.into_iter().any(aliases_browser_server);
+        let attached = |agent| {
+            servers
+                .and_then(|servers| servers.get(&mcp_server_name(agent)))
+                .is_some_and(|config| is_cadencr_server(config, agent))
+        };
         Self {
-            injected: self.injected && !shadowed,
+            browser: attached(AgentType::Browser),
+            project: attached(AgentType::Project),
+            workspace: attached(AgentType::Workspace),
         }
     }
 
-    pub fn is_trusted(self) -> bool {
-        self.injected
+    pub fn shadowed_by<'a>(mut self, foreign_servers: impl IntoIterator<Item = &'a str>) -> Self {
+        for name in foreign_servers {
+            let foreign = normalized_server_name(name);
+            self.browser &= !foreign.starts_with("cadencr_browser");
+            self.project &= !foreign.starts_with("cadencr_project");
+            self.workspace &= !foreign.starts_with("cadencr_workspace");
+        }
+        self
     }
 
-    /// `name` is the provider-neutral `mcp__cadencr-browser__<tool>` form and
-    /// `<tool>` is auto-trusted. Providers translate their own spellings to
-    /// this form first, inside their adapter.
+    pub fn is_trusted(self) -> bool {
+        self.browser || self.project || self.workspace
+    }
+
     pub fn allows_tool_name(self, name: &str) -> bool {
+        self.allows_in_mode(name, false)
+    }
+
+    pub fn allows_in_mode(self, name: &str, automatic: bool) -> bool {
         name.strip_prefix("mcp__")
             .and_then(|rest| rest.split_once("__"))
-            .is_some_and(|(server, tool)| self.allows_server_tool(server, tool))
+            .is_some_and(|(server, tool)| self.allows(server, tool, automatic))
     }
 
-    /// `server` is exactly Cadencr's browser server name and `tool` is
-    /// auto-trusted.
-    pub fn allows_server_tool(self, server: &str, tool: &str) -> bool {
-        self.injected && server == browser_server_name() && is_auto_trusted_browser_tool(tool)
+    pub fn allows(self, server: &str, tool: &str, automatic: bool) -> bool {
+        match server {
+            "cadencr-browser" => self.browser && is_auto_trusted_browser_tool(tool),
+            "cadencr-project" => {
+                automatic
+                    && self.project
+                    && AgentType::Project.owns_tool(tool)
+                    && tool != "project_respond_gate"
+            }
+            "cadencr-workspace" => {
+                automatic && self.workspace && AgentType::Workspace.owns_tool(tool)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -78,10 +90,6 @@ pub fn is_reserved_mcp_server_name(name: &str) -> bool {
         || normalized
             .strip_prefix(RESERVED_SERVER_PREFIX)
             .is_some_and(|rest| rest.starts_with('_'))
-}
-
-fn browser_server_name() -> String {
-    mcp_server_name(AgentType::Browser)
 }
 
 pub(super) fn is_cadencr_server(config: &RuntimeMcpServerConfig, agent: AgentType) -> bool {
@@ -96,11 +104,6 @@ pub(super) fn is_cadencr_server(config: &RuntimeMcpServerConfig, agent: AgentTyp
         })
     });
     own_binary && serves_agent
-}
-
-fn aliases_browser_server(name: &str) -> bool {
-    let browser = normalized_server_name(&browser_server_name());
-    normalized_server_name(name).starts_with(&browser)
 }
 
 /// Lowercase, with every non-alphanumeric character folded to `_`: the
@@ -125,27 +128,36 @@ pub(crate) mod test_support {
 
     /// The browser server exactly as the prompt pipeline attaches it.
     pub(crate) fn injected_browser_servers() -> HashMap<String, RuntimeMcpServerConfig> {
+        injected_servers(&["browser"])
+    }
+
+    pub(crate) fn injected_servers(agents: &[&str]) -> HashMap<String, RuntimeMcpServerConfig> {
         let command = std::env::current_exe().expect("test binary path");
-        HashMap::from([(
-            "cadencr-browser".to_string(),
-            RuntimeMcpServerConfig::Stdio {
-                command: command.to_string_lossy().into_owned(),
-                args: Some(
-                    [
-                        "--db-path",
-                        "/tmp/cadencr.db",
-                        "mcp-serve",
-                        "--agent-type",
-                        "browser",
-                        "--feature-id",
-                        "42",
-                    ]
-                    .map(String::from)
-                    .to_vec(),
-                ),
-                env: None,
-            },
-        )])
+        agents
+            .iter()
+            .map(|agent| {
+                (
+                    format!("cadencr-{agent}"),
+                    RuntimeMcpServerConfig::Stdio {
+                        command: command.to_string_lossy().into_owned(),
+                        args: Some(
+                            [
+                                "--db-path",
+                                "/tmp/cadencr.db",
+                                "mcp-serve",
+                                "--agent-type",
+                                *agent,
+                                "--feature-id",
+                                "42",
+                            ]
+                            .map(String::from)
+                            .to_vec(),
+                        ),
+                        env: None,
+                    },
+                )
+            })
+            .collect()
     }
 }
 
@@ -154,11 +166,11 @@ mod tests {
     use std::collections::HashMap;
 
     use super::test_support::injected_browser_servers;
-    use super::{is_reserved_mcp_server_name, CadencrBrowserTrust};
+    use super::{is_reserved_mcp_server_name, CadencrMcpTrust};
     use crate::domain::agents::adapter::RuntimeMcpServerConfig;
 
-    fn trusted() -> CadencrBrowserTrust {
-        CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()))
+    fn trusted() -> CadencrMcpTrust {
+        CadencrMcpTrust::injected_in(Some(&injected_browser_servers()))
     }
 
     fn stdio(command: &str, args: &[&str]) -> RuntimeMcpServerConfig {
@@ -172,13 +184,13 @@ mod tests {
     #[test]
     fn nothing_is_trusted_unless_cadencr_attached_its_browser_server() {
         for trust in [
-            CadencrBrowserTrust::default(),
-            CadencrBrowserTrust::injected_in(None),
-            CadencrBrowserTrust::injected_in(Some(&HashMap::new())),
+            CadencrMcpTrust::default(),
+            CadencrMcpTrust::injected_in(None),
+            CadencrMcpTrust::injected_in(Some(&HashMap::new())),
         ] {
             assert!(!trust.is_trusted());
             assert!(!trust.allows_tool_name("mcp__cadencr-browser__browser_open_url"));
-            assert!(!trust.allows_server_tool("cadencr-browser", "browser_open_url"));
+            assert!(!trust.allows("cadencr-browser", "browser_open_url", false));
         }
     }
 
@@ -192,7 +204,7 @@ mod tests {
             stdio(&exe, &[]),
         ] {
             let servers = HashMap::from([("cadencr-browser".to_string(), config)]);
-            assert!(!CadencrBrowserTrust::injected_in(Some(&servers)).is_trusted());
+            assert!(!CadencrMcpTrust::injected_in(Some(&servers)).is_trusted());
         }
     }
 
@@ -201,7 +213,7 @@ mod tests {
         let trust = trusted();
         assert!(trust.is_trusted());
         assert!(trust.allows_tool_name("mcp__cadencr-browser__browser_open_url"));
-        assert!(trust.allows_server_tool("cadencr-browser", "browser_screenshot"));
+        assert!(trust.allows("cadencr-browser", "browser_screenshot", false));
         for name in [
             "mcp__cadencr_browser__browser_open_url",
             "mcp__cadencr_browser____browser_open_url",
@@ -212,7 +224,7 @@ mod tests {
         ] {
             assert!(!trust.allows_tool_name(name), "{name}");
         }
-        assert!(!trust.allows_server_tool("cadencr_browser", "browser_screenshot"));
+        assert!(!trust.allows("cadencr_browser", "browser_screenshot", false));
     }
 
     #[test]
@@ -224,7 +236,7 @@ mod tests {
             "read_conversation",
         ] {
             assert!(!trust.allows_tool_name(&format!("mcp__cadencr-browser__{tool}")));
-            assert!(!trust.allows_server_tool("cadencr-browser", tool));
+            assert!(!trust.allows("cadencr-browser", tool, false));
         }
     }
 
@@ -240,6 +252,31 @@ mod tests {
         }
         let unrelated = trusted().shadowed_by(["chrome-devtools", "cadencr-project", "browser"]);
         assert!(unrelated.is_trusted());
+    }
+
+    #[test]
+    fn auto_applies_to_attached_catalog_tools_except_the_three_native_decisions() {
+        let servers = super::test_support::injected_servers(&["browser", "project", "workspace"]);
+        let trust = CadencrMcpTrust::injected_in(Some(&servers));
+        for name in [
+            "mcp__cadencr-project__project_list_sessions",
+            "mcp__cadencr-workspace__workspace_list_projects",
+        ] {
+            assert!(trust.allows_in_mode(name, true), "{name}");
+            assert!(!trust.allows_in_mode(name, false), "{name}");
+        }
+        for name in [
+            "mcp__cadencr-browser__browser_evaluate",
+            "mcp__cadencr-browser__browser_open_external_url",
+            "mcp__cadencr-project__project_respond_gate",
+            "mcp__cadencr-workspace__unknown",
+            "mcp__foreign__workspace_list_projects",
+        ] {
+            assert!(!trust.allows_in_mode(name, true), "{name}");
+        }
+        let shadowed = trust.shadowed_by(["Cadencr.Workspace"]);
+        assert!(!shadowed.allows("cadencr-workspace", "workspace_list_projects", true));
+        assert!(shadowed.allows("cadencr-project", "project_list_sessions", true));
     }
 
     #[test]

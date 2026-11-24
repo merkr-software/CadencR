@@ -38,11 +38,22 @@ pub async fn sync_session_state_from_update(
     // both run on every `session/update` notification, so we pay no clones.
     let body = params.get("update").unwrap_or(params);
     let kind = body.get("sessionUpdate").and_then(Value::as_str);
+    if matches!(kind, Some("current_mode_update" | "config_option_update")) {
+        if let (Some(source), Some(root)) = (
+            params["sessionId"].as_str(),
+            config.session_id.read().await.as_deref(),
+        ) {
+            if source != root {
+                return SessionStateSync::default();
+            }
+        }
+    }
     match kind {
         Some("current_mode_update") => {
             let Some(mode) = body.get("currentModeId").and_then(Value::as_str) else {
                 return SessionStateSync::default();
             };
+            config.session_config.observe_current_mode(mode).await;
             return SessionStateSync {
                 agent_moved_model: false,
                 mode_changed: observe_provider_mode(config, mode).await,
@@ -250,6 +261,9 @@ mod tests {
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
+            attached_mcp: Default::default(),
+            #[cfg(unix)]
+            connected_mcp: Default::default(),
             indexer: Arc::new(Mutex::new(EventIndexer::default())),
             prompt_turn_lock: Default::default(),
         }

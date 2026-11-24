@@ -14,7 +14,7 @@ use crate::domain::agents::adapter::{
     RuntimePermissionMode, RuntimePermissionResponse, RuntimeSlashCommand, RuntimeUsage,
 };
 use crate::domain::agents::runtime::ProviderPromptCapabilities;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 use super::events_stream_blocks::EventIndexer;
 use super::tool_result_flatten::unwrap_text_block;
@@ -289,7 +289,7 @@ pub trait AcpProviderHooks: Send + Sync {
         _session_id: &str,
         _cwd: &Path,
         _context_window: Option<u64>,
-        _browser_trust: CadencrBrowserTrust,
+        _browser_trust: CadencrMcpTrust,
         _tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Option<JoinHandle<()>> {
         None
@@ -303,9 +303,9 @@ pub trait AcpProviderHooks: Send + Sync {
     async fn cadencr_browser_trust(
         &self,
         _cwd: &Path,
-        _injected: CadencrBrowserTrust,
-    ) -> CadencrBrowserTrust {
-        CadencrBrowserTrust::default()
+        _injected: CadencrMcpTrust,
+    ) -> CadencrMcpTrust {
+        CadencrMcpTrust::default()
     }
 
     /// Provider opt-in: invoked at the start of every `tool_call` (after the

@@ -11,7 +11,7 @@ use super::super::events::provider_error_event;
 use super::super::permissions::PendingCodexRequest;
 use super::super::responses::response_value;
 use super::super::server_request_method::{CodexServerRequestMethod, JSON_RPC_METHOD_NOT_FOUND};
-use super::super::trusted_mcp::trusted_cadencr_browser_permission_response;
+use super::super::trusted_mcp::trusted_mcp_permission_response;
 use super::EventLoop;
 
 const UNANSWERED_REQUEST_CODE: &str = "CODEX_SERVER_REQUEST_UNANSWERED";
@@ -43,9 +43,18 @@ impl EventLoop {
         kind: CodexServerRequestMethod,
         params: &Value,
     ) -> bool {
-        let Some(response) =
-            trusted_cadencr_browser_permission_response(self.browser_trust, id, kind, params)
-        else {
+        let Some(response) = trusted_mcp_permission_response(
+            self.mcp_trust,
+            params["threadId"] == self.turns.root_thread_id.as_str()
+                && self
+                    .automatic_mcp
+                    .lock()
+                    .await
+                    .allows(params["turnId"].as_str()),
+            id,
+            kind,
+            params,
+        ) else {
             return false;
         };
         let result = response_value(kind, params, &response);
@@ -55,7 +64,7 @@ impl EventLoop {
                 // Falls back to prompting the user, who can still answer it.
                 tracing::warn!(
                     %error,
-                    "failed to auto-allow trusted Cadencr browser MCP permission"
+                    "failed to auto-allow trusted Cadencr MCP permission"
                 );
                 false
             }
