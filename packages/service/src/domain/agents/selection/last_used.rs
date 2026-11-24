@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use super::super::permission_modes::parse_permission_mode_wire;
 use super::super::providers::{
     model_supports_thinking_level, provider_catalog_entry_live_for_settings, runtime_adapter,
 };
@@ -22,6 +23,8 @@ pub(crate) struct PromptedSelection {
     pub profile: Option<String>,
     pub thinking_effort: Option<String>,
     pub fast_mode: bool,
+    #[serde(default)]
+    pub permission_mode: Option<String>,
 }
 
 /// A feature override takes precedence over the workspace's last prompted selection,
@@ -78,7 +81,7 @@ impl PromptedSelection {
         persist_selection(&self.provider, self.model.as_deref(), Some(snapshot)).await
     }
 
-    /// A single file read binds all five values to the same prompt. Ignore its
+    /// A single file read binds all six values to the same prompt. Ignore its
     /// controls if a settings client has since edited either legacy key.
     pub(crate) async fn for_new_session(
         pool: &SqlitePool,
@@ -137,6 +140,9 @@ impl PromptedSelection {
             .thinking_effort
             .filter(|effort| model_supports_thinking_level(model, effort) != Some(false));
         saved.fast_mode &= model.supports_fast_mode == Some(true);
+        saved.permission_mode = saved
+            .permission_mode
+            .filter(|mode| parse_permission_mode_wire(mode).is_some());
         Ok(Some(saved))
     }
 }
@@ -172,5 +178,16 @@ mod tests {
             Some("codex")
         );
         assert_eq!(settings_store::global_get_nonempty("model_session"), None);
+    }
+
+    #[test]
+    fn legacy_snapshot_without_permission_mode_deserializes() {
+        let parsed: super::PromptedSelection = serde_json::from_str(
+            r#"{"provider":"antigravity","model":"gemini-4-neon","profile":null,"thinking_effort":"high","fast_mode":false}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.provider, "antigravity");
+        assert_eq!(parsed.model.as_deref(), Some("gemini-4-neon"));
+        assert_eq!(parsed.permission_mode, None);
     }
 }
