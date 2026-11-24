@@ -33,28 +33,8 @@ export const GitBadge = memo(function GitBadge({
   featureId,
   gitBranch,
 }: GitBadgeProps): ReactElement {
-  const { t } = useUiTranslation();
-  // Narrow selectors so this badge re-renders only when its own feature's
-  // counts change (per frontend-performance.md). Other features streaming
-  // status updates won't touch this subscription.
-  const snapshot = useGitStatusStore(selectGitStatus(featureId));
-  const prStatus = usePrStatusStore(selectPrStatus(featureId));
-  const branch = snapshot?.current_branch ?? gitBranch ?? null;
-  const uncommitted = snapshot?.uncommitted_count ?? 0;
-  const aheadOfRemote = snapshot?.ahead_of_remote ?? 0;
-  const aheadOfTarget = snapshot?.ahead_of_target ?? 0;
-  const targetBranch = snapshot?.target_branch ?? null;
-
-  const indicator = pickIndicator(
-    {
-      uncommitted,
-      aheadOfRemote,
-      aheadOfTarget,
-      targetBranch,
-      hasOpenPr: prStatus?.pr != null,
-    },
-    t,
-  );
+  const { currentBranch, indicator } = useGitIndicator(featureId);
+  const branch = currentBranch ?? gitBranch ?? null;
 
   return (
     <>
@@ -74,6 +54,60 @@ export const GitBadge = memo(function GitBadge({
     </>
   );
 });
+
+/**
+ * The phone tab bar's Git badge: the same indicator as `GitBadge` without the
+ * branch name, as a small pill on the tab's icon. Its explanation is read out
+ * with the tab's name, since a finger has no hover.
+ */
+export const GitBarBadge = memo(function GitBarBadge({
+  featureId,
+}: {
+  featureId: number;
+}): ReactElement | null {
+  const { indicator } = useGitIndicator(featureId);
+  if (!indicator) return null;
+  return (
+    <span
+      data-git-bar-badge
+      title={indicator.tooltip}
+      className={`rounded-full bg-background px-1 text-[10px] font-semibold leading-4 tabular-nums ${indicator.colorClass}`}
+    >
+      <span aria-hidden>
+        {indicator.glyph}
+        {indicator.count}
+      </span>
+      <span className="sr-only">, {indicator.tooltip}</span>
+    </span>
+  );
+});
+
+/**
+ * The feature's checked-out branch and Git indicator, from the live snapshot.
+ * Narrow selectors, so a badge re-renders only when its own feature's counts
+ * change (per frontend-performance.md), not on other features' updates.
+ */
+function useGitIndicator(featureId: number): {
+  currentBranch: string | null;
+  indicator: IndicatorState | null;
+} {
+  const { t } = useUiTranslation();
+  const snapshot = useGitStatusStore(selectGitStatus(featureId));
+  const hasOpenPr = usePrStatusStore(selectPrStatus(featureId))?.pr != null;
+  return {
+    currentBranch: snapshot?.current_branch ?? null,
+    indicator: pickIndicator(
+      {
+        uncommitted: snapshot?.uncommitted_count ?? 0,
+        aheadOfRemote: snapshot?.ahead_of_remote ?? 0,
+        aheadOfTarget: snapshot?.ahead_of_target ?? 0,
+        targetBranch: snapshot?.target_branch ?? null,
+        hasOpenPr,
+      },
+      t,
+    ),
+  };
+}
 
 export interface IndicatorState {
   /** Single-character prefix — `●` for files, `↑` for commits ahead. */

@@ -60,6 +60,7 @@ export function SidebarCollapsedChrome({
 //
 // `ml-1` keeps the whole tap target to the right of `MobileDrawer`'s 16px
 // edge-swipe strip, which swallows touches to block the browser's back gesture.
+// 44px square: the smallest comfortable target for a finger.
 function MobileMenuButton({ onExpand }: { onExpand: () => void }): ReactElement {
   const { t } = useUiTranslation();
   const openMenu = t("sidebar.openMenu", "Open menu");
@@ -67,7 +68,7 @@ function MobileMenuButton({ onExpand }: { onExpand: () => void }): ReactElement 
     <Button
       variant="ghost"
       size="icon"
-      className="ml-1 size-8 shrink-0"
+      className="ml-1 size-11 shrink-0"
       title={openMenu}
       onClick={onExpand}
     >

@@ -188,8 +188,9 @@ function TranscriptArea({
   // No bottom padding: the dissolve is anchored to this box's bottom
   // edge, which is where the scroller clips. The last message's
   // breathing room lives inside the scroller — see `STREAM_BOTTOM_GAP_PX`.
+  // The phone's one-line header leaves less room, so 8px above the stream.
   return (
-    <div className="flex-1 min-h-0 px-4 pt-4" style={STREAM_DISSOLVE_STYLE}>
+    <div className="flex-1 min-h-0 px-4 pt-4 phone:pt-2" style={STREAM_DISSOLVE_STYLE}>
       {streamContent}
     </div>
   );

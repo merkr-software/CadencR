@@ -4,21 +4,11 @@ import { ChevronRightIcon, Loader2Icon, PlayIcon, SquareIcon, TerminalIcon } fro
 
 import type { CustomAction } from "@/api/generated";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PhoneSheetContent } from "@/components/PhoneSheet";
 import { useIsActionStarting } from "@/hooks/useFeatureCustomActions";
 import { stopCustomActionRun } from "@/lib/custom-actions/launch";
-import {
-  runStateOf,
-  runStateText,
-  type CustomActionRunState,
-} from "@/lib/custom-actions/run-state";
+import { runStateOf, runStateText } from "@/lib/custom-actions/run-state";
 import { cn } from "@/lib/utils";
 import { CustomActionIcon } from "./CustomActionIcon";
 import { RunStateDot } from "./RunStateDot";
@@ -28,7 +18,6 @@ interface MobileCustomActionsSheetProps {
   actions: readonly CustomAction[];
   featureId: number;
   projectId: number;
-  aggregate: CustomActionRunState;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onShowDetails: (actionId: number) => void;
@@ -39,48 +28,28 @@ interface MobileCustomActionsSheetProps {
 /**
  * Phones get a bottom sheet instead of the split button: one 44px row per
  * action to run or stop it and see where it stands, and a page per action
- * with its output, runs and settings.
+ * with its output, runs and settings. It has no trigger of its own: the
+ * header's conversation sheet lists the actions (`CustomActionSheetRow`) and
+ * opens this one on an action's details, as do the palette and a finished
+ * run's "Show output", through the custom actions store.
  */
 export function MobileCustomActionsSheet({
   actions,
   featureId,
   projectId,
-  aggregate,
   open,
   onOpenChange,
   onShowDetails,
   details,
 }: MobileCustomActionsSheetProps): ReactElement {
   const { t } = useUiTranslation();
-  const flagged = aggregate === "running" || aggregate === "failed";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="xs"
-          className="relative border-border/80 bg-muted/20 text-xs"
-          aria-label={
-            flagged
-              ? aggregate === "running"
-                ? t("customActions.mobile.running", "Actions, one running")
-                : t("customActions.mobile.failed", "Actions, one failed")
-              : t("customActions.mobileCustomActionsSheet.actions", "Actions")
-          }
-        >
-          <PlayIcon className="size-3.5" />
-          {flagged && (
-            <span
-              aria-hidden
-              className={cn(
-                "absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background",
-                aggregate === "running" ? "bg-[var(--acc-orange)]" : "bg-[var(--acc-red)]",
-              )}
-            />
-          )}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="top-auto bottom-0 max-w-full translate-y-0 rounded-b-none px-3 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 sm:max-w-full">
+      {/* The same sheet as the header's "…", which opens this one. */}
+      <PhoneSheetContent
+        className="gap-4 px-3 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        onCloseAutoFocus={returnFocusToMoreTrigger}
+      >
         <DialogHeader className={cn("px-1 text-left", details != null && "sr-only")}>
           <DialogTitle>
             {t("customActions.mobileCustomActionsSheet.actions", "Actions")}
@@ -95,7 +64,7 @@ export function MobileCustomActionsSheet({
           <ul className="-mx-1 flex max-h-[60svh] flex-col gap-1 overflow-y-auto">
             {actions.map((action) => (
               <li key={action.id}>
-                <SheetRow
+                <CustomActionSheetRow
                   action={action}
                   featureId={featureId}
                   projectId={projectId}
@@ -106,12 +75,24 @@ export function MobileCustomActionsSheet({
             ))}
           </ul>
         )}
-      </DialogContent>
+      </PhoneSheetContent>
     </Dialog>
   );
 }
 
-function SheetRow({
+/**
+ * This sheet has no trigger of its own (the header's "…" sheet opens it), so
+ * Radix would drop focus on <body> when it closes: hand it back to "…".
+ */
+function returnFocusToMoreTrigger(event: Event): void {
+  const trigger = document.querySelector<HTMLElement>("[data-phone-more-trigger]");
+  if (!trigger) return;
+  event.preventDefault();
+  trigger.focus();
+}
+
+/** One action: run or stop it, see where it stands, open its details. */
+export function CustomActionSheetRow({
   action,
   featureId,
   projectId,

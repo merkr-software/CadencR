@@ -1,261 +1,69 @@
-import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
-import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
-import { toast } from "sonner";
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { memo, type ReactElement } from "react";
 
-import {
-  selectGitStatus,
-  selectGitStatusHealth,
-  selectGitWorktreeError,
-  useGitStatusStore,
-} from "@/stores/useGitStatusStore";
-import { useSessionStatusStore } from "@/stores/session-status-store";
-import { getCompareUrl, getGetGitStatusQueryKey, type GitStatusSnapshot } from "@/api/generated";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { toastError, WORKTREE_UNAVAILABLE, worktreeUnavailableMessage } from "@/lib/api-errors";
-import { openExternalUrl } from "@/lib/open-external";
-import {
-  isActivityAction,
-  useGitAction,
-  type GitAction,
-  type GitActionState,
-  type GitActivities,
-  type GitActivity,
-} from "./useGitAction";
-import { useCommitSubmission } from "./useCommitSubmission";
-import { usePushSubmission } from "./usePushSubmission";
-import { useGitUpdatePending } from "./useGitUpdatePending";
-import { GitActionDialogs, type GitActionDialog } from "./GitActionDialogs";
+import { PhoneFeatureMoreSheet } from "@/components/phone-header/PhoneFeatureMoreSheet";
+import type { WorktreeSetupHeaderProps } from "@/components/WorktreeSetupHeader";
+
+import { GitActionDialogs } from "./GitActionDialogs";
 import { GitActionControls } from "./GitActionControls";
-import type { GitStatusRetry } from "./GitActionPopoverContent";
-import { useGitActionShortcuts } from "./useGitActionShortcuts";
-import { useStashMutationCoordinator } from "../diff/useStashMutationCoordinator";
-import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
+import { useGitActionController } from "./useGitActionController";
 
 interface GitActionButtonProps {
   featureId: number;
   projectId: number;
+  /**
+   * The phone layout: the picker is the header's "…" sheet, which also holds
+   * what the phone header has no room for (the props below).
+   */
+  phone?: boolean;
+  /** Phone only: the worktree's summary, memoized by `useWorktreeSetup`. */
+  worktree?: WorktreeSetupHeaderProps | null;
+  /** Phone only: the conversation's label. */
+  featureLabel?: string | null;
+  /** Phone only: list the custom actions in the sheet. */
+  showCustomActions?: boolean;
 }
 
-function useOpenCompare(
-  featureId: number,
-  compareUrl: string | null | undefined,
-): () => Promise<void> {
-  return useCallback(async (): Promise<void> => {
-    let url = compareUrl ?? null;
-    if (!url) {
-      try {
-        const response = await getCompareUrl({ feature_id: featureId });
-        if (response.available) url = response.url;
-      } catch (error) {
-        toastError(
-          error,
-          translateUi(
-            "workspace.git.gitActionButton.failedToResolveCompareUrl",
-            "Failed to resolve compare URL.",
-          ),
-        );
-        return;
-      }
-    }
-    if (!url) {
-      toast.error(
-        translateUi(
-          "workspace.git.gitActionButton.compareUrlNotAvailableForThisRemote",
-          "Compare URL not available for this remote.",
-        ),
-      );
-      return;
-    }
-    await openExternalUrl(
-      url,
-      translateUi(
-        "workspace.git.gitActionButton.couldnTOpenCompareUrl",
-        "Couldn't open compare URL.",
-      ),
-    );
-  }, [compareUrl, featureId]);
-}
-
-function useGitActionButtonState(featureId: number): {
-  snapshot: GitStatusSnapshot | undefined;
-  state: GitActionState;
-  prUrl: string | undefined;
-  getStashMutationBlockedReason: () => string | null;
-} {
-  const snapshot = useGitStatusStore(selectGitStatus(featureId));
-  const statusError = useGitStatusStore((state) => state.healthByFeature[featureId]?.statusError);
-  const pr = usePrStatusStore(selectPrStatus(featureId))?.pr ?? undefined;
-  const updatePending = useGitUpdatePending(featureId);
-  const { blockedReason: stashBlockedReason, getBlockedReason: getStashMutationBlockedReason } =
-    useStashMutationCoordinator(featureId);
-  const state = useGitAction(snapshot, {
-    updatePending,
-    stashMutationBlockedReason: stashBlockedReason,
-    existingPr: pr,
-    statusError,
-  });
-  return useMemo(
-    () => ({ snapshot, state, prUrl: pr?.url, getStashMutationBlockedReason }),
-    [getStashMutationBlockedReason, pr?.url, snapshot, state],
-  );
-}
-
-function useGitStatusRetry(featureId: number): GitStatusRetry {
-  const { t } = useUiTranslation();
-  const queryClient = useQueryClient();
-  const health = useGitStatusStore(selectGitStatusHealth(featureId));
-  const queryKey = useMemo(() => getGetGitStatusQueryKey({ feature_id: featureId }), [featureId]);
-  const isFetching = useIsFetching({ queryKey, exact: true }) > 0;
-  const isConnected = useSessionStatusStore((state) => state.isConnected);
-  const subscribing = useGitStatusStore(
-    (state) => state.subscriptionByFeature[featureId] === "pending",
-  );
-  const run = useCallback((): void => {
-    const socket = useSessionStatusStore.getState();
-    const git = useGitStatusStore.getState();
-    if (socket.isConnected) {
-      git.bumpWatcherEpoch(featureId);
-    } else {
-      void queryClient.refetchQueries({ queryKey, exact: true, type: "active" });
-      const health = git.healthByFeature[featureId];
-      if (health?.watcherError || health?.statusErrorCode === WORKTREE_UNAVAILABLE)
-        socket.connect();
-    }
-  }, [featureId, queryClient, queryKey]);
-  const pending = subscribing || (!isConnected && isFetching);
-  return useMemo(() => {
-    const watch = health?.watcherError
-      ? {
-          label: t("workspace.git.status.liveUpdatesUnavailable", "Git live updates unavailable"),
-          detail: health.watcherError,
-        }
-      : undefined;
-    if (!health?.statusError) return { run, pending, issue: watch };
-    const unavailable = health.statusErrorCode === WORKTREE_UNAVAILABLE;
-    const label = unavailable
-      ? t("workspace.git.status.worktreeUnavailable", "Worktree unavailable")
-      : t("workspace.git.status.unavailable", "Git status unavailable");
-    const statusDetail = unavailable ? worktreeUnavailableMessage(t) : health.statusError;
-    const detail = watch
-      ? `${statusDetail}\n${t("workspace.git.status.issueWithDetail", "{{label}}. {{detail}}", watch)}`
-      : statusDetail;
-    return { run, pending, issue: { label, detail } };
-  }, [health, pending, run, t]);
-}
-
-/** Submitting ⇒ running; a failed run stays discoverable until dismissed. */
-function toActivity(submitting: boolean, outcome: "success" | "error" | null): GitActivity {
-  if (submitting) return "running";
-  return outcome === "error" ? "failed" : null;
-}
-
+/**
+ * The feature header's Git control and its dialogs, in both layouts: the
+ * split button on desktop, the "…" sheet on a phone. One host at one place in
+ * the header, so the controller (an open dialog, a backgrounded run, a push's
+ * options) survives the layout flipping — an iPad rotating, a window crossing
+ * the phone width. Memo'd on primitive or memoized props, so the header's
+ * re-render on every stream delta stops here.
+ */
 export const GitActionButton = memo(function GitActionButton({
   featureId,
   projectId,
+  phone = false,
+  worktree = null,
+  featureLabel = null,
+  showCustomActions = false,
 }: GitActionButtonProps): ReactElement | null {
-  const { snapshot, state, prUrl, getStashMutationBlockedReason } =
-    useGitActionButtonState(featureId);
-  const worktreeError = useGitStatusStore(selectGitWorktreeError(featureId));
-  const isMobile = useIsMobile();
-  const statusRetry = useGitStatusRetry(featureId);
-  const [activeDialog, setActiveDialog] = useState<GitActionDialog>(null);
-  const handleDialogOpenChange = useCallback((open: boolean) => {
-    if (!open) setActiveDialog(null);
-  }, []);
-
-  // Both submissions live here, above the dialogs, so closing a dialog
-  // backgrounds its run instead of cancelling it.
-  const commitSubmission = useCommitSubmission({
-    featureId,
-    open: activeDialog === "commit",
-    onOpenChange: handleDialogOpenChange,
-  });
-  const pushSubmission = usePushSubmission({
-    featureId,
-    open: activeDialog === "push",
-    onOpenChange: handleDialogOpenChange,
-  });
-  const activities: GitActivities = useMemo(
-    () => ({
-      commit: worktreeError
-        ? null
-        : toActivity(commitSubmission.submitting, commitSubmission.outcome),
-      push: worktreeError ? null : toActivity(pushSubmission.submitting, pushSubmission.outcome),
-    }),
-    [
-      commitSubmission.outcome,
-      commitSubmission.submitting,
-      pushSubmission.outcome,
-      pushSubmission.submitting,
-      worktreeError,
-    ],
-  );
-
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const openCommit = useCallback(() => setActiveDialog("commit"), []);
-  const openPush = useCallback(() => setActiveDialog("push"), []);
-  const openPopover = useCallback(() => setPopoverOpen(true), []);
-  const runOpenCompare = useOpenCompare(featureId, prUrl ?? snapshot?.compare_url);
-
-  const runAction = useCallback(
-    (action: GitAction) => {
-      setPopoverOpen(false);
-      // A backgrounded run always wins: the row means "show me that run",
-      // even when the snapshot would otherwise disable the action.
-      if (isActivityAction(action) && activities[action]) {
-        setActiveDialog(action);
-        return;
-      }
-      if (state.disabled[action] !== null) return;
-      if (action === "stash") {
-        const blockedReason = getStashMutationBlockedReason();
-        if (blockedReason) {
-          toast.error(
-            translateUi("workspace.git.gitActionButton.cannotStashChanges", "Cannot stash changes"),
-            { description: blockedReason },
-          );
-          return;
-        }
-      }
-      if (action === "pr") void runOpenCompare();
-      else setActiveDialog(action);
-    },
-    [activities, getStashMutationBlockedReason, state.disabled, runOpenCompare],
-  );
-
-  useGitActionShortcuts({
-    state,
-    activities,
-    openCommit,
-    openPush,
-    openCompare: runOpenCompare,
-    openPopover,
-  });
-
+  const git = useGitActionController(featureId);
   return (
     <>
-      <GitActionControls
-        featureId={featureId}
-        projectId={projectId}
-        isMobile={isMobile}
-        checkedOut={snapshot?.current_branch || undefined}
-        state={state}
-        activities={activities}
-        statusRetry={statusRetry}
-        popoverOpen={popoverOpen}
-        onPopoverOpenChange={setPopoverOpen}
-        onAction={runAction}
-      />
-      <GitActionDialogs
-        activeDialog={worktreeError ? null : activeDialog}
-        featureId={featureId}
-        snapshot={snapshot}
-        updateDisabledReason={state.disabled.update}
-        commitSubmission={commitSubmission}
-        pushSubmission={pushSubmission}
-        onOpenChange={handleDialogOpenChange}
-      />
+      {phone ? (
+        <PhoneFeatureMoreSheet
+          featureId={featureId}
+          projectId={projectId}
+          git={git}
+          worktree={worktree}
+          featureLabel={featureLabel}
+          showCustomActions={showCustomActions}
+        />
+      ) : (
+        <GitActionControls
+          featureId={featureId}
+          projectId={projectId}
+          state={git.state}
+          activities={git.activities}
+          statusRetry={git.statusRetry}
+          popoverOpen={git.pickerOpen}
+          onPopoverOpenChange={git.setPickerOpen}
+          onAction={git.runAction}
+        />
+      )}
+      <GitActionDialogs {...git.dialogs} />
     </>
   );
 });

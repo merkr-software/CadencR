@@ -15,7 +15,7 @@ const UpdateBranchDialog = lazy(() => import("./UpdateBranchDialog"));
 
 export type GitActionDialog = Exclude<GitAction, "pr"> | null;
 
-interface GitActionDialogsProps {
+export interface GitActionDialogsProps {
   activeDialog: GitActionDialog;
   featureId: number;
   snapshot: GitStatusSnapshot | undefined;

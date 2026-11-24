@@ -71,6 +71,32 @@ describe("TabPane", () => {
     expect(useTabHostRegistry.getState().hosts[ROOT_HOST_KEY]).toBeUndefined();
   });
 
+  it("puts the root pane's tabs in the phone tab bar, driving the same pane state", () => {
+    const onTerminalActivate = vi.fn();
+    const { container } = render(
+      <DndContext>
+        <TabPane
+          featureId={FEATURE_ID}
+          leaf={leaf}
+          tabs={tabs}
+          splitsEnabled={false}
+          tabPlacement="bottom"
+          onTerminalActivate={onTerminalActivate}
+        />
+      </DndContext>,
+    );
+
+    expect(container.querySelector("[data-pane-tab-strip]")).toBeNull();
+    expect(container.querySelector("[data-phone-tab-bar-host]")).not.toBeNull();
+    const bar = screen.getByRole("tablist", { name: "Conversation tabs" });
+    expect(bar.closest("[data-pane-id]")?.lastElementChild).toBe(bar);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
+    expect(onTerminalActivate).toHaveBeenCalledOnce();
+    const stored = useFeatureLayoutStore.getState().features[FEATURE_ID];
+    expect(stored && findLeafById(stored.splitRoot, ROOT_LEAF_ID)?.activeTabId).toBe("terminal");
+  });
+
   it("calls activation handlers when terminal or editor tabs become active", () => {
     const onTerminalActivate = vi.fn();
     const onEditorActivate = vi.fn();

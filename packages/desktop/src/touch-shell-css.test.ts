@@ -52,3 +52,30 @@ describe("rail chassis CSS", () => {
     }
   });
 });
+
+describe("phone tab bar CSS", () => {
+  const bar = cssRules("./phone-tab-bar.css");
+
+  it("owns the bottom safe area: the pane it closes zeroes the inset for what sits above", () => {
+    expect(bar).toMatch(/\[data-phone-tab-bar-host\]\s*{\s*--app-inset-bottom:\s*0px;\s*}/);
+    expect(bar).toMatch(/padding:[^;]*env\(safe-area-inset-bottom/);
+  });
+
+  it("steps aside while the on-screen keyboard is up", () => {
+    expect(bar).toMatch(/html\[data-keyboard-open\] \.phone-tab-bar\s*{\s*display:\s*none;\s*}/);
+  });
+
+  it("shrinks to 44px of icons on a short screen", () => {
+    expect(bar).toMatch(
+      /@media \(max-height: 499px\)\s*{\s*\.phone-tab-bar\s*{\s*height:\s*calc\(44px/,
+    );
+  });
+
+  it("is imported unlayered, after Tailwind", () => {
+    const imports = [...cssRules("./index.css").matchAll(/@import\s+"([^"]+)"([^;]*);/g)];
+    const entry = imports.find(([, path]) => path === "./phone-tab-bar.css");
+    expect(entry?.[2].trim()).toBe("");
+    const order = imports.map(([, path]) => path);
+    expect(order.indexOf("./phone-tab-bar.css")).toBeGreaterThan(order.indexOf("tailwindcss"));
+  });
+});

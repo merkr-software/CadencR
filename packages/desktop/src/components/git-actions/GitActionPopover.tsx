@@ -64,6 +64,42 @@ export function gitActionIcon(action: GitAction): ComponentType<{ className?: st
   return GIT_ACTION_REGISTRATIONS[action].icon;
 }
 
+export interface GitActionRow {
+  action: GitAction;
+  label: string;
+  Icon: ComponentType<{ className?: string }>;
+  searchTerms: readonly string[];
+  /** Why the action can't run now; null when it can. */
+  reason: string | null;
+}
+
+/** The picker's rows, in order, as every Git action picker lists them. */
+export function gitActionRows(
+  state: GitActionState,
+  activities: GitActivities,
+  t: UiTranslator,
+): GitActionRow[] {
+  return GIT_ACTION_ORDER.map((action) => {
+    const {
+      label: registeredLabel,
+      icon: Icon,
+      searchTerms = [],
+    } = GIT_ACTION_REGISTRATIONS[action];
+    const activityAction = isActivityAction(action) ? action : null;
+    const activity = activityAction ? activities[activityAction] : null;
+    // A backgrounded run makes its row "view the output": always
+    // selectable, because that run is what the user wants to see.
+    const reason = activity ? null : state.disabled[action];
+    const label =
+      activityAction && activity
+        ? gitActivityHint(activityAction, activity, t)
+        : action === "pr"
+          ? state.compareLabel
+          : registeredLabel(t);
+    return { action, label, Icon, searchTerms, reason };
+  });
+}
+
 export interface GitUpdateRecoveryControls {
   pendingAction: "continue" | "abort" | null;
   error: string | null;
@@ -98,27 +134,11 @@ export function GitActionPopover({
           {t("workspace.git.gitActionPopover.noMatchingGitAction", "No matching git action.")}
         </CommandEmpty>
         <CommandGroup>
-          {GIT_ACTION_ORDER.map((action) => {
-            const {
-              label: registeredLabel,
-              icon: Icon,
-              searchTerms,
-            } = GIT_ACTION_REGISTRATIONS[action];
-            const activityAction = isActivityAction(action) ? action : null;
-            const activity = activityAction ? activities[activityAction] : null;
-            // A backgrounded run makes its row "view the output": always
-            // selectable, because that run is what the user wants to see.
-            const reason = activity ? null : state.disabled[action];
-            const label =
-              activityAction && activity
-                ? gitActivityHint(activityAction, activity, t)
-                : action === "pr"
-                  ? state.compareLabel
-                  : registeredLabel(t);
-            return (
+          {gitActionRows(state, activities, t).map(
+            ({ action, label, Icon, searchTerms, reason }) => (
               <CommandItem
                 key={action}
-                value={[label, action, ...(searchTerms ?? [])].join(" ")}
+                value={[label, action, ...searchTerms].join(" ")}
                 disabled={reason !== null}
                 onSelect={() => onPick(action)}
                 title={reason ?? label}
@@ -134,8 +154,8 @@ export function GitActionPopover({
                   </span>
                 )}
               </CommandItem>
-            );
-          })}
+            ),
+          )}
         </CommandGroup>
         {state.recovery && recoveryControls && (
           <CommandGroup

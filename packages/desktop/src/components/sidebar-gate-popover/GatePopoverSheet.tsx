@@ -1,6 +1,7 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactElement } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { PhoneSheetContent } from "@/components/PhoneSheet";
 import { GatePopoverFrame } from "@/components/sidebar-gate-popover/GatePopoverFrame";
 import { triggerPendingKind } from "@/components/sidebar-pending-gate";
 import {
@@ -15,17 +16,6 @@ import {
   type OpenGatePopover,
 } from "@/stores/pending-gate-popover-store";
 import { useFeaturePendingRequestId } from "@/stores/pending-gate-popover-selectors";
-import { cn } from "@/lib/utils";
-
-/** The sheet sits above the mobile drawer (z-50) and its backdrop. */
-const SHEET_CLASS = cn(
-  "z-[60] flex flex-col gap-0 overflow-hidden p-0",
-  "top-auto bottom-0 left-0 w-full max-w-none translate-x-0 translate-y-0 sm:max-w-none",
-  "rounded-t-2xl rounded-b-none border-x-0 border-b-0",
-  "max-h-[85dvh] pb-[env(safe-area-inset-bottom)]",
-  "data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom",
-  "data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
-);
 
 /**
  * A phone's quick reply: a bottom sheet over the conversation (the drawer's
@@ -60,11 +50,10 @@ function OpenSheet({
   const close = (): void => usePendingGatePopoverStore.getState().closeGate(requestKey);
   return (
     <Dialog open onOpenChange={(next) => !next && close()}>
-      <DialogContent
-        showCloseButton={false}
-        className={SHEET_CLASS}
+      {/* Above the mobile drawer (z-50) and its backdrop. */}
+      <PhoneSheetContent
+        className="z-[60]"
         aria-labelledby={titleId}
-        onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={onCloseAutoFocus}
         onEscapeKeyDown={keepEscapeInDenyField}
         onKeyDown={keepTypingInQuickReply}
@@ -84,7 +73,7 @@ function OpenSheet({
             onOpenConversation(featureId);
           }}
         />
-      </DialogContent>
+      </PhoneSheetContent>
     </Dialog>
   );
 }

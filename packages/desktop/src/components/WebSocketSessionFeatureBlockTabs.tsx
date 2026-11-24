@@ -10,7 +10,7 @@ import {
 import { FeatureGitTab } from "@/components/FeatureGitTab";
 import { FeatureTerminalTab } from "@/components/FeatureTerminalTab";
 import { AgentBrowserActivityDot } from "@/components/feature-layout/AgentBrowserActivityDot";
-import { GitBadge } from "@/components/feature-layout/GitBadge";
+import { GitBadge, GitBarBadge } from "@/components/feature-layout/GitBadge";
 import {
   OpenDiffInEditorProvider,
   type OpenDiffInEditor,
@@ -195,6 +195,7 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
       Icon: GitCompareArrowsIcon,
       shortcutId: "pane-git",
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
+      barBadge: <GitBarBadge featureId={featureId} />,
       content: gitReady ? (
         <FeatureGitTab
           featureId={featureId}

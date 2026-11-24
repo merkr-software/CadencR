@@ -13,11 +13,7 @@ import {
   useStashMutationCoordinator,
 } from "../diff/useStashMutationCoordinator";
 
-const buttonMocks = vi.hoisted(() => ({ isMobile: false, updatePending: false }));
-
-vi.mock("@/hooks/useIsMobile", () => ({
-  useIsMobile: () => buttonMocks.isMobile,
-}));
+const buttonMocks = vi.hoisted(() => ({ updatePending: false }));
 
 vi.mock("./useGitUpdatePending", () => ({
   gitUpdateMutationKey: (featureId: number) => ["git-update", featureId],
@@ -81,7 +77,6 @@ function makeDirtyMergeableSnapshot(featureId: number): GitStatusSnapshot {
 }
 
 beforeEach(() => {
-  buttonMocks.isMobile = false;
   buttonMocks.updatePending = false;
   useGitStatusStore.setState(useGitStatusStore.getInitialState());
   useSessionStatusStore.setState({ isConnected: false });
@@ -148,20 +143,18 @@ describe("GitActionButton status recovery", () => {
     expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
   });
 
-  it("offers retry on mobile when watcher setup fails after a valid snapshot", async () => {
-    buttonMocks.isMobile = true;
+  it("offers retry on a phone when watcher setup fails after a valid snapshot", async () => {
     useSessionStatusStore.setState({ isConnected: true });
     const git = useGitStatusStore.getState();
     const snapshot = makeDirtyMergeableSnapshot(42);
     git.setStatus(snapshot);
-    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+    const { user } = render(<GitActionButton featureId={42} projectId={7} phone />);
     act(() => git.setStatus({ ...snapshot, computed_at: 2 }, "inotify limit"));
-    await user.click(screen.getByRole("button", { name: "Git live updates unavailable" }));
-    expect(screen.getByText(/inotify limit/)).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Commit" })).not.toHaveAttribute(
-      "aria-disabled",
-      "true",
+    await user.click(
+      screen.getByRole("button", { name: "Conversation actions, something failed" }),
     );
+    expect(screen.getByText(/inotify limit/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Retry Git status" }));
     expect(useGitStatusStore.getState().watcherEpoch[42]).toBe(1);
     act(() => git.setStatus({ ...snapshot, computed_at: 3 }, null));
@@ -197,8 +190,7 @@ describe("GitActionButton shortcuts", () => {
     expect(await screen.findByRole("dialog", { name: "Commit progress" })).toBeInTheDocument();
   });
 
-  it("keeps the Git actions menu available on mobile while committing", async () => {
-    buttonMocks.isMobile = true;
+  it("keeps the Git actions menu available while committing", async () => {
     useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
     useCommitOutputStore.getState().start(42);
 
@@ -209,16 +201,6 @@ describe("GitActionButton shortcuts", () => {
 
     expect(await screen.findByText("View commit progress")).toBeInTheDocument();
     expect(screen.getByText("Merge")).toBeInTheDocument();
-  });
-
-  it("names the checked-out branch on the mobile trigger", () => {
-    buttonMocks.isMobile = true;
-    useGitStatusStore.getState().setStatus(makeMergeableSnapshot(42));
-
-    render(<GitActionButton featureId={42} projectId={7} />);
-
-    const trigger = screen.getByRole("button", { name: /^Git actions, on / });
-    expect(trigger).toHaveTextContent(useGitStatusStore.getState().byFeature[42]!.current_branch);
   });
 
   it("replaces the primary action with a clickable Pushing control", async () => {

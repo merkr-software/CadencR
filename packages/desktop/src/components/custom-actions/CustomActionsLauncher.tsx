@@ -81,7 +81,6 @@ export function CustomActionsLauncher({
           actions={actions}
           featureId={featureId}
           projectId={projectId}
-          aggregate={launcher.aggregate}
           open={menu.open}
           onOpenChange={menu.setOpen}
           onShowDetails={menu.showDetails}
