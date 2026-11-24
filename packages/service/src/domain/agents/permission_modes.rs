@@ -3,21 +3,28 @@ use std::borrow::Cow;
 use super::adapter::{AgentRuntimeAdapter, RuntimePermissionMode};
 use super::runtime_adapter;
 
-/// Parse a permission mode string from the client into a PermissionMode enum value.
-pub(crate) fn parse_permission_mode(mode: &str) -> RuntimePermissionMode {
+/// Strictly parse a permission mode wire string, returning `None` for unknown
+/// values instead of defaulting to `Default`.
+pub(crate) fn parse_permission_mode_wire(mode: &str) -> Option<RuntimePermissionMode> {
     if let Some(agent_name) = super::opencode::agents::agent_name_from_mode_id(mode) {
-        return RuntimePermissionMode::OpenCodeAgent(agent_name.to_string());
+        return Some(RuntimePermissionMode::OpenCodeAgent(agent_name.to_string()));
     }
 
     match mode {
-        "acceptEdits" => RuntimePermissionMode::AcceptEdits,
-        "bypassPermissions" => RuntimePermissionMode::BypassPermissions,
-        "plan" => RuntimePermissionMode::Plan,
-        "ask" => RuntimePermissionMode::Ask,
-        "auto" => RuntimePermissionMode::Auto,
-        "dontAsk" => RuntimePermissionMode::DontAsk,
-        _ => RuntimePermissionMode::Default,
+        "default" => Some(RuntimePermissionMode::Default),
+        "acceptEdits" => Some(RuntimePermissionMode::AcceptEdits),
+        "bypassPermissions" => Some(RuntimePermissionMode::BypassPermissions),
+        "plan" => Some(RuntimePermissionMode::Plan),
+        "ask" => Some(RuntimePermissionMode::Ask),
+        "auto" => Some(RuntimePermissionMode::Auto),
+        "dontAsk" => Some(RuntimePermissionMode::DontAsk),
+        _ => None,
     }
+}
+
+/// Parse a permission mode string from the client into a PermissionMode enum value.
+pub(crate) fn parse_permission_mode(mode: &str) -> RuntimePermissionMode {
+    parse_permission_mode_wire(mode).unwrap_or(RuntimePermissionMode::Default)
 }
 
 pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> String {
@@ -146,6 +153,11 @@ mod tests {
         let mode = parse_permission_mode("ask");
         assert_eq!(mode, RuntimePermissionMode::Ask);
         assert_eq!(permission_mode_wire(&mode), "ask");
+        assert_eq!(
+            super::parse_permission_mode_wire("ask"),
+            Some(RuntimePermissionMode::Ask)
+        );
+        assert_eq!(super::parse_permission_mode_wire("unknown"), None);
     }
 
     #[test]
