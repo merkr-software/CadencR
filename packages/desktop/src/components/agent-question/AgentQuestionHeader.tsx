@@ -5,6 +5,10 @@ import { cn } from "@/lib/utils";
 import { GateLaterButton } from "@/components/GatePhoneActions";
 import { MessageCircleQuestionIcon, ChevronLeftIcon, ChevronRightIcon, X } from "lucide-react";
 
+/** A 20px chevron; on phone a 44px target around it (`hit-area`), its wash still 20px. */
+const QUESTION_NAV_CLASS =
+  "inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 transition-colors phone:hit-area";
+
 interface AgentQuestionHeaderProps {
   questionsLength: number;
   currentIndex: number;
@@ -38,7 +42,7 @@ function AgentQuestionHeaderComponent({
             disabled={!canGoBack}
             onClick={onBack}
             className={cn(
-              "inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 transition-colors",
+              QUESTION_NAV_CLASS,
               canGoBack ? "text-foreground cursor-pointer" : "opacity-30 cursor-default",
             )}
             aria-label={t("question.previous", "Previous question")}
@@ -57,7 +61,7 @@ function AgentQuestionHeaderComponent({
             disabled={!canGoForward}
             onClick={onForward}
             className={cn(
-              "inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 transition-colors",
+              QUESTION_NAV_CLASS,
               canGoForward ? "text-foreground cursor-pointer" : "opacity-30 cursor-default",
             )}
             aria-label={t("question.next", "Next question")}

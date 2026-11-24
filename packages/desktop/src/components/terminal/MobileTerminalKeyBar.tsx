@@ -13,7 +13,7 @@ interface MobileTerminalKeyBarProps {
 }
 
 const KEY_BTN_BASE =
-  "flex h-9 min-w-9 items-center justify-center rounded-md px-3 text-xs font-medium transition-colors";
+  "flex h-11 min-w-11 items-center justify-center rounded-md px-3 text-xs font-medium transition-colors";
 const KEY_BTN_IDLE =
   "bg-[var(--terminal-panel-icon-bg-hover)] text-[var(--terminal-panel-icon-hover)] active:bg-[var(--terminal-panel-handle-bg-hover)]";
 const KEY_BTN_ARMED = "bg-[var(--terminal-panel-icon-hover)] text-[var(--terminal-bg)]";

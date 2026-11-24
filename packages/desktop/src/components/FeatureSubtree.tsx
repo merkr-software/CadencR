@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type ReactElement, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
 import { descendantIdsOf, type FeatureTreeNode } from "@/lib/feature-hierarchy";
@@ -15,6 +15,42 @@ export type RenderFeature = (
   depth?: number,
   hiddenDescendantIds?: readonly number[],
 ) => ReactNode;
+
+/**
+ * A parent row's twisty: a 12px chevron that folds or unfolds its child
+ * conversations without opening the row; on phone a 44px target around it.
+ */
+export function SubtreeToggle({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+}): ReactElement {
+  const { t } = useUiTranslation();
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground phone:hit-area phone:[--hit-right:-4px]"
+      aria-label={
+        expanded
+          ? t(
+              "project.virtualizedProjectFeatureList.collapseChildSessions",
+              "Collapse child sessions",
+            )
+          : t("project.virtualizedProjectFeatureList.expandChildSessions", "Expand child sessions")
+      }
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      {expanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
+    </Button>
+  );
+}
 
 /**
  * Renders an active-feature subtree as a compact, IDE-style indent tree:
@@ -49,33 +85,7 @@ export function FeatureSubtree({
   const control = useMemo(
     () =>
       hasChildren ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
-          aria-label={
-            expanded
-              ? t(
-                  "project.virtualizedProjectFeatureList.collapseChildSessions",
-                  "Collapse child sessions",
-                )
-              : t(
-                  "project.virtualizedProjectFeatureList.expandChildSessions",
-                  "Expand child sessions",
-                )
-          }
-          onClick={(event) => {
-            event.stopPropagation();
-            onSetCollapsed(featureId, expanded);
-          }}
-        >
-          {expanded ? (
-            <ChevronDownIcon className="size-3" />
-          ) : (
-            <ChevronRightIcon className="size-3" />
-          )}
-        </Button>
+        <SubtreeToggle expanded={expanded} onToggle={() => onSetCollapsed(featureId, expanded)} />
       ) : null,
     [expanded, featureId, hasChildren, onSetCollapsed, t],
   );

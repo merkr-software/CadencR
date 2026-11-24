@@ -261,7 +261,7 @@ function GateTrigger({
         "relative hover:bg-sidebar-accent",
         // The icon stays 14px; its target grows without moving the row's layout.
         "before:absolute before:content-['']",
-        roomy ? "before:-inset-[13px]" : "before:-inset-[5px]",
+        roomy ? "before:-inset-[15px]" : "before:-inset-[5px]",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         PENDING_KIND_TEXT_CLASS[kind],
       )}

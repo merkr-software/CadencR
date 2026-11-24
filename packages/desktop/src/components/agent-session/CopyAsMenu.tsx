@@ -53,6 +53,53 @@ export const COPY_AS_FORMATS: {
   },
 ];
 
+/**
+ * Copy a message in `format`; the email format serializes the rendered
+ * `sourceRef` element. `copyAs` confirms with a toast (or reports the error).
+ */
+export function copyMessageAs(
+  format: ExportFormat,
+  content: string,
+  sourceRef: RefObject<HTMLElement | null>,
+): void {
+  let emailHtml: string | undefined;
+  if (format === "email" && sourceRef.current) {
+    const range = document.createRange();
+    range.selectNodeContents(sourceRef.current);
+    emailHtml = rangeToEmailHtml(range);
+  }
+  void copyAs(format, content, emailHtml);
+}
+
+/**
+ * One menu row per format, for `AdaptiveMenuContent`: the Copy as menu lists
+ * them all, a message's phone sheet those after its plain Copy. `getContent`
+ * is read on the pick, so a streaming message hands over its latest text.
+ */
+export function CopyAsItems({
+  formats = COPY_AS_FORMATS,
+  getContent,
+  sourceRef,
+}: {
+  formats?: typeof COPY_AS_FORMATS;
+  getContent: () => string;
+  sourceRef: RefObject<HTMLElement | null>;
+}): ReactElement {
+  return (
+    <>
+      {formats.map(({ format, label, icon: Icon }) => (
+        <AdaptiveMenuItem
+          key={format}
+          onSelect={() => copyMessageAs(format, getContent(), sourceRef)}
+        >
+          <Icon className="size-4" />
+          {label}
+        </AdaptiveMenuItem>
+      ))}
+    </>
+  );
+}
+
 interface CopyAsMenuProps {
   /** Message source, copied as-is or converted per format. */
   content: string;
@@ -70,16 +117,6 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
   const isTouch = useIsTouchDevice();
   if (!isTouch) return null;
 
-  const copy = (format: ExportFormat): void => {
-    let emailHtml: string | undefined;
-    if (format === "email" && sourceRef.current) {
-      const range = document.createRange();
-      range.selectNodeContents(sourceRef.current);
-      emailHtml = rangeToEmailHtml(range);
-    }
-    void copyAs(format, content, emailHtml);
-  };
-
   return (
     <AdaptiveMenu>
       <AdaptiveMenuTrigger asChild>
@@ -92,12 +129,7 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
         </button>
       </AdaptiveMenuTrigger>
       <AdaptiveMenuContent align="start" sheetTitle="Copy as" sheetTitleVisible>
-        {COPY_AS_FORMATS.map(({ format, label, icon: Icon }) => (
-          <AdaptiveMenuItem key={format} onSelect={() => copy(format)}>
-            <Icon className="size-4" />
-            {label}
-          </AdaptiveMenuItem>
-        ))}
+        <CopyAsItems getContent={() => content} sourceRef={sourceRef} />
       </AdaptiveMenuContent>
     </AdaptiveMenu>
   );

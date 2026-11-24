@@ -65,7 +65,7 @@ export function PromptBarActions({
   const showActionGroup = showSendButton || showMenu;
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5 self-end">
+    <div className="flex shrink-0 items-center gap-1.5 self-end phone:gap-2.5">
       <ImageAttachmentButton
         onFilesSelected={onAddFiles}
         disabled={inputsDisabled}

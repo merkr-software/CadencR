@@ -167,7 +167,7 @@ function SchedulesHeader({
         <Button
           type="button"
           size="sm"
-          className="h-9 gap-1.5 rounded-lg px-3 text-xs"
+          className="h-9 gap-1.5 rounded-lg px-3 text-xs phone:h-11"
           onClick={onCreate}
         >
           <PlusIcon className="size-3.5" />
@@ -181,10 +181,11 @@ function SchedulesHeader({
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={t("schedule.list.schedulesView.searchPlaceholder", "Search schedules…")}
           aria-label={t("schedule.list.schedulesView.searchSchedules", "Search schedules")}
-          className="h-8 max-w-xs text-sm"
+          className="h-8 max-w-xs text-sm phone:h-11 phone:max-w-none"
         />
+        {/* Phone: one row of 44px chips that scrolls sideways instead of wrapping. */}
         <div
-          className="flex flex-wrap gap-1"
+          className="flex flex-wrap gap-1 phone:-mx-5 phone:w-[calc(100%+2.5rem)] phone:flex-nowrap phone:gap-2 phone:overflow-x-auto phone:px-5 phone:[scrollbar-width:none]"
           role="group"
           aria-label={t("schedule.list.schedulesView.filterByStatus", "Filter by status")}
         >
@@ -195,7 +196,7 @@ function SchedulesHeader({
               aria-pressed={state === filter}
               onClick={() => onStateChange(filter)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                "rounded-full border px-2.5 py-1 text-xs transition-colors phone:min-h-11 phone:shrink-0 phone:px-3.5 phone:text-sm",
                 state === filter
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border/60 text-muted-foreground hover:bg-accent/50 hover:text-foreground",

@@ -152,7 +152,7 @@ describe("sidebar status", () => {
       <SidebarStatusIndicator attention={waiting} isActive={false} onOpenConversation={vi.fn()} />,
     );
     expect(screen.getByRole("button", { name: "Pending permission" })).toHaveClass(
-      "before:-inset-[13px]",
+      "before:-inset-[15px]",
     );
   });
 

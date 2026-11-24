@@ -115,7 +115,7 @@ export function SidebarLensMenu(): ReactElement {
           {...menu.triggerProps}
           className={cn(
             EYEBROW_TEXT_CLASS,
-            "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:text-foreground",
+            "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:text-foreground phone:min-h-11",
           )}
         >
           <LensLabel

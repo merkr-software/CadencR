@@ -25,7 +25,7 @@ export const InstrumentRow = memo(function InstrumentRow({
   return (
     <div
       ref={rowRef}
-      data-composer-instruments
+      data-composer-instruments={top ? "top" : "bottom"}
       className={cn(
         "@container shrink-0 items-center gap-1.5 px-2",
         top ? "pt-2" : "pb-2",

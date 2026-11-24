@@ -238,6 +238,51 @@
   }
 }
 
+/* Phone layout: every instrument, Stop, Send and its chevron is a 44px
+ * target around its look (`hit-area`, index.css), with no change to the
+ * layout or the paint. A row grows its targets away from the editor only,
+ * into its own padding: the top row upwards, the bottom row downwards, so a
+ * tap on the editor's first or last line always reaches the editor. The
+ * start zone clips (labels truncate): it gives its boxes the room back as
+ * padding so they aren't cut. A 24px chip (`h-6`) isn't an instrument-row
+ * control and keeps its size. */
+[data-shell="phone"]
+  [data-composer-instruments]
+  :is(.composer-instrument:not(.h-6), [data-composer-action]) {
+  @apply hit-area;
+}
+[data-shell="phone"] [data-composer-instruments="top"] {
+  --hit-top: min(0px, calc(100% - 44px));
+  --hit-bottom: 0px;
+}
+[data-shell="phone"] [data-composer-instruments="bottom"] {
+  --hit-top: 0px;
+  --hit-bottom: min(0px, calc(100% - 44px));
+}
+/* Send beside its chevron grows leftwards only; the chevron grows rightwards,
+ * to the card's edge (the row's 8px padding) and never past it, so it is a
+ * 28px-wide, 44px-tall target. */
+[data-shell="phone"] [data-composer-instruments] [data-composer-action-compact] {
+  @apply hit-area;
+  --hit-right: -8px;
+}
+[data-shell="phone"]
+  [data-composer-instruments]
+  [data-composer-action]:has(+ [data-composer-action-compact]) {
+  --hit-left: min(0px, calc(100% - 44px));
+  --hit-right: 0px;
+}
+[data-shell="phone"]
+  [data-composer-instruments]
+  [data-composer-action]
+  + [data-composer-action-compact] {
+  --hit-left: 0px;
+}
+[data-shell="phone"] [data-composer-instruments] > [data-composer-zone]:first-child {
+  margin: -8px -4px;
+  padding: 8px 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* No motion: the reflection rests, faint, at the top edge's middle. */
   .composer-sweep::before {

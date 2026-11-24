@@ -50,7 +50,7 @@ export function ScheduleInstruments({
 
   const chip = { target, onChange, runtime };
   return (
-    <div data-composer-instruments className={ROW_CLASS}>
+    <div data-composer-instruments="bottom" className={ROW_CLASS}>
       {/* Each control sits in a composer group, so the composer's hairlines
           separate them. */}
       <div data-composer-zone className="flex min-w-0 items-center gap-0.5 overflow-hidden">

@@ -122,7 +122,7 @@ function SettingsSearchField({
   const { t } = useUiTranslation();
   const searchLabel = t("settings.nav.search.field", "Search settings");
   return (
-    <div className="relative flex h-8 items-center rounded-md border border-border bg-background/60 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
+    <div className="relative flex h-8 items-center rounded-md phone:h-11 border border-border bg-background/60 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
       <Search aria-hidden className="pointer-events-none ml-2.5 size-3.5 text-muted-foreground" />
       <Input
         ref={inputRef}
@@ -135,7 +135,7 @@ function SettingsSearchField({
         aria-label={searchLabel}
         autoComplete="off"
         spellCheck={false}
-        className="h-full flex-1 px-2 text-[13px] [&::-webkit-search-cancel-button]:hidden"
+        className="h-full flex-1 px-2 text-[13px] phone:-my-px phone:h-11 [&::-webkit-search-cancel-button]:hidden"
       />
       {query ? (
         <Button
@@ -146,7 +146,7 @@ function SettingsSearchField({
             onQueryChange("");
             inputRef.current?.focus();
           }}
-          className="mr-1 text-muted-foreground"
+          className="mr-1 text-muted-foreground phone:-my-px phone:mr-0 phone:size-11"
         >
           <X />
         </Button>

@@ -19,7 +19,7 @@ export function SidebarShowMoreButton({ more }: { more: ShowMore }): ReactElemen
       data-sidebar-show-more
       aria-expanded={more.expanded}
       onClick={more.toggle}
-      className="self-start px-2 text-[11px] font-normal text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:text-foreground"
+      className="self-start px-2 text-[11px] phone:h-11 font-normal text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:text-foreground"
     >
       {more.expanded
         ? t("sidebar.showMore.showLess", "Show less")

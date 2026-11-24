@@ -5,6 +5,7 @@ import { preloadConversation } from "@/lib/conversation-preload";
 import { queryClient } from "@/lib/queryClient";
 import { idleCallbacksAvailable, scheduleIdle } from "@/lib/schedule-idle";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
+import { ROW_SWIPE_INTENT_PX, ROW_SWIPE_TRAY_SELECTOR } from "@/hooks/useRowSwipe";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 /** A sidebar row that opens a conversation (`ProjectFeatureRow`, `PinnedConversationRow`). */
@@ -61,12 +62,32 @@ function prewarmPressedRow(row: Element, featureId: number): void {
 }
 
 /**
+ * A touch on a row that swipes (`useRowSwipe`) may be a swipe rather than a
+ * tap: its preload waits for the finger to lift where it went down. A swipe
+ * or a scroll (cancelled pointer) drops it.
+ */
+function preloadOnTap(press: PointerEvent, featureId: number): void {
+  const settle = (event: PointerEvent): void => {
+    if (event.pointerId !== press.pointerId) return;
+    document.removeEventListener("pointerup", settle, true);
+    document.removeEventListener("pointercancel", settle, true);
+    const moved = Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY);
+    if (event.type === "pointerup" && moved < ROW_SWIPE_INTENT_PX) {
+      void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+    }
+  };
+  document.addEventListener("pointerup", settle, true);
+  document.addEventListener("pointercancel", settle, true);
+}
+
+/**
  * A press on a sidebar row. A plain primary mouse press mounts the row's
  * workspace and refreshes its snapshot (once the workspace hydrated it the
  * refresh skips the history request by itself; without one, the request starts
  * and the mounting workspace's loader shares it). A touch or pen press only
- * preloads: a touch scroll starts on a row too. Any other mouse press does
- * nothing: hovering the row already preloaded it.
+ * preloads: a touch scroll starts on a row too. On a row that swipes it waits
+ * for a tap, and a press in the row's swipe tray runs an action, never opens
+ * it. Any other mouse press does nothing: hovering the row already preloaded it.
  */
 function onRowPress(event: PointerEvent): void {
   if (!(event.target instanceof Element)) return;
@@ -74,7 +95,9 @@ function onRowPress(event: PointerEvent): void {
   const featureId = row ? rowFeatureId(row) : null;
   if (row === null || featureId === null) return;
   if (event.pointerType !== "mouse") {
-    void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+    if (event.target.closest(ROW_SWIPE_TRAY_SELECTOR) !== null) return;
+    if (row.hasAttribute("data-row-swipe-row")) preloadOnTap(event, featureId);
+    else void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
     return;
   }
   if (!opensConversation(event, row)) return;

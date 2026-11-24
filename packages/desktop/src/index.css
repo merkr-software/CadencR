@@ -1,6 +1,7 @@
 @import "./sidebar-rows.css";
 @import "./sidebar-row-height.css";
 @import "./sidebar-row-colors.css";
+@import "./sidebar-phone.css";
 @import "./mobile-status-bar.css";
 @import "./app-viewport.css";
 @import "tailwindcss";
@@ -241,6 +242,26 @@ html {
 
 @utility titlebar-no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* A touch target of at least 44×44px around a compact control, without moving
+ * the layout or the paint (DESIGN.md "Hit areas on phone"): an invisible
+ * `::after` centred on the control, as tall and wide as it or 44px, whichever
+ * is more. Fills and hover washes stay at the control's own size. A side can
+ * be pinned with `--hit-top` / `--hit-bottom` / `--hit-left` / `--hit-right`
+ * (an inset: `0px` on one side and `min(0px, calc(100% - 44px))` on the
+ * other grows the target away from that side only). Positions the control (`relative`); an ancestor with
+ * `overflow: hidden` clips the target. Use it as `phone:hit-area`. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: var(--hit-top, min(0px, calc(50% - 22px)));
+    right: var(--hit-right, min(0px, calc(50% - 22px)));
+    bottom: var(--hit-bottom, min(0px, calc(50% - 22px)));
+    left: var(--hit-left, min(0px, calc(50% - 22px)));
+  }
 }
 
 /* Active unified-agent card. The shadow needs `overflow: visible` on the

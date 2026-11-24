@@ -5,8 +5,9 @@ import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import type { SplitOrientation } from "@/hooks/useTerminalState";
 
+/** On phone each action is a 44px square, flush with the pane's corner, around the same glyph. */
 const ICON_BTN =
-  "flex size-6 items-center justify-center rounded text-[var(--terminal-panel-icon)] transition-colors hover:bg-[var(--terminal-panel-icon-bg-hover)] hover:text-[var(--terminal-panel-icon-hover)]";
+  "flex size-6 items-center justify-center rounded text-[var(--terminal-panel-icon)] transition-colors hover:bg-[var(--terminal-panel-icon-bg-hover)] hover:text-[var(--terminal-panel-icon-hover)] phone:size-11";
 
 interface TerminalPaneToolbarProps {
   onSplit: (orientation: SplitOrientation) => void;
@@ -26,7 +27,7 @@ export const TerminalPaneToolbar = memo(function TerminalPaneToolbar({
   const splitHorizontalKeys = useShortcutKeys("terminal-split-h");
   const splitVerticalKeys = useShortcutKeys("terminal-split-v");
   return (
-    <div className="absolute right-2 top-1 z-10 flex items-center gap-0.5">
+    <div className="absolute right-2 top-1 z-10 flex items-center gap-0.5 phone:top-0 phone:right-0 phone:gap-0">
       <ShortcutTooltip
         label={t("workspace.tools.terminalPaneToolbar.splitHorizontal", "Split horizontal")}
         keys={splitHorizontalKeys}

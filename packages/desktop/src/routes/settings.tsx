@@ -162,7 +162,7 @@ function SettingsPageHeader({ onBack }: { onBack: () => void }): React.JSX.Eleme
         onClick={onBack}
         title={t("settings.nav.back.shortcut", "Back to workspace (Esc)")}
         aria-label={t("settings.nav.back.workspace", "Back to workspace")}
-        className="h-7 shrink-0 gap-1.5 px-2"
+        className="h-7 shrink-0 gap-1.5 px-2 phone:h-11 phone:min-w-11"
       >
         <ArrowLeft aria-hidden="true" className="size-3.5" />
         <span className="hidden sm:inline">{t("settings.nav.back.label", "Back")}</span>
