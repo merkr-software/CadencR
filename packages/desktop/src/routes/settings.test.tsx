@@ -23,7 +23,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@tanstack/react-router", () => ({
-  createFileRoute: (_path: string) => (opts: { component: unknown }) => ({
+  // The page is the lazy half of the route (`settings.lazy.tsx`).
+  createLazyFileRoute: (_path: string) => (opts: { component: unknown }) => ({
     options: opts,
     useSearch: mocks.mockUseSearch,
     useParams: vi.fn(() => ({})),
@@ -64,7 +65,7 @@ vi.mock("../components/ModelSelector", () => ({
   ),
 }));
 
-import { Route } from "./settings";
+import { Route } from "./settings.lazy";
 
 function SettingsPage() {
   const Component = (Route as unknown as { options: { component: React.ComponentType } }).options

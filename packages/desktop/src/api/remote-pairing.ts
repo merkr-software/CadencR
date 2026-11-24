@@ -84,15 +84,28 @@ export async function pairRemoteDevice(
   return { storagePersisted };
 }
 
-export async function ensurePaired(): Promise<void> {
-  if (!isBrowserRemote()) return;
+/** What the address held for pairing, once read and scrubbed (`takeUrlPairingCode`). */
+type UrlPairingCode =
+  | { kind: "none" }
+  | { kind: "code"; code: string }
+  | { kind: "error"; issue: PairingIssue };
+
+/**
+ * Reads a pairing code from the address (`#code=` or a legacy `?code=`) and
+ * scrubs it, with any legacy trust flag, before anything can send it: the
+ * code is single-use, so it must not linger in history or reach a request's
+ * Referer. Used at boot (`ensurePaired`) and by the pairing screen when a new
+ * link only changes the hash of a tab already showing it (`hashchange`, no
+ * reload). An address it could not clean is an error and its code is dropped.
+ */
+export function takeUrlPairingCode(): UrlPairingCode {
   const query = new URLSearchParams(location.search);
   const fragment = pairingFragment(location.hash);
   const code = fragment.params.get(CODE_PARAM) || query.get(CODE_PARAM);
   const hasPairingParams = [query, fragment.params].some(
     (params) => params.has(CODE_PARAM) || params.has(TRUST_PARAM),
   );
-  if (!hasPairingParams) return;
+  if (!hasPairingParams) return { kind: "none" };
   // A legacy query would otherwise reach the pairing request in Referer. Scrub
   // both URL forms before starting any request, including failed pair attempts.
   query.delete(CODE_PARAM);
@@ -104,20 +117,29 @@ export async function ensurePaired(): Promise<void> {
   try {
     history.replaceState(null, "", `${location.pathname}${search ? `?${search}` : ""}${hash}`);
   } catch {
-    stashPairingError({ kind: "unsafeAddress" });
-    return;
+    return { kind: "error", issue: { kind: "unsafeAddress" } };
   }
-  if (!code) return;
+  if (!code) return { kind: "none" };
   if (!/^[A-Za-z0-9_-]+$/.test(code)) {
-    stashPairingError({ kind: "malformedCode" });
+    return { kind: "error", issue: { kind: "malformedCode" } };
+  }
+  return { kind: "code", code };
+}
+
+export async function ensurePaired(): Promise<void> {
+  if (!isBrowserRemote()) return;
+  const taken = takeUrlPairingCode();
+  if (taken.kind === "error") {
+    stashPairingError(taken.issue);
     return;
   }
+  if (taken.kind === "none") return;
 
   try {
     // Session-only by default. The "stay signed in" opt-in happens on this
     // device after mount; `pairRemoteDevice` flags the toast when the token
     // persisted, so we only handle the storage-blocked case here.
-    const paired = await pairRemoteDevice(code, { trust: false });
+    const paired = await pairRemoteDevice(taken.code, { trust: false });
     if (!paired.storagePersisted) {
       stashPairingError({ kind: "storageBlocked" });
     }

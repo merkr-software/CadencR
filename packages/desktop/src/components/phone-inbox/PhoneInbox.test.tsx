@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@/test-utils";
 import type { Feature, FeaturePendingGateResponse } from "@/api/generated";
 import { SidebarAttentionContext } from "@/components/SidebarAttentionProvider";
 import type { ResolvedAttentionResult } from "@/hooks/useResolvedAttention";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarSurfaceStore } from "@/stores/sidebar-surface-store";
-import { PhoneInbox } from "./PhoneInbox";
+import { CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS, PhoneInbox } from "./PhoneInbox";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   openQuickReply: vi.fn(),
   start: vi.fn(),
   preload: vi.fn(() => Promise.resolve()),
+  prefetchAgentSession: vi.fn(() => Promise.resolve()),
   recent: { data: [] as unknown[], error: null as unknown, isPending: false },
   projects: { data: [] as unknown[], error: null as unknown, isPending: false },
   refetchProjects: vi.fn(() => Promise.resolve()),
@@ -33,6 +34,9 @@ vi.mock("@/hooks/useStartConversation", () => ({
   useStartConversation: () => ({ start: mocks.start, isPending: false }),
 }));
 vi.mock("@/lib/conversation-preload", () => ({ preloadConversation: mocks.preload }));
+vi.mock("@/components/lazy/agent-session-chunk", () => ({
+  prefetchAgentSession: mocks.prefetchAgentSession,
+}));
 vi.mock("@/components/SidebarRecentSection", () => ({
   useRecentFeatures: () => mocks.recent,
 }));
@@ -193,6 +197,7 @@ describe("PhoneInbox sections", () => {
     const { user } = renderInbox();
     await user.click(screen.getByText("Recent one"));
     expect(mocks.preload).toHaveBeenCalledWith(7, expect.any(Number));
+    expect(mocks.prefetchAgentSession).toHaveBeenCalled();
     expect(mocks.navigateToConversation).toHaveBeenCalledWith(mocks.navigate, 2, 7, {
       cwd: "/repo/web",
       featureKnown: true,
@@ -283,5 +288,27 @@ describe("PhoneInbox states", () => {
     renderInbox({ actions: [{ feature: feature(1, "Ask"), kind: "waiting" }] });
     expect(screen.getByRole("heading", { level: 1, name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open menu" })).toBeInTheDocument();
+  });
+});
+
+describe("PhoneInbox conversation view prefetch", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("fetches the conversation view once the cards are up and the page is idle", () => {
+    vi.useFakeTimers();
+    mocks.projects.isPending = true;
+    const { rerender } = renderInbox();
+    act(() => vi.advanceTimersByTime(CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS));
+    expect(mocks.prefetchAgentSession).not.toHaveBeenCalled();
+
+    mocks.projects.isPending = false;
+    rerender(
+      <SidebarAttentionContext.Provider value={EMPTY}>
+        <PhoneInbox />
+      </SidebarAttentionContext.Provider>,
+    );
+    expect(mocks.prefetchAgentSession).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS));
+    expect(mocks.prefetchAgentSession).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,6 +2,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useEffectEvent,
   useState,
   useSyncExternalStore,
   type FormEvent,
@@ -17,7 +18,12 @@ import {
   readDeviceToken,
   subscribeToDeviceRevocation,
 } from "@/lib/remote/device-token";
-import { extractPairingCode, pairRemoteDevice, takePairingError } from "@/api/remote-pairing";
+import {
+  extractPairingCode,
+  pairRemoteDevice,
+  takePairingError,
+  takeUrlPairingCode,
+} from "@/api/remote-pairing";
 import { useBrowserInterfaceLanguage } from "@/lib/i18n/language-document";
 import { UiTrans, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
@@ -94,6 +100,29 @@ function PairingInstructions({ t }: { t: UiTranslator }): ReactNode {
   );
 }
 
+/**
+ * A new pairing link opened in this tab only changes its hash: no reload, so
+ * the boot-time exchange never sees it. Read it here, and scrub it from the
+ * address first (`takeUrlPairingCode`) so the single-use code never lingers,
+ * even when it arrives during a pairing: the caller then drops that code, and
+ * the pairing under way reloads the page or reports its own failure.
+ */
+function usePairingLinkInTab(handlers: {
+  onIssue: (issue: PairingIssue) => void;
+  onCode: (code: string) => void;
+}): void {
+  const onHashChange = useEffectEvent((): void => {
+    const taken = takeUrlPairingCode();
+    if (taken.kind === "error") handlers.onIssue(taken.issue);
+    else if (taken.kind === "code") handlers.onCode(taken.code);
+  });
+  useEffect(() => {
+    const listener = (): void => onHashChange();
+    window.addEventListener("hashchange", listener);
+    return () => window.removeEventListener("hashchange", listener);
+  }, []);
+}
+
 function PairingScreen(): ReactNode {
   useBrowserInterfaceLanguage();
   const { t } = useUiTranslation();
@@ -131,6 +160,13 @@ function PairingScreen(): ReactNode {
     }
     setPairing(false);
   };
+
+  usePairingLinkInTab({
+    onIssue: setError,
+    onCode: (code) => {
+      if (!pairing) void runPair(code);
+    },
+  });
 
   if (scanning) {
     return (

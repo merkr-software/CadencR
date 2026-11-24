@@ -39,4 +39,10 @@ describe("SidebarCollapsedChrome on a phone", () => {
     renderChrome({ menuBadge: false });
     expect(screen.getByRole("button")).toHaveAccessibleName("Open menu");
   });
+
+  it("keeps the menu button just clear of the edge-swipe strip without traffic lights", () => {
+    renderChrome({});
+    expect(screen.getByRole("button")).toHaveClass("ml-1");
+    expect(screen.getByRole("button")).not.toHaveClass("ml-[68px]");
+  });
 });

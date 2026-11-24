@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeAll, beforeEach } from "vitest";
 import { act, render, screen } from "@/test-utils";
 
-import { EditorFuzzyShortcut } from "../EditorFuzzyShortcut";
+import { EditorFuzzyShortcut, preloadFileSearch } from "../EditorFuzzyShortcut";
 
 // Capture the callback registered for the `editor-fuzzy` shortcut so the test
 // can simulate the CMD+P press without leaning on the real keyboard plumbing.
@@ -36,6 +36,11 @@ vi.mock("../FileSearchDialog", () => ({
 }));
 
 describe("EditorFuzzyShortcut", () => {
+  // As a mouse-driven window does once idle: the picker’s chunk is loaded first.
+  beforeAll(async () => {
+    await preloadFileSearch();
+  });
+
   beforeEach(() => {
     registeredCallback = null;
     registeredEnabled = true;

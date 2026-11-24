@@ -1,17 +1,21 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
-import { lazy, Suspense, type ReactElement } from "react";
-import { Loader2 } from "lucide-react";
+import type { ReactElement } from "react";
 
 import type { GitStatusSnapshot } from "@/api/generated";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import type { GitAction } from "./useGitAction";
 import type { CommitSubmissionController } from "./useCommitSubmission";
 import type { PushSubmissionController } from "./usePushSubmission";
 
-const CommitDialog = lazy(() => import("./CommitDialog"));
-const StashChangesDialog = lazy(() => import("./StashChangesDialog"));
-const PushDialog = lazy(() => import("./PushDialog"));
-const MergeDialog = lazy(() => import("./MergeDialog"));
-const UpdateBranchDialog = lazy(() => import("./UpdateBranchDialog"));
+const CommitDialog = lazyChunk(() => import("./CommitDialog").then((module) => module.default));
+const StashChangesDialog = lazyChunk(() =>
+  import("./StashChangesDialog").then((module) => module.default),
+);
+const PushDialog = lazyChunk(() => import("./PushDialog").then((module) => module.default));
+const MergeDialog = lazyChunk(() => import("./MergeDialog").then((module) => module.default));
+const UpdateBranchDialog = lazyChunk(() =>
+  import("./UpdateBranchDialog").then((module) => module.default),
+);
 
 export type GitActionDialog = Exclude<GitAction, "pr"> | null;
 
@@ -34,9 +38,16 @@ export function GitActionDialogs({
   commitSubmission,
   pushSubmission,
   onOpenChange,
-}: GitActionDialogsProps): ReactElement {
+}: GitActionDialogsProps): ReactElement | null {
+  if (activeDialog === null) return null;
   return (
-    <Suspense fallback={<GitActionDialogLoading />}>
+    // Keyed by dialog: a failure shown for one is gone once it is dismissed.
+    <LazyBoundary
+      key={activeDialog}
+      label="Git action"
+      variant="overlay"
+      onDismiss={() => onOpenChange(false)}
+    >
       {activeDialog === "commit" && (
         <CommitDialog featureId={featureId} open submission={commitSubmission} />
       )}
@@ -58,19 +69,6 @@ export function GitActionDialogs({
           onOpenChange={onOpenChange}
         />
       )}
-    </Suspense>
-  );
-}
-
-function GitActionDialogLoading(): ReactElement {
-  const { t } = useUiTranslation();
-  return (
-    <div
-      role="status"
-      className="fixed left-1/2 top-1/2 z-50 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-md border border-border bg-background px-4 py-3 text-sm shadow-lg"
-    >
-      <Loader2 className="size-4 animate-spin" />
-      {t("workspace.git.gitActionDialogs.loadingGitAction", "Loading Git action…")}
-    </div>
+    </LazyBoundary>
   );
 }

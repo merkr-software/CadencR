@@ -134,6 +134,76 @@ describe("RemotePairingGate", () => {
     expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
   });
 
+  it("pairs with a new link that only changes the hash, and scrubs the code", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    const pair = vi
+      .spyOn(pairing, "pairRemoteDevice")
+      .mockResolvedValue({ storagePersisted: false });
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#code=hash-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(pair).toHaveBeenCalledWith("hash-code"));
+    expect(window.location.hash).toBe("");
+    expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
+  });
+
+  it("scrubs a code that arrives during a pairing, and does not start a second one", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    let finish: (value: { storagePersisted: boolean }) => void = () => undefined;
+    const pair = vi.spyOn(pairing, "pairRemoteDevice").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#code=first-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(pair).toHaveBeenCalledWith("first-code"));
+
+    window.history.replaceState(null, "", "/#code=second-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(window.location.hash).toBe("");
+    expect(pair).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish({ storagePersisted: false }));
+    expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
+  });
+
+  it("ignores a hash change that carries no pairing code", () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    const pair = vi.spyOn(pairing, "pairRemoteDevice");
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#/settings");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(pair).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/settings");
+    window.history.replaceState(null, "", "/");
+  });
+
   it("offers both scan and paste affordances when unpaired", () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
     vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 import type { TabIssue } from "@/api/generated";
-import { EmptyState } from "@/components/FeaturePrViewParts";
+import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Skeleton } from "@/components/ui/skeleton";

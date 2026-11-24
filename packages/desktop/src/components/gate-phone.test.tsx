@@ -183,6 +183,47 @@ describe("permission gate in the phone layout", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it("lays every option in one row on a short screen, Deny still set apart and mapped", async () => {
+    const user = userEvent.setup();
+    const onDecision = vi.fn();
+    const options = [
+      ...(permission.options ?? []),
+      {
+        decision: "deny" as const,
+        label: "Deny and stop",
+        description: "Stop",
+        collectFeedback: false,
+      },
+    ].map((option, index) => ({ ...option, optionId: `opt-${index}` }));
+    render(
+      <ToolPermissionPrompt permission={{ ...permission, options }} onDecision={onDecision} />,
+    );
+
+    const row = document.querySelector("[data-permission-options]");
+    expect(row).toHaveClass("phone-short:flex-row");
+    const denyGroup = row?.querySelector<HTMLElement>("[data-permission-deny-group]");
+    expect(denyGroup).toHaveClass("phone-short:flex-row", "phone-short:border-l");
+    expect(denyGroup?.style.getPropertyValue("--deny-count")).toBe("2");
+    const optionButtons = within(row as HTMLElement).getAllByRole("button");
+    expect(optionButtons.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Allow once"),
+      expect.stringContaining("Allow future requests"),
+      expect.stringContaining("Deny"),
+      expect.stringContaining("Deny and stop"),
+    ]);
+    for (const button of optionButtons) {
+      expect(button).toHaveClass("min-h-11", "phone-short:flex-1", "phone-short:min-w-0");
+      expect(button.lastElementChild).toHaveClass("phone-short:truncate");
+    }
+
+    await user.click(optionButtons[3]);
+    expect(onDecision).toHaveBeenLastCalledWith("deny", undefined, "opt-3");
+    await user.click(optionButtons[2]);
+    expect(onDecision).toHaveBeenLastCalledWith("deny", undefined, "opt-0");
+    await user.click(optionButtons[0]);
+    expect(onDecision).toHaveBeenLastCalledWith("allow_once", undefined, "opt-1");
+  });
+
   it("keeps the provider's order and one card style on desktop", () => {
     mocks.phone = false;
     renderPermission();

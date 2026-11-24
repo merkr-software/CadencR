@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { getListProjectsQueryKey, type Project } from "@/api/generated";
+import { prefetchAgentSession } from "@/components/lazy/agent-session-chunk";
 import { requestWorkspacePrewarm } from "@/components/workspace-pool/workspace-prewarm";
 import { preloadConversation } from "@/lib/conversation-preload";
 import { queryClient } from "@/lib/queryClient";
@@ -20,6 +21,17 @@ export const SWEEP_MAX_ROWS = 30;
 export const IDLE_SNAPSHOT_REFRESH_MS = 4 * 60_000;
 /** A press is about to become a click: any snapshot older than this is refetched. */
 export const PRESS_SNAPSHOT_REFRESH_MS = 1_000;
+
+/**
+ * A press about to open a conversation: its snapshot is refreshed when older
+ * than `PRESS_SNAPSHOT_REFRESH_MS`, and the conversation view's chunk is
+ * fetched (the phone layout boots without it). For the sidebar rows here and
+ * the phone inbox's cards.
+ */
+export function preloadPressedConversation(featureId: number): void {
+  void prefetchAgentSession();
+  void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+}
 
 function rowFeatureId(row: Element): number | null {
   const featureId = Number(row.getAttribute("data-nav-id"));
@@ -73,7 +85,7 @@ function preloadOnTap(press: PointerEvent, featureId: number): void {
     document.removeEventListener("pointercancel", settle, true);
     const moved = Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY);
     if (event.type === "pointerup" && moved < ROW_SWIPE_INTENT_PX) {
-      void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+      preloadPressedConversation(featureId);
     }
   };
   document.addEventListener("pointerup", settle, true);
@@ -97,12 +109,12 @@ function onRowPress(event: PointerEvent): void {
   if (event.pointerType !== "mouse") {
     if (event.target.closest(ROW_SWIPE_TRAY_SELECTOR) !== null) return;
     if (row.hasAttribute("data-row-swipe-row")) preloadOnTap(event, featureId);
-    else void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+    else preloadPressedConversation(featureId);
     return;
   }
   if (!opensConversation(event, row)) return;
   prewarmPressedRow(row, featureId);
-  void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+  preloadPressedConversation(featureId);
 }
 
 function runningFeatureIds(): Set<number> {

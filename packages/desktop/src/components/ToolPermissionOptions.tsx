@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
@@ -117,20 +117,44 @@ export function PermissionOptionButton({
         highlighted && AGENT_OPTION_CARD_HIGHLIGHTED,
         "disabled:cursor-not-allowed disabled:opacity-50",
         tone === "card" && "disabled:hover:bg-muted/40",
+        PHONE_SHORT_OPTION_CLASS,
       )}
       onClick={() => onClick(index)}
     >
-      <span className={cn("flex items-center gap-1.5 text-sm font-medium", TONE_LABEL_CLASS[tone])}>
+      <span
+        className={cn(
+          "flex items-center gap-1.5 text-sm font-medium phone-short:min-w-0",
+          TONE_LABEL_CLASS[tone],
+        )}
+      >
         {shortcutId && <PermissionShortcutBadge shortcutId={shortcutId} />}
-        {copy.label}
-        {showSpinner && <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" />}
+        <span className="phone-short:min-w-0 phone-short:truncate">{copy.label}</span>
+        {showSpinner && (
+          <Loader2 className="ml-1 size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        )}
       </span>
-      <span className={cn("mt-0.5 block text-xs", TONE_DESCRIPTION_CLASS[tone])}>
+      <span
+        className={cn("mt-0.5 block text-xs phone-short:truncate", TONE_DESCRIPTION_CLASS[tone])}
+      >
         {copy.description}
       </span>
     </button>
   );
 }
+
+/**
+ * A phone on its side (`phone-short:`): the options share one row, each one
+ * line of label over one line of description, so Allow once, the allowing
+ * options and Deny all show without scrolling the gate.
+ */
+const PHONE_SHORT_OPTION_CLASS = "phone-short:min-w-0 phone-short:flex-1 phone-short:py-1.5";
+const PHONE_SHORT_ROW_CLASS = "phone-short:flex-row phone-short:items-stretch";
+/**
+ * The denials' group in that row: a vertical hairline and a gap instead of the
+ * portrait's rule above, and a share of the row by its number of options.
+ */
+const PHONE_SHORT_DENY_GROUP_CLASS =
+  "phone-short:mt-0 phone-short:ml-1 phone-short:flex-row phone-short:border-t-0 phone-short:border-l phone-short:pt-0 phone-short:pl-3 phone-short:[flex:var(--deny-count)_1_0%] phone-short:min-w-0";
 
 interface PermissionOptionListProps {
   options: PermissionOption[];
@@ -182,13 +206,19 @@ export function PermissionOptionList({
   }
   const { allowing, denying } = phonePermissionSlots(options, permissionOptionKind);
   return (
-    <div className="mb-2 flex flex-col gap-2">
+    <div
+      data-permission-options=""
+      className={cn("mb-2 flex flex-col gap-2", PHONE_SHORT_ROW_CLASS)}
+    >
       {allowing.map(({ option, index, tone }) => button(option, index, tone))}
       {denying.length > 0 && (
         <div
           data-permission-deny-group=""
+          style={{ "--deny-count": denying.length } as CSSProperties}
           className={
-            allowing.length > 0 ? PHONE_PERMISSION_DENY_GROUP_CLASS : "flex flex-col gap-2"
+            allowing.length > 0
+              ? cn(PHONE_PERMISSION_DENY_GROUP_CLASS, PHONE_SHORT_DENY_GROUP_CLASS)
+              : cn("flex flex-col gap-2", PHONE_SHORT_ROW_CLASS, "phone-short:flex-1")
           }
         >
           {denying.map(({ option, index, tone }) => button(option, index, tone))}

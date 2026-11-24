@@ -50,6 +50,16 @@
  * holds before the attribute is written. */
 @custom-variant phone (&:where([data-shell="phone"] *));
 @custom-variant desktop (&:where(:root:not([data-shell="phone"]) *));
+/* The phone layout on a short screen (a phone on its side, 499px tall or less),
+ * the bottom tab bar's breakpoint: content that stacks in portrait goes in a
+ * row so it fits without scrolling. */
+@custom-variant phone-short {
+  &:where([data-shell="phone"] *) {
+    @media (max-height: 499px) {
+      @slot;
+    }
+  }
+}
 
 @theme inline {
   --font-sans:

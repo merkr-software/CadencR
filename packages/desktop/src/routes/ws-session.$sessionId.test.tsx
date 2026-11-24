@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { act, waitFor } from "@testing-library/react";
 import React from "react";
@@ -94,7 +94,8 @@ vi.mock("@/components/FeatureGitTab", () => ({
   FeatureGitTab: () => <div data-testid="git-tab" />,
 }));
 
-vi.mock("@/components/agent-session", () => ({
+// The conversation view is a lazy chunk (`agent-session-chunk`); mock the module it loads.
+vi.mock("@/components/agent-session/AgentSession", () => ({
   AgentSession: vi.fn((props: { ref?: unknown }) => {
     const React = require("react") as typeof import("react");
     React.useImperativeHandle(
@@ -326,7 +327,8 @@ vi.mock("@/hooks/useGitStatusSubscription", () => ({
 }));
 
 import { WorkspacePool } from "@/components/workspace-pool/WorkspacePool";
-import { AgentSession } from "@/components/agent-session";
+import { AgentSession } from "@/components/agent-session/AgentSession";
+import { preloadAgentSession } from "@/components/lazy/agent-session-chunk";
 /**
  * The conversation as the root's conversation layer shows it: the route's
  * params and search, through the pool (the route component itself renders
@@ -362,6 +364,12 @@ async function setModeBranchAndSend(args: { mode: string; branch?: string | null
 }
 
 describe("WsSessionPage route", () => {
+  // As at boot outside the phone layout: the conversation's chunk is loaded
+  // before the first conversation renders, so it renders in one pass.
+  beforeAll(async () => {
+    await preloadAgentSession();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -406,8 +414,9 @@ describe("WsSessionPage route", () => {
       }
       vi.useRealTimers();
 
-      expect(screen.getByTestId("terminal-tab")).toBeInTheDocument();
-      expect(screen.getByTestId("git-tab")).toBeInTheDocument();
+      // Each tab body is its own chunk: it shows once that chunk resolves.
+      expect(await screen.findByTestId("terminal-tab")).toBeInTheDocument();
+      expect(await screen.findByTestId("git-tab")).toBeInTheDocument();
       expect(await screen.findByTestId("editor-tab")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();

@@ -1,5 +1,5 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from "react";
+import { useCallback, useMemo, useRef, type ReactElement } from "react";
 import {
   CodeIcon,
   FileTextIcon,
@@ -7,8 +7,6 @@ import {
   GlobeIcon,
   TerminalIcon,
 } from "lucide-react";
-import { FeatureGitTab } from "@/components/FeatureGitTab";
-import { FeatureTerminalTab } from "@/components/FeatureTerminalTab";
 import { AgentBrowserActivityDot } from "@/components/feature-layout/AgentBrowserActivityDot";
 import { GitBadge, GitBarBadge } from "@/components/feature-layout/GitBadge";
 import {
@@ -24,17 +22,27 @@ import {
 } from "@/components/WebSocketSessionFeatureBlockHooks";
 import type { NonAgentTabReadiness } from "@/components/useAgentFirstNonAgentWork";
 import { usePluginTabDefs, type PluginTabDefs } from "@/components/plugin-tabs/usePluginTabDefs";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { LazyFeatureTerminalTab } from "@/components/LazyFeatureTerminalTab";
+import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import { useAgentTab } from "./WebSocketSessionAgentTab";
-const FeatureEditorTab = lazy(() => import("@/components/editor/FeatureEditorTab"));
-const FeaturePreviewTab = lazy(() =>
-  import("@/components/document-preview/FeaturePreviewTab").then((module) => ({
-    default: module.FeaturePreviewTab,
-  })),
+
+// Every side tab's body is its own chunk: a conversation's first paint shows
+// only the agent, and the tabs mount a few frames later (`tabReady`). The
+// terminal's is in `LazyFeatureTerminalTab`, which keeps an early `activate`.
+const FeatureGitTab = lazyChunk(() =>
+  import("@/components/FeatureGitTab").then((module) => module.FeatureGitTab),
 );
-const BrowserWorkspaceTab = lazy(() =>
-  import("@/components/BrowserWorkspaceTab").then((module) => ({
-    default: module.BrowserWorkspaceTab,
-  })),
+const FeatureEditorTab = lazyChunk(() =>
+  import("@/components/editor/FeatureEditorTab").then((module) => module.default),
+);
+const FeaturePreviewTab = lazyChunk(() =>
+  import("@/components/document-preview/FeaturePreviewTab").then(
+    (module) => module.FeaturePreviewTab,
+  ),
+);
+const BrowserWorkspaceTab = lazyChunk(() =>
+  import("@/components/BrowserWorkspaceTab").then((module) => module.BrowserWorkspaceTab),
 );
 
 export interface UseSessionTabsArgs {
@@ -166,7 +174,7 @@ function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
       Icon: TerminalIcon,
       shortcutId: "pane-terminal",
       content: terminalReady ? (
-        <FeatureTerminalTab ref={refs.terminal} featureId={featureId} projectId={projectId} />
+        <LazyFeatureTerminalTab ref={refs.terminal} featureId={featureId} projectId={projectId} />
       ) : (
         <DeferredTabContent label={label} />
       ),
@@ -197,12 +205,14 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
       barBadge: <GitBarBadge featureId={featureId} />,
       content: gitReady ? (
-        <FeatureGitTab
-          featureId={featureId}
-          projectId={projectId}
-          diffMode="worktree"
-          onSendComments={handleSendComments}
-        />
+        <LazyBoundary label="Git">
+          <FeatureGitTab
+            featureId={featureId}
+            projectId={projectId}
+            diffMode="worktree"
+            onSendComments={handleSendComments}
+          />
+        </LazyBoundary>
       ) : (
         <DeferredTabContent label={label} />
       ),
@@ -239,9 +249,9 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       shortcutId: "pane-browser",
       badge: <AgentBrowserActivityDot featureId={featureId} />,
       content: browserReady ? (
-        <Suspense fallback={null}>
+        <LazyBoundary label="Browser">
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />
-        </Suspense>
+        </LazyBoundary>
       ) : (
         <DeferredTabContent label={label} />
       ),
@@ -260,9 +270,9 @@ function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
       label,
       Icon: FileTextIcon,
       content: previewReady ? (
-        <Suspense fallback={null}>
+        <LazyBoundary label="Preview">
           <FeaturePreviewTab featureId={featureId} projectId={projectId} />
-        </Suspense>
+        </LazyBoundary>
       ) : (
         <DeferredTabContent label={label} />
       ),
@@ -285,14 +295,14 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
       content: !editorReady ? (
         <DeferredTabContent label={label} />
       ) : projectPathOrCwd ? (
-        <Suspense fallback={null}>
+        <LazyBoundary label="Editor">
           <FeatureEditorTab
             ref={refs.editor}
             featureId={featureId}
             projectId={projectId}
             projectPath={projectPathOrCwd}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null,
     }),
     [label, featureId, editorReady, projectId, projectPathOrCwd, refs.editor],

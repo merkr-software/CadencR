@@ -23,7 +23,12 @@ export function PhoneHomeFrame({
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-3 pr-1 pl-3">
+      {/* A window-drag band in Electron, like the conversation header (its
+          buttons stay clickable), clear of Linux's window controls. */}
+      <div
+        data-window-control-safe
+        className="titlebar-drag flex h-11 shrink-0 items-center gap-3 pr-1 pl-3"
+      >
         <SidebarCollapsedChrome
           visible={collapsed}
           onExpand={() => setCollapsed(false)}

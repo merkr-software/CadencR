@@ -131,7 +131,10 @@ describe("VisualFullscreenHost", () => {
 
     // Toggling source view inside fullscreen swaps to code and back without rebuilding the chart.
     fireEvent.click(screen.getByRole("button", { name: "View source" }));
-    expect(screen.getByRole("dialog").querySelector("pre")).toHaveTextContent('"Latency"');
+    // The highlighted source is its own chunk: it shows once that resolves.
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").querySelector("pre")).toHaveTextContent('"Latency"'),
+    );
     fireEvent.click(screen.getByRole("button", { name: "View chart" }));
     expect(screen.getByRole("dialog").querySelector("svg.marks")).toBe(chartSvg);
 

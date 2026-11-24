@@ -39,7 +39,9 @@ export function SidebarCollapsedChrome({
   const hasContent = isMobile || railHidden || HAS_MAC_WINDOW_CONTROLS;
   const shown = visible && hasContent;
   const ref = useRef<HTMLDivElement>(null);
-  useTrafficLightsAnchor(ref, shown && HAS_MAC_WINDOW_CONTROLS && !isMobile);
+  // Phone layout too (a narrow Electron window): the lights center on the
+  // 44px row the menu button sits in, which clears them on its left.
+  useTrafficLightsAnchor(ref, shown && HAS_MAC_WINDOW_CONTROLS);
 
   return (
     <div
@@ -71,7 +73,12 @@ export function SidebarCollapsedChrome({
 //
 // `ml-1` keeps the whole tap target to the right of `MobileDrawer`'s 16px
 // edge-swipe strip, which swallows touches to block the browser's back gesture.
-// 44px square: the smallest comfortable target for a finger.
+// 44px square: the smallest comfortable target for a finger. In a narrow macOS
+// Electron window the traffic lights sit on this row (x≈12 to x≈71), so the
+// button starts past them instead: 68px after the row's 12px padding puts its
+// edge at x≈80, its glyph at x≈92, the desktop header's 20px berth.
+const MOBILE_MENU_BUTTON_INSET = HAS_MAC_WINDOW_CONTROLS ? "ml-[68px]" : "ml-1";
+
 function MobileMenuButton({
   onExpand,
   badge,
@@ -87,7 +94,7 @@ function MobileMenuButton({
     <Button
       variant="ghost"
       size="icon"
-      className="relative ml-1 size-11 shrink-0"
+      className={cn("relative size-11 shrink-0", MOBILE_MENU_BUTTON_INSET)}
       title={openMenu}
       onClick={onExpand}
     >

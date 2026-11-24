@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { act, render, screen, waitFor, within } from "@/test-utils";
 import type { ConversationIndexEntry, MessageSearchHit } from "@/api/generated";
 import { registerShortcutAction } from "@/lib/command-palette/shortcut-actions";
 import { uiI18n } from "@/lib/i18n/ui";
 import frFR from "@/lib/i18n/catalogs/fr-FR.json";
-import { CommandPalette } from "./CommandPalette";
+import { CommandPalette, preloadCommandPalette } from "./CommandPalette";
 
 const mockNavigate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
@@ -104,7 +104,22 @@ const rowTitles = () =>
     .queryAllByRole("option")
     .map((option) => option.querySelector(".cp-row-title")?.textContent);
 
+// Runs first, before anything loaded the surface's chunk.
+describe("CommandPalette opened before its chunk loaded", () => {
+  it("shows it loading, then focuses the input once it is there", async () => {
+    render(<Harness />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading command palette…");
+    // The first import transforms the whole surface: allow it some time.
+    await waitFor(() => expect(input()).toHaveFocus(), { timeout: 10_000 });
+  });
+});
+
 describe("CommandPalette", () => {
+  // As a mouse-driven window does once idle: the surface’s chunk is loaded first.
+  beforeAll(async () => {
+    await preloadCommandPalette();
+  });
+
   beforeEach(() => {
     data.conversations = [
       conversation(10, "Open right now"),
@@ -119,6 +134,33 @@ describe("CommandPalette", () => {
     data.nextActions = [];
   });
   afterEach(() => vi.clearAllMocks());
+
+  it("gives the focus back to where it was once closed", async () => {
+    let openPalette = (): void => undefined;
+    function ComposerHarness() {
+      const [open, setOpen] = useState(false);
+      openPalette = () => setOpen(true);
+      return (
+        <>
+          <textarea aria-label="Composer" />
+          <CommandPalette
+            open={open}
+            onOpenChange={setOpen}
+            activeProjectId={1}
+            activeFeatureId={10}
+          />
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<ComposerHarness />);
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    composer.focus();
+    act(() => openPalette());
+    await waitFor(() => expect(input()).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(composer).toHaveFocus());
+  });
 
   it("opens on what needs the user and the conversations they were last in", () => {
     data.nextActions = [{ featureId: 2, kind: "waiting" }];

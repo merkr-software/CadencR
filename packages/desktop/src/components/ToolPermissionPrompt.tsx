@@ -101,7 +101,7 @@ function ToolPermissionPromptContent({
       />
       <p className="mb-1.5 text-sm text-foreground">{permission.description}</p>
       {rawCommand && (
-        <pre className="mb-3 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all">
+        <pre className="mb-3 max-h-40 overflow-auto phone-short:mb-2 phone-short:max-h-16 rounded-md border border-border bg-muted/40 p-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all">
           {rawCommand}
         </pre>
       )}

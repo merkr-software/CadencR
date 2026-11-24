@@ -7,12 +7,11 @@ import { Button } from "@/components/ui/button";
 import { useFeatureAttention } from "@/hooks/useFeatureAttention";
 import { useFeatureTitle } from "@/hooks/useFeatureTitle";
 import { useNow } from "@/hooks/useNow";
-import { preloadConversation } from "@/lib/conversation-preload";
 import { formatElapsed } from "@/lib/format-elapsed";
 import { serverToLocalMs } from "@/lib/server-clock";
 import { cn } from "@/lib/utils";
 import { useIsConversationOnScreen } from "@/components/app-stage/conversation-match";
-import { PRESS_SNAPSHOT_REFRESH_MS } from "@/hooks/useConversationPreloadIntent";
+import { preloadPressedConversation } from "@/hooks/useConversationPreloadIntent";
 import { useFeatureTurnStartedAt } from "@/stores/session-status-selectors";
 
 /** A card's own verb, beside its body (For me's "Answer", "Approve", …). */
@@ -40,7 +39,8 @@ export interface InboxCardProps {
  * One conversation in the phone inbox: a card at least 56px tall whose body
  * opens the conversation, its status first, then its title and the time of
  * its last activity, what it asks under them, and its project. A touch on the
- * body preloads the conversation, so the workspace opens on its transcript.
+ * body preloads the conversation and its view's chunk, so the workspace opens
+ * on its transcript.
  * Memoized and self-subscribed (title, status) by id, so one conversation's
  * push re-renders its own card only.
  */
@@ -69,7 +69,7 @@ export const InboxCard = memo(function InboxCard({
         type="button"
         aria-current={onScreen ? "page" : undefined}
         className="flex min-h-14 min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pr-1 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/50"
-        onPointerDown={() => void preloadConversation(feature.id, PRESS_SNAPSHOT_REFRESH_MS)}
+        onPointerDown={() => preloadPressedConversation(feature.id)}
         onClick={() => onOpen(feature)}
       >
         <span className="flex h-5 w-5 shrink-0 items-center justify-center">

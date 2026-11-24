@@ -90,8 +90,10 @@ encrypt files or their backups.
 ## Remote authentication
 
 Pairing links carry their short-lived code in the URL fragment (`/#code=...`),
-which is not sent in the HTTP request target. Codes remain single-use and expire
-after two minutes. Treat the entire pairing link as a credential until used or
+which is not sent in the HTTP request target. The app removes the code from the
+address before it sends it, both when a page loads with one and when a new link
+only changes the hash of a tab already on the pairing screen, so a used code never
+stays in the tab's history. Codes remain single-use and expire after two minutes. Treat the entire pairing link as a credential until used or
 expired.
 
 For LAN pairing, the host initially shows only a plain connection address. The

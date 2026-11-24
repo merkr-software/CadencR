@@ -17,7 +17,8 @@ import { mountSessionApplication } from "./lib/session-integration";
 import { translateUi } from "./lib/i18n/ui";
 import { readSystemLocale } from "./lib/i18n/renderer-language";
 import { applyRendererLanguage } from "./lib/i18n/language-document";
-import { installShellAttribute } from "./lib/form-factor";
+import { getPhoneShellSnapshot, installShellAttribute } from "./lib/form-factor";
+import { prefetchAgentSession } from "./components/lazy/agent-session-chunk";
 import "./index.css";
 
 // Phone or desktop layout on `<html data-shell>`, before the first paint, so the
@@ -37,6 +38,15 @@ installDiagnosticBrowserEvents();
 installGlobalRendererErrorHandlers();
 installDiagnosticStoreObservers();
 
+// The conversation view is its own chunk. Every layout but the phone's opens
+// on a conversation: boot waits for the chunk, so the conversation's first
+// render is the real one, and it starts now, beside pairing and the runtime
+// config. `prefetch` attaches its handler at once and never rejects: a failed
+// load is left to `LazyAgentSession`, which loads it again under its
+// `LazyBoundary` and offers Reload there. The phone layout opens on the
+// inbox, which fetches the chunk once its cards are up (`PhoneInbox`).
+const agentSessionLoaded = getPhoneShellSnapshot() ? null : prefetchAgentSession();
+
 // Preload the API endpoint before mounting so sync accessors everywhere have
 // the config by the time the first request or WebSocket fires.
 async function bootstrap(): Promise<void> {
@@ -44,6 +54,7 @@ async function bootstrap(): Promise<void> {
   // and persist it *before* the API client reads its config below.
   await ensurePaired();
   await preloadRuntimeConfig();
+  if (agentSessionLoaded) await agentSessionLoaded;
   // Register the push service worker in the web/PWA shell (no-op in Electron and
   // when push is unsupported). Fire-and-forget — it must not block first paint,
   // and actually subscribing is a separate user-gesture flow in settings.

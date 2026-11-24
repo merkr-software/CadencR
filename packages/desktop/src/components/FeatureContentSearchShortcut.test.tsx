@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@/test-utils";
-import { FeatureContentSearchShortcut } from "@/components/FeatureContentSearchShortcut";
+import {
+  FeatureContentSearchShortcut,
+  preloadContentSearch,
+} from "@/components/FeatureContentSearchShortcut";
 import { ROOT_LEAF_ID } from "@/stores/feature-layout-schema";
 import {
   getFocusedTab,
@@ -38,6 +41,11 @@ function fireContentSearchShortcut(): void {
 }
 
 describe("FeatureContentSearchShortcut", () => {
+  // As a mouse-driven window does once idle: the dialog’s chunk is loaded first.
+  beforeAll(async () => {
+    await preloadContentSearch();
+  });
+
   beforeEach((): void => {
     useFeatureLayoutStore.getState().resetToFlat(42);
     useFeatureLayoutStore.getState().setPaneActiveTab(42, ROOT_LEAF_ID, "agent");

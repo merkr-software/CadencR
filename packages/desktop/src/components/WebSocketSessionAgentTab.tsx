@@ -2,7 +2,8 @@ import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AgentIcon } from "@/components/AgentIcon";
-import { AgentSession } from "@/components/agent-session";
+import { LazyAgentSession } from "@/components/lazy/agent-session-chunk";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/McpServersRow";
 import { isNewConversation } from "@/components/agent-session/AgentSessionHistoryFailure";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
@@ -111,81 +112,83 @@ function AgentTabContent({
       mcpServers={controls.ws.mcpServers}
       error={controls.ws.mcpServersError}
     >
-      <AgentSession
-        ref={refs.agent}
-        agentType="session"
-        featureId={featureId}
-        projectId={projectId}
-        wsSessionId={sessionId}
-        sessionId={controls.ws.sessionDbId ?? undefined}
-        blocks={controls.ws.blocks}
-        rootBlocks={controls.ws.rootBlocks}
-        toolResultMap={controls.ws.toolResultMap}
-        historyPrependDisplayOffset={controls.ws.historyPrependDisplayOffset}
-        status={controls.ws.status}
-        isCompacting={controls.ws.isCompacting}
-        lifecycle={controls.ws.lifecycle}
-        turnClock={controls.ws.turnClock}
-        onSend={onSend}
-        onStop={controls.ws.interrupt}
-        disabled={hasAccessModes && controls.isAccessModePending}
-        pendingPermission={controls.ws.pendingPermission}
-        onPermissionDecision={callbacks.onPermissionDecision}
-        isSubmittingPermission={controls.ws.isSubmittingPermission}
-        pendingQuestions={
-          controls.ws.pendingQuestions.length > 0 ? controls.ws.pendingQuestions : undefined
-        }
-        pendingQuestionRequestId={controls.ws.pendingRequestId}
-        onAnswerSubmit={controls.ws.respondToQuestion}
-        permissionMode={controls.ws.permissionMode}
-        enabledOptInModes={controls.enabledOptInModes}
-        providerModes={controls.providerModes}
-        providerAccessModes={controls.providerAccessModes}
-        accessMode={hasAccessModes ? controls.accessMode : undefined}
-        accessModeDefault={hasAccessModes ? controls.accessModeDefault : undefined}
-        isAccessModePending={hasAccessModes ? controls.isAccessModePending : false}
-        onAccessModeChange={hasAccessModes ? controls.handleAccessModeChange : undefined}
-        agentCatalog={controls.agentCatalog}
-        onPermissionModeToggle={controls.handlePermissionModeToggle}
-        onPermissionModeSet={controls.handlePermissionModeSet}
-        modelSupportsAutoMode={controls.modelSupportsAutoMode}
-        steeringAcknowledged={controls.steeringAcknowledged}
-        pendingPlanApproval={controls.ws.pendingPlanApproval}
-        onPlanApprove={controls.ws.approvePlan}
-        onPlanRequestChanges={controls.ws.requestPlanChanges}
-        onGateClose={callbacks.onGateClose}
-        contextUsage={controls.ws.contextUsage}
-        selection={controls.ws.currentSelection}
-        onProviderChange={controls.ws.setProvider}
-        onModelChange={callbacks.onModelChange}
-        currentThinkingEffort={controls.ws.currentThinkingEffort}
-        onThinkingEffortChange={callbacks.onThinkingEffortChange}
-        fastMode={controls.ws.fastMode}
-        onFastModeChange={callbacks.onFastModeChange}
-        runtimeProvider={controls.ws.currentSelection?.providerId}
-        runtimeSessionId={controls.ws.runtimeSessionId || undefined}
-        sessionConfigControls={sessionConfigControls}
-        slashCommandsOverride={data.session?.slashCommands ?? NO_SLASH_COMMANDS}
-        slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
-        slashCommandsError={data.session?.slashCommandsError ?? null}
-        promptCommandPolicy={data.session?.promptCommandPolicy}
-        todos={agentVisible ? (data.session?.todos ?? null) : null}
-        disableShortcuts={!hotkeysEnabled}
-        agentTabActive={agentVisible && hotkeysEnabled}
-        claudeProfileSelection={controls.claudeProfile}
-        historyGaps={controls.ws.historyGaps}
-        onFillHistoryGap={controls.ws.fillHistoryGap}
-        onLoadPromptTurn={controls.ws.loadPromptTurn}
-        worktreeMode={controls.worktreeMode}
-        onWorktreeModeChange={controls.setWorktreeMode}
-        worktreeProjectId={projectId}
-        worktreeDefaultBranch={data.defaultBranch}
-        worktreeProjectPath={data.projectPath}
-        worktreeSelectedBranch={controls.selectedBranch}
-        onWorktreeBranchChange={controls.setSelectedBranch}
-        openingPreview={args.openingPreview}
-        className="h-full"
-      />
+      <LazyBoundary label="conversation">
+        <LazyAgentSession
+          ref={refs.agent}
+          agentType="session"
+          featureId={featureId}
+          projectId={projectId}
+          wsSessionId={sessionId}
+          sessionId={controls.ws.sessionDbId ?? undefined}
+          blocks={controls.ws.blocks}
+          rootBlocks={controls.ws.rootBlocks}
+          toolResultMap={controls.ws.toolResultMap}
+          historyPrependDisplayOffset={controls.ws.historyPrependDisplayOffset}
+          status={controls.ws.status}
+          isCompacting={controls.ws.isCompacting}
+          lifecycle={controls.ws.lifecycle}
+          turnClock={controls.ws.turnClock}
+          onSend={onSend}
+          onStop={controls.ws.interrupt}
+          disabled={hasAccessModes && controls.isAccessModePending}
+          pendingPermission={controls.ws.pendingPermission}
+          onPermissionDecision={callbacks.onPermissionDecision}
+          isSubmittingPermission={controls.ws.isSubmittingPermission}
+          pendingQuestions={
+            controls.ws.pendingQuestions.length > 0 ? controls.ws.pendingQuestions : undefined
+          }
+          pendingQuestionRequestId={controls.ws.pendingRequestId}
+          onAnswerSubmit={controls.ws.respondToQuestion}
+          permissionMode={controls.ws.permissionMode}
+          enabledOptInModes={controls.enabledOptInModes}
+          providerModes={controls.providerModes}
+          providerAccessModes={controls.providerAccessModes}
+          accessMode={hasAccessModes ? controls.accessMode : undefined}
+          accessModeDefault={hasAccessModes ? controls.accessModeDefault : undefined}
+          isAccessModePending={hasAccessModes ? controls.isAccessModePending : false}
+          onAccessModeChange={hasAccessModes ? controls.handleAccessModeChange : undefined}
+          agentCatalog={controls.agentCatalog}
+          onPermissionModeToggle={controls.handlePermissionModeToggle}
+          onPermissionModeSet={controls.handlePermissionModeSet}
+          modelSupportsAutoMode={controls.modelSupportsAutoMode}
+          steeringAcknowledged={controls.steeringAcknowledged}
+          pendingPlanApproval={controls.ws.pendingPlanApproval}
+          onPlanApprove={controls.ws.approvePlan}
+          onPlanRequestChanges={controls.ws.requestPlanChanges}
+          onGateClose={callbacks.onGateClose}
+          contextUsage={controls.ws.contextUsage}
+          selection={controls.ws.currentSelection}
+          onProviderChange={controls.ws.setProvider}
+          onModelChange={callbacks.onModelChange}
+          currentThinkingEffort={controls.ws.currentThinkingEffort}
+          onThinkingEffortChange={callbacks.onThinkingEffortChange}
+          fastMode={controls.ws.fastMode}
+          onFastModeChange={callbacks.onFastModeChange}
+          runtimeProvider={controls.ws.currentSelection?.providerId}
+          runtimeSessionId={controls.ws.runtimeSessionId || undefined}
+          sessionConfigControls={sessionConfigControls}
+          slashCommandsOverride={data.session?.slashCommands ?? NO_SLASH_COMMANDS}
+          slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
+          slashCommandsError={data.session?.slashCommandsError ?? null}
+          promptCommandPolicy={data.session?.promptCommandPolicy}
+          todos={agentVisible ? (data.session?.todos ?? null) : null}
+          disableShortcuts={!hotkeysEnabled}
+          agentTabActive={agentVisible && hotkeysEnabled}
+          claudeProfileSelection={controls.claudeProfile}
+          historyGaps={controls.ws.historyGaps}
+          onFillHistoryGap={controls.ws.fillHistoryGap}
+          onLoadPromptTurn={controls.ws.loadPromptTurn}
+          worktreeMode={controls.worktreeMode}
+          onWorktreeModeChange={controls.setWorktreeMode}
+          worktreeProjectId={projectId}
+          worktreeDefaultBranch={data.defaultBranch}
+          worktreeProjectPath={data.projectPath}
+          worktreeSelectedBranch={controls.selectedBranch}
+          onWorktreeBranchChange={controls.setSelectedBranch}
+          openingPreview={args.openingPreview}
+          className="h-full"
+        />
+      </LazyBoundary>
     </SessionInfoMcpServersProvider>
   );
 }

@@ -1,7 +1,18 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useRef, type ReactElement } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { PaletteSurface } from "@/components/command-palette/PaletteSurface";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { preloadableChunk } from "@/components/lazy/lazy-chunk";
+
+// Its own chunk (file icons, previews): under a mouse it is fetched once idle
+// after the first paint (`useKeyboardSurfacePrefetch`), under a finger when
+// it first opens.
+const paletteSurfaceChunk = preloadableChunk(() =>
+  import("@/components/command-palette/PaletteSurface").then((module) => module.PaletteSurface),
+);
+const PaletteSurface = paletteSurfaceChunk.Component;
+export const preloadCommandPalette = paletteSurfaceChunk.preload;
+export const prefetchCommandPalette = paletteSurfaceChunk.prefetch;
 
 interface CommandPaletteProps {
   open: boolean;
@@ -64,12 +75,14 @@ export function CommandPalette({
         }}
       >
         <DialogTitle className="sr-only">{t("palette.title", "Command palette")}</DialogTitle>
-        <PaletteSurface
-          activeProjectId={activeProjectId}
-          activeFeatureId={activeFeatureId}
-          finish={finish}
-          backRef={backRef}
-        />
+        <LazyBoundary label="command palette" variant="inline">
+          <PaletteSurface
+            activeProjectId={activeProjectId}
+            activeFeatureId={activeFeatureId}
+            finish={finish}
+            backRef={backRef}
+          />
+        </LazyBoundary>
       </DialogContent>
     </Dialog>
   );

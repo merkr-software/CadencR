@@ -15,7 +15,9 @@ import {
 import type { UpdateStatus } from "@/shared/update-state";
 import { useUpdateStore } from "@/stores/update-store";
 import { openFullChangelog, SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
-import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBody";
+import type { ChangelogBodyState } from "@/components/ChangelogBody";
+import { LazyChangelogBody } from "@/components/lazy/changelog-body-chunk";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
 import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
 import { cn } from "@/lib/utils";
 
@@ -113,7 +115,9 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
           </DialogDescription>
         </DialogHeader>
 
-        <ChangelogBody state={bodyState} />
+        <LazyBoundary label="changelog" variant="inline">
+          <LazyChangelogBody state={bodyState} />
+        </LazyBoundary>
         {status === "downloaded" && <UpdateInstallNotice />}
 
         <DialogFooter className="gap-2 sm:gap-2">

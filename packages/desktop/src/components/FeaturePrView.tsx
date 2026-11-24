@@ -20,12 +20,8 @@ import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { hydratePrStatuses } from "@/stores/pr-status-hydration";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
 import { PrCommentThread } from "@/components/FeaturePrComments";
-import {
-  EmptyState,
-  PrEmptyIcon,
-  PrViewError,
-  PrViewLoading,
-} from "@/components/FeaturePrViewParts";
+import { EmptyState } from "@/components/EmptyState";
+import { PrEmptyIcon, PrViewError, PrViewLoading } from "@/components/FeaturePrViewParts";
 import { ForgeImageScope } from "@/components/ForgeImage";
 import { PrStatusBand } from "@/components/PrStatusBand";
 import { PrSwitcher } from "@/components/PrSwitcher";

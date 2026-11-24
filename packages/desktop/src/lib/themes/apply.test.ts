@@ -108,4 +108,25 @@ describe("theme paint hint", () => {
 
     expect(readPersistedTheme()).toBe("dracula");
   });
+
+  it("matches the theme-color meta to the page background", () => {
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    meta.content = "#131416";
+    document.head.append(meta);
+    const root = document.documentElement;
+    try {
+      // A theme without a texture: its --background (set inline here, as the
+      // test DOM resolves no theme stylesheet).
+      root.style.setProperty("--background", "#fafafa");
+      applyThemeToDocument("aurora");
+      expect(meta.content).toBe("#fafafa");
+      // A texture's opaque base wins, as for the status-bar sampler.
+      applyThemeToDocument(FROST_DARK_THEME.id);
+      expect(meta.content).toBe(chromeOf(FROST_DARK_THEME).texture.base);
+    } finally {
+      meta.remove();
+      root.style.removeProperty("--background");
+    }
+  });
 });

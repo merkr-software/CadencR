@@ -10,13 +10,21 @@ import {
   useConversationPreloadIntent,
 } from "./useConversationPreloadIntent";
 
-const mocks = vi.hoisted(() => ({ calls: [] as string[], preload: vi.fn(), prewarm: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  calls: [] as string[],
+  preload: vi.fn(),
+  prewarm: vi.fn(),
+  prefetchAgentSession: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@/lib/conversation-preload", () => ({
   preloadConversation: (featureId: number, refreshAfterMs: number) => {
     mocks.calls.push(`preload:${featureId}`);
     return Promise.resolve(mocks.preload(featureId, refreshAfterMs));
   },
+}));
+vi.mock("@/components/lazy/agent-session-chunk", () => ({
+  prefetchAgentSession: mocks.prefetchAgentSession,
 }));
 vi.mock("@/components/workspace-pool/workspace-prewarm", () => ({
   requestWorkspacePrewarm: (target: { featureId: number }) => {
@@ -59,6 +67,7 @@ beforeEach(() => {
   mocks.calls.length = 0;
   mocks.preload.mockClear();
   mocks.prewarm.mockClear();
+  mocks.prefetchAgentSession.mockClear();
   queryClient.setQueryData(getListProjectsQueryKey(), [PROJECT]);
   useSessionStatusStore.setState({ bySession: {} });
 });
@@ -82,6 +91,8 @@ describe("a press on a conversation row", () => {
       expect.objectContaining({ featureId: 7, projectId: 3, cwd: "/repo", focusTab: undefined }),
     );
     expect(mocks.preload).toHaveBeenCalledWith(7, PRESS_SNAPSHOT_REFRESH_MS);
+    // The phone layout boots without the conversation view's chunk.
+    expect(mocks.prefetchAgentSession).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing for a secondary button, a modifier or a control inside the row", () => {

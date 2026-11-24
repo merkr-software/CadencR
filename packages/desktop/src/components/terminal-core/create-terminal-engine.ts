@@ -1,11 +1,7 @@
 import { translateUi } from "@/lib/i18n/ui";
 import { createWebGpuRenderer, Terminal, type TerminalOptions } from "celeritty";
-import { toast } from "sonner";
+import { reportTerminalCompatibility } from "./terminal-compatibility-notice";
 import type { TerminalEngine } from "./terminal-engine";
-
-// Machines without a usable WebGPU adapter (common on Linux) fall back for
-// every pane; report it once per session rather than on each new terminal.
-let compatibilityNoticeShown = false;
 
 /** Initialization is cancellable even while WASM, GPU or fallback chunks load. */
 export function createTerminalEngine(host: HTMLElement, options: TerminalOptions) {
@@ -37,25 +33,15 @@ export function createTerminalEngine(host: HTMLElement, options: TerminalOptions
       await engine.ready;
       if (!cancelled) {
         host.dataset.terminalRenderer = "xterm";
-        if (!compatibilityNoticeShown) {
-          compatibilityNoticeShown = true;
-          toast.warning(
-            translateUi(
-              "workspace.tools.createTerminalEngine.usingTheCompatibilityTerminal",
-              "Using the compatibility terminal",
-            ),
-            {
-              id: "terminal-compatibility",
-              description:
-                error instanceof Error
-                  ? error.message
-                  : translateUi(
-                      "workspace.tools.createTerminalEngine.webGpuInitializationFailed",
-                      "WebGPU initialization failed",
-                    ),
-            },
-          );
-        }
+        // Once per session: a toast on desktop, an inline notice on phone.
+        reportTerminalCompatibility(
+          error instanceof Error
+            ? error.message
+            : translateUi(
+                "workspace.tools.createTerminalEngine.webGpuInitializationFailed",
+                "WebGPU initialization failed",
+              ),
+        );
       }
     }
     if (cancelled) {

@@ -1,4 +1,4 @@
-import { useCallback, type ReactElement } from "react";
+import { useCallback, useEffect, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { HistoryIcon, InboxIcon, Loader2Icon, LoaderIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
@@ -12,6 +12,8 @@ import { InboxSection } from "@/components/phone-inbox/PhoneInboxSection";
 import { usePhoneInbox, type PhoneInboxData } from "@/components/phone-inbox/usePhoneInbox";
 import { useForMeShowMore } from "@/hooks/useForMeShowMore";
 import { useOpenGateQuickReply } from "@/hooks/useOpenGateQuickReply";
+import { prefetchAgentSession } from "@/components/lazy/agent-session-chunk";
+import { scheduleIdle } from "@/lib/schedule-idle";
 import { navigateToConversation } from "@/lib/conversation-route";
 import { isStrongAction } from "@/lib/next-actions";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,7 @@ export function PhoneInbox({ variant = "page" }: { variant?: "page" | "pane" }):
     [navigate, projectsById],
   );
   const openQuickReply = useOpenGateQuickReply();
+  usePrefetchConversationView(!inbox.projects.loading && !inbox.recent.loading);
   return (
     <PhoneHomeFrame
       title="Agents"
@@ -57,6 +60,25 @@ export function PhoneInbox({ variant = "page" }: { variant?: "page" | "pane" }):
       </div>
     </PhoneHomeFrame>
   );
+}
+
+/** How long the conversation view's prefetch waits for an idle period before it runs anyway. */
+export const CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS = 2_000;
+
+/**
+ * The phone layout boots without the conversation view's chunk (the largest
+ * one): fetched at boot, it would compete with pairing, the runtime config and
+ * the inbox's own requests for the browser's six connections. It is fetched
+ * at the first idle period once the cards are up, or as soon as a card is
+ * pressed (`preloadPressedConversation`), whichever comes first.
+ */
+function usePrefetchConversationView(cardsShown: boolean): void {
+  useEffect(() => {
+    if (!cardsShown) return undefined;
+    return scheduleIdle(() => void prefetchAgentSession(), {
+      timeout: CONVERSATION_VIEW_PREFETCH_TIMEOUT_MS,
+    });
+  }, [cardsShown]);
 }
 
 interface ContentProps {

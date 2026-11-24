@@ -15,14 +15,14 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute:
-    () =>
-    (options: {
-      component: ComponentType;
-      beforeLoad: (context: { search: typeof mocks.search }) => void;
-    }) => ({
+    () => (options: { beforeLoad: (context: { search: typeof mocks.search }) => void }) => ({
       options,
-      useSearch: () => mocks.search,
     }),
+  // The page itself is the lazy half of the route (`settings.lazy.tsx`).
+  createLazyFileRoute: () => (options: { component: ComponentType }) => ({
+    options,
+    useSearch: () => mocks.search,
+  }),
   redirect: (options: unknown) => ({ redirect: options }),
   useNavigate: () => mocks.navigate,
   useRouter: () => ({
@@ -100,7 +100,8 @@ vi.mock("@/components/settings/SettingsNavSidebar", () => ({
   ),
 }));
 import { Route } from "./settings";
-const SettingsPage = Route.options.component as ComponentType;
+import { Route as LazyRoute } from "./settings.lazy";
+const SettingsPage = LazyRoute.options.component as ComponentType;
 const beforeLoad = Route.options.beforeLoad as unknown as (context: {
   search: { tab?: string; section?: string };
 }) => void;
