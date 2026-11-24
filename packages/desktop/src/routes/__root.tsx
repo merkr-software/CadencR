@@ -51,6 +51,7 @@ const RootHosts = memo(function RootHosts() {
       <CliRequestBridge />
       <CustomActionEditorHost />
       <RunVariablesDialogHost />
+      <ThemeSync />
     </>
   );
 });
