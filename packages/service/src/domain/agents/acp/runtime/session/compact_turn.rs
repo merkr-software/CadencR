@@ -80,28 +80,37 @@ impl CompactTurn {
             return Ok(());
         };
         let (response, resume_updates) = reply.after_prior_events().await?;
-        if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
-            finalize_turn(
-                &self.local_tx,
-                &self.indexer,
-                self.session_id_lock.read().await.clone(),
-                self.context_window,
-                self.hooks.prompt_response_usage(&response),
-                reason,
-                &response,
-            )
-            .await;
-        }
+        let stop_reason = response.get("stopReason").and_then(Value::as_str);
+        let cancelled = stop_reason == Some("cancelled");
         let provider_boundary_emitted = self
             .indexer
             .lock()
             .expect("EventIndexer poisoned")
             .take_compact_boundary_emitted();
-        if !provider_boundary_emitted {
+        let current_session_id = self.session_id_lock.read().await.clone();
+        // Emit the compact boundary BEFORE finalizing the turn with Result:
+        // StreamReaderTask drains queued prompts on Result, so the divider must
+        // land first and a cancelled compaction must not emit a fake boundary.
+        if !provider_boundary_emitted && !cancelled {
             emit_manual_compact_boundary(
                 &self.local_tx,
-                self.session_id_lock.read().await.clone(),
+                current_session_id.clone(),
                 self.context_window,
+            )
+            .await;
+        }
+        // Clear the compaction flag before publishing Result so post-turn queue
+        // draining sees `requires_prompt_queue() == false` immediately.
+        self.running.store(false, Ordering::SeqCst);
+        if let Some(reason) = stop_reason {
+            finalize_turn(
+                &self.local_tx,
+                &self.indexer,
+                current_session_id,
+                self.context_window,
+                self.hooks.prompt_response_usage(&response),
+                reason,
+                &response,
             )
             .await;
         }
@@ -161,4 +170,102 @@ async fn emit_manual_compact_boundary(
         },
     );
     tx.send(Ok(event)).await.ignore_closed();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::acp::runtime::standard_hooks::StandardAcpHooks;
+    use crate::domain::agents::acp::runtime::test_support::{
+        build_in_memory_client, read_request, send_response, spawn_event_barrier_acker,
+    };
+    use serde_json::json;
+
+    async fn run_compact_with_stop_reason(
+        stop_reason: &str,
+    ) -> (Vec<RuntimeEvent>, Arc<AtomicBool>, bool) {
+        let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
+        // Capacity 1 forces CompactTurn to still be live inside `finalize_turn`
+        // when we observe `Result`, proving `self.running` was cleared BEFORE
+        // Result (not merely when CompactRunningGuard dropped on task exit).
+        let (tx, mut rx) = mpsc::channel(1);
+        let running = Arc::new(AtomicBool::new(true));
+        let turn = CompactTurn {
+            client: client.clone(),
+            session_id_lock: Arc::new(RwLock::new(Some("s-compact".into()))),
+            current_model: Arc::new(RwLock::new(None)),
+            current_effort: Arc::new(RwLock::new(None)),
+            supports_set_config_option: Arc::new(AtomicBool::new(false)),
+            local_tx: tx,
+            indexer: Arc::new(StdMutex::new(EventIndexer::default())),
+            context_window: Some(200_000),
+            prompt_turn_lock: PromptTurnLock::default(),
+            prompt_cancel: PromptCancel::new(),
+            closing: Arc::new(AtomicBool::new(false)),
+            running: Arc::clone(&running),
+            replay_suppression: Arc::new(AtomicBool::new(false)),
+            initial_session_id: "s-compact".into(),
+            compact_prompt: Some("/compact".into()),
+            hooks: Arc::new(StandardAcpHooks),
+        };
+        let handle = tokio::spawn(turn.run());
+        // Drain the initial ManualCompact turn_started event so the turn can proceed.
+        let started = rx.recv().await.unwrap().unwrap();
+        let request = read_request(&mut stdin).await;
+        assert_eq!(request["method"], "session/prompt");
+        send_response(
+            &mut stdout,
+            request["id"].clone(),
+            json!({ "stopReason": stop_reason }),
+        )
+        .await;
+
+        let mut events = vec![started];
+        let mut running_at_result = true;
+        while let Some(item) = rx.recv().await {
+            let event = item.unwrap();
+            if event.is_result() {
+                running_at_result = running.load(Ordering::SeqCst);
+            }
+            events.push(event);
+        }
+        handle.await.unwrap().unwrap();
+        (events, running, running_at_result)
+    }
+
+    #[tokio::test]
+    async fn compact_turn_emits_boundary_and_clears_running_before_result() {
+        let (events, running, running_at_result) = run_compact_with_stop_reason("end_turn").await;
+        let boundary_idx = events
+            .iter()
+            .position(|event| event.compact_metadata().is_some())
+            .expect("manual compact must emit a compact boundary");
+        let result_idx = events
+            .iter()
+            .position(RuntimeEvent::is_result)
+            .expect("manual compact must emit a Result");
+        assert!(
+            boundary_idx < result_idx,
+            "CompactBoundary ({boundary_idx}) must precede Result ({result_idx})"
+        );
+        assert!(
+            !running_at_result,
+            "manual_compact_running must be cleared before Result so post-turn queue draining sees idle"
+        );
+        assert!(!running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn cancelled_compact_turn_does_not_emit_fake_boundary() {
+        let (events, running, _) = run_compact_with_stop_reason("cancelled").await;
+        assert!(
+            events
+                .iter()
+                .all(|event| event.compact_metadata().is_none()),
+            "cancelled compaction must not fabricate a CompactBoundary"
+        );
+        assert!(events.iter().any(RuntimeEvent::is_result));
+        assert!(!running.load(Ordering::SeqCst));
+    }
 }

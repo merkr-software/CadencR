@@ -49,6 +49,7 @@ pub struct ActiveTurnRegistry {
     turns: Mutex<HashMap<i64, ActiveTurn>>,
     generation_changes: KeyedLocks<i64>,
     followup_delivery: KeyedLocks<i64>,
+    prompt_queue_drain: KeyedLocks<i64>,
     followups: FollowupStops,
 }
 
@@ -60,6 +61,16 @@ impl ActiveTurnRegistry {
     /// Which follow-ups a user Stop cancels (see [`FollowupStops`]).
     pub(crate) fn followups(&self) -> &FollowupStops {
         &self.followups
+    }
+
+    /// Serialize queued-prompt drain passes for the same session so two
+    /// concurrent drains cannot both observe idle and claim consecutive rows.
+    pub(crate) async fn lock_prompt_queue_drain(&self, db_session_id: i64) -> OwnedMutexGuard<()> {
+        self.prompt_queue_drain
+            .lock_for(&db_session_id)
+            .await
+            .lock_owned()
+            .await
     }
 
     /// Serialize follow-up prompts for the same session in FIFO order without

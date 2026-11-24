@@ -211,6 +211,28 @@ pub(in crate::domain::ws_session) async fn broadcast_session_error(
         .await;
 }
 
+/// Show a session warning to every viewer of the feature when no live request
+/// socket is waiting on the outcome.
+pub(in crate::domain::ws_session) async fn broadcast_session_warning(
+    feature_senders: &WsFeatureSenderRegistry,
+    feature_id: i64,
+    code: &str,
+    message: &str,
+) {
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Warning(
+        crate::domain::ws_session::protocol::SessionWarningPayload {
+            code: code.into(),
+            message: message.into(),
+        },
+    ))
+    .expect("session warning should serialize");
+    let frame = Message::Text(String::from(envelope).into());
+    feature_senders.broadcast_all(feature_id, &frame).await;
+}
+
+/// Code surfaced when a Stop had to terminate an unresponsive agent process.
+pub(in crate::domain::ws_session) const AGENT_STOP_ESCALATED: &str = "AGENT_STOP_ESCALATED";
+
 /// The code of a session-state write that failed while the change itself
 /// applies; clients show it as a notice, not as a failed turn.
 pub(in crate::domain::ws_session) const SESSION_STATE_NOT_SAVED: &str = "SESSION_STATE_NOT_SAVED";

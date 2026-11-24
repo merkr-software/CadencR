@@ -310,7 +310,7 @@ async fn negotiated_steering_submits_before_the_earlier_response_and_finishes_on
         tokio::spawn(async move {
             let mut order = Some(delivery_order.lock_owned().await);
             session
-                .stream_input_with_delivery_order(json!(id), Some(id.into()), &mut order)
+                .stream_input_with_delivery_order(json!(id), Some(id.into()), &mut order, &mut None)
                 .await
         })
     };

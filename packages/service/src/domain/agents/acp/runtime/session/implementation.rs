@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use agent_client_protocol::schema::v1::CancelNotification;
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::domain::agents::acp::AcpClient;
@@ -186,12 +186,20 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             .await
     }
 
+    fn requires_prompt_queue(&self) -> bool {
+        self.manual_compact_running.load(Ordering::SeqCst)
+    }
+
+    fn signals_prompt_submission(&self) -> bool {
+        true
+    }
+
     async fn stream_input_with_client_message_id(
         &self,
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input(content, client_message_id, &mut None)
+        self.prompt_input(content, client_message_id, &mut None, &mut None)
             .await
     }
 
@@ -200,8 +208,10 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
         order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+        submitted: &mut Option<oneshot::Sender<()>>,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input(content, client_message_id, order).await
+        self.prompt_input(content, client_message_id, order, submitted)
+            .await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {

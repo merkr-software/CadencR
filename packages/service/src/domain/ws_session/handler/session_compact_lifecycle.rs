@@ -148,10 +148,18 @@ pub(super) async fn finish_compact_start(
         }
         // Failure has no turn/completed event. Success can finish its turn
         // before the RPC replies, while the reservation still blocks delivery.
-        if let Err(error) =
-            crate::domain::prompt_queue::delivery::drain_next_if_idle(state, session_id).await
-        {
-            tracing::warn!(session_id, %error, "queued prompt delivery after compaction startup");
+        // Skip cloning/spawning when the session is already busy; otherwise
+        // spawn off the WS ordered lane so compact.started is never delayed.
+        if !state.session_status_tx.is_busy(session_id) {
+            let state = state.clone();
+            tokio::spawn(async move {
+                if let Err(error) =
+                    crate::domain::prompt_queue::delivery::drain_next_if_idle(&state, session_id)
+                        .await
+                {
+                    tracing::warn!(session_id, %error, "queued prompt delivery after compaction startup");
+                }
+            });
         }
     }
 }

@@ -3,10 +3,11 @@
 use std::sync::atomic::Ordering;
 
 use serde_json::Value;
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::{oneshot, OwnedMutexGuard};
 
 use super::AcpRuntimeSession;
 use crate::domain::agents::adapter::RuntimeError;
+use crate::shared::discard::SendIgnoreClosed;
 
 use super::super::prompt_settlement::CompletePrompt;
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
@@ -18,6 +19,7 @@ impl AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
         delivery_order: &mut Option<OwnedMutexGuard<()>>,
+        submitted: &mut Option<oneshot::Sender<()>>,
     ) -> Result<(), RuntimeError> {
         let cancels = self.prompt_cancel.cancels();
         let session_id = self.require_session_id().await?;
@@ -74,6 +76,9 @@ impl AcpRuntimeSession {
                 drop(admission);
                 if steering {
                     drop(delivery_order.take());
+                }
+                if let Some(tx) = submitted.take() {
+                    tx.send_ignore_closed(());
                 }
             },
         )

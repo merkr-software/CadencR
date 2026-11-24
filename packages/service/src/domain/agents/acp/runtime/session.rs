@@ -596,6 +596,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn requires_prompt_queue_tracks_live_compaction_lifecycle() {
+        struct CompactHooks;
+        #[async_trait::async_trait]
+        impl AcpProviderHooks for CompactHooks {
+            fn normalize_tool_name(&self, raw: &str) -> String {
+                raw.to_string()
+            }
+            fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
+                input
+            }
+            fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
+                None
+            }
+            fn compact_prompt(&self) -> Option<String> {
+                Some("/compact".to_string())
+            }
+        }
+
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
+        let mut session = assembled_session(&client, "s-compact-flag", false);
+        session.hooks = Arc::new(CompactHooks);
+        let mut runtime_rx = session.take_message_rx();
+        assert!(!session.requires_prompt_queue());
+
+        session.compact().await.unwrap();
+        let req = read_one_request(&mut agent_stdin).await;
+        assert_eq!(req["method"], "session/prompt");
+        assert!(
+            session.requires_prompt_queue(),
+            "active compaction must require prompt queueing"
+        );
+
+        write_frame(
+            &mut agent_stdout,
+            json!({
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": { "stopReason": "end_turn" }
+            }),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(item) = runtime_rx.recv().await {
+                if item.unwrap().is_result() {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("compaction turn must emit Result");
+        assert!(
+            !session.requires_prompt_queue(),
+            "compaction must clear requires_prompt_queue before Result"
+        );
+    }
+
+    #[tokio::test]
     async fn close_uses_session_close_when_advertised() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut session = assembled_session(&client, "s-close", true);
