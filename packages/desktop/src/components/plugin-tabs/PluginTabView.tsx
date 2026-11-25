@@ -20,7 +20,7 @@ import {
 import { PluginTabActivityDialog } from "./PluginTabActivityDialog";
 import { PluginTabExternalOpenDialog } from "./PluginTabExternalOpenDialog";
 import { PluginTabOverlay, type PluginTabOverlayState } from "./PluginTabOverlay";
-import { backendPlatforms, backendUnavailableHere } from "./plugin-tab-access";
+import { backendUnavailableHere } from "./plugin-tab-access";
 import { usePluginTabGuest, type GuestPhase } from "./usePluginTabGuest";
 import { useActiveTabShortcuts } from "./useTabShortcuts";
 import { usePluginTabNavigation } from "./usePluginTabNavigation";
@@ -49,7 +49,7 @@ export function staticOverlayState(
     return { kind: "blocked", reason: summary.blocked_reason ?? null };
   if (summary.status === "invalid") return { kind: "invalid", errors: summary.errors };
   if (backendUnavailableHere(summary)) {
-    return { kind: "unavailable", platforms: backendPlatforms(summary.backend) };
+    return { kind: "unavailable", platforms: Object.keys(summary.backend.binary) };
   }
   if (!summary.enablement.effective) return { kind: "disabled" };
   if (!summary.entry_present) {
@@ -131,9 +131,7 @@ export const PluginTabView = memo(function PluginTabView({
             name={summary.name}
             onReload={blocked ? refreshPluginTabsOrToast : guest.reload}
             onManage={navigation.openSettings}
-            onOpenProject={() =>
-              projectOpener.open(summary.id, "Could not open the custom tab's project")
-            }
+            onOpenProject={() => projectOpener.open(summary.id)}
             openingProject={projectOpener.openingId === summary.id}
           />
         </div>

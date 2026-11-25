@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactElement } from "react";
 import {
   ChevronDownIcon,
@@ -27,14 +28,6 @@ import { useCustomActionsLauncher } from "./useCustomActionsLauncher";
 /** Same chrome as the Git split button beside it. */
 const LAUNCHER_BUTTON_CLASS =
   "border-border/80 bg-muted/20 text-xs text-foreground hover:bg-muted/35 disabled:opacity-100 disabled:bg-muted/20 disabled:text-muted-foreground";
-
-const AGGREGATE_LABEL: Record<CustomActionRunState, string | null> = {
-  running: "an action is running",
-  failed: "an action failed",
-  stopped: null,
-  succeeded: null,
-  idle: null,
-};
 
 interface CustomActionsLauncherProps {
   featureId: number;
@@ -218,7 +211,12 @@ function PrimaryButton({
       : action.run_in_terminal
         ? TerminalIcon
         : PlayIcon;
-  const verb = running ? "Stop" : action.run_in_terminal ? "Run in terminal:" : "Run";
+  const { t } = useUiTranslation();
+  const label = running
+    ? t("customActions.stopNamed", "Stop “{{name}}”", { name: action.name })
+    : action.run_in_terminal
+      ? t("customActions.runInTerminalNamed", "Run in terminal: “{{name}}”", { name: action.name })
+      : t("customActions.runNamed", "Run “{{name}}”", { name: action.name });
   return (
     <Button
       variant="outline"
@@ -226,8 +224,8 @@ function PrimaryButton({
       className={cn(LAUNCHER_BUTTON_CLASS, "max-w-48 rounded-r-none border-r-0")}
       disabled={starting}
       onClick={onTrigger}
-      title={`${verb} “${action.name}”`}
-      aria-label={`${verb} “${action.name}”`}
+      title={label}
+      aria-label={label}
     >
       <Icon
         aria-hidden
@@ -243,16 +241,27 @@ function PrimaryButton({
 }
 
 function MenuTrigger({ aggregate }: { aggregate: CustomActionRunState }): ReactElement {
+  const { t } = useUiTranslation();
   const keys = useShortcutKeys("custom-actions");
-  const status = AGGREGATE_LABEL[aggregate];
+  const status =
+    aggregate === "running"
+      ? t("customActions.launcher.running", "Custom actions, an action is running")
+      : aggregate === "failed"
+        ? t("customActions.launcher.failed", "Custom actions, an action failed")
+        : null;
   return (
-    <ShortcutTooltip label="Custom actions" keys={keys}>
+    <ShortcutTooltip
+      label={t("customActions.customActionsLauncher.customActions", "Custom actions")}
+      keys={keys}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
           size="xs"
           className={cn(LAUNCHER_BUTTON_CLASS, "relative rounded-l-none px-1.5")}
-          aria-label={status ? `Custom actions, ${status}` : "Custom actions"}
+          aria-label={
+            status ?? t("customActions.customActionsLauncher.customActions", "Custom actions")
+          }
         >
           <ChevronDownIcon className="size-3.5" />
           {status && (
@@ -273,13 +282,14 @@ function MenuTrigger({ aggregate }: { aggregate: CustomActionRunState }): ReactE
 }
 
 function NewActionButton({ projectId }: { projectId: number }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className="text-muted-foreground"
-      title="New custom action"
-      aria-label="New custom action"
+      title={t("customActions.customActionsLauncher.newCustomAction", "New custom action")}
+      aria-label={t("customActions.customActionsLauncher.newCustomAction", "New custom action")}
       onClick={() =>
         useCustomActionsUiStore.getState().openEditor({ projectId, defaultScope: "project" })
       }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, Loader2, PackageOpen } from "lucide-react";
@@ -61,6 +62,7 @@ function CarrierLine({
   blocked?: string | null;
   action?: AgentExtensionAction;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="flex min-h-7 items-center gap-2 text-[11.5px] text-muted-foreground">
       <ProviderIcon providerId={providerId} alt="" className="size-3.5 shrink-0" />
@@ -75,13 +77,17 @@ function CarrierLine({
           action={action}
           size="xs"
           className="ml-auto shrink-0"
-          idle={`Update to ${update}`}
-          busyLabel="Updating…"
+          idle={t("marketplace.agent.updateToVersion", "Update to {{version}}", {
+            version: update,
+          })}
+          busyLabel={t("marketplace.agent.updating", "Updating…")}
         />
       )}
       {update && blocked && (
         <span title={blocked} className="ml-auto shrink-0">
-          Update in {label}&apos;s config
+          {t("marketplace.agent.agentLibrary.updateInConfig", "Update in {{cli}}'s config", {
+            cli: label,
+          })}
         </span>
       )}
     </div>
@@ -133,6 +139,7 @@ const LibraryRow = memo(function LibraryRow({
   clis: ExtensionCliSummary[];
   updatesOnly: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const id =
     row.kind === "mcp"
       ? mcpRouteId(
@@ -171,7 +178,9 @@ const LibraryRow = memo(function LibraryRow({
                     identity={installation.server.name}
                     version={
                       installation.package?.version ??
-                      (installation.package ? "newest each run" : null)
+                      (installation.package
+                        ? t("marketplace.agent.agentLibrary.newestOnEveryRun", "newest each run")
+                        : null)
                     }
                     update={installation.update}
                     blocked={installation.update_blocked}
@@ -185,7 +194,11 @@ const LibraryRow = memo(function LibraryRow({
                     key={`${skill.provider_id}:${skill.id}`}
                     providerId={skill.provider_id}
                     label={cliLabel(clis, skill.provider_id)}
-                    identity={skill.source === "local" ? "local folder" : skill.id}
+                    identity={
+                      skill.source === "local"
+                        ? t("marketplace.agent.agentLibrary.localFolder", "local folder")
+                        : skill.id
+                    }
                     version={skill.version}
                     update={skill.update}
                     action={skillUpdateAction(skill, clis)}
@@ -219,6 +232,7 @@ export function AgentLibrary({
   query: string;
   scrollParent: HTMLElement | null;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const clis = useExtensionClis();
   const wantsMcp = kinds.includes("mcp");
   const wantsSkills = kinds.includes("skill");
@@ -253,7 +267,10 @@ export function AgentLibrary({
         <AgentLoadError
           key={index}
           error={failure.error}
-          what="what the agent CLIs have installed"
+          title={t(
+            "marketplace.agent.agentLibrary.loadInstalledError",
+            "Could not load what the agent CLIs have installed",
+          )}
           retrying={failure.isFetching}
           onRetry={() => void failure.refetch()}
         />
@@ -261,7 +278,10 @@ export function AgentLibrary({
       {loading ? (
         <Skeleton
           role="status"
-          aria-label="Asking the agent CLIs"
+          aria-label={t(
+            "marketplace.agent.agentLibrary.askingTheAgentClIs",
+            "Asking the agent CLIs",
+          )}
           className="h-32 w-full rounded-xl"
         />
       ) : rows.length === 0 ? (
@@ -294,21 +314,40 @@ function LibraryEmpty({
   view: "installed" | "updates";
   searching: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (searching)
     return (
-      <MarketplaceEmpty icon={PackageOpen} title="Nothing in your agent CLIs matches your search" />
+      <MarketplaceEmpty
+        icon={PackageOpen}
+        title={t(
+          "marketplace.agent.agentLibrary.noInstalledSearchMatches",
+          "Nothing in your agent CLIs matches your search",
+        )}
+      />
     );
   return view === "updates" ? (
     <MarketplaceEmpty
       icon={PackageOpen}
-      title="No skill or MCP server update found"
-      detail="MCP servers are checked against the MCP Registry when they pin a version; skill packs against the marketplaces each CLI keeps. Servers that run the newest package on every launch never need one."
+      title={t(
+        "marketplace.agent.agentLibrary.noExtensionUpdates",
+        "No skill or MCP server update found",
+      )}
+      detail={t(
+        "marketplace.agent.agentLibrary.noUpdatesHint",
+        "MCP servers are checked against the MCP Registry when they pin a version; skill packs against the marketplaces each CLI keeps. Servers that run the newest package on every launch never need one.",
+      )}
     />
   ) : (
     <MarketplaceEmpty
       icon={PackageOpen}
-      title="No skill or MCP server in your agent CLIs yet"
-      detail="Install one from Discover; it is added with the CLI's own command, so it works in the terminal too."
+      title={t(
+        "marketplace.agent.agentLibrary.noSkillOrMcpServerInYour",
+        "No skill or MCP server in your agent CLIs yet",
+      )}
+      detail={t(
+        "marketplace.agent.agentLibrary.emptyHint",
+        "Install one from Discover; it is added with the CLI's own command, so it works in the terminal too.",
+      )}
     />
   );
 }
@@ -321,13 +360,18 @@ function UpdateAllBar({
   rows: Row[];
   clis: ExtensionCliSummary[];
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { runAll, runningAll: running, pending } = useAgentExtensionActions();
   const actions = useMemo(() => rows.flatMap((row) => rowUpdates(row, clis)), [rows, clis]);
   if (actions.length < 2) return null;
   return (
     <div className="flex flex-wrap items-center gap-3">
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-        {actions.length} updates available in your agent CLIs. Each one runs the CLI's own command.
+        {t(
+          "marketplace.agent.agentLibrary.availableUpdates",
+          "{{count, number}} updates available in your agent CLIs. Each one runs the CLI's own command.",
+          { count: actions.length },
+        )}
       </p>
       <Button
         size="sm"
@@ -336,7 +380,11 @@ function UpdateAllBar({
         onClick={() => void runAll(actions)}
       >
         {running && <Loader2 aria-hidden="true" className="animate-spin" />}
-        {running ? "Updating…" : `Update all ${actions.length}`}
+        {running
+          ? t("marketplace.agent.updating", "Updating…")
+          : t("marketplace.agent.agentLibrary.updateAll", "Update all {{count, number}}", {
+              count: actions.length,
+            })}
       </Button>
     </div>
   );

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Globe, ShieldCheck } from "lucide-react";
 import type { PluginTabSummary } from "@/api/generated";
 import { describeScope } from "./custom-tab-model";
@@ -18,17 +19,24 @@ export function CustomTabPermissions({
   tab: Pick<PluginTabSummary, "permissions" | "network" | "commands" | "backend">;
   added?: AddedAccess;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const origins = tab.network.allowed_origins;
   return (
     <div className="space-y-3">
       {tab.permissions.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No data access. The tab only sees its own settings, storage and the current theme.
+          {t(
+            "customTabs.customTabPermissions.noDataAccessTheTabOnlySees",
+            "No data access. The tab only sees its own settings, storage and the current theme.",
+          )}
         </p>
       ) : (
-        <ul className="space-y-2" aria-label="Permissions">
+        <ul
+          className="space-y-2"
+          aria-label={t("customTabs.customTabPermissions.permissions", "Permissions")}
+        >
           {tab.permissions.map((scope) => {
-            const { title, description } = describeScope(scope);
+            const { title, description } = describeScope(scope, t);
             return (
               <li key={scope} className="flex items-start gap-2.5">
                 <ShieldCheck
@@ -69,11 +77,12 @@ function NetworkAccess({
   reasoning: string | null;
   added?: ReadonlySet<string>;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (origins.length === 0) {
     return (
       <p className="flex items-center gap-2.5 text-xs text-muted-foreground">
         <Globe className="size-3.5 shrink-0" aria-hidden />
-        No network access.
+        {t("customTabs.customTabPermissions.noNetworkAccess", "No network access.")}
       </p>
     );
   }
@@ -81,8 +90,13 @@ function NetworkAccess({
     <div className="flex items-start gap-2.5">
       <Globe className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0 space-y-1">
-        <p className="text-xs font-medium leading-tight">Network, through Cadencr</p>
-        <ul className="flex flex-wrap gap-1" aria-label="Allowed sites">
+        <p className="text-xs font-medium leading-tight">
+          {t("customTabs.customTabPermissions.networkThroughCadencr", "Network, through Cadencr")}
+        </p>
+        <ul
+          className="flex flex-wrap gap-1"
+          aria-label={t("customTabs.customTabPermissions.allowedSites", "Allowed sites")}
+        >
           {origins.map((origin) => (
             <li
               key={origin}
@@ -95,7 +109,9 @@ function NetworkAccess({
         </ul>
         {reasoning ? (
           <p className="text-xs leading-snug text-muted-foreground">
-            <span className="text-foreground/80">Why: </span>
+            <span className="text-foreground/80">
+              {t("customTabs.customTabPermissions.why", "Why:")}{" "}
+            </span>
             {reasoning}
           </p>
         ) : null}

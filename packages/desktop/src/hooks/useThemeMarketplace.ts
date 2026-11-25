@@ -20,7 +20,7 @@ import {
 import { useManagedThemes } from "./useManagedThemes";
 import { useStableMutation, useStableQuery } from "./stable-query";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
-import type { MarketplaceNotice } from "@/lib/marketplace";
+import { confirmedAction, type MarketplaceNotice } from "@/lib/marketplace";
 
 type ThemeAction =
   | { kind: "install" | "update"; id: string; version: string }
@@ -63,14 +63,27 @@ export function useThemeMarketplace() {
       onSuccess: async (warning, action) => {
         setNotice({
           tone: "done",
-          text: `${action.id}: ${action.kind} confirmed by Cadencr.${warning ? ` Warning: ${warning}` : ""}`,
+          text: (t) => {
+            const confirmed = confirmedAction(t, action);
+            return warning
+              ? t("marketplace.activity.themeWarning", "{{confirmed}} Warning: {{warning}}", {
+                  confirmed,
+                  warning,
+                })
+              : confirmed;
+          },
         });
         await reconcileThemeAction(client, action);
       },
       onError: async (_, action) => {
         setNotice({
           tone: "error",
-          text: `${action.id}: the change was not confirmed. Reloading affected state before retrying.`,
+          text: (t) =>
+            t(
+              "marketplace.activity.themeUnconfirmed",
+              "{{id}}: the change was not confirmed. Reloading affected state before retrying.",
+              { id: action.id },
+            ),
         });
         await reconcileThemeAction(client, action);
       },

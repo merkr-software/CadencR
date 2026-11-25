@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import { Loader2Icon, PlayIcon, SquareIcon, TerminalIcon, TextCursorInputIcon } from "lucide-react";
 
@@ -51,6 +52,7 @@ function TerminalActionNotice({
   onLeave,
 }: CustomActionRunHistoryProps): ReactElement {
   const starting = useIsActionStarting(action, featureId);
+  const { t } = useUiTranslation();
   const target = { action, featureId, projectId };
   return (
     <div
@@ -61,8 +63,11 @@ function TerminalActionNotice({
     >
       <TerminalIcon className="size-6 text-muted-foreground" aria-hidden />
       <p className="max-w-sm text-sm text-muted-foreground">
-        {action.name} runs in this conversation&apos;s terminal, where you can watch, type into and
-        stop it.
+        {t(
+          "customActions.history.terminalHelp",
+          "{{name}} runs in this conversation's terminal, where you can watch, type into and stop it.",
+          { name: action.name },
+        )}
       </p>
       <div className="flex flex-wrap justify-center gap-2">
         <Button
@@ -74,7 +79,9 @@ function TerminalActionNotice({
           }}
         >
           {starting ? <Loader2Icon className="animate-spin" /> : <TerminalIcon />}
-          {starting ? "Starting…" : "Run in terminal"}
+          {starting
+            ? t("customActions.starting", "Starting…")
+            : t("customActions.runInTerminal", "Run in terminal")}
         </Button>
         {action.variable_names.length > 0 && (
           <RunWithButton
@@ -90,6 +97,7 @@ function TerminalActionNotice({
 }
 
 function RunHistoryView(props: CustomActionRunHistoryProps): ReactElement {
+  const { t } = useUiTranslation();
   const { action, featureId, outputClassName } = props;
   // Every run event invalidates this query, so a reopened page only refetches
   // when something changed.
@@ -110,14 +118,17 @@ function RunHistoryView(props: CustomActionRunHistoryProps): ReactElement {
           outputClassName,
         )}
       >
-        <Loader2Icon className="size-4 animate-spin" aria-hidden /> Loading runs…
+        <Loader2Icon className="size-4 animate-spin" aria-hidden />{" "}
+        {t("customActions.customActionRunHistory.loadingRuns", "Loading runs…")}
       </p>
     );
   }
   if (runsQuery.isError) {
     return (
       <p role="alert" className="text-sm text-[var(--acc-red)]">
-        Could not load runs: {apiErrorMessage(runsQuery.error, "unknown error")}
+        {t("customActions.history.loadFailed", "Could not load runs: {{error}}", {
+          error: apiErrorMessage(runsQuery.error, t("common.unknownError", "Unknown error")),
+        })}
       </p>
     );
   }
@@ -138,7 +149,10 @@ function RunHistoryView(props: CustomActionRunHistoryProps): ReactElement {
             outputClassName,
           )}
         >
-          No runs in this conversation yet.
+          {t(
+            "customActions.customActionRunHistory.noRunsInThisConversationYet",
+            "No runs in this conversation yet.",
+          )}
         </p>
       )}
     </>
@@ -159,6 +173,7 @@ function RunControls({
   shown,
   onPick,
 }: RunControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const starting = useIsActionStarting(action, featureId);
   const [stoppingRunId, setStoppingRunId] = useState<number | null>(null);
   const latest = runs[0] ?? null;
@@ -181,7 +196,9 @@ function RunControls({
           ) : (
             <SquareIcon className="fill-current" />
           )}
-          {stoppingRunId === latest.id ? "Stopping…" : "Stop"}
+          {stoppingRunId === latest.id
+            ? t("customActions.stopping", "Stopping…")
+            : t("customActions.stop", "Stop")}
         </Button>
       ) : (
         <Button
@@ -190,7 +207,11 @@ function RunControls({
           onClick={() => void launchCustomAction(target, { showOutput: true })}
         >
           {starting ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-          {starting ? "Starting…" : latest ? "Run again" : "Run"}
+          {starting
+            ? t("customActions.starting", "Starting…")
+            : latest
+              ? t("customActions.runAgain", "Run again")
+              : t("customActions.run", "Run")}
         </Button>
       )}
       {action.variable_names.length > 0 && (
@@ -212,14 +233,19 @@ function RunControls({
       )}
       {runs.length > 1 && shown && (
         <Select value={String(shown.id)} onValueChange={(value) => onPick(Number(value))}>
-          <SelectTrigger size="sm" className="ml-auto h-7 text-xs" aria-label="Run to show">
+          <SelectTrigger
+            size="sm"
+            className="ml-auto h-7 text-xs"
+            aria-label={t("customActions.customActionRunHistory.runToShow", "Run to show")}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="end">
             {runs.map((run, index) => (
               <SelectItem key={run.id} value={String(run.id)} className="text-xs">
-                {index === 0 ? "Latest · " : ""}
-                {describeRun(run)}
+                {index === 0
+                  ? t("customActions.history.latest", "Latest · {{run}}", { run: describeRun(run) })
+                  : describeRun(run)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -236,16 +262,20 @@ function RunWithButton({
   disabled?: boolean;
   onClick: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       variant="outline"
       size="sm"
       disabled={disabled}
-      title="Change the values, then run"
+      title={t(
+        "customActions.customActionRunHistory.changeTheValuesThenRun",
+        "Change the values, then run",
+      )}
       onClick={onClick}
     >
       <TextCursorInputIcon />
-      Run with…
+      {t("customActions.customActionRunHistory.runWith", "Run with…")}
     </Button>
   );
 }

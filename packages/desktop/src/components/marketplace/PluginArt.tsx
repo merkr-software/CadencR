@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Code2, Loader2, PanelTop, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useThemeArt } from "@/hooks/useThemePreview";
@@ -44,6 +45,7 @@ function PluginPackageArt({
   variant: Variant;
   version?: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { listingsByKey } = useMarketplaceState();
   const members = pluginMembers(listing, version, listingsByKey);
   const face = FACE_ORDER.flatMap((kind) =>
@@ -55,7 +57,7 @@ function PluginPackageArt({
         <ThemeStage definition={null} />
         <div className="absolute inset-0 grid place-items-center">
           <span className="rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
-            No preview available
+            {t("marketplace.pluginArt.noPreviewAvailable", "No preview available")}
           </span>
         </div>
       </>
@@ -73,16 +75,23 @@ function ThemeArt({
   variant: Variant;
   version?: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { themes } = useMarketplaceState();
   const art = useThemeArt(themes, listing, version);
-  const error = marketplaceError(art.error);
+  const error = marketplaceError(art.error, t);
   if (art.definition)
     return (
       <>
         <ThemeStage definition={art.definition} />
         {variant === "detail" && (
           <span className="absolute bottom-3 left-3 rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
-            {art.installed ? `Installed ${version}` : `Preview of ${version} — not installed`}
+            {art.installed
+              ? t("marketplace.pluginArt.installedVersion", "Installed {{version}}", { version })
+              : t(
+                  "marketplace.pluginArt.uninstalledPreview",
+                  "Preview of {{version}} — not installed",
+                  { version },
+                )}
           </span>
         )}
       </>
@@ -103,19 +112,19 @@ function ThemeArt({
             {variant !== "tile" && (
               <Button size="sm" variant="outline" disabled={art.loading} onClick={art.retry}>
                 <RotateCw aria-hidden="true" />
-                Retry preview
+                {t("marketplace.pluginArt.retryPreview", "Retry preview")}
               </Button>
             )}
           </div>
         ) : art.loading ? (
           <Loader2
-            aria-label="Loading preview"
+            aria-label={t("marketplace.pluginArt.loadingPreview", "Loading preview")}
             className="size-4 animate-spin text-muted-foreground"
           />
         ) : (
           !art.canPreview && (
             <span className="rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
-              No preview available
+              {t("marketplace.pluginArt.noPreviewAvailable", "No preview available")}
             </span>
           )
         )}
@@ -125,10 +134,11 @@ function ThemeArt({
 }
 
 function TabArt({ listing }: { listing: MarketplaceListing }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div
       className="mp-kind-tab flex h-full w-full flex-col bg-card p-4"
-      aria-label="Custom workspace tab"
+      aria-label={t("marketplace.pluginArt.customWorkspaceTab", "Custom workspace tab")}
     >
       <div className="flex items-center gap-2 border-b border-border pb-2 text-xs font-medium text-[var(--mp-kind)]">
         <PanelTop className="size-3.5" aria-hidden />
@@ -136,18 +146,26 @@ function TabArt({ listing }: { listing: MarketplaceListing }): React.JSX.Element
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
         <PanelTop className="size-8" aria-hidden />
-        <span className="text-xs">Custom workspace tab</span>
+        <span className="text-xs">
+          {t("marketplace.pluginArt.customWorkspaceTab", "Custom workspace tab")}
+        </span>
       </div>
     </div>
   );
 }
 
 function LspArt({ listing }: { listing: MarketplaceListing }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="mp-kind-lsp flex h-full w-full flex-col items-center justify-center gap-3 bg-card p-4 text-[var(--mp-kind)]">
       <Code2 className="size-8" aria-hidden />
       <span className="text-sm font-medium">{listing.name}</span>
-      <span className="text-xs text-muted-foreground">Completions · navigation · diagnostics</span>
+      <span className="text-xs text-muted-foreground">
+        {t(
+          "marketplace.pluginArt.completionsNavigationDiagnostics",
+          "Completions · navigation · diagnostics",
+        )}
+      </span>
     </div>
   );
 }

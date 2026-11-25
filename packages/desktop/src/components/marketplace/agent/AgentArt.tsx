@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import type { ExtensionCliSummary } from "@/api/generated";
 import { ProviderIcon } from "@/lib/provider-icons";
@@ -15,6 +16,7 @@ export const AgentArt = memo(function AgentArt({
   clis: ExtensionCliSummary[];
   carriedBy: ReadonlySet<string>;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="mp-agent-art">
       <code className="mp-agent-command" title={command}>
@@ -28,7 +30,15 @@ export const AgentArt = memo(function AgentArt({
               key={cli.provider_id}
               className="mp-agent-carrier"
               data-absent={carried ? undefined : ""}
-              title={`${cli.label}: ${carried ? "installed" : "not installed"}`}
+              title={
+                carried
+                  ? t("marketplace.agent.agentArt.installed", "{{cli}}: installed", {
+                      cli: cli.label,
+                    })
+                  : t("marketplace.agent.agentArt.notInstalled", "{{cli}}: not installed", {
+                      cli: cli.label,
+                    })
+              }
             >
               <ProviderIcon providerId={cli.provider_id} alt="" className="size-3.5" />
             </span>

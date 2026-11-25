@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ArrowUpCircle, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ export function AgentStateBadge({
   update?: string | null;
   className?: string;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   if (update)
     return (
       <Badge
@@ -42,7 +44,7 @@ export function AgentStateBadge({
         className={cn("h-5 px-2 text-[11px] bg-primary/12 text-primary", className)}
       >
         <ArrowUpCircle aria-hidden="true" />
-        Update {update}
+        {t("marketplace.agent.updateVersion", "Update {{version}}", { version: update })}
       </Badge>
     );
   if (installedIn === 0) return null;
@@ -52,7 +54,11 @@ export function AgentStateBadge({
       className={cn("h-5 px-2 text-[11px] bg-foreground/7 text-muted-foreground", className)}
     >
       <Check aria-hidden="true" />
-      {installedIn > 1 ? `Installed in ${installedIn}` : "Installed"}
+      {installedIn > 1
+        ? t("marketplace.agent.agentBits.installedIn", "Installed in {{count, number}}", {
+            count: installedIn,
+          })
+        : t("marketplace.agent.agentBits.installed", "Installed")}
     </Badge>
   );
 }

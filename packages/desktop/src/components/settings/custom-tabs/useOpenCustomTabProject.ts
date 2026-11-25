@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -23,13 +24,19 @@ export function goToCustomTabWorkspace(
     invalidateByExactUrl(queryClient, ["/api/projects", "/api/features"]),
     invalidateByUrlPrefix(queryClient, "/api/plugin-tabs"),
   ]).catch((error: unknown) => {
-    toastError(error, "Opened the project, but the project list could not be refreshed");
+    toastError(
+      error,
+      translateUi(
+        "customTabs.project.refreshError",
+        "Opened the project, but the project list could not be refreshed",
+      ),
+    );
   });
 }
 
 export interface OpenCustomTabProject {
   /** Resolve (creating it when missing) the tab's authoring project and go there. */
-  open: (tabId: string, failure: string) => void;
+  open: (tabId: string, action?: "open" | "setup") => void;
   /** The tab whose project is being resolved, so only its own control waits. */
   openingId: string | null;
 }
@@ -45,11 +52,24 @@ export function useOpenCustomTabProject(): OpenCustomTabProject {
   const [openingId, setOpeningId] = useState<string | null>(null);
 
   const open = useCallback(
-    (tabId: string, failure: string): void => {
+    (tabId: string, action?: "open" | "setup"): void => {
       setOpeningId(tabId);
       mutateAsync({ id: tabId })
         .then((workspace) => goToCustomTabWorkspace(navigate, queryClient, workspace))
-        .catch((error: unknown) => toastError(error, failure))
+        .catch((error: unknown) =>
+          toastError(
+            error,
+            action === "setup"
+              ? translateUi(
+                  "customTabs.customTabDetails.setupError",
+                  "Could not set up the custom tab's project",
+                )
+              : translateUi(
+                  "customTabs.project.openError",
+                  "Could not open the custom tab's project",
+                ),
+          ),
+        )
         .finally(() => setOpeningId(null));
     },
     [mutateAsync, navigate, queryClient],

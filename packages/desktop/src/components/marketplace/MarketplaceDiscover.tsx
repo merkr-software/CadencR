@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { SearchX } from "lucide-react";
 import { VirtuosoGrid } from "react-virtuoso";
@@ -26,26 +27,35 @@ export function KindFilterBar({
   onKindChange: (kind: KindFilter) => void;
   agentKinds?: { kind: AgentExtensionKind; count?: number }[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const options: { value: KindFilter; label: string; count?: number; tone?: string }[] = [
     // Agent kinds have no total, so "All" carries a count only without them.
-    { value: "all", label: "All", count: agentKinds.length ? undefined : listings.length },
+    {
+      value: "all",
+      label: t("marketplace.marketplaceDiscover.all", "All"),
+      count: agentKinds.length ? undefined : listings.length,
+    },
     ...KIND_ORDER.filter(
       (value) => value === kind || listings.some((listing) => listing.contributes.includes(value)),
     ).map((value) => ({
       value,
-      label: KINDS[value].plural,
+      label: KINDS[value].plural(t),
       count: listings.filter((listing) => listing.contributes.includes(value)).length,
       tone: KINDS[value].tone,
     })),
     ...AGENT_KIND_ORDER.flatMap((value) => {
       const agent = agentKinds.find((item) => item.kind === value);
       return agent || value === kind
-        ? [{ value, label: KINDS[value].plural, count: agent?.count, tone: KINDS[value].tone }]
+        ? [{ value, label: KINDS[value].plural(t), count: agent?.count, tone: KINDS[value].tone }]
         : [];
     }),
   ];
   return (
-    <div role="group" aria-label="Plugin type" className="flex flex-wrap items-center gap-1.5">
+    <div
+      role="group"
+      aria-label={t("marketplace.marketplaceDiscover.pluginType", "Plugin type")}
+      className="flex flex-wrap items-center gap-1.5"
+    >
       {options.map((option) => {
         const Icon = option.value === "all" ? null : KINDS[option.value].icon;
         const checked = kind === option.value;
@@ -87,11 +97,18 @@ function Shelf({
   listings: MarketplaceListing[];
   onSeeAll: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <ShelfFrame
       kind={kind}
       count={listings.length}
-      seeAll={listings.length > SHELF_SIZE ? `See all ${listings.length}` : undefined}
+      seeAll={
+        listings.length > SHELF_SIZE
+          ? t("marketplace.marketplaceDiscover.seeAll", "See all {{count}}", {
+              count: listings.length,
+            })
+          : undefined
+      }
       onSeeAll={onSeeAll}
     >
       <div className={TILE_GRID}>
@@ -117,6 +134,7 @@ export function MarketplaceDiscover({
   onKindChange: (kind: KindFilter) => void;
   scrollParent: HTMLElement | null;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const visible = useMemo(
     () =>
       kind === "all" ? listings : listings.filter((l) => l.contributes.some((c) => c === kind)),
@@ -126,8 +144,11 @@ export function MarketplaceDiscover({
     return (
       <MarketplaceEmpty
         icon={SearchX}
-        title="Nothing matches"
-        detail="Try another name, publisher or type."
+        title={t("marketplace.marketplaceDiscover.nothingMatches", "Nothing matches")}
+        detail={t(
+          "marketplace.marketplaceDiscover.noMatchesDetail",
+          "Try another name, publisher or type.",
+        )}
       />
     );
   if (kind === "all" && !searching)

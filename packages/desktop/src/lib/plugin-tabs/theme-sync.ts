@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { themeToCss } from "@cadencr/tab-sdk";
 import type { ThemeSnapshot } from "@cadencr/tab-sdk/protocol";
 
@@ -19,7 +20,12 @@ function push(theme: ThemeSnapshot): void {
   const background = opaqueBackground(theme.tokens.background ?? "", theme.appearance);
   desktopBridge.pluginTabs
     .setTheme({ css: themeToCss(theme), background })
-    .catch((error: unknown) => toastError(error, "Custom tabs could not follow the theme"));
+    .catch((error: unknown) =>
+      toastError(
+        error,
+        translateUi("customTabs.theme.syncError", "Custom tabs could not follow the theme"),
+      ),
+    );
 }
 
 /**

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -57,6 +58,8 @@ export function PublicationOperationsStatus({
   operationId?: string;
   publicationPending?: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const title = t("marketplace.publication.operations.title", "Persisted publication operations");
   const [cursors, setCursors] = useState<string[]>([]);
   const cursor = cursors.at(-1);
   const query = useQuery({
@@ -76,16 +79,20 @@ export function PublicationOperationsStatus({
       publicationPending || (state.state.data && isActive(state.state.data)) ? 3000 : false,
   });
   return (
-    <section
-      aria-label="Persisted publication operations"
-      className="space-y-2 rounded-lg border p-3 text-xs"
-    >
-      <p className="font-medium">Persisted publication operations</p>
+    <section aria-label={title} className="space-y-2 rounded-lg border p-3 text-xs">
+      <p className="font-medium">{title}</p>
       <OperationExplanation />
-      {query.isPending ? <p role="status">Loading publication operation journal…</p> : null}
+      {query.isPending ? (
+        <p role="status">
+          {t(
+            "marketplace.publication.operations.loadingJournal",
+            "Loading publication operation journal…",
+          )}
+        </p>
+      ) : null}
       {query.isError ? (
         <p role="alert" className="text-destructive">
-          {marketplaceError(query.error)}
+          {marketplaceError(query.error, t)}
         </p>
       ) : null}
       {operationId ? (
@@ -100,42 +107,63 @@ export function PublicationOperationsStatus({
         .map((value) => (
           <OperationStatus key={value.operation_id} operation={value} />
         ))}
-      {query.data?.operations.length === 0 ? <p>No recorded publication operations.</p> : null}
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={query.isFetching}
-          onClick={() => {
-            void query.refetch();
-            if (operationId) void focused.refetch();
-          }}
-        >
-          {query.isFetching ? "Refreshing…" : "Refresh operation status"}
-        </Button>
-        {cursors.length ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setCursors((values) => values.slice(0, -1))}
-          >
-            Previous operations
-          </Button>
-        ) : null}
-        {query.data?.next_cursor ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              const next = query.data?.next_cursor;
-              if (next) setCursors((values) => [...values, next]);
-            }}
-          >
-            More operations
-          </Button>
-        ) : null}
-      </div>
+      {query.data?.operations.length === 0 ? (
+        <p>
+          {t(
+            "marketplace.publication.operations.emptyJournal",
+            "No recorded publication operations.",
+          )}
+        </p>
+      ) : null}
+      <OperationNavigation
+        refreshing={query.isFetching}
+        onRefresh={() => {
+          void query.refetch();
+          if (operationId) void focused.refetch();
+        }}
+        hasPrevious={cursors.length > 0}
+        nextCursor={query.data?.next_cursor}
+        onPrevious={() => setCursors((values) => values.slice(0, -1))}
+        onNext={(next) => setCursors((values) => [...values, next])}
+      />
     </section>
+  );
+}
+
+function OperationNavigation({
+  refreshing,
+  onRefresh,
+  hasPrevious,
+  nextCursor,
+  onPrevious,
+  onNext,
+}: {
+  refreshing: boolean;
+  onRefresh: () => void;
+  hasPrevious: boolean;
+  nextCursor?: string | null;
+  onPrevious: () => void;
+  onNext: (cursor: string) => void;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <div className="flex gap-2">
+      <Button size="sm" variant="outline" disabled={refreshing} onClick={onRefresh}>
+        {refreshing
+          ? t("marketplace.publication.operations.refreshing", "Refreshing…")
+          : t("marketplace.publication.operations.refresh", "Refresh operation status")}
+      </Button>
+      {hasPrevious ? (
+        <Button size="sm" variant="outline" onClick={onPrevious}>
+          {t("marketplace.publication.operations.previousPage", "Previous operations")}
+        </Button>
+      ) : null}
+      {nextCursor ? (
+        <Button size="sm" variant="outline" onClick={() => onNext(nextCursor)}>
+          {t("marketplace.publication.operations.nextPage", "More operations")}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -146,33 +174,63 @@ function FocusedOperationState({
   loading: boolean;
   error: unknown;
 }): React.JSX.Element | null {
-  if (loading) return <p role="status">Loading this publication operation…</p>;
+  const { t } = useUiTranslation();
+  if (loading)
+    return (
+      <p role="status">
+        {t(
+          "marketplace.publication.operations.loadingRecord",
+          "Loading this publication operation…",
+        )}
+      </p>
+    );
   if (!error) return null;
   const missing = z
     .object({ response: z.object({ status: z.literal(404) }) })
     .safeParse(error).success;
   return missing ? (
     <p role="status">
-      No recorded operation is available for this ID yet. Refresh to verify whether the request was
-      accepted; a missing record does not prove that publication failed or never started.
+      {t(
+        "marketplace.publication.operations.missingRecord",
+        "No recorded operation is available for this ID yet. Refresh to verify whether the request was accepted; a missing record does not prove that publication failed or never started.",
+      )}
     </p>
   ) : (
     <p role="alert" className="text-destructive">
-      Operation status could not be retrieved: {marketplaceError(error)}
+      {t(
+        "marketplace.publication.operations.statusError",
+        "Operation status could not be retrieved: {{error}}",
+        { error: marketplaceError(error, t) },
+      )}
     </p>
   );
 }
 
 function OperationExplanation(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <p className="text-muted-foreground">
-      Work continues if this view disconnects. Unknown means the remote outcome must be reconciled,
-      not that publication failed.
+      {t(
+        "marketplace.publication.operations.disconnectNotice",
+        "Work continues if this view disconnects. Unknown means the remote outcome must be reconciled, not that publication failed.",
+      )}
     </p>
   );
 }
 
 function OperationStatus({ operation: value }: { operation: Operation }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const kind =
+    value.kind === "release"
+      ? t("marketplace.publication.operations.releaseKind", "release")
+      : t("marketplace.publication.operations.registryKind", "registry");
+  const statuses = {
+    pending: t("marketplace.publication.operations.pending", "pending"),
+    running: t("marketplace.publication.operations.running", "running"),
+    succeeded: t("marketplace.publication.operations.succeeded", "succeeded"),
+    failed: t("marketplace.publication.operations.failed", "failed"),
+    unknown: t("marketplace.publication.operations.unknown", "unknown"),
+  };
   const resultUrl =
     value.result?.kind === "release"
       ? value.result.value.release_url
@@ -180,7 +238,11 @@ function OperationStatus({ operation: value }: { operation: Operation }): React.
   return (
     <div role="status" className="space-y-1 border-t pt-2">
       <p>
-        {value.kind} · {value.status} · attempt {value.attempt}
+        {t(
+          "marketplace.publication.operations.operationAttempt",
+          "{{kind}} · {{status}} · attempt {{attempt, number}}",
+          { kind, status: statuses[value.status], attempt: value.attempt },
+        )}
       </p>
       <p className="break-all font-mono">{value.operation_id}</p>
       {value.error ? (
@@ -188,7 +250,11 @@ function OperationStatus({ operation: value }: { operation: Operation }): React.
           {value.error_code}: {value.error}
         </p>
       ) : null}
-      {resultUrl ? <p className="break-all">Result: {resultUrl}</p> : null}
+      {resultUrl ? (
+        <p className="break-all">
+          {t("marketplace.publication.operations.result", "Result: {{url}}", { url: resultUrl })}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -96,14 +96,19 @@ describe("a staged marketplace update", () => {
   it("offers only discarding an update Cadencr blocks, and says why", async () => {
     mocks.tabs = [
       stagedUpdateTab({
-        pending_update: pendingUpdateFixture({ blocked_reason: "Uploads repository contents." }),
+        pending_update: pendingUpdateFixture({
+          blocked_reason: "Uploads <private> repository contents.",
+        }),
       }),
     ];
     const { user } = renderSection();
-    const notice = (
-      await screen.findByText(/is blocked by Cadencr: Uploads repository contents\.$/)
-    ).closest("[role=status]");
+    const notice = (await screen.findByText("Uploads <private> repository contents")).closest(
+      "[role=status]",
+    );
     if (!(notice instanceof HTMLElement)) throw new Error("no update notice");
+    expect(notice).toHaveTextContent(
+      "Update 0.2.0 is blocked by Cadencr: Uploads <private> repository contents.",
+    );
     expect(within(notice).queryByRole("button", { name: "Review permissions" })).toBeNull();
     await user.click(within(notice).getByRole("button", { name: "Keep current version" }));
     await waitFor(() => expect(mocks.discard).toHaveBeenCalled());

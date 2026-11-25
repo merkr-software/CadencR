@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "@/api/client";
 import { lspCatalogSchema, lspInventorySchema, type LspCatalog } from "@/lib/lsp/marketplace";
-import type { MarketplaceNotice } from "@/lib/marketplace";
+import { confirmedAction, type MarketplaceNotice } from "@/lib/marketplace";
 import { useStableMutation, useStableQuery } from "./stable-query";
 
 const catalogKey = ["marketplace", "lsp-catalog"];
@@ -89,7 +89,7 @@ export function useLspMarketplace() {
           }),
         ),
       onSuccess: async (_, action) => {
-        setNotice({ tone: "done", text: `${action.id}: ${action.kind} confirmed by Cadencr.` });
+        setNotice({ tone: "done", text: (t) => confirmedAction(t, action) });
         await reconcile();
       },
       onError: async () => {

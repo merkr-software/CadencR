@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,10 +21,10 @@ export interface CustomActionFormState {
 }
 
 export interface CustomActionFormErrors {
-  name?: string;
-  command?: string;
+  name?: true;
+  command?: true;
   /** A save the backend refused, shown above the footer. */
-  submit?: string;
+  submit?: { cause: unknown };
 }
 
 const VARIABLE_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -35,8 +36,8 @@ export function detectVariables(command: string): string[] {
 
 export function validateCustomActionForm(form: CustomActionFormState): CustomActionFormErrors {
   const errors: CustomActionFormErrors = {};
-  if (!form.name.trim()) errors.name = "Give the action a name.";
-  if (!form.command.trim()) errors.command = "Enter the command to run.";
+  if (!form.name.trim()) errors.name = true;
+  if (!form.command.trim()) errors.command = true;
   return errors;
 }
 
@@ -66,20 +67,25 @@ function initialForm(request: CustomActionEditorRequest): CustomActionFormState 
  * shown inline on submit; a refusal from the service lands beside the footer.
  */
 export function useCustomActionEditorForm(request: CustomActionEditorRequest, onSaved: () => void) {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CustomActionFormState>(() => initialForm(request));
-  const [errors, setErrors] = useState<CustomActionFormErrors>({});
+  const [issues, setErrors] = useState<CustomActionFormErrors>({});
   const variables = useMemo(() => detectVariables(form.command), [form.command]);
   // An action edited outside a project keeps its own project when it stays project-scoped.
   const projectId = request.projectId ?? request.action?.project_id ?? null;
 
-  const onSuccess = (verb: string) => (): void => {
+  const onSuccess = (kind: "created" | "saved") => (): void => {
     void queryClient.invalidateQueries({ queryKey: getListCustomActionsQueryKey() });
-    toast.success(`${form.name.trim()} ${verb}`);
+    const name = form.name.trim();
+    toast.success(
+      kind === "created"
+        ? translateUi("customActions.editor.created", "{{name}} created", { name })
+        : translateUi("customActions.editor.saved", "{{name}} saved", { name }),
+    );
     onSaved();
   };
-  const onError = (error: unknown): void =>
-    setErrors({ submit: apiErrorMessage(error, "the action could not be saved") });
+  const onError = (error: unknown): void => setErrors({ submit: { cause: error } });
   const create = useCreateCustomAction({ mutation: { onSuccess: onSuccess("created"), onError } });
   const update = useUpdateCustomAction({ mutation: { onSuccess: onSuccess("saved"), onError } });
 
@@ -105,7 +111,17 @@ export function useCustomActionEditorForm(request: CustomActionEditorRequest, on
   return {
     form,
     setForm,
-    errors,
+    errors: {
+      name: issues.name && t("customActions.editor.nameRequired", "Give the action a name."),
+      command:
+        issues.command && t("customActions.editor.commandRequired", "Enter the command to run."),
+      submit:
+        issues.submit &&
+        apiErrorMessage(
+          issues.submit.cause,
+          t("customActions.editor.saveError", "the action could not be saved"),
+        ),
+    },
     variables,
     canChooseScope: projectId != null,
     isPending: create.isPending || update.isPending,

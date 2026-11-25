@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { publicationBundles, useRefreshPublicationJournal } from "./PublicationRequest";
 import { useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
@@ -26,6 +27,7 @@ export function ProviderPublicationRegistry({
   onPendingChange: (pending: boolean) => void;
   onOperationChange?: (operationId: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [plan, setPlan] = useState<PublicationRegistryPreview | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [result, setResult] = useState<PublicationRegistryResult | null>(null);
@@ -80,18 +82,12 @@ export function ProviderPublicationRegistry({
   return (
     <div className="space-y-3 rounded-lg border p-3 text-sm">
       <RegistryIntroduction />
-      <Button type="button" variant="outline" disabled={disabled || pending} onClick={review}>
-        {previewMutation.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-        {previewMutation.isPending
-          ? "Reviewing registry submission…"
-          : "Review registry submission"}
-      </Button>
-      {previewMutation.isError ? (
-        <PublicationError
-          prefix="Could not review the registry submission"
-          error={previewMutation.error}
-        />
-      ) : null}
+      <RegistryReviewButton
+        disabled={disabled || pending}
+        reviewing={previewMutation.isPending}
+        error={previewMutation.isError ? previewMutation.error : null}
+        onReview={review}
+      />
       {plan ? (
         <RegistryPlanReview
           plan={plan}
@@ -104,7 +100,10 @@ export function ProviderPublicationRegistry({
       ) : null}
       {submitMutation.isError ? (
         <PublicationError
-          prefix="Could not submit the registry pull request"
+          prefix={t(
+            "marketplace.publication.registry.submitFailed",
+            "Could not submit the registry pull request",
+          )}
           error={submitMutation.error}
         />
       ) : null}
@@ -114,24 +113,64 @@ export function ProviderPublicationRegistry({
   );
 }
 
+function RegistryReviewButton({
+  disabled,
+  reviewing,
+  error,
+  onReview,
+}: {
+  disabled: boolean;
+  reviewing: boolean;
+  error: unknown;
+  onReview: () => void;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <>
+      <Button type="button" variant="outline" disabled={disabled} onClick={onReview}>
+        {reviewing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+        {reviewing
+          ? t("marketplace.publication.registry.reviewing", "Reviewing registry submission…")
+          : t("marketplace.publication.registry.review", "Review registry submission")}
+      </Button>
+      {error ? (
+        <PublicationError
+          prefix={t(
+            "marketplace.publication.registry.reviewFailed",
+            "Could not review the registry submission",
+          )}
+          error={error}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function RegistryIntroduction(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-1">
-      <p className="font-medium">Submit to the Cadencr marketplace registry</p>
+      <p className="font-medium">
+        {t("marketplace.publication.registry.title", "Submit to the Cadencr marketplace registry")}
+      </p>
       <p className="text-xs text-muted-foreground">
-        Review a plan for <span className="font-mono">merkr-software/cadencr-registry</span>, then
-        separately confirm creation or reuse of your fork branch and pull request. This does not
-        accept, merge, or publish the submission. A remote timeout may leave a fork or branch;
-        Cadencr will not automatically retry writes.
+        <UiTrans
+          i18nKey="marketplace.publication.registry.reviewExplanation"
+          defaults="Review a plan for <repository>{{repository}}</repository>, then separately confirm creation or reuse of your fork branch and pull request. This does not accept, merge, or publish the submission. A remote timeout may leave a fork or branch; Cadencr will not automatically retry writes."
+          components={{ repository: <span className="font-mono" /> }}
+          values={{ repository: "merkr-software/cadencr-registry" }}
+        />
       </p>
     </div>
   );
 }
 
 function RegistrySubmissionPending(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" aria-hidden /> Creating registry pull request…
+      <Loader2 className="size-4 animate-spin" aria-hidden />{" "}
+      {t("marketplace.publication.registry.creating", "Creating registry pull request…")}
     </div>
   );
 }
@@ -151,24 +190,32 @@ function RegistryPlanReview({
   onConfirmedChange: (confirmed: boolean) => void;
   onSubmit: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const rows: [string, string][] = [
-    ["Destination", plan.registry_repository],
-    ["GitHub account", plan.account],
-    ["Base", `${plan.base_branch} @ ${plan.base_commit}`],
-    ["Fork branch", plan.branch],
-    ["Package path", plan.package_path],
-    ["Submission path", plan.submission_path],
-    ["Plugin", plan.plugin_id],
-    ["Version", plan.version],
+    [t("marketplace.publication.destination", "Destination"), plan.registry_repository],
+    [t("marketplace.publication.registry.account", "GitHub account"), plan.account],
+    [
+      t("marketplace.publication.registry.base", "Base"),
+      `${plan.base_branch} @ ${plan.base_commit}`,
+    ],
+    [t("marketplace.publication.registry.forkBranch", "Fork branch"), plan.branch],
+    [t("marketplace.publication.registry.packagePath", "Package path"), plan.package_path],
+    [t("marketplace.publication.registry.submissionPath", "Submission path"), plan.submission_path],
+    [t("marketplace.publication.registry.plugin", "Plugin"), plan.plugin_id],
+    [t("marketplace.publication.version", "Version"), plan.version],
   ];
   return (
     <div className="space-y-3 rounded-lg border border-[var(--acc-orange)]/30 bg-[var(--acc-orange)]/5 p-3">
-      <p className="font-medium">Registry pull request preview</p>
+      <p className="font-medium">
+        {t("marketplace.publication.registry.previewTitle", "Registry pull request preview")}
+      </p>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         {rows.map(([label, value]) => (
           <RegistryDetail key={label} label={label} value={value} />
         ))}
-        <dt className="text-muted-foreground">Release notes</dt>
+        <dt className="text-muted-foreground">
+          {t("marketplace.publication.releaseNotes", "Release notes")}
+        </dt>
         <dd className="whitespace-pre-wrap break-words">{plan.release_notes}</dd>
       </dl>
       <label className="flex items-start gap-2">
@@ -176,15 +223,23 @@ function RegistryPlanReview({
           checked={confirmed}
           disabled={disabled}
           onCheckedChange={(checked) => onConfirmedChange(checked === true)}
-          aria-label="I confirm this exact fork, branch, and registry pull request"
+          aria-label={t(
+            "marketplace.publication.registry.confirmPullRequestLabel",
+            "I confirm this exact fork, branch, and registry pull request",
+          )}
         />
         <span>
-          I confirm this exact destination, base commit, fork branch, files, version, and notes.
+          {t(
+            "marketplace.publication.registry.confirmPullRequestDetail",
+            "I confirm this exact destination, base commit, fork branch, files, version, and notes.",
+          )}
         </span>
       </label>
       <Button type="button" disabled={!confirmed || disabled} onClick={onSubmit}>
         {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-        {pending ? "Creating registry pull request…" : "Create registry pull request"}
+        {pending
+          ? t("marketplace.publication.registry.creating", "Creating registry pull request…")
+          : t("marketplace.publication.registry.create", "Create registry pull request")}
       </Button>
     </div>
   );
@@ -204,6 +259,7 @@ function RegistrySubmissionResult({
 }: {
   result: PublicationRegistryResult;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
@@ -211,18 +267,38 @@ function RegistrySubmissionResult({
     >
       <p className="flex items-center gap-2 font-medium text-[var(--acc-green)]">
         <CheckCircle2 className="size-4" aria-hidden />
-        Registry pull request {result.reused ? "reused" : "created"} (#{result.pull_request_number})
+        {result.reused
+          ? t(
+              "marketplace.publication.registry.reused",
+              "Registry pull request reused (#{{number}})",
+              { number: result.pull_request_number },
+            )
+          : t(
+              "marketplace.publication.registry.created",
+              "Registry pull request created (#{{number}})",
+              { number: result.pull_request_number },
+            )}
       </p>
       <p className="text-xs text-muted-foreground">
-        Branch: <span className="font-mono">{result.branch}</span>. Await registry review; this is
-        not acceptance, merge, or publication.
+        <UiTrans
+          i18nKey="marketplace.publication.registry.awaitReview"
+          defaults="Branch: <branch>{{branch}}</branch>. Await registry review; this is not acceptance, merge, or publication."
+          components={{ branch: <span className="font-mono" /> }}
+          values={{ branch: result.branch }}
+        />
       </p>
       <Button
         type="button"
         variant="link"
         className="h-auto justify-start whitespace-normal break-all p-0"
         onClick={() =>
-          void openExternalUrl(result.pull_request_url, "Could not open the registry pull request.")
+          void openExternalUrl(
+            result.pull_request_url,
+            t(
+              "marketplace.publication.registry.openFailed",
+              "Could not open the registry pull request.",
+            ),
+          )
         }
       >
         {result.pull_request_url} <ExternalLink className="size-3" aria-hidden />

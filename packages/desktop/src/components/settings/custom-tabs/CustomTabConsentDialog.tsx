@@ -1,8 +1,9 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useId, useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpCircle, Loader2 } from "lucide-react";
 import type { PluginTabPendingUpdate, PluginTabSummary } from "@/api/generated";
 import { PluginTabAccessBadge } from "@/components/plugin-tabs/PluginTabAccess";
-import { ACCESS_LEVEL_COPY } from "@/components/plugin-tabs/plugin-tab-access";
+import { accessLevelCopy } from "@/components/plugin-tabs/plugin-tab-access";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -74,6 +75,7 @@ function ConsentContent({
   onAccept: (trustsCode: boolean) => void;
   onCancel: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { tab, update } = request;
   // What accepting records: the staged update's permissions, else the tab's own.
   const reviewed = update ?? tab;
@@ -95,7 +97,12 @@ function ConsentContent({
             <PluginTabIcon svg={tab.icon_svg} data-testid="custom-tab-icon" />
           </span>
           <DialogTitle className="text-base font-semibold">
-            {update ? `Update “${tab.name}” to ${update.version}?` : `Allow “${tab.name}”?`}
+            {update
+              ? t("customTabs.consent.updateTitle", "Update “{{name}}” to {{version}}?", {
+                  name: tab.name,
+                  version: update.version,
+                })
+              : t("customTabs.consent.allowTitle", "Allow “{{name}}”?", { name: tab.name })}
           </DialogTitle>
           <PluginTabAccessBadge level={reviewed.access_level} />
         </div>
@@ -116,7 +123,7 @@ function ConsentContent({
       </div>
       <DialogFooter className="border-t border-border px-6 py-4">
         <Button type="button" variant="outline" onClick={onCancel} disabled={accepting}>
-          Cancel
+          {t("common.cancel", "Cancel")}
         </Button>
         <Button
           type="button"
@@ -125,7 +132,11 @@ function ConsentContent({
           autoFocus={!needsAcknowledgment}
         >
           {accepting ? <Loader2 className="animate-spin" aria-hidden /> : null}
-          {update ? "Allow and update" : request.enable ? "Allow and turn on" : "Allow"}
+          {update
+            ? t("customTabs.consent.allowUpdate", "Allow and update")
+            : request.enable
+              ? t("customTabs.consent.allowEnable", "Allow and turn on")
+              : t("customTabs.consent.allow", "Allow")}
         </Button>
       </DialogFooter>
     </>
@@ -138,25 +149,27 @@ function ConsentLead({ tab }: { tab: PluginTabSummary }): React.JSX.Element {
   switch (tab.access_level) {
     case "backend":
       return (
-        <>
-          This custom tab ships a program from {dir} that runs on your computer with your user
-          rights. Only allow it if you trust this code as much as an app you install.
-        </>
+        <UiTrans
+          i18nKey="customTabs.consent.nativeLead"
+          defaults="This custom tab ships a program from <directory/> that runs on your computer with your user rights. Only allow it if you trust this code as much as an app you install."
+          components={{ directory: dir }}
+        />
       );
     case "commands":
       return (
-        <>
-          This custom tab runs code from {dir} and asks Cadencr to run the programs below with
-          arguments it chooses, which can make them run any code with your user rights. Only allow
-          it if you trust this code as much as an app you install.
-        </>
+        <UiTrans
+          i18nKey="customTabs.consent.commandLead"
+          defaults="This custom tab runs code from <directory/> and asks Cadencr to run the programs below with arguments it chooses, which can make them run any code with your user rights. Only allow it if you trust this code as much as an app you install."
+          components={{ directory: dir }}
+        />
       );
     case "ui":
       return (
-        <>
-          This custom tab runs code from {dir}. Only allow tabs you trust: it can read what is
-          listed below.
-        </>
+        <UiTrans
+          i18nKey="customTabs.consent.readOnlyLead"
+          defaults="This custom tab runs code from <directory/>. Only allow tabs you trust: it can read what is listed below."
+          components={{ directory: dir }}
+        />
       );
   }
 }
@@ -169,20 +182,32 @@ function UpdateLead({
   tab: PluginTabSummary;
   update: PluginTabPendingUpdate;
 }): React.JSX.Element {
-  const { reach } = ACCESS_LEVEL_COPY[update.access_level];
+  const { t } = useUiTranslation();
+  const { reach } = accessLevelCopy(update.access_level, t);
   return (
     <span className="flex items-start gap-1.5">
       <ArrowUpCircle className="mt-px size-3.5 shrink-0 text-primary" aria-hidden />
       <span>
-        Version <span className="font-mono text-foreground">{update.version}</span> is downloaded
-        and verified, and asks for what is listed below.{" "}
+        <UiTrans
+          i18nKey="customTabs.consent.verifiedUpdate"
+          defaults="Version <version/> is downloaded and verified, and asks for what is listed below."
+          components={{
+            version: <span className="font-mono text-foreground">{update.version}</span>,
+          }}
+        />{" "}
         {tab.version ? (
-          <>
-            Cadencr keeps running <span className="font-mono text-foreground">{tab.version}</span>{" "}
-            until you allow it.
-          </>
+          <UiTrans
+            i18nKey="customTabs.consent.installedVersion"
+            defaults="Cadencr keeps running <version/> until you allow it."
+            components={{
+              version: <span className="font-mono text-foreground">{tab.version}</span>,
+            }}
+          />
         ) : (
-          "Cadencr keeps running the installed version until you allow it."
+          t(
+            "customTabs.consent.installedVersionFallback",
+            "Cadencr keeps running the installed version until you allow it.",
+          )
         )}
         {reach ? ` ${reach}` : ""}
       </span>
@@ -197,6 +222,7 @@ function NativeCodeAcknowledgment({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const id = useId();
   return (
     <div className="flex items-start gap-2.5">
@@ -208,20 +234,30 @@ function NativeCodeAcknowledgment({
         autoFocus
       />
       <label htmlFor={id} className="text-xs font-medium leading-snug">
-        I trust this code to run on my computer with my rights.
+        {t(
+          "customTabs.customTabConsentDialog.iTrustThisCodeToRunOn",
+          "I trust this code to run on my computer with my rights.",
+        )}
       </label>
     </div>
   );
 }
 
 function StaleNote({ update }: { update: boolean }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <p role="status" className={cn(WARNING_BANNER_CLASS, "flex items-start gap-2 text-xs")}>
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-orange)]" aria-hidden />
       <span>
         {update
-          ? "A different update was staged while you were reviewing it. This is what it asks for now."
-          : "The tab changed its permissions while you were reviewing them. This is the updated list."}
+          ? t(
+              "customTabs.consent.staleUpdate",
+              "A different update was staged while you were reviewing it. This is what it asks for now.",
+            )
+          : t(
+              "customTabs.consent.stalePermissions",
+              "The tab changed its permissions while you were reviewing them. This is the updated list.",
+            )}
       </span>
     </p>
   );

@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { uiI18n, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   ArrowUpCircle,
   Ban,
@@ -14,35 +14,58 @@ import { ProviderIconGraphic, useProviderMetadata } from "@/lib/provider-icons";
 import { cn } from "@/lib/utils";
 import { KINDS, type MarketplaceKind } from "./kinds";
 
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+
 export function formatDay(iso?: string | null): string | null {
   if (!iso) return null;
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : format(date, "MMM d, yyyy");
+  if (Number.isNaN(date.getTime())) return iso;
+  const language = uiI18n.language;
+  let formatter = dayFormats.get(language);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(language, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    dayFormats.set(language, formatter);
+  }
+  return formatter.format(date);
 }
 
 /** Description with the one honest fallback, shared by every surface. */
-export function describe(listing: MarketplaceListing): string {
-  return listing.description || "No description in the catalog.";
+export function describe(listing: MarketplaceListing, t: UiTranslator): string {
+  return (
+    listing.description ||
+    t("marketplace.pluginBits.noDescription", "No description in the catalog.")
+  );
 }
 
-export function byline(listing: MarketplaceListing): string {
-  return listing.publisher ? `by ${listing.publisher}` : listing.id;
+export function byline(listing: MarketplaceListing, t: UiTranslator): string {
+  return listing.publisher
+    ? t("marketplace.pluginBits.byPublisher", "by {{publisher}}", { publisher: listing.publisher })
+    : listing.id;
 }
 
 function KindChip({ kind }: { kind: MarketplaceKind }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const meta = KINDS[kind];
   const Icon = meta.icon;
   return (
     <span className={cn("mp-kind-chip", meta.tone)}>
       <Icon aria-hidden="true" className="size-3" />
-      {meta.label}
+      {meta.label(t)}
     </span>
   );
 }
 
 export function KindChips({ kinds }: { kinds: readonly MarketplaceKind[] }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <span className="flex flex-wrap items-center gap-1" aria-label="Adds">
+    <span
+      className="flex flex-wrap items-center gap-1"
+      aria-label={t("marketplace.pluginBits.adds", "Adds")}
+    >
       {kinds.map((kind) => (
         <KindChip key={kind} kind={kind} />
       ))}
@@ -99,55 +122,72 @@ interface ListingState {
 }
 
 /** The one state that matters most for a listing, most actionable first. */
-function stateOf(listing: MarketplaceListing): ListingState | null {
+function stateOf(listing: MarketplaceListing, t: UiTranslator): ListingState | null {
   const installed = listing.installed;
   if (installed?.blocked)
-    return { tone: STATE_TONES.error, icon: <Ban aria-hidden="true" />, label: "Blocked" };
+    return {
+      tone: STATE_TONES.error,
+      icon: <Ban aria-hidden="true" />,
+      label: t("marketplace.pluginBits.blocked", "Blocked"),
+    };
   if (installed?.error)
     return {
       tone: STATE_TONES.error,
       icon: <CircleAlert aria-hidden="true" />,
-      label: "Needs attention",
+      label: t("marketplace.pluginBits.needsAttention", "Needs attention"),
     };
   if (listing.pendingVersion && listing.pendingBlocked)
     return {
       tone: STATE_TONES.error,
       icon: <Ban aria-hidden="true" />,
-      label: `Update ${listing.pendingVersion} blocked`,
+      label: t("marketplace.pluginBits.updateBlocked", "Update {{version}} blocked", {
+        version: listing.pendingVersion,
+      }),
     };
   if (listing.pendingVersion)
     return {
       tone: STATE_TONES.restart,
       icon: <ShieldAlert aria-hidden="true" />,
-      label: `Review update ${listing.pendingVersion}`,
+      label: t("marketplace.pluginBits.reviewUpdate", "Review update {{version}}", {
+        version: listing.pendingVersion,
+      }),
     };
   if (installed?.restartRequired)
     return {
       tone: STATE_TONES.restart,
       icon: <RotateCw aria-hidden="true" />,
-      label: "Restart to apply",
+      label: t("marketplace.pluginBits.restartToApply", "Restart to apply"),
     };
   // A plugin whose members are not all in, at one release: the install panel finishes it.
   if (installed?.partial)
     return {
       tone: STATE_TONES.restart,
       icon: <CircleDashed aria-hidden="true" />,
-      label: "Partly installed",
+      label: t("marketplace.pluginBits.partlyInstalled", "Partly installed"),
     };
   if (listing.update)
     return {
       tone: STATE_TONES.primary,
       icon: <ArrowUpCircle aria-hidden="true" />,
-      label: `Update ${listing.update}`,
+      label: t("marketplace.pluginBits.updateVersion", "Update {{version}}", {
+        version: listing.update,
+      }),
     };
   if (installed?.active)
     return {
       tone: STATE_TONES.primary,
       icon: <span className="size-1.5 rounded-full bg-primary" />,
-      label: listing.kind === "theme" ? "In use" : "Active",
+      label:
+        listing.kind === "theme"
+          ? t("marketplace.pluginBits.inUse", "In use")
+          : t("marketplace.pluginBits.active", "Active"),
     };
   if (installed)
-    return { tone: STATE_TONES.muted, icon: <Check aria-hidden="true" />, label: "Installed" };
+    return {
+      tone: STATE_TONES.muted,
+      icon: <Check aria-hidden="true" />,
+      label: t("marketplace.pluginBits.installed", "Installed"),
+    };
   return null;
 }
 
@@ -158,7 +198,8 @@ export function PluginStateBadge({
   listing: MarketplaceListing;
   className?: string;
 }): React.JSX.Element | null {
-  const state = stateOf(listing);
+  const { t } = useUiTranslation();
+  const state = stateOf(listing, t);
   if (!state) return null;
   return (
     <Badge variant="ghost" className={cn("h-5 px-2 text-[11px]", state.tone, className)}>

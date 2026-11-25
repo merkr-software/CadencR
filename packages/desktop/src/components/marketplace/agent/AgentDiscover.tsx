@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { Loader2, SearchX } from "lucide-react";
 import { VirtuosoGrid } from "react-virtuoso";
@@ -24,13 +25,14 @@ interface GridContext {
 
 /** The grid's footer reads the next-page state from Virtuoso's context. */
 function MoreFooter({ context }: { context?: GridContext }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   return context?.loading ? (
     <div
       role="status"
       className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground"
     >
       <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-      Loading more…
+      {t("marketplace.agent.agentDiscover.loadingMore", "Loading more…")}
     </div>
   ) : null;
 }
@@ -50,6 +52,7 @@ export function SkillBrowse({
   /** Shelf mode: only the first tiles, no scrolling grid. */
   limit?: number;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const capable = useMemo(() => skillClis(clis).filter((cli) => cli.installed), [clis]);
   const pages = useSkillPages(query, "all", capable.length > 0);
   const context = useMemo(
@@ -60,13 +63,16 @@ export function SkillBrowse({
     () => pages.data?.pages.flatMap((page) => page.skills) ?? [],
     [pages.data],
   );
-  if (!capable.length) return <NoCapableCli what="skills" />;
+  if (!capable.length) return <NoCapableCli kind="skill" />;
   if (pages.isPending) return <TileGridSkeleton />;
   if (pages.isError)
     return (
       <AgentLoadError
         error={pages.error}
-        what="the skill marketplaces"
+        title={t(
+          "marketplace.agent.loadSkillMarketplacesError",
+          "Could not load the skill marketplaces",
+        )}
         retrying={pages.isFetching}
         onRetry={() => void pages.refetch()}
       />
@@ -78,8 +84,11 @@ export function SkillBrowse({
         <CliErrors errors={errors} clis={clis} />
         <MarketplaceEmpty
           icon={SearchX}
-          title="No skill matches"
-          detail="Try another name or word."
+          title={t("marketplace.agent.agentDiscover.noSkillMatches", "No skill matches")}
+          detail={t(
+            "marketplace.agent.agentDiscover.noSkillMatchHint",
+            "Try another name or word.",
+          )}
         />
       </div>
     );
@@ -123,6 +132,7 @@ export function McpBrowse({
   scrollParent: HTMLElement | null;
   limit?: number;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const capable = useMemo(() => mcpClis(clis).filter((cli) => cli.installed), [clis]);
   const search = useMcpRegistrySearch(query.trim(), capable.length > 0);
   const installed = useInstalledMcpServers(capable.length > 0);
@@ -138,13 +148,16 @@ export function McpBrowse({
     () => search.data?.pages.flatMap((page) => page.servers) ?? [],
     [search.data],
   );
-  if (!capable.length) return <NoCapableCli what="MCP servers" />;
+  if (!capable.length) return <NoCapableCli kind="mcp" />;
   if (search.isPending) return <TileGridSkeleton />;
   if (search.isError)
     return (
       <AgentLoadError
         error={search.error}
-        what="the MCP Registry"
+        title={t(
+          "marketplace.agent.agentDiscover.loadMcpRegistryError",
+          "Could not load the MCP Registry",
+        )}
         retrying={search.isFetching}
         onRetry={() => void search.refetch()}
       />
@@ -153,8 +166,14 @@ export function McpBrowse({
     return (
       <MarketplaceEmpty
         icon={SearchX}
-        title="No server in the MCP Registry matches"
-        detail="The registry searches server names, e.g. github or postgres."
+        title={t(
+          "marketplace.agent.agentDiscover.noMcpSearchMatches",
+          "No server in the MCP Registry matches",
+        )}
+        detail={t(
+          "marketplace.agent.agentDiscover.noMcpMatchHint",
+          "The registry searches server names, e.g. github or postgres.",
+        )}
       />
     );
   if (limit)
@@ -199,10 +218,16 @@ export function AgentShelves({
   query: string;
   onKindChange: (kind: AgentExtensionKind) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <>
       {(["skill", "mcp"] as const).map((kind) => (
-        <ShelfFrame key={kind} kind={kind} seeAll="See all" onSeeAll={() => onKindChange(kind)}>
+        <ShelfFrame
+          key={kind}
+          kind={kind}
+          seeAll={t("marketplace.agent.agentDiscover.seeAll", "See all")}
+          onSeeAll={() => onKindChange(kind)}
+        >
           {kind === "skill" ? (
             <SkillBrowse query={query} clis={clis} scrollParent={null} limit={SHELF_SIZE} />
           ) : (

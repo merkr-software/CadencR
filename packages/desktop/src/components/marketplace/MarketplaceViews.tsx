@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ExtensionCliSummary } from "@/api/generated";
 import { isAgentExtensionKind, mcpClis, skillClis } from "@/lib/agent-extensions";
 import type { MarketplaceListing } from "@/lib/marketplace-listings";
@@ -117,6 +118,7 @@ export function LibraryView({
   onRefresh: () => void;
   onDiscover: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (isAgentExtensionKind(kind))
     return (
       <>
@@ -145,10 +147,13 @@ export function LibraryView({
         <section aria-labelledby="mp-agent-library" className="space-y-3 pt-4">
           <div>
             <h2 id="mp-agent-library" className="text-[15px] font-semibold">
-              In your agent CLIs
+              {t("marketplace.marketplaceViews.inYourAgentClIs", "In your agent CLIs")}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Skills and MCP servers each CLI reports, wherever they were installed from.
+              {t(
+                "marketplace.marketplaceViews.skillsAndMcpServersEachCliReports",
+                "Skills and MCP servers each CLI reports, wherever they were installed from.",
+              )}
             </p>
           </div>
           <AgentLibrary

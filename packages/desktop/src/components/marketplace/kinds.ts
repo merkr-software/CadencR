@@ -1,16 +1,17 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import { Code2, Boxes, Palette, PanelTop, Plug, ScrollText, type LucideIcon } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
 import { PLUGIN_KINDS, type ListingKind } from "@/lib/marketplace-listings";
 import { AGENT_EXTENSION_KINDS, type AgentExtensionKind } from "@/lib/agent-extensions";
 
 interface KindMeta {
-  label: string;
-  plural: string;
+  label: (t: UiTranslator) => string;
+  plural: (t: UiTranslator) => string;
   icon: LucideIcon;
   /** CSS class carrying the kind's tone (`--mp-kind`), see marketplace.css. */
   tone: string;
   /** One line on what installing this kind does. */
-  pitch: string;
+  pitch: (t: UiTranslator) => string;
 }
 
 export type MarketplaceKind = ListingKind | AgentExtensionKind;
@@ -25,53 +26,80 @@ export const AGENT_KIND_ORDER = AGENT_EXTENSION_KINDS;
 
 export const KINDS: Record<MarketplaceKind, KindMeta> = {
   plugin: {
-    label: "Plugin",
-    plural: "Plugins",
+    label: (t) => t("marketplace.kinds.plugin.label", "Plugin"),
+    plural: (t) => t("marketplace.kinds.plugin.plural", "Plugins"),
     icon: Boxes,
     tone: "mp-kind-plugin",
-    pitch: "Several contributions in one release, installed and updated together.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.plugin.pitch",
+        "Several contributions in one release, installed and updated together.",
+      ),
   },
   lsp: {
-    label: "Language server",
-    plural: "Language servers",
+    label: (t) => t("marketplace.kinds.lsp.label", "Language server"),
+    plural: (t) => t("marketplace.kinds.lsp.plural", "Language servers"),
     icon: Code2,
     tone: "mp-kind-lsp",
-    pitch: "Add completions, navigation and diagnostics for your project languages.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.lsp.pitch",
+        "Add completions, navigation and diagnostics for your project languages.",
+      ),
   },
   tab: {
-    label: "Custom tab",
-    plural: "Custom tabs",
+    label: (t) => t("marketplace.kinds.tab.label", "Custom tab"),
+    plural: (t) => t("marketplace.kinds.tab.plural", "Custom tabs"),
     icon: PanelTop,
     tone: "mp-kind-tab",
-    pitch: "Add a workspace tab with a sandboxed web interface and permissions you control.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.tab.pitch",
+        "Add a workspace tab with a sandboxed web interface and permissions you control.",
+      ),
   },
   theme: {
-    label: "Theme",
-    plural: "Themes",
+    label: (t) => t("marketplace.kinds.theme.label", "Theme"),
+    plural: (t) => t("marketplace.kinds.theme.plural", "Themes"),
     icon: Palette,
     tone: "mp-kind-theme",
-    pitch: "Recolor every surface of Cadencr. Declarative colors only — no code runs.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.theme.pitch",
+        "Recolor every surface of Cadencr. Declarative colors only — no code runs.",
+      ),
   },
   provider: {
-    label: "Provider",
-    plural: "Providers",
+    label: (t) => t("marketplace.kinds.provider.label", "Provider"),
+    plural: (t) => t("marketplace.kinds.provider.plural", "Providers"),
     icon: AgentIcon,
     tone: "mp-kind-provider",
-    pitch: "Bring another coding agent into Cadencr over ACP. Runs a verified executable.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.provider.pitch",
+        "Bring another coding agent into Cadencr over ACP. Runs a verified executable.",
+      ),
   },
   skill: {
-    label: "Skill",
-    plural: "Skills",
+    label: (t) => t("marketplace.kinds.skill.label", "Skill"),
+    plural: (t) => t("marketplace.kinds.skill.plural", "Skills"),
     icon: ScrollText,
     tone: "mp-kind-skill",
-    pitch: "Skill packs from each agent CLI's own plugin marketplaces, installed by that CLI.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.skill.pitch",
+        "Skill packs from each agent CLI's own plugin marketplaces, installed by that CLI.",
+      ),
   },
   mcp: {
-    label: "MCP server",
-    plural: "MCP servers",
+    label: (t) => t("marketplace.kinds.mcp.label", "MCP server"),
+    plural: (t) => t("marketplace.kinds.mcp.plural", "MCP servers"),
     icon: Plug,
     tone: "mp-kind-mcp",
-    pitch:
-      "Servers from the official MCP Registry, added to the agent CLIs you pick with their own commands.",
+    pitch: (t) =>
+      t(
+        "marketplace.kinds.mcp.pitch",
+        "Servers from the official MCP Registry, added to the agent CLIs you pick with their own commands.",
+      ),
   },
 };

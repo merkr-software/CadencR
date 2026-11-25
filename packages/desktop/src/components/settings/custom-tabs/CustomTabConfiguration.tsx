@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ export function CustomTabConfiguration({
   tab: PluginTabSummary;
   projects: Project[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const globalFields = tab.configuration.filter((field) => field.scope === "global");
   const projectFields = tab.configuration.filter((field) => field.scope === "project");
   const [projectId, setProjectId] = useState<number | null>(
@@ -43,13 +45,13 @@ export function CustomTabConfiguration({
   });
   const save = useSaveConfiguration(tab);
 
+  const loadingLabel = t("customTabs.customTabConfiguration.loadingSettings", "Loading settings…");
   if (!query.data) {
-    if (query.error) {
-      return (
-        <ErrorRow label={apiErrorMessage(query.error, "Could not load the tab's settings.")} />
-      );
-    }
-    return <LoadingRow label="Loading settings…" />;
+    return query.error ? (
+      <ConfigLoadError error={query.error} />
+    ) : (
+      <LoadingRow label={loadingLabel} />
+    );
   }
   const data: PluginTabConfiguration = query.data;
   // Forms are keyed on what is stored, not on when it was fetched: a refetch
@@ -65,26 +67,34 @@ export function CustomTabConfiguration({
   return (
     <div className="space-y-5">
       {globalFields.length > 0 ? (
-        <ScopeBlock title="All projects">
+        <ScopeBlock title={t("customTabs.customTabConfiguration.allProjects", "All projects")}>
           <CustomTabConfigFields
             key={globalKey}
             draftSlot={{ id: globalSlot, version: globalKey }}
             fields={globalFields}
             stored={data.global}
             saving={save.of(globalSlot).saving}
-            error={save.of(globalSlot).error}
+            error={configurationError(save.of(globalSlot).error, t)}
             onSave={(values) => save.run(globalSlot, null, values)}
           />
         </ScopeBlock>
       ) : null}
       {projectFields.length > 0 ? (
-        <ScopeBlock title="Per project">
+        <ScopeBlock title={t("customTabs.customTabConfiguration.perProject", "Per project")}>
           {projects.length === 0 || projectId === null ? (
-            <p className="text-xs text-muted-foreground">Add a project to set these.</p>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "customTabs.customTabConfiguration.addAProjectToSetThese",
+                "Add a project to set these.",
+              )}
+            </p>
           ) : (
             <div className="space-y-4">
               <SuppressingSelect
-                ariaLabel="Project to configure"
+                ariaLabel={t(
+                  "customTabs.customTabConfiguration.projectPickerLabel",
+                  "Project to configure",
+                )}
                 value={String(projectId)}
                 options={projects.map((project) => ({
                   value: String(project.id),
@@ -93,7 +103,7 @@ export function CustomTabConfiguration({
                 onValueChange={(value) => setProjectId(Number(value))}
               />
               {query.isPlaceholderData ? (
-                <LoadingRow label="Loading settings…" />
+                <LoadingRow label={loadingLabel} />
               ) : (
                 <CustomTabConfigFields
                   key={projectKey}
@@ -101,7 +111,7 @@ export function CustomTabConfiguration({
                   fields={projectFields}
                   stored={data.project ?? NO_VALUES}
                   saving={save.of(projectSlot).saving}
-                  error={save.of(projectSlot).error}
+                  error={configurationError(save.of(projectSlot).error, t)}
                   onSave={(values) => save.run(projectSlot, projectId, values)}
                 />
               )}
@@ -111,6 +121,27 @@ export function CustomTabConfiguration({
       ) : null}
     </div>
   );
+}
+
+function ConfigLoadError({ error }: { error: unknown }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <ErrorRow
+      label={apiErrorMessage(
+        error,
+        t("customTabs.customTabConfiguration.loadError", "Could not load the tab's settings."),
+      )}
+    />
+  );
+}
+
+function configurationError(error: { cause: unknown } | null, t: UiTranslator): string | null {
+  return error
+    ? apiErrorMessage(
+        error.cause,
+        t("customTabs.customTabConfiguration.invalidValue", "Invalid value."),
+      )
+    : null;
 }
 
 function ScopeBlock({ title, children }: { title: string; children: React.ReactNode }) {
@@ -149,19 +180,36 @@ function useSaveConfiguration(tab: PluginTabSummary) {
         });
       } catch (error: unknown) {
         if (apiErrorCode(error) === "PLUGIN_TAB_CONFIG_INVALID") {
-          update(slot, { error: apiErrorMessage(error, "Invalid value.") });
+          update(slot, { error: { cause: error } });
         } else {
-          toastError(error, `Could not save the settings of “${tab.name}”`);
+          toastError(
+            error,
+            translateUi(
+              "customTabs.customTabConfiguration.saveError",
+              "Could not save the settings of “{{name}}”",
+              { name: tab.name },
+            ),
+          );
         }
         update(slot, { saving: false });
         return false;
       }
-      toast.success(`“${tab.name}” settings saved`);
+      toast.success(
+        translateUi("customTabs.customTabConfiguration.saveSuccess", "“{{name}}” settings saved", {
+          name: tab.name,
+        }),
+      );
       try {
         await invalidateByUrlPrefix(queryClient, `/api/plugin-tabs/${tab.id}/configuration`);
       } catch (error: unknown) {
         // Saved either way; a failed reload only leaves the form showing the old values.
-        toastError(error, "Saved, but the settings could not be reloaded");
+        toastError(
+          error,
+          translateUi(
+            "customTabs.customTabConfiguration.savedReloadError",
+            "Saved, but the settings could not be reloaded",
+          ),
+        );
       } finally {
         update(slot, { saving: false });
       }

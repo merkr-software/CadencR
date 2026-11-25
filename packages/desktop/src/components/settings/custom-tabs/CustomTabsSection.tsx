@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -26,6 +27,7 @@ import { useOpenCustomTabProject } from "./useOpenCustomTabProject";
  * so a reload or Back does not open it again.
  */
 export function CustomTabsSection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const data = useCustomTabsData();
   const enablement = useCustomTabEnablement();
   const opener = useOpenCustomTabProject();
@@ -39,12 +41,12 @@ export function CustomTabsSection(): React.JSX.Element {
       <CustomTabReplacements data={data} />
       <SettingsGroup
         bare
-        title="Your custom tabs"
+        title={t("customTabs.customTabsSection.yourCustomTabs", "Your custom tabs")}
         action={
           !empty ? (
             <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
               <Plus className="size-3.5" aria-hidden />
-              Create custom tab
+              {t("customTabs.customTabsSection.createCustomTab", "Create custom tab")}
             </Button>
           ) : undefined
         }
@@ -85,9 +87,22 @@ function CustomTabsList({
   onCreate: () => void;
   render: (tab: CustomTabsData["tabs"][number]) => React.JSX.Element;
 }): React.JSX.Element {
-  if (data.isLoading) return <LoadingRow label="Loading custom tabs…" />;
+  const { t } = useUiTranslation();
+  if (data.isLoading)
+    return (
+      <LoadingRow
+        label={t("customTabs.customTabsSection.loadingCustomTabs", "Loading custom tabs…")}
+      />
+    );
   if (data.error) {
-    return <ErrorRow label={apiErrorMessage(data.error, "Could not load your custom tabs.")} />;
+    return (
+      <ErrorRow
+        label={apiErrorMessage(
+          data.error,
+          t("customTabs.replacements.loadError", "Could not load your custom tabs."),
+        )}
+      />
+    );
   }
   if (data.tabs.length === 0) return <CustomTabsEmptyState onCreate={onCreate} />;
   return (
@@ -95,7 +110,16 @@ function CustomTabsList({
       {data.projectsError ? (
         <div className="mb-3">
           <ErrorRow
-            label={`Per-project choices could not be loaded, so the projects shown below may be wrong: ${apiErrorMessage(data.projectsError, "unknown error")}`}
+            label={t(
+              "customTabs.customTabsSection.projectsError",
+              "Per-project choices could not be loaded, so the projects shown below may be wrong: {{error}}",
+              {
+                error: apiErrorMessage(
+                  data.projectsError,
+                  t("common.unknownError", "Unknown error"),
+                ),
+              },
+            )}
           />
         </div>
       ) : null}
@@ -156,19 +180,24 @@ function useExpandedCards(): [ReadonlyMap<string, boolean>, (id: string, open: b
 }
 
 function CustomTabsEmptyState({ onCreate }: { onCreate: () => void }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-6 py-10 text-center">
       <span className="mb-1 grid size-10 place-items-center rounded-md border border-border bg-card text-muted-foreground">
         <Puzzle className="size-5" aria-hidden />
       </span>
-      <h4 className="text-sm font-semibold text-foreground">No custom tabs yet</h4>
+      <h4 className="text-sm font-semibold text-foreground">
+        {t("customTabs.customTabsSection.noCustomTabsYet", "No custom tabs yet")}
+      </h4>
       <p className="max-w-sm text-xs leading-relaxed text-pretty text-muted-foreground">
-        Build the view you keep wishing a conversation had: a graph of the changes, a dashboard,
-        your team&apos;s tools. Cadencr sets up a starter tab and an agent to build it with you.
+        {t(
+          "customTabs.customTabsSection.emptyDescription",
+          "Build the view you keep wishing a conversation had: a graph of the changes, a dashboard, your team's tools. Cadencr sets up a starter tab and an agent to build it with you.",
+        )}
       </p>
       <Button size="sm" className="mt-2 gap-1.5" onClick={onCreate}>
         <Plus className="size-3.5" aria-hidden />
-        Create custom tab
+        {t("customTabs.customTabsSection.createCustomTab", "Create custom tab")}
       </Button>
     </div>
   );

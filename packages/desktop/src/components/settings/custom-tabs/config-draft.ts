@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { TabConfigField } from "@/api/generated";
 
 /**
@@ -74,6 +75,7 @@ function fieldChange(
   field: TabConfigField,
   draft: DraftValue,
   initial: DraftValue,
+  t: UiTranslator,
 ): { changed: boolean; value: unknown; error?: string } {
   if (typeof draft === "object") return secretChange(draft);
   if (draft === initial) return { changed: false, value: undefined };
@@ -83,25 +85,38 @@ function fieldChange(
   const number = Number(draft);
   return Number.isFinite(number)
     ? { changed: true, value: number }
-    : { changed: true, value: undefined, error: "Enter a number." };
+    : {
+        changed: true,
+        value: undefined,
+        error: t("customTabs.configuration.enterNumber", "Enter a number."),
+      };
 }
 
 /** What a save would send: only the changed keys, `null` to remove a value. */
-export function draftPayload(fields: TabConfigField[], draft: Draft, initial: Draft): DraftPayload {
+export function draftPayload(
+  fields: TabConfigField[],
+  draft: Draft,
+  initial: Draft,
+  t: UiTranslator = translateUi,
+): DraftPayload {
   const payload: DraftPayload = { values: {}, errors: {} };
   for (const field of fields) {
     const current = draft[field.key];
     const before = initial[field.key];
     if (current === undefined || before === undefined) continue;
-    const change = fieldChange(field, current, before);
+    const change = fieldChange(field, current, before, t);
     if (change.error) payload.errors[field.key] = change.error;
     else if (change.changed) payload.values[field.key] = change.value;
   }
   return payload;
 }
 
-export function defaultHint(field: TabConfigField): string | undefined {
+export function defaultHint(
+  field: TabConfigField,
+  t: UiTranslator = translateUi,
+): string | undefined {
   const value: unknown = field.default;
-  if (typeof value === "string" || typeof value === "number") return `Default: ${value}`;
+  if (typeof value === "string" || typeof value === "number")
+    return t("customTabs.configuration.defaultHint", "Default: {{value}}", { value });
   return undefined;
 }

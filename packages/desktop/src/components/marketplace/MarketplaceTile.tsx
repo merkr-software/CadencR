@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { displayVersion, type MarketplaceListing } from "@/lib/marketplace-listings";
@@ -59,6 +60,7 @@ export const MarketplaceTile = memo(function MarketplaceTile({
 }: {
   listing: MarketplaceListing;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const version = displayVersion(listing);
   return (
     <TileFrame
@@ -73,7 +75,7 @@ export const MarketplaceTile = memo(function MarketplaceTile({
           {version && <span className="font-mono text-[10.5px]">v{version}</span>}
         </>
       }
-      description={describe(listing)}
+      description={describe(listing, t)}
       chips={listing.contributes}
       art={<PluginArt listing={listing} variant="tile" />}
     />

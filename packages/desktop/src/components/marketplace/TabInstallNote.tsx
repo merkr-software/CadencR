@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { platformList, reasonClause } from "@/components/plugin-tabs/plugin-tab-access";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
 import { PLUGIN_TAB_ERROR } from "@/lib/plugin-tabs/error-codes";
@@ -5,11 +6,18 @@ import type { MarketplaceListing } from "@/lib/marketplace-listings";
 import { useMarketplaceState } from "./MarketplaceContext";
 
 /** The service refusals of a tab install or update that the panel explains in place. */
-const REFUSALS: Readonly<Record<string, (detail: string) => string>> = {
-  [PLUGIN_TAB_ERROR.managedBlocked]: (detail) =>
-    `Not installed: ${reasonClause(detail)}. This version is on Cadencr's revocation list — choose another one.`,
-  [PLUGIN_TAB_ERROR.policyUnavailable]: () =>
-    "Cadencr couldn't check its revocation list, so nothing was installed. Check your connection and try again.",
+const REFUSALS: Readonly<Record<string, (t: UiTranslator, detail: string) => string>> = {
+  [PLUGIN_TAB_ERROR.managedBlocked]: (t, detail) =>
+    t(
+      "marketplace.tabInstallNote.blockedFailure",
+      "Not installed: {{reason}}. This version is on Cadencr's revocation list — choose another one.",
+      { reason: reasonClause(detail) },
+    ),
+  [PLUGIN_TAB_ERROR.policyUnavailable]: (t) =>
+    t(
+      "marketplace.tabInstallNote.policyFailed",
+      "Cadencr couldn't check its revocation list, so nothing was installed. Check your connection and try again.",
+    ),
 };
 
 /**
@@ -26,6 +34,7 @@ export function TabInstallNote({
   listing: MarketplaceListing;
   version: string;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { tabs } = useMarketplaceState();
   if (listing.kind !== "tab") return null;
   const mutation = tabs.mutation;
@@ -35,7 +44,13 @@ export function TabInstallNote({
   if (refusal) {
     return (
       <p role="alert" className="text-xs text-destructive">
-        {refusal(apiErrorMessage(mutation.error, "no reason given"))}
+        {refusal(
+          t,
+          apiErrorMessage(
+            mutation.error,
+            t("marketplace.tabInstallNote.noReason", "no reason given"),
+          ),
+        )}
       </p>
     );
   }
@@ -53,8 +68,11 @@ export function TabInstallNote({
   ) {
     return (
       <p role="status" className="text-xs text-destructive">
-        Version {entry.version} is on Cadencr&apos;s revocation list: {reasonClause(entry.blocked)}.
-        Choose another version.
+        {t(
+          "marketplace.tabInstallNote.blockedVersion",
+          "Version {{version}} is on Cadencr's revocation list: {{reason}}. Choose another version.",
+          { version: entry.version, reason: reasonClause(entry.blocked) },
+        )}
       </p>
     );
   }
@@ -62,18 +80,38 @@ export function TabInstallNote({
   if (!refused && entry?.unavailable === "protocol") {
     return (
       <p role="status" className="text-xs text-[var(--acc-orange)]">
-        Needs a newer Cadencr: version {entry.version}&apos;s native backend speaks protocol{" "}
-        {entry.nativeCode?.protocol ?? "unknown"}, which this Cadencr doesn&apos;t.
-        {listing.availableHere ? " Choose another version." : " Update Cadencr to install it."}
+        {t(
+          "marketplace.tabInstallNote.incompatibleProtocol",
+          "Needs a newer Cadencr: version {{version}}'s native backend speaks protocol {{protocol}}, which this Cadencr doesn't.",
+          {
+            version: entry.version,
+            protocol:
+              entry.nativeCode?.protocol ??
+              t("marketplace.tabInstallNote.unknownProtocol", "unknown"),
+          },
+        )}{" "}
+        {listing.availableHere
+          ? t("marketplace.tabInstallNote.chooseAnotherVersion", "Choose another version.")
+          : t("marketplace.tabInstallNote.updateCadencr", "Update Cadencr to install it.")}
       </p>
     );
   }
-  const platforms = entry?.platforms.length ? platformList(entry.platforms) : null;
+  const platforms = entry?.platforms.length ? platformList(entry.platforms, t) : null;
   return (
     <p role="status" className="text-xs text-[var(--acc-orange)]">
-      Not available on this platform: its native backend ships
-      {platforms ? ` for ${platforms} only` : " no build for this computer"}.
-      {listing.availableHere && !refused ? " Choose another version." : ""}
+      {platforms
+        ? t(
+            "marketplace.tabInstallNote.otherPlatformsOnly",
+            "Not available on this platform: its native backend ships for {{platforms}} only.",
+            { platforms },
+          )
+        : t(
+            "marketplace.tabInstallNote.noPlatformBuild",
+            "Not available on this platform: its native backend ships no build for this computer.",
+          )}
+      {listing.availableHere && !refused && (
+        <> {t("marketplace.tabInstallNote.chooseAnotherVersion", "Choose another version.")}</>
+      )}
     </p>
   );
 }

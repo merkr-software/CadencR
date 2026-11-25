@@ -1,3 +1,4 @@
+import { translateUi as t } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 import {
@@ -57,7 +58,15 @@ export async function launchCustomAction(
     try {
       values = await storedVariables(target);
     } catch (error) {
-      toast.error(`${action.name}: ${apiErrorMessage(error, "could not read its variables")}`);
+      toast.error(
+        t("customActions.launch.variablesError", "{{name}}: {{error}}", {
+          name: action.name,
+          error: apiErrorMessage(
+            error,
+            t("customActions.launch.variablesUnavailable", "could not read its variables"),
+          ),
+        }),
+      );
       return;
     }
     if (options.promptVariables || missingVariables(action.variable_names, values).length > 0) {
@@ -115,7 +124,12 @@ async function startCustomAction(
     if (showOutput) store.openMenu(featureId, action.id);
     invalidateCustomActionRunQueries({ queryClient, projectId, actionId: action.id, featureId });
   } catch (error) {
-    toast.error(`${action.name} did not start: ${apiErrorMessage(error, "unknown error")}`);
+    toast.error(
+      t("customActions.launch.didNotStart", "{{name}} did not start: {{error}}", {
+        name: action.name,
+        error: apiErrorMessage(error, t("common.unknownError", "Unknown error")),
+      }),
+    );
   } finally {
     useCustomActionsUiStore.getState().setStarting(action.id, featureId, false);
   }
@@ -129,7 +143,12 @@ export async function stopCustomActionRun(
   try {
     await cancelCustomActionRun(target.action.id, runId);
   } catch (error) {
-    toast.error(`Could not stop ${target.action.name}: ${apiErrorMessage(error, "unknown error")}`);
+    toast.error(
+      t("customActions.launch.couldNotStop", "Could not stop {{name}}: {{error}}", {
+        name: target.action.name,
+        error: apiErrorMessage(error, t("common.unknownError", "Unknown error")),
+      }),
+    );
   }
 }
 
@@ -154,8 +173,11 @@ export function showCustomActionOutput(target: {
     .catch((error: unknown) => {
       const store = useCustomActionsUiStore.getState();
       if (store.menu?.featureId === featureId) store.closeMenu();
-      toast.error("Could not open the conversation", {
-        description: apiErrorMessage(error, "navigation failed"),
+      toast.error(t("customActions.launch.openError", "Could not open the conversation"), {
+        description: apiErrorMessage(
+          error,
+          t("customActions.launch.navigationFailed", "navigation failed"),
+        ),
       });
     });
 }
@@ -168,10 +190,10 @@ export function showCustomActionOutput(target: {
 export async function announceFinishedRun(runId: number): Promise<void> {
   const tracked = useCustomActionsUiStore.getState().untrackRun(runId);
   if (!tracked) return;
-  const showOutput = {
-    label: "Show output",
+  const showOutput = () => ({
+    label: t("customActions.launch.showOutput", "Show output"),
     onClick: () => showCustomActionOutput(tracked),
-  };
+  });
   try {
     const runs = await getCustomActionRuns(tracked.actionId, {
       feature_id: tracked.featureId,
@@ -179,17 +201,35 @@ export async function announceFinishedRun(runId: number): Promise<void> {
     });
     const run = runs.find((candidate) => candidate.id === runId);
     if (run?.exit_code === 0) {
-      toast.success(`${tracked.actionName} passed`, { action: showOutput });
+      toast.success(
+        t("customActions.launch.passed", "{{name}} passed", { name: tracked.actionName }),
+        { action: showOutput() },
+      );
     } else if (run?.exit_code === STOPPED_EXIT_CODE) {
-      toast(`${tracked.actionName} stopped`, { action: showOutput });
+      toast(t("customActions.launch.stopped", "{{name}} stopped", { name: tracked.actionName }), {
+        action: showOutput(),
+      });
     } else {
-      const exit = run?.exit_code == null ? "" : ` (exit ${run.exit_code})`;
-      toast.error(`${tracked.actionName} failed${exit}`, { action: showOutput });
+      const message =
+        run?.exit_code == null
+          ? t("customActions.launch.failed", "{{name}} failed", { name: tracked.actionName })
+          : t("customActions.launch.failedWithExit", "{{name}} failed (exit {{exit}})", {
+              name: tracked.actionName,
+              exit: run.exit_code,
+            });
+      toast.error(message, { action: showOutput() });
     }
   } catch (error) {
-    toast.error(`${tracked.actionName} finished, but its result could not be read`, {
-      description: apiErrorMessage(error, "unknown error"),
-      action: showOutput,
-    });
+    toast.error(
+      t(
+        "customActions.launch.resultUnavailable",
+        "{{name}} finished, but its result could not be read",
+        { name: tracked.actionName },
+      ),
+      {
+        description: apiErrorMessage(error, t("common.unknownError", "Unknown error")),
+        action: showOutput(),
+      },
+    );
   }
 }

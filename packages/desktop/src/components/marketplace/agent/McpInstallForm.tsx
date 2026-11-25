@@ -1,16 +1,10 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useId } from "react";
 import type { McpInput, McpInstallOption } from "@/api/generated";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-
-const KIND_LABELS: Record<string, string> = {
-  npm: "npm package",
-  pypi: "PyPI package",
-  oci: "Container image",
-  remote: "Remote server",
-};
 
 /** What the user still has to fill in before `option` can install. */
 export function missingInputs(
@@ -32,8 +26,19 @@ export function OptionPicker({
   selected: number;
   onSelect: (index: number) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const kindLabels: Readonly<Record<string, string | undefined>> = {
+    npm: t("marketplace.agent.mcpInstallForm.npmKind", "npm package"),
+    pypi: t("marketplace.agent.mcpInstallForm.pypiKind", "PyPI package"),
+    oci: t("marketplace.agent.mcpInstallForm.ociKind", "Container image"),
+    remote: t("marketplace.agent.mcpInstallForm.remoteKind", "Remote server"),
+  };
   return (
-    <div role="radiogroup" aria-label="How the server runs" className="grid gap-2">
+    <div
+      role="radiogroup"
+      aria-label={t("marketplace.agent.mcpInstallForm.howTheServerRuns", "How the server runs")}
+      className="grid gap-2"
+    >
       {options.map((option, index) => (
         <button
           key={`${option.kind}:${option.summary}`}
@@ -49,9 +54,11 @@ export function OptionPicker({
           )}
         >
           <span className="block text-[12.5px] font-medium">
-            {KIND_LABELS[option.kind] ?? option.kind}
+            {Object.hasOwn(kindLabels, option.kind) ? kindLabels[option.kind] : option.kind}
             <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-              {option.transport === "stdio" ? "runs locally" : option.transport.toUpperCase()}
+              {option.transport === "stdio"
+                ? t("marketplace.agent.mcpInstallForm.runsLocally", "runs locally")
+                : option.transport.toUpperCase()}
             </span>
           </span>
           <code className="block truncate font-mono text-[11px] text-muted-foreground">
@@ -72,22 +79,28 @@ function InputField({
   value: string;
   onChange: (value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const id = useId();
   const where =
     input.kind === "env"
-      ? "Environment variable"
+      ? t("marketplace.agent.mcpInstallForm.environment", "Environment variable")
       : input.kind === "header"
-        ? "HTTP header"
+        ? t("marketplace.agent.mcpInstallForm.httpHeader", "HTTP header")
         : input.kind === "url_variable"
-          ? "URL value"
-          : "Argument";
+          ? t("marketplace.agent.mcpInstallForm.urlValue", "URL value")
+          : t("marketplace.agent.mcpInstallForm.commandArgument", "Argument");
   return (
     <div className="grid gap-1">
       <label htmlFor={id} className="flex items-baseline gap-1.5 text-[12px] font-medium">
         <span className="font-mono">{input.label}</span>
         <span className="text-[11px] font-normal text-muted-foreground">
-          {where}
-          {input.required ? " · required" : " · optional"}
+          {input.required
+            ? t("marketplace.agent.mcpInstallForm.requiredInput", "{{kind}} · required", {
+                kind: where,
+              })
+            : t("marketplace.agent.mcpInstallForm.optionalInput", "{{kind}} · optional", {
+                kind: where,
+              })}
         </span>
       </label>
       <Input
@@ -121,13 +134,14 @@ export function McpValuesForm({
   serverName: string;
   onServerNameChange: (name: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const nameId = useId();
   const nameValid = SERVER_NAME_PATTERN.test(serverName);
   return (
     <div className="grid gap-3">
       <div className="grid gap-1">
         <label htmlFor={nameId} className="text-[12px] font-medium">
-          Server name in the CLI
+          {t("marketplace.agent.mcpInstallForm.serverNameInTheCli", "Server name in the CLI")}
         </label>
         <Input
           id={nameId}
@@ -139,7 +153,10 @@ export function McpValuesForm({
         />
         {!nameValid && (
           <p role="alert" className="text-[11px] text-destructive">
-            Letters, digits, dots, dashes or underscores, starting with a letter or digit.
+            {t(
+              "marketplace.agent.mcpInstallForm.serverNameFormat",
+              "Letters, digits, dots, dashes or underscores, starting with a letter or digit.",
+            )}
           </p>
         )}
       </div>
@@ -153,8 +170,12 @@ export function McpValuesForm({
       ))}
       {option.inputs.some((input) => input.secret) && (
         <p className="text-[11px] text-muted-foreground">
-          Secrets go straight into the CLI's own configuration, the same as typing its{" "}
-          <code>mcp add</code> command. Cadencr does not keep a copy.
+          <UiTrans
+            i18nKey="marketplace.agent.mcpInstallForm.secretHandling"
+            defaults="Secrets go straight into the CLI's own configuration, the same as typing its <command>{{command}}</command> command. Cadencr does not keep a copy."
+            components={{ command: <code /> }}
+            values={{ command: "mcp add" }}
+          />
         </p>
       )}
     </div>

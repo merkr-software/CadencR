@@ -6,6 +6,7 @@ import {
   clearDesktopBridgeOverrideForTests,
   setDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
+import { uiI18n } from "@/lib/i18n/ui";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { render, screen, waitFor } from "@/test-utils";
 
@@ -103,6 +104,30 @@ describe("PluginTabView", () => {
     expect(mock.bridge.reload).toHaveBeenCalledWith("7:plugin:graph");
   });
 
+  it("relocalizes a retained native reload refusal without retrying", async () => {
+    const previousLanguage = uiI18n.language;
+    const instanceId = "7:plugin:graph";
+    uiI18n.addResourceBundle("fr-CA", "ui", {
+      "customTabs.native.unknownInstance": "Instance d’onglet inconnue : {{id}}",
+    });
+    mock.bridge.reload.mockResolvedValueOnce({ kind: "unknown-instance", instanceId });
+    try {
+      const { user } = renderView();
+      act(() => mock.emit({ instanceId, type: "load-failed", detail: "HTTP 404" }));
+      await user.click(screen.getByRole("button", { name: "Reload" }));
+      const detail = await screen.findByText(`Unknown custom tab instance: ${instanceId}`);
+
+      await act(() => uiI18n.changeLanguage("fr-CA"));
+
+      expect(screen.getByText(`Instance d’onglet inconnue : ${instanceId}`)).toBe(detail);
+      expect(mock.bridge.reload).toHaveBeenCalledOnce();
+      expect(mock.bridge.open).toHaveBeenCalledOnce();
+    } finally {
+      await act(() => uiI18n.changeLanguage(previousLanguage));
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+    }
+  });
+
   it("shows the load failure detail", async () => {
     renderView();
     await waitFor(() => expect(mock.bridge.open).toHaveBeenCalled());
@@ -131,6 +156,39 @@ describe("PluginTabView", () => {
     await user.click(screen.getByRole("button", { name: "Manage custom tabs" }));
     expect(navigate).toHaveBeenCalledWith({ to: "/settings", search: { section: "custom-tabs" } });
     expect(mock.bridge.open).not.toHaveBeenCalled();
+  });
+
+  it("localizes known manifest findings while retaining codes, fields and raw diagnostics", async () => {
+    const previousLanguage = uiI18n.language;
+    uiI18n.addResourceBundle("fr-CA", "ui", {
+      "customTabs.issues.secretDefault": "Un secret ne peut pas avoir de valeur par défaut.",
+    });
+    try {
+      renderView({
+        status: "invalid",
+        errors: [
+          {
+            code: "CONFIG_SECRET_DEFAULT",
+            field: "configuration[0].default",
+            message: "a secret cannot have a default",
+          },
+          { code: "MANIFEST_INVALID_JSON", message: "tab.json: unknown field `rôle`" },
+        ],
+      });
+      expect(screen.getByText("a secret cannot have a default")).toBeVisible();
+      await act(async () => {
+        await uiI18n.changeLanguage("fr-CA");
+      });
+      expect(screen.getByText("Un secret ne peut pas avoir de valeur par défaut.")).toBeVisible();
+      expect(screen.getByText("CONFIG_SECRET_DEFAULT")).toBeVisible();
+      expect(screen.getByText(/configuration\[0\]\.default/)).toBeVisible();
+      expect(screen.getByText("tab.json: unknown field `rôle`")).toBeVisible();
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage(previousLanguage);
+      });
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+    }
   });
 
   it("explains a tab that is off for the project", () => {

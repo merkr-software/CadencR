@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -86,8 +87,8 @@ describe("server-confirmed theme operations", () => {
       });
       expect(result.current.mutation.isSuccess).toBe(true);
       expect(result.current.notice?.tone).toBe("done");
-      expect(result.current.notice?.text).toContain(`${kind} confirmed by Cadencr.`);
-      expect(result.current.notice?.text).toContain(warning);
+      expect(result.current.notice?.text(translateUi)).toContain(`${kind} confirmed by Cadencr.`);
+      expect(result.current.notice?.text(translateUi)).toContain(warning);
       client.clear();
     },
   );
@@ -159,10 +160,8 @@ describe("server-confirmed theme operations", () => {
       await waitFor(() => expect(result.current.mutation.isError).toBe(true));
       expect(spy).toHaveBeenCalledWith({ queryKey: getWorkspaceSettingsQueryKey() });
       expect(spy).toHaveBeenCalledWith({ queryKey: ["marketplace", "managed-themes"] });
-      expect(result.current.notice).toMatchObject({
-        tone: "error",
-        text: expect.stringMatching(/not confirmed/i),
-      });
+      expect(result.current.notice?.tone).toBe("error");
+      expect(result.current.notice?.text(translateUi)).toMatch(/not confirmed/i);
       spy.mockClear();
       await act(async () => {
         await result.current.recovery.mutateAsync();
@@ -180,10 +179,8 @@ describe("server-confirmed theme operations", () => {
     );
     await waitFor(() => expect(result.current.mutation.isError).toBe(true));
     expect(spy.mock.calls.some(([options]) => typeof options?.predicate === "function")).toBe(true);
-    expect(result.current.notice).toMatchObject({
-      tone: "error",
-      text: expect.stringMatching(/not confirmed/i),
-    });
+    expect(result.current.notice?.tone).toBe("error");
+    expect(result.current.notice?.text(translateUi)).toMatch(/not confirmed/i);
   });
   it("revalidates installed themes after a confirmed catalog and policy refresh", async () => {
     vi.mocked(refreshManagedThemeCatalog).mockResolvedValue({

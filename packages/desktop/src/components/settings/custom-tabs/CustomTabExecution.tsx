@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { AlertTriangle, CpuIcon, TerminalIcon } from "lucide-react";
 import type { PluginTabSummary } from "@/api/generated";
 import { backendBinaries } from "@/components/plugin-tabs/plugin-tab-access";
@@ -41,13 +42,22 @@ function CommandsAccess({
   commands: ExecutionTab["commands"];
   added?: ReadonlySet<string>;
 }) {
+  const { t } = useUiTranslation();
   if (commands.length === 0) return null;
   return (
     <div className="flex items-start gap-2.5">
       <TerminalIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-yellow)]" aria-hidden />
       <div className="min-w-0 space-y-1.5">
-        <p className="text-xs font-medium leading-tight">Runs commands on your computer</p>
-        <ul className="space-y-1" aria-label="Commands">
+        <p className="text-xs font-medium leading-tight">
+          {t(
+            "customTabs.customTabExecution.runsCommandsOnYourComputer",
+            "Runs commands on your computer",
+          )}
+        </p>
+        <ul
+          className="space-y-1"
+          aria-label={t("customTabs.customTabExecution.commands", "Commands")}
+        >
           {commands.map((command) => (
             <li key={command.program} className="text-xs leading-snug text-muted-foreground">
               <span className="mr-1.5 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10.5px] text-foreground">
@@ -59,11 +69,15 @@ function CommandsAccess({
           ))}
         </ul>
         <p className={cn(WARNING_BANNER_CLASS, "text-xs leading-snug")}>
-          Cadencr runs these programs for the tab, without a shell, in this conversation&apos;s
-          folder, with whatever arguments the tab chooses. Most programs can run any code from their
-          arguments (<span className="font-mono">git</span> aliases,{" "}
-          <span className="font-mono">find -exec</span>, <span className="font-mono">ssh</span>{" "}
-          options), so the tab can do anything you can.
+          <UiTrans
+            i18nKey="customTabs.customTabExecution.commandWarning"
+            defaults="Cadencr runs these programs for the tab, without a shell, in this conversation's folder, with whatever arguments the tab chooses. Most programs can run any code from their arguments (<git/> aliases, <find/>, <ssh/> options), so the tab can do anything you can."
+            components={{
+              git: <span className="font-mono">git</span>,
+              find: <span className="font-mono">find -exec</span>,
+              ssh: <span className="font-mono">ssh</span>,
+            }}
+          />
         </p>
       </div>
     </div>
@@ -71,6 +85,7 @@ function CommandsAccess({
 }
 
 function BackendAccess({ tab, isNew }: { tab: ExecutionTab; isNew: boolean }) {
+  const { t } = useUiTranslation();
   const { backend } = tab;
   if (!backend) return null;
   return (
@@ -78,7 +93,7 @@ function BackendAccess({ tab, isNew }: { tab: ExecutionTab; isNew: boolean }) {
       <CpuIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-red)]" aria-hidden />
       <div className="min-w-0 space-y-1.5">
         <p className="text-xs font-medium leading-tight">
-          Runs native code with your rights
+          {t("customTabs.customTabExecution.nativeCodeReach", "Runs native code with your rights")}
           {isNew ? <NewMark /> : null}
         </p>
         <p className="text-xs leading-snug text-muted-foreground">
@@ -93,9 +108,10 @@ function BackendAccess({ tab, isNew }: { tab: ExecutionTab; isNew: boolean }) {
         >
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-red)]" aria-hidden />
           <span>
-            This program runs on your computer as you: it can read and change any of your files,
-            start other programs and use the network. Cadencr does not sandbox it. Only its access
-            to Cadencr data is limited, to the permissions above.
+            {t(
+              "customTabs.customTabExecution.thisProgramRunsOnYourComputerAs",
+              "This program runs on your computer as you: it can read and change any of your files, start other programs and use the network. Cadencr does not sandbox it. Only its access to Cadencr data is limited, to the permissions above.",
+            )}
           </span>
         </p>
       </div>

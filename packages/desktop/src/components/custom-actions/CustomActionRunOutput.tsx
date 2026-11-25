@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 
 import type { CustomActionRun } from "@/api/generated";
@@ -21,6 +22,7 @@ export const CustomActionRunOutput = memo(function CustomActionRunOutput({
   /** Sets the height: the output scrolls inside it. */
   className?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const text = useMemo(
     () => [run.stdout.trimEnd(), run.stderr.replace(/^\n+/, "")].filter(Boolean).join("\n"),
     [run],
@@ -45,7 +47,7 @@ export const CustomActionRunOutput = memo(function CustomActionRunOutput({
       ref={scrollRef}
       role="log"
       aria-live={running ? "polite" : "off"}
-      aria-label="Run output"
+      aria-label={t("customActions.customActionRunOutput.runOutput", "Run output")}
       tabIndex={0}
       onScroll={(event) => {
         const element = event.currentTarget;
@@ -61,7 +63,9 @@ export const CustomActionRunOutput = memo(function CustomActionRunOutput({
         <pre className="whitespace-pre-wrap break-words">{rendered}</pre>
       ) : (
         <p className="text-[var(--code-fg)]/60 italic">
-          {running ? "Waiting for output…" : "The command printed nothing."}
+          {running
+            ? t("customActions.output.waiting", "Waiting for output…")
+            : t("customActions.output.empty", "The command printed nothing.")}
         </p>
       )}
     </div>

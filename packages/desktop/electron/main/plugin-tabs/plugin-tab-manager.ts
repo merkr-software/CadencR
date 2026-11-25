@@ -1,3 +1,4 @@
+import { translateUi } from "../../../src/shared/ui-i18n";
 import type { BrowserWindow } from "electron";
 
 import {
@@ -8,6 +9,7 @@ import {
   type PluginTabEventType,
   type PluginTabKeyInput,
   type PluginTabOwnShortcut,
+  type PluginTabReloadFailure,
   type PluginTabShortcutBinding,
   type PluginTabTheme,
 } from "../../../src/shared/plugin-tab-host";
@@ -115,8 +117,9 @@ export class PluginTabManager {
     if (!visible) this.enforceLimit();
   }
 
-  reload(instanceId: string): void {
-    const instance = this.require(instanceId);
+  reload(instanceId: string): PluginTabReloadFailure | void {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return { kind: "unknown-instance", instanceId };
     if (instance.guest) {
       instance.guest.webContents.reload();
       return;
@@ -324,12 +327,23 @@ export class PluginTabManager {
 
   private require(instanceId: string): PluginTabInstance {
     const instance = this.instances.get(instanceId);
-    if (!instance) throw new Error(`Unknown custom tab instance: ${instanceId}`);
+    if (!instance)
+      throw new Error(
+        translateUi("customTabs.native.unknownInstance", "Unknown custom tab instance: {{id}}", {
+          id: instanceId,
+        }),
+      );
     return instance;
   }
 
   private requireGuest(instance: PluginTabInstance): PluginTabGuest {
-    if (!instance.guest) throw new Error("This custom tab is not running; reload it first.");
+    if (!instance.guest)
+      throw new Error(
+        translateUi(
+          "customTabs.native.tabNotRunning",
+          "This custom tab is not running; reload it first.",
+        ),
+      );
     return instance.guest;
   }
 }

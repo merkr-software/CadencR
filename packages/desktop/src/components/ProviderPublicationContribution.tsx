@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { publicationBundles } from "./PublicationRequest";
 import { useState } from "react";
 import { CheckCircle2, Copy, FolderOpen, Loader2 } from "lucide-react";
@@ -24,6 +25,7 @@ export function ProviderPublicationContribution({
   disabled: boolean;
   onPendingChange: (pending: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [confirmed, setConfirmed] = useState(false);
   const [prepared, setPrepared] = useState<PreparedPublicationContribution | null>(null);
   const mutation = usePreparePublicationContribution({
@@ -53,11 +55,14 @@ export function ProviderPublicationContribution({
   return (
     <div className="space-y-3 rounded-lg border p-3 text-sm">
       <div className="space-y-1">
-        <p className="font-medium">Prepare a local registry contribution</p>
+        <p className="font-medium">
+          {t("marketplace.publication.contribution.title", "Prepare a local registry contribution")}
+        </p>
         <p className="text-xs text-muted-foreground">
-          This verifies the exact GitHub release is already published, then writes contribution
-          files locally. It does not submit a pull request, obtain registry acceptance, or sign the
-          contribution. Missing or draft releases are not published automatically.
+          {t(
+            "marketplace.publication.contribution.description",
+            "This verifies the exact GitHub release is already published, then writes contribution files locally. It does not submit a pull request, obtain registry acceptance, or sign the contribution. Missing or draft releases are not published automatically.",
+          )}
         </p>
       </div>
       <label className="flex items-start gap-2">
@@ -65,10 +70,16 @@ export function ProviderPublicationContribution({
           checked={confirmed}
           disabled={disabled || mutation.isPending}
           onCheckedChange={(checked) => setConfirmed(checked === true)}
-          aria-label="I confirm local file creation and read-only GitHub verification"
+          aria-label={t(
+            "marketplace.publication.contribution.confirmLocalFilesLabel",
+            "I confirm local file creation and read-only GitHub verification",
+          )}
         />
         <span>
-          I confirm local file creation and read-only GitHub verification for this exact preview.
+          {t(
+            "marketplace.publication.contribution.confirmLocalFilesDetail",
+            "I confirm local file creation and read-only GitHub verification for this exact preview.",
+          )}
         </span>
       </label>
       <Button
@@ -78,11 +89,16 @@ export function ProviderPublicationContribution({
         onClick={prepare}
       >
         {mutation.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-        {mutation.isPending ? "Preparing registry contribution…" : "Prepare registry contribution"}
+        {mutation.isPending
+          ? t("marketplace.publication.contribution.preparing", "Preparing registry contribution…")
+          : t("marketplace.publication.contribution.prepare", "Prepare registry contribution")}
       </Button>
       {mutation.isError ? (
         <PublicationError
-          prefix="Could not prepare the registry contribution"
+          prefix={t(
+            "marketplace.publication.contribution.prepareFailed",
+            "Could not prepare the registry contribution",
+          )}
           error={mutation.error}
         />
       ) : null}
@@ -96,22 +112,46 @@ function PreparedContributionResult({
 }: {
   prepared: PreparedPublicationContribution;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="space-y-3 rounded-lg border border-[var(--acc-green)]/30 bg-[var(--acc-green)]/5 p-3"
     >
       <p className="flex items-center gap-2 font-medium text-[var(--acc-green)]">
-        <CheckCircle2 className="size-4" aria-hidden /> Local contribution files prepared
+        <CheckCircle2 className="size-4" aria-hidden />{" "}
+        {t("marketplace.publication.contribution.prepared", "Local contribution files prepared")}
       </p>
       <dl className="space-y-2 text-xs">
-        <PathDetail label="Output directory" path={prepared.output_directory} reveal />
-        <PathDetail label="Package metadata" path={prepared.package_path} />
-        <PathDetail label="Submission metadata" path={prepared.submission_path} />
-        <PathDetail label="Pull request instructions" path={prepared.pull_request_path} />
+        <PathDetail
+          label={t("marketplace.publication.contribution.outputDirectory", "Output directory")}
+          path={prepared.output_directory}
+          reveal
+        />
+        <PathDetail
+          label={t("marketplace.publication.contribution.packageMetadata", "Package metadata")}
+          path={prepared.package_path}
+        />
+        <PathDetail
+          label={t(
+            "marketplace.publication.contribution.submissionMetadata",
+            "Submission metadata",
+          )}
+          path={prepared.submission_path}
+        />
+        <PathDetail
+          label={t(
+            "marketplace.publication.contribution.pullRequestInstructions",
+            "Pull request instructions",
+          )}
+          path={prepared.pull_request_path}
+        />
       </dl>
       <p className="text-xs text-muted-foreground">
-        Local files only. No pull request was submitted, accepted, or signed.
+        {t(
+          "marketplace.publication.contribution.localFilesNotice",
+          "Local files only. No pull request was submitted, accepted, or signed.",
+        )}
       </p>
     </div>
   );
@@ -126,13 +166,20 @@ function PathDetail({
   path: string;
   reveal?: boolean;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
   const [revealPending, setRevealPending] = useState(false);
   const revealPath = async (): Promise<void> => {
     setRevealPending(true);
     try {
       await desktopBridge.revealInFinder(path);
     } catch (error) {
-      toastError(error, "Could not reveal the contribution files.");
+      toastError(
+        error,
+        translateUi(
+          "marketplace.publication.contribution.revealFailed",
+          "Could not reveal the contribution files.",
+        ),
+      );
     } finally {
       setRevealPending(false);
     }
@@ -146,8 +193,15 @@ function PathDetail({
           type="button"
           size="icon-sm"
           variant="ghost"
-          aria-label={`Copy ${label.toLowerCase()}`}
-          onClick={() => void copyToClipboard(path, `${label} copied`)}
+          aria-label={t("marketplace.publication.contribution.copyPath", "Copy {{label}}", {
+            label: label.toLocaleLowerCase(i18n.resolvedLanguage),
+          })}
+          onClick={() =>
+            void copyToClipboard(
+              path,
+              t("marketplace.publication.contribution.pathCopied", "{{label}} copied", { label }),
+            )
+          }
         >
           <Copy className="size-3.5" aria-hidden />
         </Button>
@@ -158,7 +212,12 @@ function PathDetail({
             variant="ghost"
             disabled={revealPending}
             aria-label={
-              revealPending ? "Revealing contribution files" : "Reveal contribution files"
+              revealPending
+                ? t(
+                    "marketplace.publication.contribution.revealingFiles",
+                    "Revealing contribution files",
+                  )
+                : t("marketplace.publication.contribution.revealFiles", "Reveal contribution files")
             }
             onClick={() => void revealPath()}
           >

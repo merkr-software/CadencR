@@ -18,8 +18,8 @@ describe("action editor form", () => {
       runInTerminal: false,
     };
     expect(validateCustomActionForm(form)).toEqual({
-      name: "Give the action a name.",
-      command: "Enter the command to run.",
+      name: true,
+      command: true,
     });
     expect(validateCustomActionForm({ ...form, name: "Lint", command: "pnpm lint" })).toEqual({});
   });

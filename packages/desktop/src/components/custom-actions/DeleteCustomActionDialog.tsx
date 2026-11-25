@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,21 +24,32 @@ export function DeleteCustomActionDialog({
   onClose,
   onDeleted,
 }: DeleteCustomActionDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const deletion = useDeleteCustomAction();
   const reach =
     action?.scope === "global"
-      ? "It is removed from every project, with its run history, saved values and schedules."
-      : "It is removed from this project, with its run history, saved values and schedules.";
+      ? t(
+          "customActions.delete.global",
+          "It is removed from every project, with its run history, saved values and schedules.",
+        )
+      : t(
+          "customActions.delete.project",
+          "It is removed from this project, with its run history, saved values and schedules.",
+        );
   return (
     <ConfirmDialog
       open={action !== null}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={action ? `Delete "${action.name}"?` : "Delete action?"}
+      title={
+        action
+          ? t("customActions.delete.confirm", 'Delete "{{name}}"?', { name: action.name })
+          : t("customActions.deleteCustomActionDialog.deleteAction", "Delete action?")
+      }
       description={reach}
-      confirmText="Delete"
+      confirmText={t("common.delete", "Delete")}
       variant="destructive"
       busy={deletion.isPending}
       onConfirm={async () => {
@@ -46,12 +58,17 @@ export function DeleteCustomActionDialog({
           await deletion.mutateAsync({ id: action.id });
         } catch (error) {
           toast.error(
-            `Could not delete ${action.name}: ${apiErrorMessage(error, "unknown error")}`,
+            translateUi("customActions.delete.failed", "Could not delete {{name}}: {{error}}", {
+              name: action.name,
+              error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
+            }),
           );
           return false;
         }
         void queryClient.invalidateQueries({ queryKey: getListCustomActionsQueryKey() });
-        toast.success(`Deleted ${action.name}`);
+        toast.success(
+          translateUi("customActions.delete.success", "Deleted {{name}}", { name: action.name }),
+        );
         onDeleted?.();
         return true;
       }}

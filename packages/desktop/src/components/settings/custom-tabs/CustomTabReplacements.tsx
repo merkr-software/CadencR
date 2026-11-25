@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import {
   CodeIcon,
@@ -15,8 +16,9 @@ import { SETTINGS_ANCHORS } from "@/components/settings/settings-anchor-ids";
 import { useSetting } from "@/hooks/useSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  BUILTIN_TAB_LABELS,
+  builtinTabLabel,
   NO_TAB_REPLACEMENTS,
+  REPLACEABLE_TABS,
   parseTabReplacements,
   readTabReplacements,
   serializeTabReplacements,
@@ -51,9 +53,10 @@ const SLOT_ICONS: Record<ReplaceableTab, LucideIcon> = {
  * built-in at a time. Always rendered: search results scroll to it.
  */
 export function CustomTabReplacements({ data }: { data: CustomTabsData }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const setting = useSetting(TAB_REPLACEMENTS_KEY);
   const { setValue } = setting;
-  const stored = useMemo(() => readTabReplacements(setting.value), [setting.value]);
+  const stored = useMemo(() => readTabReplacements(setting.value, t), [setting.value, t]);
   const choices = stored.value ?? NO_TAB_REPLACEMENTS;
   // A list that failed to load would call every stored choice uninstalled.
   const slots = useMemo(
@@ -71,15 +74,26 @@ export function CustomTabReplacements({ data }: { data: CustomTabsData }): React
   return (
     <SettingsGroup
       id={SETTINGS_ANCHORS.tabReplacements}
-      title="Replace built-in tabs"
-      description="A custom tab picked here takes the built-in's place and shortcut in every conversation where it is on. Cadencr still opens the built-in when it has a file, pull request, document or command to show; switch back from the tab strip's + menu."
+      title={t("customTabs.customTabReplacements.replaceBuiltInTabs", "Replace built-in tabs")}
+      description={t(
+        "customTabs.customTabReplacements.aCustomTabPickedHereTakesThe",
+        "A custom tab picked here takes the built-in's place and shortcut in every conversation where it is on. Cadencr still opens the built-in when it has a file, pull request, document or command to show; switch back from the tab strip's + menu.",
+      )}
     >
       <ReplacementsNotice
         loading={data.isLoading || setting.isLoading}
         error={
           data.error
-            ? apiErrorMessage(data.error, "Could not load your custom tabs.")
-            : stored.error && `The stored choice was ignored: ${stored.error}.`
+            ? apiErrorMessage(
+                data.error,
+                t("customTabs.replacements.loadError", "Could not load your custom tabs."),
+              )
+            : stored.error &&
+              t(
+                "customTabs.replacements.storedChoiceIgnored",
+                "The stored choice was ignored: {{error}}.",
+                { error: stored.error },
+              )
         }
         empty={slots.length === 0}
       />
@@ -108,11 +122,12 @@ function ReplacementsNotice({
   error: string | null;
   empty: boolean;
 }): React.JSX.Element | null {
+  const { t, i18n } = useUiTranslation();
   if (loading) {
     return (
       <p className="flex items-center gap-2 px-5 py-4 text-xs text-muted-foreground">
         <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-        Loading tab replacements…
+        {t("customTabs.replacements.loading", "Loading tab replacements…")}
       </p>
     );
   }
@@ -120,9 +135,19 @@ function ReplacementsNotice({
   if (!empty) return null;
   return (
     <p className="px-5 py-4 text-xs leading-snug text-muted-foreground">
-      None of your custom tabs offers to replace Terminal, Git, Editor or Preview. A tab offers it
-      with <code className="font-mono">tab.replaces</code> in its{" "}
-      <code className="font-mono">tab.json</code>.
+      <UiTrans
+        i18nKey="customTabs.replacements.unavailableDescription"
+        defaults="None of your custom tabs offers to replace {{tabs}}. A tab offers it with <property/> in its <file/>."
+        values={{
+          tabs: new Intl.ListFormat(i18n.language, { type: "disjunction" }).format(
+            REPLACEABLE_TABS.map((tab) => builtinTabLabel(tab, t)),
+          ),
+        }}
+        components={{
+          property: <code className="font-mono">tab.replaces</code>,
+          file: <code className="font-mono">tab.json</code>,
+        }}
+      />
     </p>
   );
 }
@@ -144,14 +169,18 @@ function ReplacementRow({
   divided: boolean;
   onChoose: (tab: ReplaceableTab, tabId: string | null) => void;
 }): React.JSX.Element {
-  const builtin = BUILTIN_TAB_LABELS[slot.tab];
+  const { t } = useUiTranslation();
+  const builtin = builtinTabLabel(slot.tab, t);
   const Icon = SLOT_ICONS[slot.tab];
-  const status = describeReplacement(slot, tabs, overridesFor);
+  const status = describeReplacement(slot, tabs, overridesFor, t);
   const options = [
-    { value: BUILTIN_VALUE, label: `Built-in ${builtin}` },
+    {
+      value: BUILTIN_VALUE,
+      label: t("customTabs.replacements.builtinOption", "Built-in {{builtin}}", { builtin }),
+    },
     ...slot.candidates.map((summary) => ({
       value: summary.id,
-      label: candidateLabel(summary, slot.tab, choices),
+      label: candidateLabel(summary, slot.tab, choices, t),
     })),
     // A stored choice that is no longer a candidate stays selectable, so the
     // select shows it rather than going blank.
@@ -184,14 +213,22 @@ function ReplacementRow({
           {saving ? (
             <LoaderCircle
               className="size-3.5 animate-spin text-muted-foreground"
-              aria-label={`Saving the ${builtin} replacement`}
+              aria-label={t(
+                "customTabs.replacements.savingLabel",
+                "Saving the {{builtin}} replacement",
+                { builtin },
+              )}
             />
           ) : null}
           <SuppressingSelect
             value={slot.chosenId ?? BUILTIN_VALUE}
             options={options}
             disabled={saving}
-            ariaLabel={`Tab shown in place of ${builtin}`}
+            ariaLabel={t(
+              "customTabs.replacements.choiceLabel",
+              "Tab shown in place of {{builtin}}",
+              { builtin },
+            )}
             onValueChange={(value) => onChoose(slot.tab, value === BUILTIN_VALUE ? null : value)}
           />
         </>

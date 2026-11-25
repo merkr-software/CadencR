@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import type { ExtensionCliSummary } from "@/api/generated";
@@ -85,6 +86,7 @@ export function RemoveButton({
   description: string;
 }): React.JSX.Element {
   const { run, pending } = useAgentExtensionActions();
+  const { t } = useUiTranslation();
   const [confirming, setConfirming] = useState(false);
   const busy = pending.has(actionKey(action));
   return (
@@ -92,7 +94,10 @@ export function RemoveButton({
       <Button
         size="icon-sm"
         variant="ghost"
-        aria-label={`Remove ${action.label} from ${action.cliLabel}`}
+        aria-label={t("marketplace.agent.cliRow.removeAction", "Remove {{name}} from {{cli}}", {
+          name: action.label,
+          cli: action.cliLabel,
+        })}
         disabled={busy}
         onClick={() => setConfirming(true)}
       >
@@ -105,10 +110,17 @@ export function RemoveButton({
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Remove ${action.label} from ${action.cliLabel}?`}
+        title={t("marketplace.agent.cliRow.confirmRemove", "Remove {{name}} from {{cli}}?", {
+          name: action.label,
+          cli: action.cliLabel,
+        })}
         description={description}
         variant="destructive"
-        confirmText={busy ? "Removing…" : "Remove"}
+        confirmText={
+          busy
+            ? t("marketplace.agent.cliRow.removing", "Removing…")
+            : t("marketplace.agent.cliRow.remove", "Remove")
+        }
         busy={busy}
         onConfirm={() => run(action)}
       />

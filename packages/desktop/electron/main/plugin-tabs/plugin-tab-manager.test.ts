@@ -193,7 +193,7 @@ describe("PluginTabManager layout", () => {
     const tabs = manager();
     expect(() => tabs.setBounds("gone", BOUNDS, 1)).not.toThrow();
     expect(() => tabs.setVisible("gone", true)).not.toThrow();
-    expect(() => tabs.reload("gone")).toThrow("Unknown custom tab instance");
+    expect(tabs.reload("gone")).toEqual({ kind: "unknown-instance", instanceId: "gone" });
   });
 });
 
@@ -369,7 +369,7 @@ describe("PluginTabManager lifecycle", () => {
     tabs.destroyAll();
     expect(guests.every((guest) => guest.destroyed)).toBe(true);
     expect(win.contentView.removeChildView).toHaveBeenCalledWith(guests[0]?.view);
-    expect(() => tabs.reload("a")).toThrow();
+    expect(tabs.reload("a")).toEqual({ kind: "unknown-instance", instanceId: "a" });
   });
 });
 

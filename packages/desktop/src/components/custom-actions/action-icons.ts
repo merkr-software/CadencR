@@ -1,3 +1,4 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import {
   BugIcon,
   CloudUploadIcon,
@@ -27,27 +28,38 @@ import {
  * `lucide:<name>` beside the legacy uploaded data URIs, so the column needs no
  * migration and an action without either falls back to a monogram.
  */
-export const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
-  play: PlayIcon,
-  terminal: TerminalIcon,
-  test: FlaskConicalIcon,
-  checks: ListChecksIcon,
-  lint: SparklesIcon,
-  build: HammerIcon,
-  package: PackageIcon,
-  deploy: RocketIcon,
-  upload: CloudUploadIcon,
-  server: ServerIcon,
-  web: GlobeIcon,
-  database: DatabaseIcon,
-  git: GitBranchIcon,
-  refresh: RefreshCwIcon,
-  debug: BugIcon,
-  fix: WrenchIcon,
-  security: ShieldCheckIcon,
-  search: SearchIcon,
-  fast: ZapIcon,
-  clean: Trash2Icon,
+export const ACTION_ICONS: Readonly<
+  Record<string, { glyph: LucideIcon; label: (t: UiTranslator) => string }>
+> = {
+  play: { glyph: PlayIcon, label: (t) => t("customActions.icon.glyph.play", "play") },
+  terminal: {
+    glyph: TerminalIcon,
+    label: (t) => t("customActions.icon.glyph.terminal", "terminal"),
+  },
+  test: { glyph: FlaskConicalIcon, label: (t) => t("customActions.icon.glyph.test", "test") },
+  checks: { glyph: ListChecksIcon, label: (t) => t("customActions.icon.glyph.checks", "checks") },
+  lint: { glyph: SparklesIcon, label: (t) => t("customActions.icon.glyph.lint", "lint") },
+  build: { glyph: HammerIcon, label: (t) => t("customActions.icon.glyph.build", "build") },
+  package: { glyph: PackageIcon, label: (t) => t("customActions.icon.glyph.package", "package") },
+  deploy: { glyph: RocketIcon, label: (t) => t("customActions.icon.glyph.deploy", "deploy") },
+  upload: { glyph: CloudUploadIcon, label: (t) => t("customActions.icon.glyph.upload", "upload") },
+  server: { glyph: ServerIcon, label: (t) => t("customActions.icon.glyph.server", "server") },
+  web: { glyph: GlobeIcon, label: (t) => t("customActions.icon.glyph.web", "web") },
+  database: {
+    glyph: DatabaseIcon,
+    label: (t) => t("customActions.icon.glyph.database", "database"),
+  },
+  git: { glyph: GitBranchIcon, label: (t) => t("customActions.icon.glyph.git", "git") },
+  refresh: { glyph: RefreshCwIcon, label: (t) => t("customActions.icon.glyph.refresh", "refresh") },
+  debug: { glyph: BugIcon, label: (t) => t("customActions.icon.glyph.debug", "debug") },
+  fix: { glyph: WrenchIcon, label: (t) => t("customActions.icon.glyph.fix", "fix") },
+  security: {
+    glyph: ShieldCheckIcon,
+    label: (t) => t("customActions.icon.glyph.security", "security"),
+  },
+  search: { glyph: SearchIcon, label: (t) => t("customActions.icon.glyph.search", "search") },
+  fast: { glyph: ZapIcon, label: (t) => t("customActions.icon.glyph.fast", "fast") },
+  clean: { glyph: Trash2Icon, label: (t) => t("customActions.icon.glyph.clean", "clean") },
 };
 
 const LUCIDE_PREFIX = "lucide:";
@@ -59,7 +71,7 @@ export function lucideIconValue(name: string): string {
 /** The glyph an `icon_data` value names, if it names one we ship. */
 export function lucideIconFor(iconData: string | null | undefined): LucideIcon | null {
   if (!iconData?.startsWith(LUCIDE_PREFIX)) return null;
-  return ACTION_ICONS[iconData.slice(LUCIDE_PREFIX.length)] ?? null;
+  return ACTION_ICONS[iconData.slice(LUCIDE_PREFIX.length)]?.glyph ?? null;
 }
 
 export function isImageIcon(iconData: string | null | undefined): iconData is string {

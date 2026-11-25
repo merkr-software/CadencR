@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { lspListings } from "./marketplace-lsp-listings";
 import type { LspCatalog, LspInventory } from "./lsp/marketplace";
 import type {
@@ -179,7 +180,7 @@ function tabVersion(item: TabMarketplacePackage, catalog?: ManagedThemeCatalogRe
   } satisfies ListingVersion;
 }
 
-function tabListings(sources: ListingSources): MarketplaceListing[] {
+function tabListings(sources: ListingSources, t: UiTranslator): MarketplaceListing[] {
   const groups = groupTabPackages(sources.tabCatalog);
   const entries = new Map((sources.tabInventory ?? []).map((item) => [item.id, item]));
   return [...new Set([...groups.keys(), ...entries.keys()])].map((id) => {
@@ -204,7 +205,9 @@ function tabListings(sources: ListingSources): MarketplaceListing[] {
               error: installed.error,
               blocked:
                 installed.blocked ??
-                (runtime?.status === "blocked" ? (runtime.blocked_reason ?? "Blocked") : null),
+                (runtime?.status === "blocked"
+                  ? (runtime.blocked_reason ?? t("marketplace.pluginBits.blocked", "Blocked"))
+                  : null),
             }
           : undefined,
       ),
@@ -235,7 +238,10 @@ interface ListingSources {
 }
 
 /** One list across kinds: every catalog package plus anything installed but no longer listed. */
-export function buildListings(sources: ListingSources): MarketplaceListing[] {
+export function buildListings(
+  sources: ListingSources,
+  t: UiTranslator = translateUi,
+): MarketplaceListing[] {
   const providerGroups = new Map(
     groupPackages(providerCatalogPackages(sources.providerCatalog?.index)).map((group) => [
       group[0].agent.id,
@@ -250,7 +256,7 @@ export function buildListings(sources: ListingSources): MarketplaceListing[] {
   const providerIds = new Set([...providerGroups.keys(), ...providerEntries.keys()]);
   const themeIds = new Set([...themeGroups.keys(), ...themeEntries.keys()]);
   const members = [
-    ...tabListings(sources),
+    ...tabListings(sources, t),
     ...lspListings(sources.lspCatalog, sources.lspInventory),
     ...[...providerIds].map((id) =>
       providerListing(
@@ -316,7 +322,11 @@ export function spotlightListings(listings: MarketplaceListing[], limit = 5): Ma
 }
 
 /** Every search term must appear in the name, id, description, publisher or a kind. */
-export function matchesListing(listing: MarketplaceListing, terms: readonly string[]): boolean {
+export function matchesListing(
+  listing: MarketplaceListing,
+  terms: readonly string[],
+  kindLabels: readonly string[] = [],
+): boolean {
   return matchesSidebarFilter(terms, [
     listing.name,
     listing.id,
@@ -324,5 +334,6 @@ export function matchesListing(listing: MarketplaceListing, terms: readonly stri
     listing.publisher,
     listing.kind,
     ...listing.contributes,
+    ...kindLabels,
   ]);
 }

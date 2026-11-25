@@ -1,5 +1,6 @@
+import { translateUi, UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useId, useState, type FormEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -51,11 +52,31 @@ async function seedStarterLayout(opened: PluginTabWorkspace): Promise<void> {
     });
   } catch (error: unknown) {
     toast.error(
-      `Could not save the new tab's placement: ${apiErrorMessage(error, "Unknown error")}`,
+      translateUi(
+        "customTabs.createCustomTabDialog.placementError",
+        "Could not save the new tab's placement: {{error}}",
+        { error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")) },
+      ),
     );
     return;
   }
   useFeatureLayoutStore.getState().addTab(opened.feature_id, tab, { activate: false });
+}
+
+function reportProjectSetupError(caught: unknown, queryClient: QueryClient): void {
+  const message = apiErrorMessage(
+    caught,
+    translateUi("customTabs.createCustomTabDialog.createError", "Could not create the custom tab"),
+  );
+  toast.error(message, {
+    description: translateUi(
+      "customTabs.createCustomTabDialog.retrySetupHint",
+      "Use “Retry setup” on the tab's card in Settings → Custom tabs.",
+    ),
+  });
+  invalidateByUrlPrefix(queryClient, "/api/plugin-tabs").catch((error: unknown) =>
+    toastError(error, translateUi("customTabs.refreshError", "Could not refresh the custom tabs")),
+  );
 }
 
 /**
@@ -64,6 +85,7 @@ async function seedStarterLayout(opened: PluginTabWorkspace): Promise<void> {
  * there — so the user lands next to an agent ready to build it.
  */
 export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const nameId = useId();
   const descriptionId = useId();
   const navigate = useNavigate();
@@ -71,7 +93,7 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
   const authoring = usePluginTabAuthoring();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ cause: unknown } | null>(null);
   // The dialog stays busy until the new tab's placement is saved too.
   const [placing, setPlacing] = useState(false);
   const cleanName = name.trim();
@@ -84,8 +106,11 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
       setPlacing(true);
       await seedStarterLayout(opened);
       onClose();
-      toast.success("Custom tab created", {
-        description: "Tell the agent what the tab should show. It builds the tab with you.",
+      toast.success(translateUi("customTabs.createCustomTabDialog.created", "Custom tab created"), {
+        description: translateUi(
+          "customTabs.createCustomTabDialog.createdDescription",
+          "Tell the agent what the tab should show. It builds the tab with you.",
+        ),
       });
       goToCustomTabWorkspace(navigate, queryClient, opened);
     },
@@ -94,20 +119,14 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
 
   const fail = useCallback(
     (caught: unknown): void => {
-      const message = apiErrorMessage(caught, "Could not create the custom tab");
       if (apiErrorCode(caught) !== "PLUGIN_TAB_PROJECT_SETUP_FAILED") {
-        setError(message);
+        setError({ cause: caught });
         return;
       }
       // The tab's folder exists; only its project is missing. Its card (shown
       // once the list refreshes) offers "Retry setup", which finishes it.
       onClose();
-      toast.error(message, {
-        description: "Use “Retry setup” on the tab's card in Settings → Custom tabs.",
-      });
-      invalidateByUrlPrefix(queryClient, "/api/plugin-tabs").catch((error: unknown) =>
-        toastError(error, "Could not refresh the custom tabs"),
-      );
+      reportProjectSetupError(caught, queryClient);
     },
     [onClose, queryClient],
   );
@@ -132,10 +151,14 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle className="text-base font-semibold">Create custom tab</DialogTitle>
+          <DialogTitle className="text-base font-semibold">
+            {t("customTabs.createCustomTabDialog.createCustomTab", "Create custom tab")}
+          </DialogTitle>
           <DialogDescription>
-            A custom tab is a small web app shown beside Agent, Terminal and Git. Name it and
-            Cadencr sets up everything to build it with an agent.
+            {t(
+              "customTabs.createCustomTabDialog.aCustomTabIsASmallWeb",
+              "A custom tab is a small web app shown beside Agent, Terminal and Git. Name it and Cadencr sets up everything to build it with an agent.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-5 px-6 py-5" noValidate>
@@ -148,22 +171,56 @@ export function CreateCustomTabDialog({ onClose }: { onClose: () => void }): Rea
             onDescription={setDescription}
           />
           <CreatedSummary />
-          {error ? <CreateErrorAlert message={error} /> : null}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={incomplete || busy}>
-              {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
-              {busy ? "Creating…" : "Create custom tab"}
-            </Button>
-          </DialogFooter>
-          <p aria-live="polite" className="sr-only">
-            {busy ? "Creating the custom tab and opening its conversation." : ""}
-          </p>
+          {error ? (
+            <CreateErrorAlert
+              message={apiErrorMessage(
+                error.cause,
+                t(
+                  "customTabs.createCustomTabDialog.createError",
+                  "Could not create the custom tab",
+                ),
+              )}
+            />
+          ) : null}
+          <CreateControls busy={busy} disabled={incomplete || busy} onClose={onClose} />
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CreateControls({
+  busy,
+  disabled,
+  onClose,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  onClose: () => void;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+          {t("common.cancel", "Cancel")}
+        </Button>
+        <Button type="submit" disabled={disabled}>
+          {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
+          {busy
+            ? t("customTabs.createCustomTabDialog.creating", "Creating…")
+            : t("customTabs.createCustomTabDialog.createCustomTab", "Create custom tab")}
+        </Button>
+      </DialogFooter>
+      <p aria-live="polite" className="sr-only">
+        {busy
+          ? t(
+              "customTabs.createCustomTabDialog.creatingStatus",
+              "Creating the custom tab and opening its conversation.",
+            )
+          : ""}
+      </p>
+    </>
   );
 }
 
@@ -182,11 +239,12 @@ function NameAndDescription({
   onName: (value: string) => void;
   onDescription: (value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
         <label htmlFor={ids.name} className="text-xs font-medium">
-          Name
+          {t("customTabs.createCustomTabDialog.name", "Name")}
         </label>
         <Input
           id={ids.name}
@@ -194,7 +252,10 @@ function NameAndDescription({
           required
           value={name}
           onChange={(event) => onName(event.target.value)}
-          placeholder="Changed files graph"
+          placeholder={t(
+            "customTabs.createCustomTabDialog.changedFilesGraph",
+            "Changed files graph",
+          )}
           maxLength={MAX_NAME_LENGTH}
           disabled={disabled}
         />
@@ -202,7 +263,10 @@ function NameAndDescription({
       <div className="space-y-1.5">
         <div className="flex items-baseline justify-between gap-2">
           <label htmlFor={ids.description} className="text-xs font-medium">
-            Description <span className="font-normal text-muted-foreground">(optional)</span>
+            {t("customTabs.createCustomTabDialog.description", "Description")}{" "}
+            <span className="font-normal text-muted-foreground">
+              {t("customTabs.createCustomTabDialog.optional", "(optional)")}
+            </span>
           </label>
           <span className="text-[11px] tabular-nums text-muted-foreground">
             {description.length}/{MAX_DESCRIPTION_LENGTH}
@@ -212,7 +276,10 @@ function NameAndDescription({
           id={ids.description}
           value={description}
           onChange={(event) => onDescription(event.target.value)}
-          placeholder="What the tab shows, in one sentence."
+          placeholder={t(
+            "customTabs.createCustomTabDialog.whatTheTabShowsInOneSentence",
+            "What the tab shows, in one sentence.",
+          )}
           maxLength={MAX_DESCRIPTION_LENGTH}
           rows={2}
           disabled={disabled}
@@ -224,16 +291,32 @@ function NameAndDescription({
 }
 
 function CreatedSummary(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-      <p className="font-medium text-foreground">Cadencr creates:</p>
+      <p className="font-medium text-foreground">
+        {t("customTabs.createCustomTabDialog.cadencrCreates", "Cadencr creates:")}
+      </p>
       <ul className="mt-1.5 list-disc space-y-1 pl-4">
         <li>
-          a starter tab (Vite, React and the Cadencr tab kit) in its own Git folder under the{" "}
-          <span className="font-mono">plugins/tabs</span> folder of Cadencr&apos;s app data;
+          <UiTrans
+            i18nKey="customTabs.createCustomTabDialog.starterFolder"
+            defaults="a starter tab (Vite, React and the Cadencr tab kit) in its own Git folder under the <path/> folder of Cadencr's app data;"
+            components={{ path: <span className="font-mono">plugins/tabs</span> }}
+          />
         </li>
-        <li>a project for it with an agent conversation, ready to build the tab;</li>
-        <li>the tab, switched on in that project so you see it change as it is built.</li>
+        <li>
+          {t(
+            "customTabs.createCustomTabDialog.aProjectForItWithAnAgent",
+            "a project for it with an agent conversation, ready to build the tab;",
+          )}
+        </li>
+        <li>
+          {t(
+            "customTabs.createCustomTabDialog.theTabSwitchedOnInThatProject",
+            "the tab, switched on in that project so you see it change as it is built.",
+          )}
+        </li>
       </ul>
     </div>
   );

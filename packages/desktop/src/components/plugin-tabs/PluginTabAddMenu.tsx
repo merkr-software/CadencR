@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement, type ReactNode } from "react";
 import {
   ActivityIcon,
@@ -33,7 +34,7 @@ import { refreshPluginTabsOrToast, reloadLivePluginTab } from "@/lib/plugin-tabs
 import { setPluginTabActivityOpen } from "@/lib/plugin-tabs/runtime-store";
 import { activateBuiltinFeatureTab, showReplacementTab } from "@/lib/plugin-tabs/builtin-fallback";
 import {
-  BUILTIN_TAB_LABELS,
+  builtinTabLabel,
   isReplaceableTab,
   NO_TAB_REPLACEMENTS,
   type ReplaceableTab,
@@ -48,7 +49,7 @@ import {
 
 import { PluginTabAccessMark } from "./PluginTabAccess";
 import { PluginTabIcon } from "./PluginTabIcon";
-import { ACCESS_LEVEL_COPY, backendUnavailableHere, UNAVAILABLE_HERE } from "./plugin-tab-access";
+import { accessLevelCopy, backendUnavailableHere, unavailableHere } from "./plugin-tab-access";
 import { useReplacementsHere, useTabReplacementChoices } from "./tab-replacement";
 import { usePlacedPluginTabsKey, useProjectPluginTabs } from "./usePluginTabDefs";
 import { usePluginTabNavigation, type PluginTabNavigation } from "./usePluginTabNavigation";
@@ -64,13 +65,23 @@ interface PluginTabAddMenuProps {
  * and — when a custom tab is focused — reload it or open its DevTools.
  */
 export function PluginTabAddMenu({ featureId, projectId }: PluginTabAddMenuProps): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const navigation = usePluginTabNavigation();
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <ShortcutTooltip label="Add custom tab" alignRight disabled={open}>
+      <ShortcutTooltip
+        label={t("customTabs.pluginTabAddMenu.addCustomTab", "Add custom tab")}
+        alignRight
+        disabled={open}
+      >
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-7" aria-label="Add custom tab">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={t("customTabs.pluginTabAddMenu.addCustomTab", "Add custom tab")}
+          >
             <PlusIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -91,6 +102,7 @@ function PluginTabMenuBody({
   projectId,
   navigation,
 }: PluginTabAddMenuProps & { navigation: PluginTabNavigation }): ReactElement {
+  const { t } = useUiTranslation();
   const query = useProjectPluginTabs(projectId, true);
   const placed = usePlacedPluginTabsKey(featureId, true);
   const focusedTab = useFeatureLayoutStore((state) =>
@@ -119,7 +131,9 @@ function PluginTabMenuBody({
 
   return (
     <>
-      <DropdownMenuLabel className="text-xs text-muted-foreground">Custom tabs</DropdownMenuLabel>
+      <DropdownMenuLabel className="text-xs text-muted-foreground">
+        {t("customTabs.pluginTabAddMenu.customTabs", "Custom tabs")}
+      </DropdownMenuLabel>
       <AvailableTabs
         state={query}
         tabs={enabledTabs}
@@ -156,11 +170,11 @@ function PluginTabMenuBody({
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={navigation.openSettings}>
         <Settings2Icon />
-        Manage custom tabs…
+        {t("customTabs.pluginTabAddMenu.manageCustomTabs", "Manage custom tabs…")}
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={navigation.openCreate}>
         <SparklesIcon />
-        Create custom tab…
+        {t("customTabs.pluginTabAddMenu.createCustomTab", "Create custom tab…")}
       </DropdownMenuItem>
     </>
   );
@@ -190,7 +204,8 @@ function ReplacementSwitch({
   label: string;
   fallback: boolean;
 }): ReactElement {
-  const builtin = BUILTIN_TAB_LABELS[slot];
+  const { t } = useUiTranslation();
+  const builtin = builtinTabLabel(slot, t);
   return (
     <DropdownMenuItem
       onSelect={() =>
@@ -198,7 +213,15 @@ function ReplacementSwitch({
       }
     >
       <Repeat2Icon />
-      {fallback ? `Show ${label} instead of ${builtin}` : `Show the built-in ${builtin}`}
+      {fallback
+        ? t(
+            "customTabs.pluginTabAddMenu.showReplacement",
+            "Show {{label}} instead of {{builtin}}",
+            { label, builtin },
+          )
+        : t("customTabs.pluginTabAddMenu.showBuiltin", "Show the built-in {{builtin}}", {
+            builtin,
+          })}
     </DropdownMenuItem>
   );
 }
@@ -217,23 +240,34 @@ function AvailableTabs({
   replacing: (tab: PluginTabSummary) => TabReplacementHere | null;
   onSelect: (tab: PluginTabSummary) => void;
 }): ReactNode {
+  const { t } = useUiTranslation();
   if (state.isLoading) {
     return (
       <MenuNote>
         <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
-        Loading custom tabs…
+        {t("customTabs.pluginTabAddMenu.loadingCustomTabs", "Loading custom tabs…")}
       </MenuNote>
     );
   }
   if (state.error) {
     return (
       <MenuNote tone="error">
-        {apiErrorMessage(state.error, "Custom tabs could not be listed")}
+        {apiErrorMessage(
+          state.error,
+          t("customTabs.pluginTabAddMenu.listError", "Custom tabs could not be listed"),
+        )}
       </MenuNote>
     );
   }
   if (tabs.length === 0) {
-    return <MenuNote>No custom tab is on for this project yet.</MenuNote>;
+    return (
+      <MenuNote>
+        {t(
+          "customTabs.pluginTabAddMenu.noCustomTabIsOnForThis",
+          "No custom tab is on for this project yet.",
+        )}
+      </MenuNote>
+    );
   }
   return tabs.map((tab) => {
     const placed = isPlaced(tab);
@@ -241,14 +275,22 @@ function AvailableTabs({
     // still jumps to its tab, which explains the same.
     const unavailable = backendUnavailableHere(tab);
     const here = replacing(tab);
-    const note = unavailable ? UNAVAILABLE_HERE : here ? replacementNote(here) : tab.description;
+    const note = unavailable
+      ? unavailableHere(t)
+      : here
+        ? replacementNote(here, t)
+        : tab.description;
     return (
       <DropdownMenuItem
         key={tab.id}
         onSelect={() => onSelect(tab)}
         disabled={unavailable && !placed}
         className="items-start"
-        aria-label={placed ? `${tab.label} (open)` : tab.label}
+        aria-label={
+          placed
+            ? t("customTabs.pluginTabAddMenu.openLabel", "{{label}} (open)", { label: tab.label })
+            : tab.label
+        }
       >
         <PluginTabIcon svg={tab.icon_svg} className="mt-0.5" />
         <span className="min-w-0 flex-1">
@@ -264,11 +306,15 @@ function AvailableTabs({
   });
 }
 
-function replacementNote({ slot, fallback }: TabReplacementHere): string {
-  const builtin = BUILTIN_TAB_LABELS[slot];
+function replacementNote({ slot, fallback }: TabReplacementHere, t: UiTranslator): string {
+  const builtin = builtinTabLabel(slot, t);
   return fallback
-    ? `Replaces ${builtin}; the built-in shows here now`
-    : `Shown in place of ${builtin}`;
+    ? t(
+        "customTabs.pluginTabAddMenu.builtinFallback",
+        "Replaces {{builtin}}; the built-in shows here now",
+        { builtin },
+      )
+    : t("customTabs.pluginTabAddMenu.shownInPlace", "Shown in place of {{builtin}}", { builtin });
 }
 
 function FocusedTabActions({
@@ -278,6 +324,7 @@ function FocusedTabActions({
   featureId: number;
   tab: PluginTabSummary;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const instanceId = pluginTabInstanceId(featureId, tab.id);
   const projectOpener = useOpenCustomTabProject();
   return (
@@ -292,34 +339,42 @@ function FocusedTabActions({
         }}
       >
         <RotateCwIcon />
-        Reload
+        {t("customTabs.pluginTabAddMenu.reload", "Reload")}
       </DropdownMenuItem>
       {tab.access_level !== "ui" && (
         <DropdownMenuItem
           onSelect={() => setPluginTabActivityOpen(instanceId)}
-          title={ACCESS_LEVEL_COPY[tab.access_level].summary}
+          title={accessLevelCopy(tab.access_level, t).summary}
         >
           <ActivityIcon />
-          Activity…
+          {t("customTabs.pluginTabAddMenu.activity", "Activity…")}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem
         onSelect={() => {
           void desktopBridge.pluginTabs
             .openDevTools(instanceId)
-            .catch((error: unknown) => toastError(error, "DevTools could not be opened"));
+            .catch((error: unknown) =>
+              toastError(
+                error,
+                translateUi(
+                  "customTabs.pluginTabAddMenu.devToolsError",
+                  "DevTools could not be opened",
+                ),
+              ),
+            );
         }}
       >
         <BugIcon />
-        Open DevTools
+        {t("customTabs.pluginTabAddMenu.openDevTools", "Open DevTools")}
       </DropdownMenuItem>
       {tab.authoring_project_id != null && (
         <DropdownMenuItem
           disabled={projectOpener.openingId === tab.id}
-          onSelect={() => projectOpener.open(tab.id, "Could not open the custom tab's project")}
+          onSelect={() => projectOpener.open(tab.id)}
         >
           <FolderGit2Icon />
-          Open source project
+          {t("customTabs.pluginTabAddMenu.openSourceProject", "Open source project")}
         </DropdownMenuItem>
       )}
     </>

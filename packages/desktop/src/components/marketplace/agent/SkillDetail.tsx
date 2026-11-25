@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { Link } from "@tanstack/react-router";
 import { PackageX } from "lucide-react";
 import type { ExtensionCliSummary, InstalledSkill, SkillListing } from "@/api/generated";
@@ -21,6 +22,7 @@ import { ActionButton, CliRow, RemoveButton } from "./CliRow";
 
 /** One skill pack: what each CLI's marketplace offers and what each has installed. */
 export function SkillDetail({ id }: { id: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const clis = useExtensionClis();
   const catalog = useSkillCatalog({ q: id, limit: 200 });
   const listing = catalog.data?.skills.find((item) => item.key === id);
@@ -30,13 +32,16 @@ export function SkillDetail({ id }: { id: string }): React.JSX.Element {
       {catalog.isPending || clis.isPending ? (
         <Skeleton
           role="status"
-          aria-label="Loading the skill"
+          aria-label={t("marketplace.agent.skillDetail.loadingTheSkill", "Loading the skill")}
           className="h-[280px] w-full rounded-xl"
         />
       ) : catalog.isError ? (
         <AgentLoadError
           error={catalog.error}
-          what="the skill marketplaces"
+          title={t(
+            "marketplace.agent.loadSkillMarketplacesError",
+            "Could not load the skill marketplaces",
+          )}
           retrying={catalog.isFetching}
           onRetry={() => void catalog.refetch()}
         />
@@ -45,11 +50,14 @@ export function SkillDetail({ id }: { id: string }): React.JSX.Element {
       ) : (
         <MarketplaceEmpty
           icon={PackageX}
-          title="No agent CLI offers or has this skill"
+          title={t(
+            "marketplace.agent.skillDetail.noAgentCliOffersOrHasThis",
+            "No agent CLI offers or has this skill",
+          )}
           action={
             <Button asChild size="sm" variant="outline">
               <Link to="/marketplace" search={{ kind: "skill" }}>
-                Back to skills
+                {t("marketplace.agent.skillDetail.backToSkills", "Back to skills")}
               </Link>
             </Button>
           }
@@ -66,6 +74,7 @@ function SkillDetailBody({
   listing: SkillListing;
   clis: ExtensionCliSummary[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const carriers = new Set(listing.installed.map((skill) => skill.provider_id));
   return (
     <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -78,7 +87,11 @@ function SkillDetailBody({
                 {listing.name}
               </h1>
               <p className="truncate font-mono text-xs text-muted-foreground">
-                {skillMarketplaces(listing).join(", ") || "Skill folder outside any marketplace"}
+                {skillMarketplaces(listing).join(", ") ||
+                  t(
+                    "marketplace.agent.skillDetail.outsideMarketplace",
+                    "Skill folder outside any marketplace",
+                  )}
               </p>
             </div>
           </div>
@@ -90,65 +103,94 @@ function SkillDetailBody({
             />
           </div>
           <p className="max-w-[62ch] text-[14.5px] leading-[1.6] text-foreground/90">
-            {listing.description || "No description in the marketplace."}
+            {listing.description ||
+              t("marketplace.agent.skillDescriptionMissing", "No description in the marketplace.")}
           </p>
         </div>
-        <Section title="Your agent CLIs">
-          <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
-            {skillCliStates(listing, clis).map(({ cli, installed, offer }) =>
-              installed.length ? (
-                installed.map((skill) => (
-                  <InstalledSkillRow key={skill.id} cli={cli} skill={skill} />
-                ))
-              ) : (
-                <CliRow
-                  key={cli.provider_id}
-                  cli={cli}
-                  status={
-                    !cli.installed ? (
-                      `${cli.label} is not installed on this computer.`
-                    ) : offer ? (
-                      <span className="font-mono text-[10.5px]">
-                        {offer.plugin_id}
-                        {offer.version && ` · ${offer.version}`}
-                        {offer.install_count
-                          ? ` · ${offer.install_count.toLocaleString()} installs`
-                          : ""}
-                      </span>
-                    ) : (
-                      `Not offered by the marketplaces ${cli.label} uses.`
-                    )
-                  }
-                >
-                  {cli.installed && offer && (
-                    <ActionButton
-                      action={{
-                        kind: "skill-install",
-                        label: listing.name,
-                        cliLabel: cli.label,
-                        providerId: cli.provider_id,
-                        pluginId: offer.plugin_id,
-                      }}
-                      idle={`Install in ${cli.label}`}
-                      busyLabel="Installing…"
-                    />
-                  )}
-                </CliRow>
-              ),
-            )}
-          </div>
+        <Section title={t("marketplace.agent.yourClis", "Your agent CLIs")}>
+          <SkillCliRows listing={listing} clis={clis} />
         </Section>
       </div>
       <aside className="min-w-0 space-y-8">
-        <Section title="How this works">
+        <Section title={t("marketplace.agent.skillDetail.howThisWorks", "How this works")}>
           <p className="text-[12.5px] leading-[1.55] text-muted-foreground">
-            Skill packs come from the plugin marketplaces each CLI already uses, and Cadencr
-            installs them with that CLI's own <code>plugin</code> commands. Packs with the same name
-            in two CLIs are shown together; each CLI keeps its own copy. New sessions load a change.
-            Skill folders placed by hand are listed but left to you.
+            <UiTrans
+              i18nKey="marketplace.agent.skillDetail.installMechanism"
+              defaults="Skill packs come from the plugin marketplaces each CLI already uses, and Cadencr installs them with that CLI's own <command>{{command}}</command> commands. Packs with the same name in two CLIs are shown together; each CLI keeps its own copy. New sessions load a change. Skill folders placed by hand are listed but left to you."
+              components={{ command: <code /> }}
+              values={{ command: "plugin" }}
+            />
           </p>
         </Section>
       </aside>
+    </div>
+  );
+}
+
+function SkillCliRows({
+  listing,
+  clis,
+}: {
+  listing: SkillListing;
+  clis: ExtensionCliSummary[];
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
+      {skillCliStates(listing, clis).map(({ cli, installed, offer }) =>
+        installed.length ? (
+          installed.map((skill) => <InstalledSkillRow key={skill.id} cli={cli} skill={skill} />)
+        ) : (
+          <CliRow
+            key={cli.provider_id}
+            cli={cli}
+            status={
+              !cli.installed ? (
+                t(
+                  "marketplace.agent.cliNotInstalled",
+                  "{{cli}} is not installed on this computer.",
+                  { cli: cli.label },
+                )
+              ) : offer ? (
+                <span className="font-mono text-[10.5px]">
+                  {offer.plugin_id}
+                  {offer.version && ` · ${offer.version}`}
+                  {offer.install_count
+                    ? " · " +
+                      t("marketplace.agent.skillInstallCount", "{{count, number}} installs", {
+                        count: offer.install_count,
+                        defaultValue_zero: "{{count, number}} installs",
+                        defaultValue_one: "{{count, number}} install",
+                      })
+                    : ""}
+                </span>
+              ) : (
+                t(
+                  "marketplace.agent.skillDetail.notOffered",
+                  "Not offered by the marketplaces {{cli}} uses.",
+                  { cli: cli.label },
+                )
+              )
+            }
+          >
+            {cli.installed && offer && (
+              <ActionButton
+                action={{
+                  kind: "skill-install",
+                  label: listing.name,
+                  cliLabel: cli.label,
+                  providerId: cli.provider_id,
+                  pluginId: offer.plugin_id,
+                }}
+                idle={t("marketplace.agent.skillDetail.installInCli", "Install in {{cli}}", {
+                  cli: cli.label,
+                })}
+                busyLabel={t("marketplace.agent.skillDetail.installing", "Installing…")}
+              />
+            )}
+          </CliRow>
+        ),
+      )}
     </div>
   );
 }
@@ -160,6 +202,7 @@ function InstalledSkillRow({
   cli: ExtensionCliSummary;
   skill: InstalledSkill;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const target = {
     label: skill.name,
     cliLabel: cli.label,
@@ -181,12 +224,22 @@ function InstalledSkillRow({
       }
       detail={
         local
-          ? "A skill folder outside any marketplace: no CLI command manages it, so edit or delete it there."
+          ? t(
+              "marketplace.agent.skillDetail.localFolderExplanation",
+              "A skill folder outside any marketplace: no CLI command manages it, so edit or delete it there.",
+            )
           : projectScope
-            ? `Installed for one project (${skill.scope} scope): manage it from that project.`
+            ? t(
+                "marketplace.agent.skillDetail.projectScope",
+                "Installed for one project ({{scope}} scope): manage it from that project.",
+                { scope: skill.scope },
+              )
             : [
-                skill.enabled === false ? "Disabled" : null,
-                installedOn && `Installed ${installedOn}`,
+                skill.enabled === false ? t("marketplace.agent.disabled", "Disabled") : null,
+                installedOn &&
+                  t("marketplace.agent.skillDetail.installedOn", "Installed {{date}}", {
+                    date: installedOn,
+                  }),
               ]
                 .filter(Boolean)
                 .join(" · ") || null
@@ -195,15 +248,25 @@ function InstalledSkillRow({
       {skillIsChangeable(skill) && cli.support.skill_update && (
         <ActionButton
           action={{ kind: "skill-update", ...target }}
-          idle={skill.update ? `Update to ${skill.update}` : "Check for update"}
-          busyLabel="Updating…"
+          idle={
+            skill.update
+              ? t("marketplace.agent.updateToVersion", "Update to {{version}}", {
+                  version: skill.update,
+                })
+              : t("marketplace.agent.skillDetail.checkForUpdate", "Check for update")
+          }
+          busyLabel={t("marketplace.agent.updating", "Updating…")}
           variant={skill.update ? "default" : "outline"}
         />
       )}
       {skillIsChangeable(skill) && (
         <RemoveButton
           action={{ kind: "skill-remove", ...target }}
-          description={`${cli.label} uninstalls ${skill.id}. Other CLIs keep their own copy.`}
+          description={t(
+            "marketplace.agent.skillDetail.removeFromCli",
+            "{{cli}} uninstalls {{id}}. Other CLIs keep their own copy.",
+            { cli: cli.label, id: skill.id },
+          )}
         />
       )}
     </CliRow>

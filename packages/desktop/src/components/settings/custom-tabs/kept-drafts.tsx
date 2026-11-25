@@ -29,7 +29,7 @@ const KeptDraftsContext = createContext<Map<string, KeptDraft> | null>(null);
 /** A slot's save in flight and its last inline error. */
 interface SlotSave {
   saving: boolean;
-  error: string | null;
+  error: { cause: unknown } | null;
 }
 
 const IDLE: SlotSave = { saving: false, error: null };

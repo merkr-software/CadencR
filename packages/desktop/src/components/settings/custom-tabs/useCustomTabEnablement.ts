@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -10,7 +11,7 @@ import {
 } from "@/api/generated";
 import { apiErrorCode, apiErrorMessage, toastError } from "@/lib/api-errors";
 import { PLUGIN_TAB_ERROR } from "@/lib/plugin-tabs/error-codes";
-import { refreshPluginTabReads } from "@/lib/plugin-tabs/live-instances";
+import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import type { ProjectOverride } from "./custom-tab-model";
 
 /** A consent the user is being asked for, and the switch it unlocks. */
@@ -77,7 +78,13 @@ function useReopen(setRequest: (request: ConsentRequest | null) => void) {
         });
         if (update && !fresh.pending_update) {
           setRequest(null);
-          toast.info(`The update to “${fresh.name}” is no longer waiting for review.`);
+          toast.info(
+            translateUi(
+              "customTabs.enablement.updateNoLongerWaiting",
+              "The update to “{{name}}” is no longer waiting for review.",
+              { name: fresh.name },
+            ),
+          );
           return;
         }
         setRequest({
@@ -88,20 +95,34 @@ function useReopen(setRequest: (request: ConsentRequest | null) => void) {
         });
       } catch (error: unknown) {
         setRequest(null);
-        toastError(error, "Could not reload the custom tab's permissions");
+        toastError(
+          error,
+          translateUi(
+            "customTabs.enablement.reloadPermissionsError",
+            "Could not reload the custom tab's permissions",
+          ),
+        );
       }
     },
     [queryClient, setRequest],
   );
 }
 
-/** Refetches every custom tab view: the local list, and the marketplace inventory. */
-async function refresh(): Promise<void> {
-  try {
-    await refreshPluginTabReads();
-  } catch (error: unknown) {
-    toastError(error, "Could not refresh the custom tabs");
-  }
+function reportBlockedConsent(name: string, error: unknown): void {
+  toast.error(
+    translateUi("customTabs.enablement.blocked", "“{{name}}” is blocked by Cadencr", {
+      name,
+    }),
+    {
+      description: apiErrorMessage(
+        error,
+        translateUi(
+          "customTabs.enablement.blockedReason",
+          "This version is on the revocation list.",
+        ),
+      ),
+    },
+  );
 }
 
 /**
@@ -132,11 +153,18 @@ export function useCustomTabEnablement(): CustomTabEnablement {
         if (apiErrorCode(error) === PLUGIN_TAB_ERROR.consentRequired) {
           await reopen(tab.id, { enable: { projectId }, stale: false, update: false });
         } else {
-          toastError(error, `Could not change where “${tab.name}” is on`);
+          toastError(
+            error,
+            translateUi(
+              "customTabs.enablement.saveError",
+              "Could not change where “{{name}}” is on",
+              { name: tab.name },
+            ),
+          );
         }
       } finally {
         setPendingKey(null);
-        await refresh();
+        await refreshPluginTabsOrToast();
       }
     },
     [putEnablement, reopen],
@@ -162,7 +190,7 @@ export function useCustomTabEnablement(): CustomTabEnablement {
         .then(async () => {
           setRequest(null);
           if (enable) await put(tab, enable.projectId, true);
-          else await refresh();
+          else await refreshPluginTabsOrToast();
         })
         .catch(async (error: unknown) => {
           const code = apiErrorCode(error) ?? "";
@@ -173,13 +201,18 @@ export function useCustomTabEnablement(): CustomTabEnablement {
           if (code === PLUGIN_TAB_ERROR.blocked) {
             // Nothing to allow any more: the version is on the revocation list.
             setRequest(null);
-            toast.error(`“${tab.name}” is blocked by Cadencr`, {
-              description: apiErrorMessage(error, "This version is on the revocation list."),
-            });
-            await refresh();
+            reportBlockedConsent(tab.name, error);
+            await refreshPluginTabsOrToast();
             return;
           }
-          toastError(error, `Could not record your consent for “${tab.name}”`);
+          toastError(
+            error,
+            translateUi(
+              "customTabs.enablement.consentError",
+              "Could not record your consent for “{{name}}”",
+              { name: tab.name },
+            ),
+          );
         });
     },
     [put, putConsent, reopen, request],

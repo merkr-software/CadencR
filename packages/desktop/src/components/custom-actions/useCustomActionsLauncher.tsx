@@ -72,21 +72,28 @@ export function useCustomActionsLauncher({
     { enabled: bindKeys && actions.length > 0 },
   );
 
-  const commands = useMemo(
-    () =>
-      actions.map((action) => ({
-        id: `custom-action-${action.id}`,
-        title: t("palette.commands.runCustomAction", "Run: {{action}}", { action: action.name }),
-        group: "Conversation" as const,
-        icon: (
-          <CustomActionIcon iconData={action.icon_data} name={action.name} className="size-4" />
-        ),
-        keywords: ["custom action", "run", "task", action.command],
-        description: action.command,
-        run: () => activateAction(action, featureId, projectId),
-      })),
-    [actions, featureId, projectId, t],
-  );
+  const commands = useMemo(() => {
+    if (!bindKeys || actions.length === 0) return [];
+    const keywords = [
+      ...new Set([
+        t("customActions.palette.keyword", "custom action"),
+        t("customActions.palette.run", "run"),
+        t("customActions.palette.task", "task"),
+        "custom action",
+        "run",
+        "task",
+      ]),
+    ];
+    return actions.map((action) => ({
+      id: `custom-action-${action.id}`,
+      title: t("palette.commands.runCustomAction", "Run: {{action}}", { action: action.name }),
+      group: "Conversation" as const,
+      icon: <CustomActionIcon iconData={action.icon_data} name={action.name} className="size-4" />,
+      keywords: [...keywords, action.command],
+      description: action.command,
+      run: () => activateAction(action, featureId, projectId),
+    }));
+  }, [actions, bindKeys, featureId, projectId, t]);
   useEffect(
     () => (bindKeys ? publishCustomActionCommands(commands) : undefined),
     [bindKeys, commands],

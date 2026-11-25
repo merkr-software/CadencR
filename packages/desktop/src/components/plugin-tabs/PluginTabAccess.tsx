@@ -1,23 +1,26 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type CSSProperties, type ReactElement } from "react";
 import { CpuIcon, TerminalIcon } from "lucide-react";
 
 import type { TabAccessLevel } from "@/api/generated";
 import { cn } from "@/lib/utils";
 
-import { ACCESS_LEVEL_COPY, ACCESS_LEVEL_TONE } from "./plugin-tab-access";
+import { accessLevelCopy, ACCESS_LEVEL_TONE } from "./plugin-tab-access";
 
 /** The level as a pill: "Read-only", "Runs commands" or "Native code". */
 export function PluginTabAccessBadge({ level }: { level: TabAccessLevel }): ReactElement {
+  const { t } = useUiTranslation();
+  const copy = accessLevelCopy(level, t);
   return (
     <span
       data-access-level={level}
-      title={ACCESS_LEVEL_COPY[level].summary}
+      title={copy.summary}
       className={cn(
         "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none",
         ACCESS_LEVEL_TONE[level],
       )}
     >
-      {ACCESS_LEVEL_COPY[level].label}
+      {copy.label}
     </span>
   );
 }
@@ -39,14 +42,15 @@ export const PluginTabAccessMark = memo(function PluginTabAccessMark({
   level: TabAccessLevel;
   className?: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (level === "ui") return null;
   const Icon = level === "backend" ? CpuIcon : TerminalIcon;
-  const copy = ACCESS_LEVEL_COPY[level];
+  const copy = accessLevelCopy(level, t);
   return (
     <span
       role="img"
       aria-label={copy.label}
-      title={`${copy.label}: ${copy.summary}`}
+      title={t("customTabs.access.markTitle", "{{label}}: {{summary}}", { ...copy })}
       data-access-mark={level}
       className={cn("inline-flex shrink-0", className)}
     >

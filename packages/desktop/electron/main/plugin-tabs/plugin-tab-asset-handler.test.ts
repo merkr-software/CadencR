@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { uiI18n } from "../../../src/shared/ui-i18n";
 import { createPluginTabAssetHandler, PLUGIN_TAB_CSP } from "./plugin-tab-asset-handler";
 
 const SERVICE_CSP = "default-src 'none'; connect-src 'none'";
@@ -92,6 +93,38 @@ describe("createPluginTabAssetHandler", () => {
     const response = await handler(new Request("cadencr-tab://graph/"));
     expect(response.status).toBe(502);
     expect(await response.text()).toContain("ECONNREFUSED");
+  });
+
+  it("uses the current UI language for relay failures and preserves the HTTP contract", async () => {
+    const previousLanguage = uiI18n.language;
+    uiI18n.addResourceBundle("fr-CA", "ui", {
+      "customTabs.native.assetForbidden": "Accès aux ressources refusé.",
+      "customTabs.native.assetMethodNotAllowed": "Méthode non autorisée.",
+      "customTabs.native.assetServiceUnavailable": "Service CadencR inaccessible : {{message}}",
+    });
+    try {
+      const { handler } = relay(new Error("connect ECONNREFUSED"));
+      await uiI18n.changeLanguage("fr-CA");
+
+      const forbidden = await handler(new Request("cadencr-tab://other/"));
+      expect(forbidden.status).toBe(403);
+      expect(await forbidden.text()).toBe("Accès aux ressources refusé.");
+
+      const methodNotAllowed = await handler(
+        new Request("cadencr-tab://graph/api", { method: "POST", body: "x" }),
+      );
+      expect(methodNotAllowed.status).toBe(405);
+      expect(methodNotAllowed.headers.get("allow")).toBe("GET");
+      expect(await methodNotAllowed.text()).toBe("Méthode non autorisée.");
+
+      const unreachable = await handler(new Request("cadencr-tab://graph/"));
+      expect(unreachable.status).toBe(502);
+      expect(unreachable.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(await unreachable.text()).toBe("Service CadencR inaccessible : connect ECONNREFUSED");
+    } finally {
+      await uiI18n.changeLanguage(previousLanguage);
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+    }
   });
 
   it("omits the token header when no token is configured", async () => {

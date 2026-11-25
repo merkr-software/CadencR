@@ -91,7 +91,14 @@ export function useMarketplace() {
       onSuccess: async (entry) => {
         setNotice({
           tone: "done",
-          text: `${entry.id}: changes saved.${entry.restart_required ? " Restart Cadencr to apply them." : ""}`,
+          text: (t) =>
+            entry.restart_required
+              ? t(
+                  "marketplace.activity.providerSavedRestart",
+                  "{{id}}: changes saved. Restart Cadencr to apply them.",
+                  { id: entry.id },
+                )
+              : t("marketplace.activity.providerSaved", "{{id}}: changes saved.", { id: entry.id }),
         });
         await client.invalidateQueries({ queryKey: inventoryKey });
       },

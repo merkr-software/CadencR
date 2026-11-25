@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { Link } from "@tanstack/react-router";
 import { Ban, ShieldCheck } from "lucide-react";
 import { listingKey } from "@/lib/marketplace-listing-base";
@@ -16,18 +17,27 @@ function MemberState({
   member: PluginMember;
   version: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const listing = member.listing;
   const installed = listing?.installed?.version;
   if (!listing)
-    return <span className="text-[11px] text-muted-foreground">Not in the loaded catalog</span>;
+    return (
+      <span className="text-[11px] text-muted-foreground">
+        {t("marketplace.pluginIncludes.notInTheLoadedCatalog", "Not in the loaded catalog")}
+      </span>
+    );
   if (!listing.installed)
-    return <span className="text-[11px] text-muted-foreground">Not installed</span>;
+    return (
+      <span className="text-[11px] text-muted-foreground">
+        {t("marketplace.pluginIncludes.notInstalled", "Not installed")}
+      </span>
+    );
   return (
     <span className="flex flex-wrap items-center gap-2">
       <PluginStateBadge listing={listing} />
       {installed !== version && (
         <span className="font-mono text-[10.5px] text-muted-foreground">
-          {installed ?? "No revision"} → {version}
+          {installed ?? t("marketplace.pluginBits.noRevision", "No revision")} → {version}
         </span>
       )}
     </span>
@@ -87,8 +97,13 @@ export function IncludesSection({
   version: string;
   unknownKinds?: string[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <Section title={`Includes · ${members.length + unknownKinds.length}`}>
+    <Section
+      title={t("marketplace.pluginIncludes.includesCount", "Includes · {{count}}", {
+        count: members.length + unknownKinds.length,
+      })}
+    >
       <ul className="overflow-hidden rounded-lg border border-border/80">
         {members.map((member) => (
           <MemberRow
@@ -104,7 +119,12 @@ export function IncludesSection({
           >
             <Ban aria-hidden="true" className="size-3.5 shrink-0" />
             <span>
-              A <span className="font-mono">{kind}</span> contribution — needs a newer Cadencr
+              <UiTrans
+                i18nKey="marketplace.pluginIncludes.unknownContribution"
+                defaults="A <kind>{{kind}}</kind> contribution — needs a newer Cadencr"
+                values={{ kind }}
+                components={{ kind: <span className="font-mono" /> }}
+              />
             </span>
           </li>
         ))}
@@ -121,17 +141,27 @@ export function PluginTrustSection({
   members: PluginMember[];
   version: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const count = members.length;
   return (
-    <Section title="Trust & safety">
+    <Section title={t("marketplace.pluginIncludes.trustSafety", "Trust & safety")}>
       <div className="space-y-2 rounded-lg border border-border/80 bg-card p-3 text-xs text-muted-foreground">
         <p className="flex items-center gap-1.5 font-medium text-foreground">
           <ShieldCheck aria-hidden="true" className="size-3.5 text-primary" />
-          Signed catalog, verified archives
+          {t("marketplace.pluginIncludes.signedCatalog", "Signed catalog, verified archives")}
         </p>
         <p>
-          This plugin installs {count} component{count === 1 ? "" : "s"}. Each is verified and
-          installed on its own, and can be removed on its own from its page.
+          {t(
+            "marketplace.pluginIncludes.verificationDetail",
+            "This plugin installs {{count}} components. Each is verified and installed on its own, and can be removed on its own from its page.",
+            {
+              count,
+              defaultValue_zero:
+                "This plugin installs {{count}} components. Each is verified and installed on its own, and can be removed on its own from its page.",
+              defaultValue_one:
+                "This plugin installs {{count}} component. Each is verified and installed on its own, and can be removed on its own from its page.",
+            },
+          )}
         </p>
         {members.map((member) => (
           <div
@@ -139,12 +169,17 @@ export function PluginTrustSection({
             className="space-y-1.5 border-t border-border/60 pt-2"
           >
             <p className="font-medium text-foreground">
-              {member.listing?.name ?? member.ref.id} · {KINDS[member.ref.kind].label}
+              {member.listing?.name ?? member.ref.id} · {KINDS[member.ref.kind].label(t)}
             </p>
             {member.listing ? (
               <KindTrust listing={member.listing} version={version} />
             ) : (
-              <p>Not in the loaded catalog, so Cadencr cannot describe it yet.</p>
+              <p>
+                {t(
+                  "marketplace.pluginIncludes.notInTheLoadedCatalogSoCadencr",
+                  "Not in the loaded catalog, so Cadencr cannot describe it yet.",
+                )}
+              </p>
             )}
           </div>
         ))}

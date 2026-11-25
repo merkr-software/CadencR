@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
 import {
   useGetProjectPublicationReadiness,
@@ -18,6 +19,7 @@ export function ProviderPublicationPreparation({
   enabled: boolean;
   pluginKind?: "provider" | "theme" | "tab";
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const readiness = useGetProjectPublicationReadiness(projectId, {
     query: { enabled },
   });
@@ -27,19 +29,25 @@ export function ProviderPublicationPreparation({
       size="sm"
       title={
         pluginKind === "tab"
-          ? "Custom tab publication preparation"
+          ? t("marketplace.publication.readiness.tabTitle", "Custom tab publication preparation")
           : pluginKind === "theme"
-            ? "Theme publication preparation"
-            : "Provider publication preparation"
+            ? t("marketplace.publication.readiness.themeTitle", "Theme publication preparation")
+            : t(
+                "marketplace.publication.readiness.providerTitle",
+                "Provider publication preparation",
+              )
       }
-      subtitle="Local checks only"
-      description={`Review local ${pluginKind} prerequisites. This does not publish to GitHub, create a release, or submit to a registry.`}
+      subtitle={t("marketplace.publication.readiness.localChecksOnly", "Local checks only")}
+      description={readinessDescription(pluginKind, t)}
     >
       <SettingsCard padded>
         <div className="space-y-4" aria-live="polite">
           <div className="flex items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground">
-              Cadencr checks the current files without changing the repository or contacting GitHub.
+              {t(
+                "marketplace.publication.readiness.readOnlyChecks",
+                "Cadencr checks the current files without changing the repository or contacting GitHub.",
+              )}
             </p>
             <Button
               type="button"
@@ -53,25 +61,33 @@ export function ProviderPublicationPreparation({
               ) : (
                 <RefreshCw className="size-3.5" aria-hidden />
               )}
-              Refresh checks
+              {t("marketplace.publication.readiness.refresh", "Refresh checks")}
             </Button>
           </div>
 
           {readiness.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Checking local prerequisites…
+              {t("marketplace.publication.readiness.checking", "Checking local prerequisites…")}
             </div>
           ) : readiness.isError ? (
             <div
               className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
               role="alert"
             >
-              Could not check local prerequisites:{" "}
-              {apiErrorMessage(readiness.error, "Unknown error")}
+              {t(
+                "marketplace.publication.readiness.checkFailed",
+                "Could not check local prerequisites: {{error}}",
+                {
+                  error: apiErrorMessage(
+                    readiness.error,
+                    t("common.unknownError", "Unknown error"),
+                  ),
+                },
+              )}
             </div>
           ) : readiness.data ? (
-            <ReadinessResult readiness={readiness.data} />
+            <ReadinessResult readiness={readiness.data} pluginKind={pluginKind} />
           ) : null}
         </div>
       </SettingsCard>
@@ -79,14 +95,44 @@ export function ProviderPublicationPreparation({
   );
 }
 
+type PublicationKind = "provider" | "theme" | "tab";
+
+function readinessDescription(kind: PublicationKind, t: UiTranslator): string {
+  switch (kind) {
+    case "tab":
+      return t(
+        "marketplace.publication.readiness.tabDescription",
+        "Review local tab prerequisites. This does not publish to GitHub, create a release, or submit to a registry.",
+      );
+    case "theme":
+      return t(
+        "marketplace.publication.readiness.themeDescription",
+        "Review local theme prerequisites. This does not publish to GitHub, create a release, or submit to a registry.",
+      );
+    case "provider":
+      return t(
+        "marketplace.publication.readiness.providerDescription",
+        "Review local provider prerequisites. This does not publish to GitHub, create a release, or submit to a registry.",
+      );
+  }
+}
+
 function ReadinessResult({
   readiness,
+  pluginKind,
 }: {
   readiness: PublicationReadinessResponse;
+  pluginKind: PublicationKind;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const prepared = readiness.local_preparation === "prepared";
   const hasWarnings = readiness.checks.some((check) => check.status === "warning");
   const allPass = prepared && !hasWarnings;
+  const statusLabels = {
+    pass: t("marketplace.publication.readiness.checkPassed", "pass"),
+    warning: t("marketplace.publication.readiness.checkWarning", "warning"),
+    fail: t("marketplace.publication.readiness.checkFailedStatus", "fail"),
+  };
 
   return (
     <div className="space-y-3">
@@ -107,12 +153,18 @@ function ReadinessResult({
         <div>
           <p className="font-medium">
             {allPass
-              ? "All local preparation checks pass"
+              ? t(
+                  "marketplace.publication.readiness.checksPass",
+                  "All local preparation checks pass",
+                )
               : prepared
-                ? "No blocking local issues found"
-                : "Local preparation is blocked"}
+                ? t(
+                    "marketplace.publication.readiness.noBlockingIssues",
+                    "No blocking local issues found",
+                  )
+                : t("marketplace.publication.readiness.blocked", "Local preparation is blocked")}
           </p>
-          <p className="mt-0.5 text-xs opacity-90">{readiness.summary}</p>
+          <p className="mt-0.5 text-xs opacity-90">{readinessSummary(pluginKind, prepared, t)}</p>
         </div>
       </div>
 
@@ -137,8 +189,12 @@ function ReadinessResult({
               />
               <div className="min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="sr-only">{check.status}: </span>
-                  {check.label}
+                  <span className="sr-only">
+                    {t("marketplace.publication.readiness.statusPrefix", "{{status}}: ", {
+                      status: statusLabels[check.status],
+                    })}
+                  </span>
+                  {readinessCheckLabel(check, t)}
                 </p>
                 <p className="text-xs text-muted-foreground">{check.detail}</p>
               </div>
@@ -148,8 +204,77 @@ function ReadinessResult({
       </ul>
 
       <p className="text-[11px] text-muted-foreground">
-        Passing these checks does not mean the plugin is published or fully release-ready.
+        {t(
+          "marketplace.publication.readiness.checksScope",
+          "Passing these checks does not mean the plugin is published or fully release-ready.",
+        )}
       </p>
     </div>
   );
+}
+
+function readinessSummary(kind: PublicationKind, prepared: boolean, t: UiTranslator): string {
+  switch (kind) {
+    case "tab":
+      return t(
+        "marketplace.publication.readiness.tabSummary",
+        "Custom tab publication requires a validated manifest, compiled web output, source release, and registry verification. Local checks do not publish anything.",
+      );
+    case "theme":
+      return prepared
+        ? t(
+            "marketplace.publication.readiness.themePrepared",
+            "No blocking local issues found. This is not publication approval: closed declarative packaging, source-release, maintainer, and registry verification remain.",
+          )
+        : t(
+            "marketplace.publication.readiness.themeBlocked",
+            "Local theme preparation has blocking issues. Strict declarative document and raster validation, source-release, maintainer, and registry verification are required.",
+          );
+    case "provider":
+      return prepared
+        ? t(
+            "marketplace.publication.readiness.providerPrepared",
+            "No blocking local issues found. This is not release or publication approval: packaging, connector conformance, source-release, maintainer, and registry verification remain.",
+          )
+        : t(
+            "marketplace.publication.readiness.providerBlocked",
+            "Local package preparation has blocking issues. Passing these checks still requires packaging, connector conformance, source-release, maintainer, and registry verification.",
+          );
+  }
+}
+
+function readinessCheckLabel(
+  check: PublicationReadinessResponse["checks"][number],
+  t: UiTranslator,
+): string {
+  switch (check.id) {
+    case "tab-build":
+      return t("marketplace.publication.readiness.checks.tab", "Compiled custom tab");
+    case "theme-document":
+      return t("marketplace.publication.readiness.checks.theme", "Declarative theme");
+    case "workspace_identity":
+      return t("marketplace.publication.readiness.checks.workspaceIdentity", "Workspace identity");
+    case "host_descriptor":
+      return t("marketplace.publication.readiness.checks.hostDescriptor", "Host descriptor");
+    case "repository":
+      return t("marketplace.publication.readiness.checks.repository", "Source repository");
+    case "license_metadata":
+      return t("marketplace.publication.readiness.checks.licenseMetadata", "License metadata");
+    case "distribution":
+      return t("marketplace.publication.readiness.checks.distribution", "Binary distribution");
+    case "license_file":
+      return t("marketplace.publication.readiness.checks.licenseFile", "License file");
+    case "icon":
+      return t("marketplace.publication.readiness.checks.icon", "Provider icon");
+    case "executable":
+      return t("marketplace.publication.readiness.checks.executable", "Provider executable");
+    case "git_root":
+      return t("marketplace.publication.readiness.checks.gitRoot", "Git repository");
+    case "git_head":
+      return t("marketplace.publication.readiness.checks.gitHead", "Git revision");
+    case "git_clean":
+      return t("marketplace.publication.readiness.checks.gitWorktree", "Git worktree");
+    default:
+      return check.label;
+  }
 }

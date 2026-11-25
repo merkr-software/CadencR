@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ComponentProps, ReactNode } from "react";
 import { CloudOff, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,13 +11,14 @@ export const TILE_GRID = "grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] g
 export function CheckCatalogButton({
   refreshing,
   onRefresh,
-  label = "Check for updates",
+  label,
   ...props
 }: {
   refreshing: boolean;
   onRefresh: () => void;
   label?: ReactNode;
 } & Omit<ComponentProps<typeof Button>, "onClick" | "disabled">): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <Button variant="outline" size="sm" disabled={refreshing} onClick={onRefresh} {...props}>
       {refreshing ? (
@@ -24,7 +26,9 @@ export function CheckCatalogButton({
       ) : (
         <RefreshCw aria-hidden="true" />
       )}
-      {refreshing ? "Checking…" : label}
+      {refreshing
+        ? t("marketplace.marketplaceStates.checking", "Checking…")
+        : (label ?? t("marketplace.marketplaceHome.checkForUpdates", "Check for updates"))}
     </Button>
   );
 }
@@ -59,13 +63,24 @@ export function MarketplaceUnavailable({
   refreshing: boolean;
   onRefresh: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <MarketplaceEmpty
       icon={CloudOff}
-      title="No verified catalog right now"
-      detail="Browsing and installing need a current signed catalog. Everything already installed stays manageable from Installed."
+      title={t(
+        "marketplace.marketplaceStates.noVerifiedCatalogRightNow",
+        "No verified catalog right now",
+      )}
+      detail={t(
+        "marketplace.marketplaceStates.unavailableDetail",
+        "Browsing and installing need a current signed catalog. Everything already installed stays manageable from Installed.",
+      )}
       action={
-        <CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} label="Try again" />
+        <CheckCatalogButton
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          label={t("marketplace.marketplaceStates.tryAgain", "Try again")}
+        />
       }
     />
   );
@@ -73,19 +88,34 @@ export function MarketplaceUnavailable({
 
 /** No catalog feed is compiled into this build: not a failure, so no retry is offered. */
 export function MarketplaceNotInBuild(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <MarketplaceEmpty
       icon={CloudOff}
-      title="The catalog isn't available in this build"
-      detail="This build isn't connected to a plugin catalog, so there is nothing to browse or install. Anything already installed stays manageable from Installed."
+      title={t(
+        "marketplace.marketplaceStates.theCatalogIsnTAvailableInThisBuild",
+        "The catalog isn't available in this build",
+      )}
+      detail={t(
+        "marketplace.marketplaceStates.notInBuildDetail",
+        "This build isn't connected to a plugin catalog, so there is nothing to browse or install. Anything already installed stays manageable from Installed.",
+      )}
     />
   );
 }
 
 /** First load: the showcase and a shelf, in outline. */
 export function MarketplaceSkeleton(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <div role="status" aria-label="Loading the marketplace" className="space-y-6">
+    <div
+      role="status"
+      aria-label={t(
+        "marketplace.marketplaceStates.loadingTheMarketplace",
+        "Loading the marketplace",
+      )}
+      className="space-y-6"
+    >
       <Skeleton className="h-[280px] w-full rounded-xl" />
       <div className="flex gap-1.5">
         {[56, 88, 96].map((width) => (

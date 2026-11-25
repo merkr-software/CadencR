@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useId, useState, type ReactElement } from "react";
 import { Trash2Icon } from "lucide-react";
 
@@ -54,6 +55,7 @@ function EditorContent({
   request: CustomActionEditorRequest;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const editor = useCustomActionEditorForm(request, onClose);
   const [deleting, setDeleting] = useState(false);
   useDialogSubmitShortcut({ open: true, enabled: !editor.isPending, onSubmit: editor.submit });
@@ -68,11 +70,17 @@ function EditorContent({
         className="space-y-4"
       >
         <DialogHeader>
-          <DialogTitle>{request.action ? `Edit ${request.action.name}` : "New action"}</DialogTitle>
+          <DialogTitle>
+            {request.action
+              ? t("customActions.editNamed", "Edit {{name}}", { name: request.action.name })
+              : t("customActions.new", "New action")}
+          </DialogTitle>
           <DialogDescription>
-            A command you run often in a conversation&apos;s working copy. Write{" "}
-            <code className="font-mono text-xs">${"{NAME}"}</code> where a value changes per
-            conversation: it is asked for when you run it.
+            <UiTrans
+              i18nKey="customActions.editor.help"
+              defaults="A command you run often in a conversation's working copy. Write <variable /> where a value changes per conversation: it is asked for when you run it."
+              components={{ variable: <code className="font-mono text-xs">{"${NAME}"}</code> }}
+            />
           </DialogDescription>
         </DialogHeader>
         <NameAndCommandFields editor={editor} />
@@ -91,17 +99,21 @@ function EditorContent({
               onClick={() => setDeleting(true)}
             >
               <Trash2Icon />
-              Delete…
+              {t("customActions.deleteAction", "Delete…")}
             </Button>
           ) : (
             <span />
           )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={editor.isPending}>
-              Cancel
+              {t("common.cancel", "Cancel")}
             </Button>
             <Button type="submit" disabled={editor.isPending}>
-              {editor.isPending ? "Saving…" : request.action ? "Save" : "Create action"}
+              {editor.isPending
+                ? t("customActions.saving", "Saving…")
+                : request.action
+                  ? t("common.save", "Save")
+                  : t("customActions.create", "Create action")}
             </Button>
           </div>
         </DialogFooter>
@@ -116,6 +128,7 @@ function EditorContent({
 }
 
 function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): ReactElement {
+  const { t } = useUiTranslation();
   const nameId = useId();
   const commandId = useId();
   const { form, setForm, errors, variables } = editor;
@@ -123,7 +136,7 @@ function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): R
     <>
       <div className="space-y-1.5">
         <label htmlFor={nameId} className="text-xs font-medium">
-          Name
+          {t("customActions.customActionEditorDialog.name", "Name")}
         </label>
         <Input
           id={nameId}
@@ -132,7 +145,7 @@ function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): R
           aria-invalid={errors.name ? true : undefined}
           aria-describedby={errors.name ? `${nameId}-error` : undefined}
           onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          placeholder="Run tests"
+          placeholder={t("customActions.customActionEditorDialog.runTests", "Run tests")}
         />
         {errors.name && (
           <p id={`${nameId}-error`} className="text-xs text-destructive">
@@ -142,7 +155,7 @@ function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): R
       </div>
       <div className="space-y-1.5">
         <label htmlFor={commandId} className="text-xs font-medium">
-          Command
+          {t("customActions.customActionEditorDialog.command", "Command")}
         </label>
         <BashFrame>
           <Textarea
@@ -163,8 +176,13 @@ function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): R
         >
           {errors.command ??
             (variables.length > 0
-              ? `Asked for when you run it: ${variables.join(", ")}`
-              : "Runs in the conversation's worktree, through your login shell.")}
+              ? t("customActions.editor.variables", "Asked for when you run it: {{variables}}", {
+                  variables: variables.join(", "),
+                })
+              : t(
+                  "customActions.editor.worktreeHelp",
+                  "Runs in the conversation's worktree, through your login shell.",
+                ))}
         </p>
       </div>
     </>
@@ -172,50 +190,69 @@ function NameAndCommandFields({ editor }: { editor: CustomActionEditorForm }): R
 }
 
 function BehaviorFields({ editor }: { editor: CustomActionEditorForm }): ReactElement {
+  const { t } = useUiTranslation();
   const iconId = useId();
   const { form, setForm } = editor;
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <fieldset className="space-y-1.5">
-        <legend className="mb-1.5 text-xs font-medium">Runs</legend>
+        <legend className="mb-1.5 text-xs font-medium">
+          {t("customActions.customActionEditorDialog.runs", "Runs")}
+        </legend>
         <UsageSegmentedControl
-          ariaLabel="Where the action runs"
+          ariaLabel={t("customActions.editor.execution", "Where the action runs")}
           className="[&_button]:px-2.5 [&_button]:py-1 [&_button]:text-xs"
           value={form.runInTerminal ? "terminal" : "background"}
           onChange={(value) =>
             setForm((current) => ({ ...current, runInTerminal: value === "terminal" }))
           }
           options={[
-            { value: "background", label: "In the background" },
-            { value: "terminal", label: "In a terminal" },
+            {
+              value: "background",
+              label: t("customActions.editor.background", "In the background"),
+            },
+            { value: "terminal", label: t("customActions.editor.terminal", "In a terminal") },
           ]}
         />
         <p className="text-xs text-muted-foreground">
           {form.runInTerminal
-            ? "Opens a terminal split you can type into — for dev servers and prompts."
-            : "Output and status show on its page in the header’s action menu; it can also run on a schedule."}
+            ? t(
+                "customActions.editor.terminalHelp",
+                "Opens a terminal split you can type into — for dev servers and prompts.",
+              )
+            : t(
+                "customActions.editor.backgroundHelp",
+                "Output and status show on its page in the header’s action menu; it can also run on a schedule.",
+              )}
         </p>
       </fieldset>
       <fieldset className="space-y-1.5">
-        <legend className="mb-1.5 text-xs font-medium">Available in</legend>
+        <legend className="mb-1.5 text-xs font-medium">
+          {t("customActions.customActionEditorDialog.availableIn", "Available in")}
+        </legend>
         {editor.canChooseScope ? (
           <UsageSegmentedControl
-            ariaLabel="Where the action is available"
+            ariaLabel={t("customActions.editor.scope", "Where the action is available")}
             className="[&_button]:px-2.5 [&_button]:py-1 [&_button]:text-xs"
             value={form.scope}
             onChange={(scope) => setForm((current) => ({ ...current, scope }))}
             options={[
-              { value: "project", label: "This project" },
-              { value: "global", label: "All projects" },
+              { value: "project", label: t("customActions.editor.project", "This project") },
+              {
+                value: "global",
+                label: t("customActions.customActionEditorDialog.allProjects", "All projects"),
+              },
             ]}
           />
         ) : (
-          <p className="text-sm">All projects</p>
+          <p className="text-sm">
+            {t("customActions.customActionEditorDialog.allProjects", "All projects")}
+          </p>
         )}
       </fieldset>
       <div className="space-y-1.5 sm:col-span-2">
         <p aria-hidden className="text-xs font-medium">
-          Icon
+          {t("customActions.customActionEditorDialog.icon", "Icon")}
         </p>
         <ActionIconPicker
           id={iconId}

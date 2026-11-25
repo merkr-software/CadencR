@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor, act } from "@testing-library/react";
@@ -79,7 +80,7 @@ describe("useMarketplace", () => {
     await waitFor(() =>
       expect(result.current.inventoryQuery.data?.providers[0].enabled_after_restart).toBe(false),
     );
-    expect(result.current.notice?.text).toContain("Restart Cadencr");
+    expect(result.current.notice?.text(translateUi)).toContain("Restart Cadencr");
   });
   it("names only the provider and version: the service installs from its verified catalog", async () => {
     vi.mocked(install).mockResolvedValue(entry);

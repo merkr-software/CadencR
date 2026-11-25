@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { HostReportedBackendCode } from "@cadencr/tab-sdk";
 import { toast } from "sonner";
 
@@ -28,40 +29,91 @@ interface SurfacedCopy {
   summary?: string;
 }
 
-const SURFACED_COPY: Readonly<Record<HostReportedBackendCode, SurfacedCopy>> = {
-  PLUGIN_BACKEND_NOT_NATIVE: { title: "its backend is not a native executable", restart: false },
-  PLUGIN_BACKEND_UNSIGNED: { title: "its backend is not code-signed", restart: false },
-  PLUGIN_BACKEND_UNAVAILABLE: { title: "its backend can't start", restart: false },
-  PLUGIN_BACKEND_UNAVAILABLE_ON_PLATFORM: {
-    title: "its backend has no build for this platform",
+const SURFACED_COPY: Readonly<Record<HostReportedBackendCode, () => SurfacedCopy>> = {
+  PLUGIN_BACKEND_NOT_NATIVE: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.notNative",
+      "its backend is not a native executable",
+    ),
     restart: false,
-  },
-  PLUGIN_BACKEND_TAMPERED: {
-    title: "its backend binary was modified after install",
+  }),
+  PLUGIN_BACKEND_UNSIGNED: () => ({
+    title: translateUi("customTabs.backendFailure.unsigned", "its backend is not code-signed"),
     restart: false,
-    summary: "It differs from the binary its signed package names; its Activity shows which file.",
-    advice: "Reinstall or update the tab from the Marketplace.",
-  },
+  }),
+  PLUGIN_BACKEND_UNAVAILABLE: () => ({
+    title: translateUi("customTabs.backendFailure.unavailable", "its backend can't start"),
+    restart: false,
+  }),
+  PLUGIN_BACKEND_UNAVAILABLE_ON_PLATFORM: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.noBuild",
+      "its backend has no build for this platform",
+    ),
+    restart: false,
+  }),
+  PLUGIN_BACKEND_TAMPERED: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.tampered",
+      "its backend binary was modified after install",
+    ),
+    restart: false,
+    summary: translateUi(
+      "customTabs.backendFailure.tamperedSummary",
+      "It differs from the binary its signed package names; its Activity shows which file.",
+    ),
+    advice: translateUi(
+      "customTabs.backendFailure.tamperedAdvice",
+      "Reinstall or update the tab from the Marketplace.",
+    ),
+  }),
   // Backend starts need a current revocation list; the page itself keeps working.
-  MANAGED_TAB_POLICY_UNAVAILABLE: {
-    title: "Cadencr couldn't confirm it is still allowed to run native code",
+  MANAGED_TAB_POLICY_UNAVAILABLE: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.cannotConfirm",
+      "Cadencr couldn't confirm it is still allowed to run native code",
+    ),
     restart: false,
-    advice: "Check your connection; the backend starts once the revocation list is reachable.",
-  },
-  PLUGIN_TAB_BLOCKED: {
-    title: "it was blocked by Cadencr",
+    advice: translateUi(
+      "customTabs.backendFailure.policyAdvice",
+      "Check your connection; the backend starts once the revocation list is reachable.",
+    ),
+  }),
+  PLUGIN_TAB_BLOCKED: () => ({
+    title: translateUi("customTabs.backendFailure.blocked", "it was blocked by Cadencr"),
     restart: false,
-    advice: "Remove it, or update it to a version that isn't blocked, from the Marketplace.",
-  },
-  PLUGIN_BACKEND_NOT_READY: { title: "its backend didn't get ready in time", restart: false },
+    advice: translateUi(
+      "customTabs.backendFailure.blockedAdvice",
+      "Remove it, or update it to a version that isn't blocked, from the Marketplace.",
+    ),
+  }),
+  PLUGIN_BACKEND_NOT_READY: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.notReady",
+      "its backend didn't get ready in time",
+    ),
+    restart: false,
+  }),
   // These hold until the user allows a restart from the tab's Activity.
-  PLUGIN_BACKEND_PROTOCOL_MISMATCH: { title: "its backend speaks another protocol", restart: true },
-  PLUGIN_BACKEND_CRASHING: { title: "its backend keeps crashing", restart: true },
+  PLUGIN_BACKEND_PROTOCOL_MISMATCH: () => ({
+    title: translateUi(
+      "customTabs.backendFailure.protocolMismatch",
+      "its backend speaks another protocol",
+    ),
+    restart: true,
+  }),
+  PLUGIN_BACKEND_CRASHING: () => ({
+    title: translateUi("customTabs.backendFailure.crashLoop", "its backend keeps crashing"),
+    restart: true,
+  }),
   // Ages out after a minute; a restart from the Activity clears it now. The
   // service's message stays short: the Activity says why it can't start.
-  PLUGIN_BACKEND_START_FAILING: { title: "its backend keeps failing to start", restart: true },
+  PLUGIN_BACKEND_START_FAILING: () => ({
+    title: translateUi("customTabs.backendFailure.startLoop", "its backend keeps failing to start"),
+    restart: true,
+  }),
 };
-const SURFACED: ReadonlyMap<string, SurfacedCopy> = new Map(Object.entries(SURFACED_COPY));
+const SURFACED: ReadonlyMap<string, () => SurfacedCopy> = new Map(Object.entries(SURFACED_COPY));
 
 export interface BackendFailure {
   instanceId: string;
@@ -88,7 +140,9 @@ const defaultDeps: BackendFailureDeps = {
       description: detail,
       duration: 20_000,
       action: {
-        label: restart ? "Restart from Activity" : "View activity",
+        label: restart
+          ? translateUi("customTabs.backendFailure.restartAction", "Restart from Activity")
+          : translateUi("customTabs.backendFailure.viewAction", "View activity"),
         onClick: () => setPluginTabActivityOpen(instanceId),
       },
     }),
@@ -97,7 +151,9 @@ const defaultDeps: BackendFailureDeps = {
 
 function sentence(message: string): string {
   const clause = reasonClause(message);
-  return clause === "" ? "Cadencr gave no detail." : `${capitalize(clause)}.`;
+  return clause === ""
+    ? translateUi("customTabs.backendFailure.noDetail", "Cadencr gave no detail.")
+    : `${capitalize(clause)}.`;
 }
 
 /**
@@ -115,13 +171,17 @@ export class BackendFailureWatch {
 
   failed(pluginName: string, error: unknown): void {
     const { code, message } = toBrokerError(error);
-    const copy = SURFACED.get(code);
-    if (!copy || this.reported === code) return;
+    const getCopy = SURFACED.get(code);
+    if (!getCopy || this.reported === code) return;
+    const copy = getCopy();
     this.reported = code;
     const explanation = copy.summary ?? sentence(message);
     this.deps.report({
       instanceId: this.instanceId,
-      title: `${pluginName}: ${copy.title}`,
+      title: translateUi("customTabs.backendFailure.title", "{{name}}: {{reason}}", {
+        name: pluginName,
+        reason: copy.title,
+      }),
       detail: copy.advice ? `${explanation} ${copy.advice}` : explanation,
       restart: copy.restart,
     });

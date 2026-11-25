@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo } from "react";
 import type {
   ExtensionCliSummary,
@@ -33,6 +34,7 @@ export const McpTile = memo(function McpTile({
   listing?: McpListing;
   clis: ExtensionCliSummary[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const carriedBy = useMemo(
     () => new Set(listing?.installations.map((installation) => installation.provider_id)),
     [listing],
@@ -51,10 +53,18 @@ export const McpTile = memo(function McpTile({
       name={name}
       meta={
         <span className="font-mono text-[10.5px]">
-          {server ? `${server.name} · v${server.version}` : "Not in the MCP Registry"}
+          {server
+            ? `${server.name} · v${server.version}`
+            : t("marketplace.agent.agentTiles.outsideMcpRegistry", "Not in the MCP Registry")}
         </span>
       }
-      description={server?.description || "Added to an agent CLI outside the registry."}
+      description={
+        server?.description ||
+        t(
+          "marketplace.agent.agentTiles.locallyAddedMcp",
+          "Added to an agent CLI outside the registry.",
+        )
+      }
       badge={
         <AgentStateBadge
           installedIn={carriedBy.size}
@@ -73,6 +83,7 @@ export const SkillTile = memo(function SkillTile({
   listing: SkillListing;
   clis: ExtensionCliSummary[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const carriedBy = useMemo(
     () => new Set(listing.installed.map((skill) => skill.provider_id)),
     [listing.installed],
@@ -87,12 +98,24 @@ export const SkillTile = memo(function SkillTile({
       name={listing.name}
       meta={
         <span className="font-mono text-[10.5px]">
-          {[marketplaces.join(", "), installs ? `${installs.toLocaleString()} installs` : null]
+          {[
+            marketplaces.join(", "),
+            installs
+              ? t("marketplace.agent.skillInstallCount", "{{count, number}} installs", {
+                  count: installs,
+                  defaultValue_zero: "{{count, number}} installs",
+                  defaultValue_one: "{{count, number}} install",
+                })
+              : null,
+          ]
             .filter(Boolean)
             .join(" · ")}
         </span>
       }
-      description={listing.description || "No description in the marketplace."}
+      description={
+        listing.description ||
+        t("marketplace.agent.skillDescriptionMissing", "No description in the marketplace.")
+      }
       badge={
         <AgentStateBadge installedIn={carriedBy.size} update={skillUpdates(listing)[0]?.update} />
       }

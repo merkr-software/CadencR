@@ -1,3 +1,4 @@
+import { translateUi, uiI18n } from "@/shared/ui-i18n";
 import { format, formatDistanceToNowStrict, isToday } from "date-fns";
 import { fr } from "date-fns/locale/fr";
 
@@ -21,13 +22,13 @@ export function formatRelativeDistance(date: Date, language: string): string {
 }
 
 /** "3 days ago"; the raw value when it does not parse, never a made-up date. */
-export function formatAgo(iso?: string | null): string | null {
+export function formatAgo(iso?: string | null, language = uiI18n.language): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return Date.now() - date.getTime() < 60_000
-    ? "just now"
-    : formatDistanceToNowStrict(date, { addSuffix: true });
+    ? translateUi("common.time.justNow", "just now")
+    : formatRelativeDistance(date, language);
 }
 
 /** A stream message's time: "14:05" today, "2026/10/20 14:05" before. */

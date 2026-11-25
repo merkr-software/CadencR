@@ -1,3 +1,4 @@
+import { type UiTranslator } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 
 import type { TabShortcut } from "@/api/generated";
@@ -14,11 +15,12 @@ import type { PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
 /** A tab's declared shortcuts, each with the Cadencr shortcut that takes its keys, if any. */
 export function useResolvedTabShortcuts(
   shortcuts: readonly TabShortcut[],
+  t?: UiTranslator,
 ): readonly ResolvedTabShortcut[] {
   const overrides = useShortcutOverridesStore((state) => state.overrides);
   return useMemo(
-    () => resolveTabShortcuts(shortcuts, appShortcutBindings(overrides), PLATFORM_IS_MAC),
-    [shortcuts, overrides],
+    () => resolveTabShortcuts(shortcuts, appShortcutBindings(overrides, t), PLATFORM_IS_MAC),
+    [shortcuts, overrides, t],
   );
 }
 

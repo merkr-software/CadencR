@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 
 import { useListProjects } from "@/api/generated";
@@ -24,6 +25,7 @@ export const CUSTOM_ACTIONS_SECTION_ID = "actions" satisfies SettingsPageId;
  * settings show.
  */
 export function CustomActionsSettingsSection(): ReactElement {
+  const { t } = useUiTranslation();
   const { data: projects = [] } = useListProjects();
   const [projectId, setProjectId] = useState<number | null>(null);
   const shownProjectId = projectId ?? projects[0]?.id ?? null;
@@ -31,29 +33,41 @@ export function CustomActionsSettingsSection(): ReactElement {
     <SettingsPageSection
       pageId={CUSTOM_ACTIONS_SECTION_ID}
       description={
-        <>
-          Commands you run often in a conversation's working copy: tests, linters, deploys, dev
-          servers. Each project's header lists its own actions, then the global ones, in the order
-          below. Run them from the header launcher, where each action also has a page with its
-          output, runs and settings, or <ResolvedKbdChord shortcutId="custom-action-run-1-9" />.
-        </>
+        <UiTrans
+          i18nKey="customActions.settings.help"
+          defaults="Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings, or <shortcut />."
+          components={{ shortcut: <ResolvedKbdChord shortcutId="custom-action-run-1-9" /> }}
+        />
       }
     >
-      <SettingsGroup title="All projects" description="Offered in every project's conversations.">
+      <SettingsGroup
+        title={t("customActions.customActionsSettingsSection.allProjects", "All projects")}
+        description={t(
+          "customActions.customActionsSettingsSection.offeredInEveryProjectSConversations",
+          "Offered in every project's conversations.",
+        )}
+      >
         <SettingsSubsection>
           <CustomActionsManager scope="global" />
         </SettingsSubsection>
       </SettingsGroup>
       {projects.length > 0 && shownProjectId != null && (
         <SettingsGroup
-          title="One project"
-          description="Offered only in that project's conversations, before the global ones."
+          title={t("customActions.customActionsSettingsSection.oneProject", "One project")}
+          description={t(
+            "customActions.customActionsSettingsSection.offeredOnlyInThatProjectSConversationsBefore",
+            "Offered only in that project's conversations, before the global ones.",
+          )}
           action={
             <Select
               value={String(shownProjectId)}
               onValueChange={(value) => setProjectId(Number(value))}
             >
-              <SelectTrigger size="sm" className="h-8 min-w-40" aria-label="Project">
+              <SelectTrigger
+                size="sm"
+                className="h-8 min-w-40"
+                aria-label={t("customActions.customActionsSettingsSection.project", "Project")}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
