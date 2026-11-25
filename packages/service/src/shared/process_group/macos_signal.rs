@@ -109,6 +109,7 @@ mod tests {
             }
         }
         assert!(!group_has_live_member(pgid as i32).unwrap());
+        assert!(!super::super::process_group_alive(pgid));
 
         let kill = |pgid| super::super::kill_group_after_leader_exit(pgid);
         futures::executor::block_on(kill(pgid)).expect("a zombie-only group is already dead");

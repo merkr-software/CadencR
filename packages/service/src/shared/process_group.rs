@@ -79,11 +79,29 @@ pub(crate) fn try_signal_process_group(pid: u32, signal: libc::c_int) -> io::Res
     }
 }
 
-/// Whether a live process remains in the group `pid` leads (zombies the
-/// kernel refuses to signal do not count).
+/// Whether the group `pid` leads may still have live members. On macOS,
+/// a group with only zombies is gone for this purpose. A group whose
+/// members cannot be inspected after a permission denial is kept alive.
 #[cfg(unix)]
 pub(crate) fn process_group_alive(pid: u32) -> bool {
-    try_signal_process_group(pid, 0).is_ok()
+    group_alive_after_probe(pid, try_signal_process_group(pid, 0))
+}
+
+#[cfg(unix)]
+fn group_alive_after_probe(pid: u32, probe: io::Result<()>) -> bool {
+    match probe {
+        Ok(()) => true,
+        Err(error) => match error.raw_os_error() {
+            Some(libc::ESRCH) => false,
+            // A refused probe means the group exists unless macOS can
+            // confirm there are no live members left.
+            Some(libc::EPERM) => reconcile_vanished(pid, Err(error)).is_err(),
+            _ => {
+                tracing::warn!(pid, %error, "could not probe process group liveness");
+                false
+            }
+        },
+    }
 }
 
 /// SIGKILL what is left of a process group whose leader has exited (macOS
@@ -231,6 +249,7 @@ mod tests {
         let leader = child.id().unwrap();
         child.wait().await.unwrap();
 
+        assert!(!process_group_alive(leader));
         signal_process_group(leader, libc::SIGTERM).expect("ESRCH is not a failure");
         let error = try_signal_process_group(leader, libc::SIGTERM).unwrap_err();
         // XNU may still answer EPERM for a moment after the reap.
@@ -270,6 +289,10 @@ mod tests {
             // Linux never answers EPERM for a gone group: one is a live member.
             assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
         }
+        assert_eq!(
+            group_alive_after_probe(leader, eperm()),
+            !cfg!(target_os = "macos")
+        );
     }
 
     /// Found in QA under a seccomp filter that refused SIGTERM but not
@@ -280,6 +303,7 @@ mod tests {
         let mut child = group_leader(&directory.path().join("unused.pid"), "exec sleep 30");
         let leader = child.id().unwrap();
 
+        assert!(group_alive_after_probe(leader, eperm()));
         let result = signal_group_with(leader, eperm);
         child.kill().await.unwrap();
         assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
