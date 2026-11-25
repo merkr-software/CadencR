@@ -65,20 +65,24 @@ impl Events {
             return; // An old stdout reader finishing after a replacement started.
         }
         cursor.seq += 1;
-        self.tx.send(Update::Event(Arc::new(StampedEvent {
-            run_id: run_id.to_owned(),
-            seq: cursor.seq,
-            topic: event.topic,
-            payload: event.payload,
-        }))).ignore_closed();
+        self.tx
+            .send(Update::Event(Arc::new(StampedEvent {
+                run_id: run_id.to_owned(),
+                seq: cursor.seq,
+                topic: event.topic,
+                payload: event.payload,
+            })))
+            .ignore_closed();
     }
 
     pub fn error(&self, run_id: &str, code: &str, message: &str) {
         if lock(&self.cursor).run_id.as_deref() == Some(run_id) {
-            self.tx.send(Update::Error {
-                code: code.to_owned(),
-                message: message.to_owned(),
-            }).ignore_closed();
+            self.tx
+                .send(Update::Error {
+                    code: code.to_owned(),
+                    message: message.to_owned(),
+                })
+                .ignore_closed();
             self.tx.send(Update::Resync).ignore_closed();
         }
     }
@@ -90,10 +94,12 @@ impl Events {
         }
         cursor.run_id = None;
         self.tx.send(Update::Resync).ignore_closed();
-        self.tx.send(Update::Error {
-            code: "PLUGIN_BACKEND_EXITED".into(),
-            message: reason.to_owned(),
-        }).ignore_closed();
+        self.tx
+            .send(Update::Error {
+                code: "PLUGIN_BACKEND_EXITED".into(),
+                message: reason.to_owned(),
+            })
+            .ignore_closed();
     }
 }
 

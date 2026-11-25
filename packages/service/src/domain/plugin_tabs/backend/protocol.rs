@@ -23,10 +23,10 @@ use tokio_util::sync::CancellationToken;
 use super::events::Events;
 use super::handshake::{self, Handshake, HandshakeState};
 use super::history::History;
-use crate::shared::discard::SendIgnoreClosed;
 use super::lines::{next_line, Line};
 use super::models::{PluginBackendCallError, PluginBackendResponse};
 use crate::domain::agents::providers::installed::managed::process_policy::MANAGED_MAX_STDERR_LINE_BYTES;
+use crate::shared::discard::SendIgnoreClosed;
 
 pub(super) enum Reply {
     Response(PluginBackendResponse),

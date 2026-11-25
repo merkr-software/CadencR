@@ -28,10 +28,7 @@ impl BackendSupervisor {
             if slots.closed {
                 return Err(super::quitting());
             }
-            let slot = slots
-                .by_key
-                .entry(Key::of(&launch))
-                .or_default();
+            let slot = slots.by_key.entry(Key::of(&launch)).or_default();
             let rx = slot.events.subscribe();
             // A slot that was explicitly stopped must not restart on a
             // restored subscription (e.g. after a socket reconnect): only
