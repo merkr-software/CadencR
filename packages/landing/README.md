@@ -93,6 +93,11 @@ pnpm --filter @cadencr/landing test
 
 Repeat with the host version in `.nvmrc` to verify the usual development setup.
 
+If a Pages build fails with `ERR_PNPM_ENOENT` while renaming a `_tmp_*`
+directory in the hoisted `node_modules` tree, use **Retry deployment** on the
+failed deployment. After the retry passes the frozen install, check that the
+production download page links to the expected release.
+
 The site canonical URL is configured in `astro.config.mjs`:
 
 ```js
