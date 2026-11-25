@@ -72,6 +72,6 @@ describe("FileSearchDialog", () => {
     expect(screen.getByText('src/"a\\nb.txt"')).toBeInTheDocument();
     await userEvent.click(screen.getByText('"a\\nb.txt"'));
 
-    expect(mockOpenFile).toHaveBeenCalledWith("main", "src/a\nb.txt", 10);
+    expect(mockOpenFile).toHaveBeenCalledWith("src/a\nb.txt");
   });
 });
