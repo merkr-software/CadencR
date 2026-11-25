@@ -10,7 +10,9 @@ export const PALETTE_SHORTCUTS = [
     // Tab, not ⌘K (Raycast's): ⌘K is what opens and closes the palette.
     id: "palette-actions",
     keys: ["tab"],
-    description: "Show actions for the selected result",
+    describe(t) {
+      return t("shortcuts.descriptions.palette-actions", "Show actions for the selected result");
+    },
     scope: "command-palette",
   },
   {
@@ -18,7 +20,12 @@ export const PALETTE_SHORTCUTS = [
     // (macOS types "ß"), so AZERTY's S still works.
     id: "palette-scope",
     keys: ["alt", "s"],
-    description: "Search everything · this project · active conversations",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.palette-scope",
+        "Search everything · this project · active conversations",
+      );
+    },
     scope: "command-palette",
   },
 ] as const satisfies readonly Shortcut[];

@@ -22,6 +22,11 @@ export type { Shortcut, ShortcutKey } from "./types";
 export type { ShortcutScope, ShortcutScopeId } from "./scopes";
 export type { ShortcutId } from "./entries";
 
+/** The source copy for consumers without a UI translator, including the docs site. */
+export function englishShortcutText(_key: string, defaultValue: string): string {
+  return defaultValue;
+}
+
 /**
  * Duplicate-id check. Combo collisions within a scope are tolerated when
  * they're deliberate state-dependent dual purposes, but two entries sharing

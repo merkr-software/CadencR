@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useGetWorkspaceSetting } from "@/api/generated";
@@ -47,7 +48,11 @@ function applyZoom(level: number): void {
       .then(notifyZoomApplied)
       .catch((error: unknown) => {
         const message = apiErrorMessage(error, String(error));
-        toast.error(`Could not apply zoom: ${message}`);
+        toast.error(
+          translateUi("settings.general.zoom.applyError", "Could not apply zoom: {{error}}", {
+            error: message,
+          }),
+        );
       });
     return;
   }
@@ -115,9 +120,14 @@ export function useAppZoom(): void {
 
   useEffect(() => {
     if (known || error == null) return;
-    toast.error(`Could not load the zoom level: ${apiErrorMessage(error, "Unknown error")}`, {
-      id: "zoom-load-error",
-    });
+    toast.error(
+      translateUi("settings.general.zoom.loadError", "Could not load the zoom level: {{error}}", {
+        error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
+      }),
+      {
+        id: "zoom-load-error",
+      },
+    );
   }, [known, error]);
 
   useShortcut("zoom-in", (e) => {

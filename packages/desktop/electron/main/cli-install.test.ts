@@ -125,6 +125,7 @@ describe("cliInstallStatus", () => {
     expect(await cliInstallStatus(ctx)).toMatchObject({
       state: "conflict",
       existing: "a link to /opt/homebrew/bin/other",
+      conflict: { kind: "link", path: "/opt/homebrew/bin/other" },
     });
 
     fs.rmSync(target);
@@ -132,6 +133,7 @@ describe("cliInstallStatus", () => {
     expect(await cliInstallStatus(ctx)).toMatchObject({
       state: "conflict",
       existing: "a program not installed by Cadencr",
+      conflict: { kind: "unmanaged-program" },
     });
   });
 });
@@ -196,7 +198,10 @@ describe("AppImage install", () => {
 
   it("treats a command without a locator as foreign", async () => {
     writeExecutable(target(), "someone else's");
-    expect(await cliInstallStatus(appImageContext())).toMatchObject({ state: "conflict" });
+    expect(await cliInstallStatus(appImageContext())).toMatchObject({
+      state: "conflict",
+      conflict: { kind: "unmanaged-program" },
+    });
   });
 
   it("refuses to install without APPIMAGE", async () => {
@@ -236,7 +241,10 @@ describe("AppImage install", () => {
     await installCli(appImageContext(), { replace: false });
     writeExecutable(target(), "someone else's");
     const updated = appImageContext({ appVersion: "1.1.0" });
-    expect(await cliInstallStatus(updated)).toMatchObject({ state: "conflict" });
+    expect(await cliInstallStatus(updated)).toMatchObject({
+      state: "conflict",
+      conflict: { kind: "replaced-program" },
+    });
     await refreshInstalledCli(updated);
     expect(fs.readFileSync(target(), "utf8")).toBe("someone else's");
     await expect(uninstallCli(updated)).rejects.toThrow(/not installed by Cadencr/);

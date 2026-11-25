@@ -7,7 +7,7 @@
  * exactly the same list — including alternate combos and the registry's
  * ordering. The doc page only has to pass the scope id.
  */
-import { SHORTCUTS, SHORTCUT_SCOPES } from "@desktop-shortcuts/registry";
+import { englishShortcutText, SHORTCUTS, SHORTCUT_SCOPES } from "@desktop-shortcuts/registry";
 import type { Shortcut, ShortcutScopeId } from "@desktop-shortcuts/registry";
 import { formatKey } from "@/lib/formatShortcut";
 import Kbd from "@/components/ui/Kbd.astro";
@@ -35,8 +35,8 @@ const items: readonly Shortcut[] = (SHORTCUTS as readonly Shortcut[]).filter(
 {
   !headless && scopeMeta && (
     <header class="mb-2 mt-8">
-      <h2 class="text-[20px] font-semibold tracking-tight">{heading ?? scopeMeta.label}</h2>
-      <p class="text-[13px] text-[color:var(--color-muted-foreground)]">{scopeMeta.hint}</p>
+      <h2 class="text-[20px] font-semibold tracking-tight">{heading ?? scopeMeta.describeLabel(englishShortcutText)}</h2>
+      <p class="text-[13px] text-[color:var(--color-muted-foreground)]">{scopeMeta.describeHint(englishShortcutText)}</p>
     </header>
   )
 }
@@ -69,7 +69,7 @@ const items: readonly Shortcut[] = (SHORTCUTS as readonly Shortcut[]).filter(
               )}
             </span>
           </td>
-          <td>{s.description}</td>
+          <td>{s.describe(englishShortcutText)}</td>
         </tr>
       ))
     }

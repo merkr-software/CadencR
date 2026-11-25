@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { lazy, Suspense, useState } from "react";
 import { Code2, Copy, Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,10 +31,14 @@ function EditorLoadingDialog({
   path?: string;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsJsonDialogShell title={title} path={path} onOpenChange={onOpenChange}>
       <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" aria-label="Loading editor" />
+        <Loader2
+          className="size-5 animate-spin"
+          aria-label={t("settings.general.json.loading", "Loading editor")}
+        />
       </div>
     </SettingsJsonDialogShell>
   );
@@ -61,14 +66,18 @@ function SettingsJsonControls({
   onSave,
   onSaved,
 }: SettingsJsonControlsProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-sm font-medium">Configuration file</div>
+          <div className="text-sm font-medium">
+            {t("settings.general.json.file", "Configuration file")}
+          </div>
           <p className="truncate text-xs text-muted-foreground">
-            {path ?? "Edit these settings directly as JSON."}
+            {path ??
+              t("settings.general.json.description", "Edit these settings directly as JSON.")}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -80,17 +89,23 @@ function SettingsJsonControls({
             onClick={() => setOpen(true)}
           >
             <Code2 className="size-3.5" />
-            Edit JSON
+            {t("settings.general.json.edit", "Edit JSON")}
           </Button>
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5"
             disabled={!path}
-            onClick={() => path && void copyToClipboard(path, "Configuration path copied")}
+            onClick={() =>
+              path &&
+              void copyToClipboard(
+                path,
+                translateUi("settings.general.json.pathCopied", "Configuration path copied"),
+              )
+            }
           >
             <Copy className="size-3.5" />
-            Copy path
+            {t("settings.general.json.copyPath", "Copy path")}
           </Button>
         </div>
       </div>
@@ -119,12 +134,13 @@ function SettingsJsonControls({
 
 /** Global/workspace settings JSON controls. */
 export function WorkspaceJsonSettings(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading } = useGetSettingsFile();
   const put = usePutSettingsFile();
   return (
     <SettingsJsonControls
-      title="Global settings"
+      title={t("settings.general.json.globalTitle", "Global settings")}
       path={data?.path}
       content={data?.content}
       warnings={data?.warnings ?? []}
@@ -144,12 +160,13 @@ export function ProjectJsonSettings({
   projectId: number;
   enabled?: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading } = useGetProjectSettingsFile(projectId, { query: { enabled } });
   const put = usePutProjectSettingsFile();
   return (
     <SettingsJsonControls
-      title="Project settings"
+      title={t("settings.general.json.projectTitle", "Project settings")}
       path={data?.path}
       content={data?.content}
       warnings={data?.warnings ?? []}

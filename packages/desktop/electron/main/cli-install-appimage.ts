@@ -99,10 +99,22 @@ export async function appImageCliStatus(context: CliInstallContext): Promise<Cli
   if (!(await lstatOrNull(target))) return { state: "not-installed", target, onPath };
   const locator = await readLocator(cliLocatorPath(context));
   if (!locator) {
-    return { state: "conflict", target, existing: "a program not installed by Cadencr", onPath };
+    return {
+      state: "conflict",
+      target,
+      existing: "a program not installed by Cadencr",
+      conflict: { kind: "unmanaged-program" },
+      onPath,
+    };
   }
   if (!(await stillOurCopy(target, locator))) {
-    return { state: "conflict", target, existing: "a program that replaced Cadencr's", onPath };
+    return {
+      state: "conflict",
+      target,
+      existing: "a program that replaced Cadencr's",
+      conflict: { kind: "replaced-program" },
+      onPath,
+    };
   }
   const current =
     locator.appimage === context.env.APPIMAGE && locator.appVersion === context.appVersion;

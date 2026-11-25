@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 /**
@@ -13,6 +14,6 @@ export async function copyToClipboard(text: string, successLabel: string): Promi
     await navigator.clipboard.writeText(text);
     toast.success(successLabel);
   } catch {
-    toast.error("Failed to copy");
+    toast.error(translateUi("common.copyFailed", "Failed to copy"));
   }
 }

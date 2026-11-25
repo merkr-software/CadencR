@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { useNotchCapabilities } from "@/components/notch/useNotchCapabilities";
@@ -26,6 +27,7 @@ export function NotificationsStep({
   onBack,
   onSkipStep,
 }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   const capabilities = useNotchCapabilities();
   const modeSetting = useGetWorkspaceSetting(NOTIFICATION_MODE_KEY);
   const writer = useSettingWriter(NOTIFICATION_MODE_KEY);
@@ -52,11 +54,19 @@ export function NotificationsStep({
       className="flex flex-col gap-6"
     >
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight">How should agents reach you?</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.notifications.title", "How should agents reach you?")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Cadencr lets you know when an agent finishes or needs your input.{" "}
-          {hasNotch ? "Your Mac has a notch, so agents can live right inside it. " : null}
-          Pick a destination — you can change it any time in Settings → Notifications.
+          {hasNotch
+            ? t(
+                "onboarding.notifications.notchDescription",
+                "Cadencr lets you know when an agent finishes or needs your input. Your Mac has a notch, so agents can live right inside it. Pick a destination — you can change it any time in Settings → Notifications.",
+              )
+            : t(
+                "onboarding.notifications.description",
+                "Cadencr lets you know when an agent finishes or needs your input. Pick a destination — you can change it any time in Settings → Notifications.",
+              )}
         </p>
       </header>
 
@@ -64,7 +74,7 @@ export function NotificationsStep({
         <div
           className="flex flex-col gap-2"
           aria-busy="true"
-          aria-label="Loading notification options"
+          aria-label={t("onboarding.notifications.loading", "Loading notification options")}
         >
           {[0, 1, 2].map((row) => (
             <Skeleton key={row} className="h-16 w-full rounded-[10px]" />
@@ -72,8 +82,13 @@ export function NotificationsStep({
         </div>
       ) : modeSetting.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          Couldn't load your notification setting:{" "}
-          {apiErrorMessage(modeSetting.error, String(modeSetting.error))}
+          {t(
+            "onboarding.notifications.loadError",
+            "Couldn't load your notification setting: {{message}}",
+            {
+              message: apiErrorMessage(modeSetting.error, String(modeSetting.error)),
+            },
+          )}
         </p>
       ) : (
         <NotificationModeOptions value={choice} onChange={setPicked} recommended={recommended} />
@@ -81,13 +96,20 @@ export function NotificationsStep({
 
       {capabilities.isError ? (
         <p role="alert" className="text-xs text-destructive">
-          Couldn't check this Mac for a notch:{" "}
-          {apiErrorMessage(capabilities.error, String(capabilities.error))}
+          {t(
+            "onboarding.notifications.notchError",
+            "Couldn't check this Mac for a notch: {{message}}",
+            {
+              message: apiErrorMessage(capabilities.error, String(capabilities.error)),
+            },
+          )}
         </p>
       ) : null}
 
       <OnboardingFooter
-        primaryLabel={writer.isSaving ? "Saving…" : "Continue"}
+        primaryLabel={
+          writer.isSaving ? t("common.saving", "Saving…") : t("common.continue", "Continue")
+        }
         primaryDisabled={isPersisting || loading || writer.isSaving || modeSetting.isError}
         onBack={onBack}
         onSkipStep={onSkipStep}

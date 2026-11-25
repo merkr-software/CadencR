@@ -15,6 +15,7 @@
  * accent icon (28–40px is the only legal exception to the 22px icon cap),
  * muted prose, card surface with `--border`. No invented tokens.
  */
+import { translateUi } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Keyboard, Lightbulb, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -99,9 +100,13 @@ export function SessionHint() {
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
             {/* Hints are drawn from SHORTCUTS_BY_SCOPE, so the id is a registry id. */}
             <ResolvedKbdChord shortcutId={hint.shortcut.id as ShortcutId} />
-            <span className="text-sm font-medium text-foreground">{hint.shortcut.description}</span>
+            <span className="text-sm font-medium text-foreground">
+              {hint.shortcut.describe(translateUi)}
+            </span>
           </div>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint.scope.hint}</p>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            {hint.scope.describeHint(translateUi)}
+          </p>
         </HintSection>
 
         <div className="h-px bg-border/60" role="presentation" />

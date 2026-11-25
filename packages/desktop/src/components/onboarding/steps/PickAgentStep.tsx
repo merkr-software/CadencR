@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ModelSelector } from "@/components/ModelSelector";
 import { OnboardingFooter } from "../OnboardingFooter";
 import type { OnboardingStepProps } from "../OnboardingOverlay";
@@ -18,6 +19,7 @@ export function PickAgentStep({
   onBack,
   onSkipStep,
 }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   return (
     <form
       onSubmit={(e) => {
@@ -27,17 +29,21 @@ export function PickAgentStep({
       className="flex flex-col gap-6"
     >
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight">Choose your agent</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.agent.title", "Choose your agent")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Pick the model your first conversation starts on, and the model that auto-names your
-          sessions. After that, new conversations reuse the model you last used.
+          {t(
+            "onboarding.agent.description",
+            "Pick the model your first conversation starts on, and the model that auto-names your sessions. After that, new conversations reuse the model you last used.",
+          )}
         </p>
       </header>
 
       <ModelSelector level="global" />
 
       <OnboardingFooter
-        primaryLabel="Continue"
+        primaryLabel={t("common.continue", "Continue")}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}

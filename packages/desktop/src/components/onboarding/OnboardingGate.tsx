@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ export function OnboardingGate(props: OnboardingGateProps): React.JSX.Element {
 }
 
 function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const onboarding = useOnboardingStatus();
   const telemetry = useQuery({
     queryKey: TELEMETRY_QUERY_KEY,
@@ -115,7 +117,9 @@ function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): R
           role="status"
           className="fixed bottom-4 left-4 z-50 max-w-md rounded-md border border-border bg-background p-3 text-xs text-muted-foreground"
         >
-          Monthly audience counter: {activityError}
+          {t("telemetry.gate.audienceError", "Monthly audience counter: {{error}}", {
+            error: activityError,
+          })}
         </p>
       ) : null}
     </>

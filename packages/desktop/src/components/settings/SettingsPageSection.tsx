@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { SettingsSection } from "./SettingsSection";
-import { settingsPageMeta, type SettingsPageId } from "./settings-catalog";
+import { settingsPageCopy, settingsPageMeta, type SettingsPageId } from "./settings-catalog";
 
 /**
  * A settings page's frame: its title and purpose come from the catalog, the
@@ -19,7 +20,8 @@ export function SettingsPageSection({
   description?: ReactNode;
   children?: ReactNode;
 }): React.JSX.Element {
-  const page = settingsPageMeta(pageId);
+  const { t } = useUiTranslation();
+  const page = settingsPageCopy(settingsPageMeta(pageId), t);
   return (
     <SettingsSection
       id={`settings-page-${pageId}`}

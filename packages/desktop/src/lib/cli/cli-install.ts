@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -10,21 +11,97 @@ function directoryOf(target: string): string {
   return target.slice(0, target.lastIndexOf("/")) || "/";
 }
 
+function unavailableDescription(
+  status: Extract<CliInstallStatus, { state: "unavailable" }>,
+): string {
+  switch (status.code) {
+    case "development":
+      return translateUi(
+        "settings.general.commandLine.development",
+        "Development builds don't ship the cadencr command. From the repository, run it with: {{command}}",
+        { command: "pnpm rust -- run -p cadencr-cli --" },
+      );
+    case "unsupported-platform":
+      return translateUi(
+        "settings.general.commandLine.unsupportedPlatform",
+        "The cadencr command is available on macOS and Linux.",
+      );
+    case "unofficial-linux-package":
+      return translateUi(
+        "settings.general.commandLine.unofficialLinuxPackage",
+        "This Linux build is not an official AppImage, DEB or RPM package, so it can't install the cadencr command.",
+      );
+    case "temporary-macos-location":
+      return translateUi(
+        "settings.general.commandLine.temporaryMacLocation",
+        "Cadencr is running from a disk image or a temporary copy, so a link to it would break. Move Cadencr to Applications and open it from there to install the cadencr command.",
+      );
+    case "missing-command":
+      return translateUi(
+        "settings.general.commandLine.missingCommand",
+        "This build of Cadencr does not include the cadencr command.",
+      );
+    default:
+      return status.reason;
+  }
+}
+
+export function describeCliConflict(
+  status: Extract<CliInstallStatus, { state: "conflict" }>,
+): string {
+  switch (status.conflict?.kind) {
+    case "link":
+      return translateUi("settings.general.commandLine.conflictLink", "a link to {{path}}", {
+        path: status.conflict.path,
+      });
+    case "unmanaged-program":
+      return translateUi(
+        "settings.general.commandLine.conflictUnmanaged",
+        "a program not installed by Cadencr",
+      );
+    case "replaced-program":
+      return translateUi(
+        "settings.general.commandLine.conflictReplaced",
+        "a program that replaced Cadencr's",
+      );
+    default:
+      return status.existing;
+  }
+}
+
 /** One sentence on where the command stands. */
 export function describeCliInstall(status: CliInstallStatus): string {
   switch (status.state) {
     case "unavailable":
-      return status.reason;
+      return unavailableDescription(status);
     case "package":
-      return `Installed with the Cadencr package at ${status.path}.`;
+      return translateUi(
+        "settings.general.commandLine.package",
+        "Installed with the Cadencr package at {{path}}.",
+        { path: status.path },
+      );
     case "not-installed":
-      return `Adds cadencr to ${directoryOf(status.target)} to open files and projects, add projects, update Cadencr or run it headless from a terminal.`;
+      return translateUi(
+        "settings.general.commandLine.notInstalled",
+        "Adds cadencr to {{directory}} to open files and projects, add projects, update Cadencr or run it headless from a terminal.",
+        { directory: directoryOf(status.target) },
+      );
     case "installed":
       return status.current
-        ? `Installed at ${status.target}.`
-        : `${status.target} starts another copy of Cadencr. Reinstall it to use this one.`;
+        ? translateUi("settings.general.commandLine.installed", "Installed at {{target}}.", {
+            target: status.target,
+          })
+        : translateUi(
+            "settings.general.commandLine.otherCopy",
+            "{{target}} starts another copy of Cadencr. Reinstall it to use this one.",
+            { target: status.target },
+          );
     case "conflict":
-      return `${status.target} already exists: ${status.existing}. Replace it to use Cadencr's command.`;
+      return translateUi(
+        "settings.general.commandLine.conflict",
+        "{{target}} already exists: {{existing}}. Replace it to use Cadencr's command.",
+        { target: status.target, existing: describeCliConflict(status) },
+      );
   }
 }
 
@@ -32,7 +109,11 @@ export function describeCliInstall(status: CliInstallStatus): string {
 export function cliPathHint(status: CliInstallStatus): string | null {
   if (status.state !== "installed" && status.state !== "not-installed") return null;
   if (status.onPath) return null;
-  return `${directoryOf(status.target)} is not on this app's PATH. If your shell can't find cadencr, add it to your shell profile.`;
+  return translateUi(
+    "settings.general.commandLine.pathHint",
+    "{{directory}} is not on this app's PATH. If your shell can't find cadencr, add it to your shell profile.",
+    { directory: directoryOf(status.target) },
+  );
 }
 
 /** After an install from Settings or the palette: cache the new status and say where it stands. */

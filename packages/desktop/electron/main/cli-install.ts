@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
-import type { CliInstallOptions, CliInstallStatus } from "../../src/shared/cli-bridge";
+import type {
+  CliInstallOptions,
+  CliInstallStatus,
+  CliInstallUnavailableCode,
+} from "../../src/shared/cli-bridge";
 import {
   appImageCliStatus,
   appImageInstallCli,
@@ -13,7 +17,9 @@ import { macCliStatus, macInstallCli, macUninstallCli } from "./cli-install-maco
 /** How the command reaches PATH on this install; `null` when it can't. */
 type InstallKind = "macos" | "appimage" | "package";
 
-type Resolution = { kind: InstallKind } | { kind: null; reason: string };
+type Resolution =
+  | { kind: InstallKind }
+  | { kind: null; reason: string; code: CliInstallUnavailableCode };
 
 async function bundledCliExists(context: CliInstallContext): Promise<boolean> {
   try {
@@ -37,12 +43,17 @@ async function resolveInstallKind(context: CliInstallContext): Promise<Resolutio
   if (!context.isPackaged) {
     return {
       kind: null,
+      code: "development",
       reason:
         "Development builds don't ship the cadencr command. From the repository, run it with: pnpm rust -- run -p cadencr-cli --",
     };
   }
   if (context.platform !== "darwin" && context.platform !== "linux") {
-    return { kind: null, reason: "The cadencr command is available on macOS and Linux." };
+    return {
+      kind: null,
+      code: "unsupported-platform",
+      reason: "The cadencr command is available on macOS and Linux.",
+    };
   }
   if (context.platform === "linux") {
     if (context.linuxInstallType === "deb" || context.linuxInstallType === "rpm") {
@@ -51,6 +62,7 @@ async function resolveInstallKind(context: CliInstallContext): Promise<Resolutio
     if (context.linuxInstallType === "unknown") {
       return {
         kind: null,
+        code: "unofficial-linux-package",
         reason:
           "This Linux build is not an official AppImage, DEB or RPM package, so it can't install the cadencr command.",
       };
@@ -59,12 +71,17 @@ async function resolveInstallKind(context: CliInstallContext): Promise<Resolutio
   if (context.platform === "darwin" && isTemporaryMacLocation(context.resourcesPath)) {
     return {
       kind: null,
+      code: "temporary-macos-location",
       reason:
         "Cadencr is running from a disk image or a temporary copy, so a link to it would break. Move Cadencr to Applications and open it from there to install the cadencr command.",
     };
   }
   if (!(await bundledCliExists(context))) {
-    return { kind: null, reason: "This build of Cadencr does not include the cadencr command." };
+    return {
+      kind: null,
+      code: "missing-command",
+      reason: "This build of Cadencr does not include the cadencr command.",
+    };
   }
   return { kind: context.platform === "darwin" ? "macos" : "appimage" };
 }
@@ -73,7 +90,7 @@ export async function cliInstallStatus(context: CliInstallContext): Promise<CliI
   const resolution = await resolveInstallKind(context);
   switch (resolution.kind) {
     case null:
-      return { state: "unavailable", reason: resolution.reason };
+      return { state: "unavailable", reason: resolution.reason, code: resolution.code };
     case "package":
       return { state: "package", path: PACKAGE_CLI_PATH };
     case "macos":

@@ -8,7 +8,12 @@ export const MODEL_PICKER_SHORTCUTS = [
     // owns focus whenever this one is live.
     id: "model-picker-favorite",
     keys: ["mod", "s"],
-    description: "Star / unstar the highlighted model",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.model-picker-favorite",
+        "Star / unstar the highlighted model",
+      );
+    },
     scope: "model-picker",
   },
 ] as const satisfies readonly Shortcut[];

@@ -4,56 +4,72 @@ export const GIT_SHORTCUTS = [
   {
     id: "git-next-item",
     keys: ["j"],
-    description: "Next Git item",
+    describe(t) {
+      return t("shortcuts.descriptions.git-next-item", "Next Git item");
+    },
     scope: "diff-viewer",
     aliases: ["git", "next file"],
   },
   {
     id: "git-previous-item",
     keys: ["k"],
-    description: "Previous Git item",
+    describe(t) {
+      return t("shortcuts.descriptions.git-previous-item", "Previous Git item");
+    },
     scope: "diff-viewer",
     aliases: ["git", "previous file"],
   },
   {
     id: "git-open-item",
     keys: ["l"],
-    description: "Open or expand Git item",
+    describe(t) {
+      return t("shortcuts.descriptions.git-open-item", "Open or expand Git item");
+    },
     scope: "diff-viewer",
     aliases: ["git", "expand file"],
   },
   {
     id: "git-back",
     keys: ["h"],
-    description: "Collapse or go back in Git",
+    describe(t) {
+      return t("shortcuts.descriptions.git-back", "Collapse or go back in Git");
+    },
     scope: "diff-viewer",
     aliases: ["git", "back"],
   },
   {
     id: "git-scroll-down",
     keys: ["d"],
-    description: "Scroll Git half-page down",
+    describe(t) {
+      return t("shortcuts.descriptions.git-scroll-down", "Scroll Git half-page down");
+    },
     scope: "diff-viewer",
     aliases: ["git"],
   },
   {
     id: "git-scroll-up",
     keys: ["u"],
-    description: "Scroll Git half-page up",
+    describe(t) {
+      return t("shortcuts.descriptions.git-scroll-up", "Scroll Git half-page up");
+    },
     scope: "diff-viewer",
     aliases: ["git"],
   },
   {
     id: "git-toggle-viewed",
     keys: ["v"],
-    description: "Toggle selected Git file viewed",
+    describe(t) {
+      return t("shortcuts.descriptions.git-toggle-viewed", "Toggle selected Git file viewed");
+    },
     scope: "diff-viewer",
     aliases: ["git", "reviewed"],
   },
   {
     id: "git-stage-file",
     keys: ["s"],
-    description: "Stage selected Git file",
+    describe(t) {
+      return t("shortcuts.descriptions.git-stage-file", "Stage selected Git file");
+    },
     scope: "diff-viewer",
     aliases: ["git", "add"],
   },
@@ -64,70 +80,102 @@ export const GIT_SHORTCUTS = [
     // review" to "hand it to the agent" without touching a checkbox.
     id: "git-toggle-thread-picked",
     keys: ["x"],
-    description: "Pick or unpick the focused review thread",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.git-toggle-thread-picked",
+        "Pick or unpick the focused review thread",
+      );
+    },
     scope: "diff-viewer",
     aliases: ["git", "review", "select", "pull request", "merge request"],
   },
   {
     id: "git-reset-file",
     keys: ["r"],
-    description: "Unstage selected Git file (preserve worktree)",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.git-reset-file",
+        "Unstage selected Git file (preserve worktree)",
+      );
+    },
     scope: "diff-viewer",
     aliases: ["git", "reset"],
   },
   {
     id: "diff-toggle-sidebar",
     keys: ["mod", "e"],
-    description: "Toggle Git file list",
+    describe(t) {
+      return t("shortcuts.descriptions.diff-toggle-sidebar", "Toggle Git file list");
+    },
     scope: "diff-viewer",
     aliases: ["git", "sidebar"],
   },
   {
     id: "diff-send-comments",
     keys: ["mod", "enter"],
-    description: "Send local Git comments or review feedback",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.diff-send-comments",
+        "Send local Git comments or review feedback",
+      );
+    },
     scope: "diff-viewer",
     aliases: ["git", "review"],
   },
   {
     id: "diff-send-review-comments",
     keys: ["mod", "shift", "enter"],
-    description: "Send selected review feedback",
+    describe(t) {
+      return t("shortcuts.descriptions.diff-send-review-comments", "Send selected review feedback");
+    },
     scope: "diff-viewer",
     aliases: ["git", "review", "pull request", "merge request"],
   },
   {
     id: "git-next-review-thread",
     keys: ["mod", "shift", "j"],
-    description: "Jump to next open review thread",
+    describe(t) {
+      return t("shortcuts.descriptions.git-next-review-thread", "Jump to next open review thread");
+    },
     scope: "diff-viewer",
     aliases: ["git", "review", "next"],
   },
   {
     id: "git-previous-review-thread",
     keys: ["mod", "shift", "k"],
-    description: "Jump to previous open review thread",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.git-previous-review-thread",
+        "Jump to previous open review thread",
+      );
+    },
     scope: "diff-viewer",
     aliases: ["git", "review", "previous"],
   },
   {
     id: "git-open-in-editor",
     keys: ["mod", "o"],
-    description: "Open selected Git file in Editor",
+    describe(t) {
+      return t("shortcuts.descriptions.git-open-in-editor", "Open selected Git file in Editor");
+    },
     scope: "diff-viewer",
     aliases: ["git", "edit"],
   },
   {
     id: "git-show-uncommitted",
     keys: ["mod", "u"],
-    description: "Show Git Uncommitted",
+    describe(t) {
+      return t("shortcuts.descriptions.git-show-uncommitted", "Show Git Uncommitted");
+    },
     scope: "diff-viewer",
     aliases: ["git", "changes", "working tree"],
   },
   {
     id: "git-show-vs-target",
     keys: ["mod", "t"],
-    description: "Show Git vs Target",
+    describe(t) {
+      return t("shortcuts.descriptions.git-show-vs-target", "Show Git vs Target");
+    },
     scope: "diff-viewer",
     aliases: ["git", "compare", "target"],
   },
@@ -138,7 +186,12 @@ export const GIT_SHORTCUTS = [
     // thinking effort) and ⌘S (stashes / save).
     id: "git-show-pull-request",
     keys: ["mod", "p"],
-    description: "Show pull request or merge request",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.git-show-pull-request",
+        "Show pull request or merge request",
+      );
+    },
     scope: "diff-viewer",
     aliases: ["git", "review", "pull request", "merge request"],
   },
@@ -151,21 +204,27 @@ export const GIT_SHORTCUTS = [
     // focus, where neither redo nor an approval prompt is reachable.
     id: "git-show-commits",
     keys: ["mod", "y"],
-    description: "Show Git Commits",
+    describe(t) {
+      return t("shortcuts.descriptions.git-show-commits", "Show Git Commits");
+    },
     scope: "diff-viewer",
     aliases: ["git", "history", "graph"],
   },
   {
     id: "git-show-branches",
     keys: ["mod", "l"],
-    description: "Show Git Branches",
+    describe(t) {
+      return t("shortcuts.descriptions.git-show-branches", "Show Git Branches");
+    },
     scope: "diff-viewer",
     aliases: ["git", "branch"],
   },
   {
     id: "git-show-stashes",
     keys: ["mod", "s"],
-    description: "Show Git Stashes",
+    describe(t) {
+      return t("shortcuts.descriptions.git-show-stashes", "Show Git Stashes");
+    },
     scope: "diff-viewer",
     aliases: ["git", "stash"],
   },

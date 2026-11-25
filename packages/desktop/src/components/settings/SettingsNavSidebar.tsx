@@ -4,12 +4,9 @@ import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import { HighlightedText } from "@/components/command-palette/PaletteText";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
-import {
-  SETTINGS_NAV_GROUPS,
-  type SettingsNavGroup,
-  type SettingsPageId,
-} from "./settings-catalog";
+import { settingsNavGroups, type SettingsNavGroup, type SettingsPageId } from "./settings-catalog";
 import { firstSearchTarget, highlightRanges, searchSettings } from "./settings-search";
 
 /**
@@ -27,7 +24,7 @@ function SettingsNavSidebarImpl({
   onNavigate,
   searchRef,
   variant = "rail",
-  groups = SETTINGS_NAV_GROUPS,
+  groups,
 }: {
   activePageId: SettingsPageId | null;
   query: string;
@@ -37,10 +34,12 @@ function SettingsNavSidebarImpl({
   variant?: "rail" | "index";
   groups?: readonly SettingsNavGroup[];
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const navGroups = useMemo(() => groups ?? settingsNavGroups(t), [groups, t]);
   const listRef = useRef<HTMLDivElement | null>(null);
   const ownSearchRef = useRef<HTMLInputElement | null>(null);
   const inputRef = searchRef ?? ownSearchRef;
-  const results = useMemo(() => searchSettings(query, groups), [query, groups]);
+  const results = useMemo(() => searchSettings(query, navGroups), [query, navGroups]);
   const searching = query.trim().length > 0;
 
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -57,7 +56,7 @@ function SettingsNavSidebarImpl({
 
   return (
     <aside
-      aria-label="Settings sections"
+      aria-label={t("settings.nav.sidebar.sections", "Settings sections")}
       className={cn(
         "flex min-h-0 flex-col",
         variant === "rail"
@@ -75,15 +74,19 @@ function SettingsNavSidebarImpl({
       </div>
       <nav
         ref={listRef}
-        aria-label={searching ? "Search results" : "Settings pages"}
+        aria-label={
+          searching
+            ? t("settings.nav.search.results", "Search results")
+            : t("settings.nav.sidebar.pages", "Settings pages")
+        }
         onKeyDown={(event) => moveFocus(event, listRef.current, inputRef.current)}
         className={cn("min-h-0 flex-1 overflow-y-auto pb-4", variant === "rail" ? "px-2" : "px-3")}
       >
         {searching ? (
           <SearchResults results={results} query={query} onNavigate={onNavigate} />
         ) : (
-          groups.map((group) => (
-            <NavGroup key={group.label} label={group.label}>
+          navGroups.map((group) => (
+            <NavGroup key={group.englishLabel ?? group.label} label={group.label}>
               {group.pages.map((page) => (
                 <NavItem
                   key={page.id}
@@ -116,6 +119,8 @@ function SettingsSearchField({
   onQueryChange: (query: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const searchLabel = t("settings.nav.search.field", "Search settings");
   return (
     <div className="relative flex h-8 items-center rounded-md border border-border bg-background/60 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
       <Search aria-hidden className="pointer-events-none ml-2.5 size-3.5 text-muted-foreground" />
@@ -126,8 +131,8 @@ function SettingsSearchField({
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Search settings"
-        aria-label="Search settings"
+        placeholder={searchLabel}
+        aria-label={searchLabel}
         autoComplete="off"
         spellCheck={false}
         className="h-full flex-1 px-2 text-[13px] [&::-webkit-search-cancel-button]:hidden"
@@ -136,7 +141,7 @@ function SettingsSearchField({
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label="Clear search"
+          aria-label={t("settings.nav.search.clear", "Clear search")}
           onClick={() => {
             onQueryChange("");
             inputRef.current?.focus();
@@ -214,18 +219,28 @@ function SearchResults({
   query: string;
   onNavigate: (section: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (results.length === 0) {
     return (
       <div role="status" className="px-2.5 py-6 text-xs leading-relaxed text-muted-foreground">
-        <p className="font-medium text-foreground">No settings match “{query.trim()}”.</p>
-        <p className="mt-1">Try a page name, or a word like “vim”, “theme” or “token”.</p>
+        <p className="font-medium text-foreground">
+          {t("settings.nav.search.empty", "No settings match “{{query}}”.", {
+            query: query.trim(),
+          })}
+        </p>
+        <p className="mt-1">
+          {t(
+            "settings.nav.search.hint",
+            "Try a page name, or a word like “vim”, “theme” or “token”.",
+          )}
+        </p>
       </div>
     );
   }
   return (
     <>
       {results.map((group) => (
-        <NavGroup key={group.label} label={group.label}>
+        <NavGroup key={group.englishLabel ?? group.label} label={group.label}>
           {group.pages.map(({ page, entries }) => (
             <div key={page.id}>
               <NavItem icon={page.icon} onClick={() => onNavigate(page.id)}>
@@ -233,7 +248,7 @@ function SearchResults({
               </NavItem>
               {entries.map((entry) => (
                 <button
-                  key={entry.label}
+                  key={entry.englishLabel ?? entry.label}
                   type="button"
                   data-settings-nav-item=""
                   onClick={() => onNavigate(entry.anchor ?? page.id)}

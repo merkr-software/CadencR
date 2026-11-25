@@ -7,6 +7,7 @@ import {
 } from "@/api/generated";
 import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { translateUi } from "@/lib/i18n/ui";
 
 /**
  * Computes the value to write from the setting's confirmed value at the moment
@@ -72,7 +73,12 @@ async function sendSetting(
     if (bulkWasFetching) void queryClient.invalidateQueries(bulk);
     return true;
   } catch (error: unknown) {
-    toast.error(`Could not save setting "${key}": ${apiErrorMessage(error, "Unknown error")}`);
+    toast.error(
+      translateUi("settings.save.error", 'Could not save setting "{{setting}}": {{reason}}', {
+        setting: key,
+        reason: apiErrorMessage(error, translateUi("errors.unknown", "Unknown error")),
+      }),
+    );
     // Not awaited: callers fall back to the confirmed value at once; a failed
     // refetch leaves that value in place and shows on the query itself.
     void queryClient.invalidateQueries({ queryKey: getGetWorkspaceSettingQueryKey(key) });

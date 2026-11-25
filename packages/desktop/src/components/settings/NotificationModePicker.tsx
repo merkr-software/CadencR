@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createElement, useMemo } from "react";
 import { useNotchCapabilities } from "@/components/notch/useNotchCapabilities";
 import { RecommendedTag } from "@/components/RecommendedTag";
@@ -30,6 +31,7 @@ export function NotificationModeOptions({
   disabled,
   recommended,
 }: NotificationModeOptionsProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const capabilities = useNotchCapabilities();
   const notchSupported = capabilities.data?.supported === true;
   const notchHardware = capabilities.data?.hardware === true;
@@ -43,28 +45,31 @@ export function NotificationModeOptions({
         label:
           option.value === recommended ? (
             <span className="inline-flex items-center gap-2">
-              {option.label}
+              {option.label(t)}
               <RecommendedTag />
             </span>
           ) : (
-            option.label
+            option.label(t)
           ),
         description:
           option.value === "notch" && notchSupported && !notchHardware
-            ? `${option.description} No notched display is connected right now, so a virtual notch sits at the top of your main screen.`
-            : option.description,
+            ? t(
+                "settings.notifications.notch.virtualDescription",
+                "Agents live in your Mac's notch. Finished and blocked agents peek out of it; hover it to see every agent and jump into a conversation. No notched display is connected right now, so a virtual notch sits at the top of your main screen.",
+              )
+            : option.description(t),
         disabled: option.value === "notch" && !notchSupported,
         visual: createElement(option.icon, {
           className: "mt-0.5 size-4",
           style: { color: option.iconColorVar },
         }),
       })),
-    [notchHardware, notchSupported, recommended, value],
+    [notchHardware, notchSupported, recommended, t, value],
   );
 
   return (
     <RadioCardGroup<NotificationMode>
-      ariaLabel="Notification destination"
+      ariaLabel={t("settings.notifications.destination", "Notification destination")}
       value={value}
       onChange={onChange}
       options={options}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@/test-utils";
+import { act, render, screen, fireEvent } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import { KeyboardShortcutsModal } from "./KeyboardShortcutsModal";
 
 describe("KeyboardShortcutsModal", () => {
@@ -33,6 +34,36 @@ describe("KeyboardShortcutsModal", () => {
     fireEvent.change(search, { target: { value: "git" } });
     expect(screen.getByText("Git actions popover")).toBeInTheDocument();
     expect(screen.queryByText("Zoom in")).not.toBeInTheDocument();
+  });
+
+  it("refreshes localized labels and search results when the language changes", async () => {
+    render(<KeyboardShortcutsModal open onOpenChange={() => {}} projectId={null} />);
+    const search = screen.getByLabelText("Search shortcuts");
+    fireEvent.change(search, { target: { value: "localized" } });
+    expect(screen.getByText("No shortcuts match “localized”.")).toBeInTheDocument();
+
+    const originalLanguage = uiI18n.language;
+    uiI18n.addResourceBundle("de", "ui", {
+      shortcuts: {
+        descriptions: { "zoom-in": "Localized zoom action" },
+        scopes: { global: { label: "Localized group" } },
+      },
+    });
+    try {
+      await act(async () => {
+        await uiI18n.changeLanguage("de");
+      });
+      expect(screen.getByRole("heading", { name: "Localized group" })).toBeInTheDocument();
+      expect(screen.getByText("Localized zoom action")).toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: "ZOOM IN" } });
+      expect(screen.getByText("Localized zoom action")).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage(originalLanguage);
+      });
+      uiI18n.removeResourceBundle("de", "ui");
+    }
   });
 
   it("lists and searches every Git command from the central registry", () => {

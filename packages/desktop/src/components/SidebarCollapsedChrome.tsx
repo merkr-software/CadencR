@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTrafficLightsAnchor } from "@/hooks/useTrafficLightsAnchor";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
@@ -60,21 +61,25 @@ export function SidebarCollapsedChrome({
 // `ml-1` keeps the whole tap target to the right of `MobileDrawer`'s 16px
 // edge-swipe strip, which swallows touches to block the browser's back gesture.
 function MobileMenuButton({ onExpand }: { onExpand: () => void }): ReactElement {
+  const { t } = useUiTranslation();
+  const openMenu = t("sidebar.openMenu", "Open menu");
   return (
     <Button
       variant="ghost"
       size="icon"
       className="ml-1 size-8 shrink-0"
-      title="Open menu"
+      title={openMenu}
       onClick={onExpand}
     >
       <PanelLeft className="size-5" />
-      <span className="sr-only">Open menu</span>
+      <span className="sr-only">{openMenu}</span>
     </Button>
   );
 }
 
 function TitlebarActions({ onExpand }: { onExpand: () => void }): ReactElement {
+  const { t } = useUiTranslation();
+  const settings = t("settings.nav.title", "Settings");
   const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
   const actionButtonSize = HAS_MAC_WINDOW_CONTROLS ? "icon-xs" : "icon";
   const actionButtonClass = cn(
@@ -95,7 +100,9 @@ function TitlebarActions({ onExpand }: { onExpand: () => void }): ReactElement {
           variant="ghost"
           size={actionButtonSize}
           className={actionButtonClass}
-          title={`Expand sidebar (${toggleSidebarCombo})`}
+          title={t("sidebar.expandWithShortcut", "Expand sidebar ({{shortcut}})", {
+            shortcut: toggleSidebarCombo,
+          })}
           onClick={onExpand}
         >
           <PanelLeft className="size-4" />
@@ -105,11 +112,11 @@ function TitlebarActions({ onExpand }: { onExpand: () => void }): ReactElement {
           variant="ghost"
           size={actionButtonSize}
           className={actionButtonClass}
-          title="Settings"
+          title={settings}
         >
           <Link to="/settings">
             <Settings className="size-4" />
-            <span className="sr-only">Settings</span>
+            <span className="sr-only">{settings}</span>
           </Link>
         </Button>
       </div>

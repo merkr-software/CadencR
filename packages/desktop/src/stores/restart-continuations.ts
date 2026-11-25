@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { z } from "zod";
 import {
@@ -56,14 +57,19 @@ export interface RestartContinuationToast {
 const SILENT_SKIPS = new Set(["archived", "already_running", "finished", "stopped_on_quit"]);
 
 function names(entries: readonly RestartContinuationEntry[]): string {
-  const titles = entries.map((entry) => entry.feature_title.trim() || "Untitled conversation");
+  const titles = entries.map(
+    (entry) =>
+      entry.feature_title.trim() ||
+      translateUi("settings.general.restarts.untitled", "Untitled conversation"),
+  );
   const shown = titles.slice(0, NAMES_SHOWN).join(", ");
   const rest = titles.length - NAMES_SHOWN;
-  return rest > 0 ? `${shown} and ${rest} more` : shown;
-}
-
-function agents(count: number): string {
-  return count === 1 ? "1 agent" : `${count} agents`;
+  return rest > 0
+    ? translateUi("settings.general.restarts.more", "{{shown}} and {{remaining}} more", {
+        shown,
+        remaining: rest,
+      })
+    : shown;
 }
 
 /** Word the report for a toast, or `null` when there is nothing to tell. */
@@ -84,26 +90,66 @@ export function describeRestartContinuations(
 
   const lines: string[] = [];
   if (resumed.length > 0) {
-    const verb = resumed.length === 1 ? "was" : "were";
-    lines.push(`Resumed ${agents(resumed.length)} that ${verb} working: ${names(resumed)}.`);
+    lines.push(
+      translateUi(
+        "settings.general.restarts.resumed",
+        "Resumed {{count}} agent that was working: {{names}}.",
+        {
+          count: resumed.length,
+          names: names(resumed),
+          defaultValue_other: "Resumed {{count}} agents that were working: {{names}}.",
+        },
+      ),
+    );
   }
   if (reasking.length > 0) {
-    const verb = reasking.length === 1 ? "was" : "were";
-    lines.push(`${names(reasking)} ${verb} waiting on you and will ask again.`);
+    lines.push(
+      translateUi(
+        "settings.general.restarts.reasking",
+        "{{names}} was waiting on you and will ask again.",
+        {
+          count: reasking.length,
+          names: names(reasking),
+          defaultValue_other: "{{names}} were waiting on you and will ask again.",
+        },
+      ),
+    );
   }
   if (disabled.length > 0) {
     lines.push(
-      `Automatic resume is off, so ${agents(disabled.length)} stayed stopped: ${names(disabled)}.`,
+      translateUi(
+        "settings.general.restarts.disabled",
+        "Automatic resume is off, so {{count}} agent stayed stopped: {{names}}.",
+        {
+          count: disabled.length,
+          names: names(disabled),
+          defaultValue_other:
+            "Automatic resume is off, so {{count}} agents stayed stopped: {{names}}.",
+        },
+      ),
     );
   }
   if (looping.length > 0) {
     lines.push(
-      `Not resumed again after several restarts in a row: ${names(looping)}. Open the conversation to continue.`,
+      translateUi(
+        "settings.general.restarts.loopGuard",
+        "Not resumed again after several restarts in a row: {{names}}. Open the conversation to continue.",
+        { names: names(looping) },
+      ),
     );
   }
   if (notResumed.length > 0) {
     lines.push(
-      `Could not resume ${agents(notResumed.length)}: ${names(notResumed)}. Open the conversation to continue.`,
+      translateUi(
+        "settings.general.restarts.notResumed",
+        "Could not resume {{count}} agent: {{names}}. Open the conversation to continue.",
+        {
+          count: notResumed.length,
+          names: names(notResumed),
+          defaultValue_other:
+            "Could not resume {{count}} agents: {{names}}. Open the conversation to continue.",
+        },
+      ),
     );
   }
   if (report.error) lines.push(report.error);
@@ -112,8 +158,10 @@ export function describeRestartContinuations(
   return {
     tone: notResumed.length > 0 || looping.length > 0 || report.error ? "warning" : "success",
     title: report.previous_version
-      ? `Cadencr updated to v${report.app_version}`
-      : "Cadencr restarted",
+      ? translateUi("settings.general.restarts.updated", "Cadencr updated to v{{version}}", {
+          version: report.app_version,
+        })
+      : translateUi("settings.general.restarts.restarted", "Cadencr restarted"),
     description: lines.join("\n"),
     open: single ? { projectId: single.project_id, featureId: single.feature_id } : null,
   };
@@ -131,9 +179,15 @@ function navigateTo(target: RestartContinuationToast["open"]): void {
         : router.navigate({ to: "/agents" }),
     )
     .catch((error: unknown) => {
-      toast.error("Could not open the conversation", {
-        description: apiErrorMessage(error, "Navigation failed"),
-      });
+      toast.error(
+        translateUi("settings.general.restarts.openError", "Could not open the conversation"),
+        {
+          description: apiErrorMessage(
+            error,
+            translateUi("settings.general.restarts.navigationError", "Navigation failed"),
+          ),
+        },
+      );
     });
 }
 
@@ -145,7 +199,9 @@ function showToast(content: RestartContinuationToast): void {
     classNames: { description: "whitespace-pre-line" },
     duration: 20_000,
     action: {
-      label: content.open ? "Open" : "View agents",
+      label: content.open
+        ? translateUi("common.open", "Open")
+        : translateUi("settings.general.restarts.viewAgents", "View agents"),
       onClick: () => navigateTo(content.open),
     },
   };
@@ -158,9 +214,15 @@ export function applyRestartContinuationsEvent(payload: unknown): void {
   reportSchema ??= buildReportSchema();
   const parsed = reportSchema.safeParse(payload);
   if (!parsed.success) {
-    toast.error("Could not read which agents the restart interrupted", {
-      description: parsed.error.message,
-    });
+    toast.error(
+      translateUi(
+        "settings.general.restarts.reportError",
+        "Could not read which agents the restart interrupted",
+      ),
+      {
+        description: parsed.error.message,
+      },
+    );
     return;
   }
   const report = parsed.data;

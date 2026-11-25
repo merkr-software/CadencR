@@ -15,68 +15,90 @@ export const BROWSER_SHORTCUTS = [
   {
     id: "browser-new-tab",
     keys: ["mod", "t"],
-    description: "New browser tab",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-new-tab", "New browser tab");
+    },
     scope: "browser",
   },
   {
     id: "browser-close",
     keys: ["mod", "w"],
-    description: "Close browser tab",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-close", "Close browser tab");
+    },
     scope: "browser",
   },
   {
     // Chrome's customary Mod+Shift+T belongs to Cadencr's Terminal pane.
     id: "browser-reopen-tab",
     keys: ["mod", "shift", "u"],
-    description: "Reopen last closed browser tab",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-reopen-tab", "Reopen last closed browser tab");
+    },
     scope: "browser",
   },
   {
     id: "browser-prev-tab",
     keys: ["mod", "shift", "lbracket"],
-    description: "Previous browser tab",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-prev-tab", "Previous browser tab");
+    },
     scope: "browser",
   },
   {
     id: "browser-next-tab",
     keys: ["mod", "shift", "rbracket"],
-    description: "Next browser tab",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-next-tab", "Next browser tab");
+    },
     scope: "browser",
   },
   {
     id: "browser-focus-url",
     keys: ["mod", "l"],
-    description: "Focus the address bar",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-focus-url", "Focus the address bar");
+    },
     scope: "browser",
   },
   {
     id: "browser-reload",
     keys: ["mod", "r"],
-    description: "Reload the page",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-reload", "Reload the page");
+    },
     scope: "browser",
   },
   {
     id: "browser-find",
     keys: ["mod", "f"],
-    description: "Find in page",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-find", "Find in page");
+    },
     scope: "browser",
   },
   {
     id: "browser-add-comment",
     keys: ["mod", "s"],
-    description: "Add a page comment",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-add-comment", "Add a page comment");
+    },
     scope: "browser",
   },
   {
     id: "browser-downloads",
     keys: ["mod", "shift", "j"],
-    description: "Show browser downloads",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-downloads", "Show browser downloads");
+    },
     scope: "browser",
   },
   {
     id: "browser-responsive",
     keys: ["mod", "shift", "m"],
-    description: "Toggle responsive mode",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-responsive", "Toggle responsive mode");
+    },
     scope: "browser",
   },
   {
@@ -85,7 +107,9 @@ export const BROWSER_SHORTCUTS = [
     // both development and packaged builds without opening the wrong tools.
     id: "browser-devtools",
     keys: ["f12"],
-    description: "Toggle browser DevTools",
+    describe(t) {
+      return t("shortcuts.descriptions.browser-devtools", "Toggle browser DevTools");
+    },
     scope: "browser",
   },
 ] as const satisfies readonly Shortcut[];

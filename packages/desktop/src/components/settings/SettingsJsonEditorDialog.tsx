@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useRef, useState } from "react";
 import { json } from "@codemirror/lang-json";
 import { AlertTriangle } from "lucide-react";
@@ -33,13 +34,14 @@ export default function SettingsJsonEditorDialog({
   open,
   onOpenChange,
   title,
-  entityLabel = "Settings",
+  entityLabel,
   path,
   initialContent,
   isSaving,
   onSave,
   onSaved,
 }: SettingsJsonEditorDialogProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   // The editor owns its buffer; `initialContent` only seeds it on mount (this
   // component is mounted fresh each time the dialog opens).
   const contentRef = useRef(initialContent);
@@ -54,15 +56,43 @@ export default function SettingsJsonEditorDialog({
       onOpenChange(false);
       if (warnings.length > 0) {
         toast.warning(
-          warnings.length === 1
-            ? `${entityLabel} saved with 1 warning`
-            : `${entityLabel} saved with ${warnings.length} warnings`,
+          entityLabel
+            ? translateUi(
+                "settings.general.json.entitySavedWithWarnings",
+                "{{entityLabel}} saved with {{count}} warning",
+                {
+                  entityLabel,
+                  count: warnings.length,
+                  defaultValue_other: "{{entityLabel}} saved with {{count}} warnings",
+                },
+              )
+            : translateUi(
+                "settings.general.json.savedWithWarnings",
+                "Settings saved with {{count}} warning",
+                {
+                  count: warnings.length,
+                  defaultValue_other: "Settings saved with {{count}} warnings",
+                },
+              ),
         );
       } else {
-        toast.success(`${entityLabel} saved`);
+        toast.success(
+          entityLabel
+            ? translateUi("settings.general.json.entitySaved", "{{entityLabel}} saved", {
+                entityLabel,
+              })
+            : translateUi("settings.general.json.saved", "Settings saved"),
+        );
       }
     } catch (e) {
-      const message = apiErrorMessage(e, `Failed to save ${entityLabel.toLowerCase()}`);
+      const message = apiErrorMessage(
+        e,
+        entityLabel
+          ? translateUi("settings.general.json.entitySaveError", "Failed to save {{entityLabel}}", {
+              entityLabel: entityLabel.toLowerCase(),
+            })
+          : translateUi("settings.general.json.saveError", "Failed to save settings"),
+      );
       setError(message);
       toast.error(message);
     }
@@ -91,10 +121,10 @@ export default function SettingsJsonEditorDialog({
 
       <DialogFooter className="px-6 py-3">
         <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-          Cancel
+          {t("common.cancel", "Cancel")}
         </Button>
         <Button size="sm" disabled={isSaving} onClick={() => void handleSave()}>
-          {isSaving ? "Saving…" : "Save"}
+          {isSaving ? t("common.saving", "Saving…") : t("common.save", "Save")}
         </Button>
       </DialogFooter>
     </SettingsJsonDialogShell>

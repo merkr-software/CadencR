@@ -7,8 +7,22 @@ import type { Shortcut } from "./types";
 
 export const EDITOR_SHORTCUTS = [
   // ─── Editor ──────────────────────────────────────────────────────────
-  { id: "editor-fuzzy", keys: ["mod", "p"], description: "Fuzzy file search", scope: "editor" },
-  { id: "editor-new", keys: ["mod", "n"], description: "New buffer", scope: "editor" },
+  {
+    id: "editor-fuzzy",
+    keys: ["mod", "p"],
+    describe(t) {
+      return t("shortcuts.descriptions.editor-fuzzy", "Fuzzy file search");
+    },
+    scope: "editor",
+  },
+  {
+    id: "editor-new",
+    keys: ["mod", "n"],
+    describe(t) {
+      return t("shortcuts.descriptions.editor-new", "New buffer");
+    },
+    scope: "editor",
+  },
   {
     // ⌘S is also bound inside CodeMirror's keymap (see
     // `BaseCodeMirrorEditor.tsx`) so the in-editor binding stays
@@ -16,13 +30,17 @@ export const EDITOR_SHORTCUTS = [
     // in the cheatsheet and respects user remapping.
     id: "editor-save",
     keys: ["mod", "s"],
-    description: "Save",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-save", "Save");
+    },
     scope: "editor",
   },
   {
     id: "editor-buffer-search",
     keys: ["mod", "f"],
-    description: "Find in current file",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-buffer-search", "Find in current file");
+    },
     scope: "editor",
   },
   {
@@ -31,7 +49,9 @@ export const EDITOR_SHORTCUTS = [
     // for "find next" the way some IDEs do.
     id: "editor-replace",
     keys: ["mod", "alt", "f"],
-    description: "Replace in current file",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-replace", "Replace in current file");
+    },
     scope: "editor",
   },
   {
@@ -40,23 +60,36 @@ export const EDITOR_SHORTCUTS = [
     id: "editor-go-to-line",
     keys: ["ctrl", "g"],
     altKeys: ["mod", "alt", "g"],
-    description: "Go to line",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-go-to-line", "Go to line");
+    },
     scope: "editor",
   },
   {
     id: "editor-toggle-sidebar",
     keys: ["mod", "e"],
-    description: "Toggle explorer",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-toggle-sidebar", "Toggle explorer");
+    },
     scope: "editor",
   },
-  { id: "editor-close", keys: ["mod", "w"], description: "Close buffer", scope: "editor" },
+  {
+    id: "editor-close",
+    keys: ["mod", "w"],
+    describe(t) {
+      return t("shortcuts.descriptions.editor-close", "Close buffer");
+    },
+    scope: "editor",
+  },
   {
     // ⌘⇧C — copy the active file's project-relative path (same value as the
     // tab context-menu "Copy Path"). Capture-phase + editor-scoped so it
     // fires even when focus is inside the CodeMirror buffer.
     id: "editor-copy-path",
     keys: ["mod", "shift", "c"],
-    description: "Copy file path",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-copy-path", "Copy file path");
+    },
     scope: "editor",
   },
   {
@@ -65,55 +98,76 @@ export const EDITOR_SHORTCUTS = [
     // the preview surface renders (see `getPreviewKind`).
     id: "editor-toggle-preview",
     keys: ["mod", "m"],
-    description: "Toggle preview",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-toggle-preview", "Toggle preview");
+    },
     scope: "editor",
   },
   {
     id: "editor-language-confirm",
     keys: ["mod", "enter"],
-    description: "Apply language selection",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-language-confirm", "Apply language selection");
+    },
     scope: "editor",
   },
   {
     id: "editor-language-toggle-extension",
     keys: ["a"],
-    description: "Toggle language selection for file extension",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.editor-language-toggle-extension",
+        "Toggle language selection for file extension",
+      );
+    },
     scope: "editor",
   },
   {
     id: "editor-next-tab",
     keys: ["mod", "shift", "rbracket"],
-    description: "Next file tab",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-next-tab", "Next file tab");
+    },
     scope: "editor",
   },
   {
     id: "editor-prev-tab",
     keys: ["mod", "shift", "lbracket"],
-    description: "Previous file tab",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-prev-tab", "Previous file tab");
+    },
     scope: "editor",
   },
   {
     id: "editor-nav-pane-left",
     keys: ["mod", "alt", "left"],
-    description: "Focus pane left",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-nav-pane-left", "Focus pane left");
+    },
     scope: "editor",
   },
   {
     id: "editor-nav-pane-right",
     keys: ["mod", "alt", "right"],
-    description: "Focus pane right",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-nav-pane-right", "Focus pane right");
+    },
     scope: "editor",
   },
   {
     id: "editor-nav-pane-up",
     keys: ["mod", "alt", "up"],
-    description: "Focus pane up",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-nav-pane-up", "Focus pane up");
+    },
     scope: "editor",
   },
   {
     id: "editor-nav-pane-down",
     keys: ["mod", "alt", "down"],
-    description: "Focus pane down",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-nav-pane-down", "Focus pane down");
+    },
     scope: "editor",
   },
 
@@ -124,13 +178,17 @@ export const EDITOR_SHORTCUTS = [
   {
     id: "editor-trigger-completion",
     keys: ["ctrl", "space"],
-    description: "Trigger completion",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-trigger-completion", "Trigger completion");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-toggle-line-comment",
     keys: ["mod", "slash"],
-    description: "Toggle line comment",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-toggle-line-comment", "Toggle line comment");
+    },
     scope: "editor-buffer",
   },
   {
@@ -140,70 +198,95 @@ export const EDITOR_SHORTCUTS = [
     // `isInCodeMirrorEditor`, so the buffer keymap wins when focused.
     id: "editor-delete-line",
     keys: ["mod", "k"],
-    description: "Delete line",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-delete-line", "Delete line");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-select-next-occurrence",
     keys: ["mod", "d"],
-    description: "Add selection to next occurrence",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.editor-select-next-occurrence",
+        "Add selection to next occurrence",
+      );
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-select-all-occurrences",
     keys: ["mod", "shift", "l"],
-    description: "Select all occurrences",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-select-all-occurrences", "Select all occurrences");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-add-cursor-above",
     keys: ["mod", "alt", "up"],
-    description: "Add cursor above",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-add-cursor-above", "Add cursor above");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-add-cursor-below",
     keys: ["mod", "alt", "down"],
-    description: "Add cursor below",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-add-cursor-below", "Add cursor below");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-fold-region",
     keys: ["mod", "alt", "lbracket"],
     altKeys: ["ctrl", "shift", "lbracket"],
-    description: "Fold region",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-fold-region", "Fold region");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-unfold-region",
     keys: ["mod", "alt", "rbracket"],
     altKeys: ["ctrl", "shift", "rbracket"],
-    description: "Unfold region",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-unfold-region", "Unfold region");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-indent",
     keys: ["tab"],
-    description: "Indent selection",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-indent", "Indent selection");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-outdent",
     keys: ["shift", "tab"],
-    description: "Outdent selection",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-outdent", "Outdent selection");
+    },
     scope: "editor-buffer",
   },
   {
     id: "editor-rename-symbol",
     keys: ["f2"],
-    description: "Rename symbol",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-rename-symbol", "Rename symbol");
+    },
     scope: "editor-buffer",
   },
   {
     // ⇧F12 — classic IDE "Find all references" (VS Code uses the same chord).
     id: "editor-find-references",
     keys: ["shift", "f12"],
-    description: "Find all references",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-find-references", "Find all references");
+    },
     scope: "editor-buffer",
   },
   {
@@ -212,7 +295,9 @@ export const EDITOR_SHORTCUTS = [
     // editor tab is focused.
     id: "editor-symbol-outline",
     keys: ["mod", "shift", "o"],
-    description: "Go to symbol in file",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-symbol-outline", "Go to symbol in file");
+    },
     scope: "editor-buffer",
   },
   {
@@ -220,7 +305,9 @@ export const EDITOR_SHORTCUTS = [
     // it doesn't clash with the agent tab's ⌘T (cycle thinking effort).
     id: "editor-workspace-symbols",
     keys: ["mod", "t"],
-    description: "Go to symbol in workspace",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-workspace-symbols", "Go to symbol in workspace");
+    },
     scope: "editor-buffer",
   },
   {
@@ -230,7 +317,9 @@ export const EDITOR_SHORTCUTS = [
     // is inside the CodeMirror buffer.
     id: "editor-format-document",
     keys: ["mod", "shift", "i"],
-    description: "Format document",
+    describe(t) {
+      return t("shortcuts.descriptions.editor-format-document", "Format document");
+    },
     scope: "editor-buffer",
   },
   {
@@ -238,7 +327,12 @@ export const EDITOR_SHORTCUTS = [
     // conversation composer's context tray, not sent.
     id: "editor-add-selection-to-prompt",
     keys: ["mod", "shift", "enter"],
-    description: "Add selection to the agent prompt",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.editor-add-selection-to-prompt",
+        "Add selection to the agent prompt",
+      );
+    },
     scope: "editor",
     aliases: ["context", "agent", "prompt"],
   },

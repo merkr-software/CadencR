@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -35,6 +36,7 @@ export function SettingsSwitchRow({
   divided?: boolean;
   className?: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const fallbackId = useId();
   const switchId = id ?? fallbackId;
 
@@ -49,7 +51,12 @@ export function SettingsSwitchRow({
       className={className}
       control={
         <span className="inline-flex items-center gap-2">
-          {saving && <LoaderCircle aria-label="Saving" className="size-3.5 animate-spin" />}
+          {saving && (
+            <LoaderCircle
+              aria-label={t("common.savingStatus", "Saving")}
+              className="size-3.5 animate-spin"
+            />
+          )}
           <Switch
             id={switchId}
             checked={checked}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cliPathHint, describeCliInstall } from "./cli-install";
+import { cliPathHint, describeCliConflict, describeCliInstall } from "./cli-install";
 
 describe("describeCliInstall", () => {
   it("describes every state", () => {
@@ -30,6 +30,28 @@ describe("describeCliInstall", () => {
         onPath: true,
       }),
     ).toMatch(/already exists: a link to \/x/);
+  });
+});
+
+describe("describeCliConflict", () => {
+  const status = {
+    state: "conflict",
+    target: "/usr/local/bin/cadencr",
+    existing: "legacy description",
+    onPath: true,
+  } as const;
+
+  it("uses structured details and preserves the foreign path", () => {
+    expect(
+      describeCliConflict({ ...status, conflict: { kind: "link", path: "/other command" } }),
+    ).toBe("a link to /other command");
+    expect(describeCliConflict({ ...status, conflict: { kind: "unmanaged-program" } })).toBe(
+      "a program not installed by Cadencr",
+    );
+    expect(describeCliConflict({ ...status, conflict: { kind: "replaced-program" } })).toBe(
+      "a program that replaced Cadencr's",
+    );
+    expect(describeCliConflict(status)).toBe("legacy description");
   });
 });
 

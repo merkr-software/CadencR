@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
@@ -8,6 +9,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import {
   CLI_INSTALL_STATUS_QUERY_KEY,
   cliPathHint,
+  describeCliConflict,
   describeCliInstall,
   reportCliInstalled,
 } from "@/lib/cli/cli-install";
@@ -34,10 +36,20 @@ function useCliInstall() {
         return;
       }
       queryClient.setQueryData(CLI_INSTALL_STATUS_QUERY_KEY, next);
-      toast.success("Removed the cadencr command");
+      toast.success(
+        translateUi("settings.general.commandLine.removed", "Removed the cadencr command"),
+      );
     },
     onError: (error) => {
-      toast.error(apiErrorMessage(error, "Couldn't change the cadencr command"));
+      toast.error(
+        apiErrorMessage(
+          error,
+          translateUi(
+            "settings.general.commandLine.changeError",
+            "Couldn't change the cadencr command",
+          ),
+        ),
+      );
     },
   });
   return { status, mutation };
@@ -54,6 +66,7 @@ function CommandLineControls({
   run: (action: Action) => void;
   confirmReplace: () => void;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const busy = pending !== null;
   const spinner = (action: Action) =>
     pending === action ? <Loader2Icon className="size-4 animate-spin" aria-hidden /> : null;
@@ -65,14 +78,14 @@ function CommandLineControls({
       return (
         <Button size="sm" variant="outline" disabled={busy} onClick={() => run("install")}>
           {spinner("install")}
-          Install
+          {t("settings.general.commandLine.install", "Install")}
         </Button>
       );
     case "conflict":
       return (
         <Button size="sm" variant="outline" disabled={busy} onClick={confirmReplace}>
           {spinner("replace")}
-          Replace…
+          {t("settings.general.commandLine.replaceAction", "Replace…")}
         </Button>
       );
     case "installed":
@@ -80,11 +93,11 @@ function CommandLineControls({
         <div className="flex items-center gap-1.5">
           <Button size="sm" variant="outline" disabled={busy} onClick={() => run("install")}>
             {spinner("install")}
-            Reinstall
+            {t("settings.general.commandLine.reinstall", "Reinstall")}
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("uninstall")}>
             {spinner("uninstall")}
-            Uninstall
+            {t("settings.general.commandLine.uninstall", "Uninstall")}
           </Button>
         </div>
       );
@@ -93,12 +106,25 @@ function CommandLineControls({
 
 /** Settings → General: puts the `cadencr` command on PATH, like an editor's shell command. */
 export function CommandLineRow(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { status, mutation } = useCliInstall();
   const [confirming, setConfirming] = useState(false);
   const pending = mutation.isPending ? mutation.variables : null;
-  let description: React.ReactNode = "Checking the cadencr command…";
+  let description: React.ReactNode = t(
+    "settings.general.commandLine.checking",
+    "Checking the cadencr command…",
+  );
   if (status.isError) {
-    description = `Couldn't check the cadencr command: ${apiErrorMessage(status.error, "unknown error")}`;
+    description = t(
+      "settings.general.commandLine.checkError",
+      "Couldn't check the cadencr command: {{error}}",
+      {
+        error: apiErrorMessage(
+          status.error,
+          t("settings.general.commandLine.unknownError", "unknown error"),
+        ),
+      },
+    );
   } else if (status.data) {
     const hint = cliPathHint(status.data);
     description = (
@@ -128,13 +154,17 @@ export function CommandLineRow(): React.JSX.Element {
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Replace the existing cadencr?"
+        title={t("settings.general.commandLine.replaceTitle", "Replace the existing cadencr?")}
         description={
           status.data?.state === "conflict"
-            ? `${status.data.target} is ${status.data.existing}. Cadencr will put its own command there instead.`
+            ? t(
+                "settings.general.commandLine.replaceDescription",
+                "{{target}} is {{existing}}. Cadencr will put its own command there instead.",
+                { target: status.data.target, existing: describeCliConflict(status.data) },
+              )
             : undefined
         }
-        confirmText="Replace"
+        confirmText={t("settings.general.commandLine.replace", "Replace")}
         variant="destructive"
         onConfirm={() => mutation.mutate("replace")}
       />

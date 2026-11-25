@@ -40,14 +40,26 @@ export async function macCliStatus(context: CliInstallContext): Promise<CliInsta
   const stats = await lstatOrNull(target);
   if (!stats) return { state: "not-installed", target, onPath };
   if (!stats.isSymbolicLink()) {
-    return { state: "conflict", target, existing: "a program not installed by Cadencr", onPath };
+    return {
+      state: "conflict",
+      target,
+      existing: "a program not installed by Cadencr",
+      conflict: { kind: "unmanaged-program" },
+      onPath,
+    };
   }
   const linked = path.resolve(context.macBinDir, await fs.readlink(target));
   if (linked === bundledCliPath(context)) {
     return { state: "installed", target, onPath, current: true };
   }
   if (CADENCR_APP_CLI.test(linked)) return { state: "installed", target, onPath, current: false };
-  return { state: "conflict", target, existing: `a link to ${linked}`, onPath };
+  return {
+    state: "conflict",
+    target,
+    existing: `a link to ${linked}`,
+    conflict: { kind: "link", path: linked },
+    onPath,
+  };
 }
 
 function needsPrivileges(error: unknown): boolean {

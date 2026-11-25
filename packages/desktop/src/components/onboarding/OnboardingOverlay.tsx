@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useState } from "react";
 import { needsTelemetryDecision, type TelemetryState } from "@/api/telemetry";
 import { TelemetryStep } from "./steps/TelemetryStep";
@@ -47,16 +48,13 @@ export function OnboardingOverlay({
   telemetryState: TelemetryState;
   showWelcomeIntro?: boolean;
 }) {
+  const { t } = useUiTranslation();
   const { step, isPersisting, setStep, complete } = useOnboardingStatus();
   const [skipAfterDecision, setSkipAfterDecision] = useState(false);
-  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [navigationError, setNavigationError] = useState<{ error: unknown } | null>(null);
   const navigate = useCallback((action: () => Promise<void>): void => {
     setNavigationError(null);
-    void action().catch((error: unknown) =>
-      setNavigationError(
-        apiErrorMessage(error, "Could not save setup progress. Please try again."),
-      ),
-    );
+    void action().catch((error: unknown) => setNavigationError({ error }));
   }, []);
   const completeOnboarding = useCallback(() => navigate(complete), [navigate, complete]);
 
@@ -95,7 +93,7 @@ export function OnboardingOverlay({
         onInteractOutside={(event) => event.preventDefault()}
         className="inset-0 top-0 left-0 flex h-dvh max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background/95 p-0 backdrop-blur-sm sm:max-w-none"
       >
-        <DialogTitle className="sr-only">Onboarding</DialogTitle>
+        <DialogTitle className="sr-only">{t("onboarding.title", "Onboarding")}</DialogTitle>
         {/* `pt-12` clears the macOS traffic-light buttons, which sit at ~y=12
           inside `titleBarStyle: "hiddenInset"` and would otherwise overlap the
           stepper's top-left "Step X of Y" label. */}
@@ -110,7 +108,7 @@ export function OnboardingOverlay({
             disabled={isPersisting || step === "telemetry"}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
-            Skip onboarding
+            {t("onboarding.actions.skipAll", "Skip onboarding")}
           </Button>
         </header>
 
@@ -131,12 +129,18 @@ export function OnboardingOverlay({
           </div>
           {isPersisting ? (
             <p role="status" className="px-8 pb-4 text-sm text-muted-foreground">
-              Saving setup progress…
+              {t("onboarding.progress.saving", "Saving setup progress…")}
             </p>
           ) : null}
           {navigationError ? (
             <p role="alert" className="px-8 pb-4 text-sm text-destructive">
-              {navigationError}
+              {apiErrorMessage(
+                navigationError.error,
+                t(
+                  "onboarding.progress.saveError",
+                  "Could not save setup progress. Please try again.",
+                ),
+              )}
             </p>
           ) : null}
         </main>

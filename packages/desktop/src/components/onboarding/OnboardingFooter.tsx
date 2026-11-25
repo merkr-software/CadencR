@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Button } from "@/components/ui/button";
 
 export interface OnboardingFooterProps {
@@ -25,21 +26,22 @@ export function OnboardingFooter({
   primaryDisabled,
   onBack,
   onSkipStep,
-  skipStepLabel = "Skip",
+  skipStepLabel,
 }: OnboardingFooterProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center justify-between gap-3 pt-2">
       <div className="flex items-center gap-2">
         {onBack ? (
           <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-            Back
+            {t("onboarding.actions.back", "Back")}
           </Button>
         ) : null}
       </div>
       <div className="flex items-center gap-2">
         {onSkipStep ? (
           <Button type="button" variant="ghost" size="sm" onClick={onSkipStep}>
-            {skipStepLabel}
+            {skipStepLabel ?? t("onboarding.actions.skip", "Skip")}
           </Button>
         ) : null}
         <Button type="submit" disabled={primaryDisabled}>

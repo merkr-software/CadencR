@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,7 +17,8 @@ import { SettingsRow } from "./SettingsRow";
 
 export function LanguageSetting() {
   const id = useId();
-  const { t, i18n } = useTranslation("language");
+  const { t } = useUiTranslation();
+  const { t: tLanguage, i18n } = useTranslation("language");
   const { preference, system, loading, error } = useLanguageSettingState();
   const { setValue, isSaving } = useSettingWriter(LANGUAGE_SETTING);
   if (loading) {
@@ -25,22 +27,27 @@ export function LanguageSetting() {
         role="status"
         className="flex items-center gap-2 px-5 py-4 text-sm text-muted-foreground"
       >
-        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading language preference…
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+        {t("settings.general.language.loading", "Loading language preference…")}
       </div>
     );
   }
+  const errorMessage = error ? apiErrorMessage(error, "") : "";
+  const description = error ? (
+    errorMessage ? (
+      <span lang="en">{errorMessage}</span>
+    ) : (
+      t("settings.general.language.readError", "Could not read the language setting.")
+    )
+  ) : (
+    tLanguage("preview")
+  );
   return (
     <div lang={i18n.resolvedLanguage}>
       <SettingsRow
         htmlFor={id}
-        label={t("label")}
-        description={
-          error ? (
-            <span lang="en">{apiErrorMessage(error, "Could not read the language setting.")}</span>
-          ) : (
-            t("preview")
-          )
-        }
+        label={tLanguage("label")}
+        description={description}
         control={
           <Select value={preference} onValueChange={setValue} disabled={isSaving || Boolean(error)}>
             <SelectTrigger id={id} size="sm" aria-busy={isSaving}>
@@ -54,7 +61,7 @@ export function LanguageSetting() {
               className="z-[60] animate-none! bg-[oklch(from_var(--popover)_l_c_h/1)]"
             >
               <SelectItem value="system">
-                {t("system", { language: languageNames[system] })}
+                {tLanguage("system", { language: languageNames[system] })}
               </SelectItem>
               {Object.entries(languageNames).map(([value, name]) => (
                 <SelectItem key={value} value={value}>

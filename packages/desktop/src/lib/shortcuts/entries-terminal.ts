@@ -9,73 +9,97 @@ export const TERMINAL_SHORTCUTS = [
   {
     id: "terminal-focus",
     keys: ["mod", "t"],
-    description: "Focus or open terminal",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-focus", "Focus or open terminal");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-clear",
     keys: PLATFORM_IS_MAC ? ["mod", "k"] : ["mod", "alt", "k"],
-    description: "Clear terminal",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-clear", "Clear terminal");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-delete-line",
     keys: PLATFORM_IS_MAC ? ["mod", "backspace"] : ["mod", "shift", "backspace"],
-    description: "Delete line",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-delete-line", "Delete line");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-split-h",
     keys: PLATFORM_IS_MAC ? ["mod", "d"] : ["mod", "shift", "d"],
-    description: "Split horizontal",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-split-h", "Split horizontal");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-split-v",
     keys: PLATFORM_IS_MAC ? ["mod", "shift", "d"] : ["mod", "alt", "d"],
-    description: "Split vertical",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-split-v", "Split vertical");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-nav-pane-left",
     keys: ["mod", "alt", "left"],
-    description: "Focus pane left",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-nav-pane-left", "Focus pane left");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-nav-pane-right",
     keys: ["mod", "alt", "right"],
-    description: "Focus pane right",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-nav-pane-right", "Focus pane right");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-nav-pane-up",
     keys: ["mod", "alt", "up"],
-    description: "Focus pane up",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-nav-pane-up", "Focus pane up");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-nav-pane-down",
     keys: ["mod", "alt", "down"],
-    description: "Focus pane down",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-nav-pane-down", "Focus pane down");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-close",
     keys: PLATFORM_IS_MAC ? ["mod", "w"] : ["mod", "shift", "w"],
-    description: "Close pane",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-close", "Close pane");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-copy",
     keys: PLATFORM_IS_MAC ? ["mod", "c"] : ["mod", "shift", "c"],
-    description: "Copy selection",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-copy", "Copy selection");
+    },
     scope: "terminal",
   },
   {
     id: "terminal-paste",
     keys: PLATFORM_IS_MAC ? ["mod", "v"] : ["mod", "shift", "v"],
-    description: "Paste",
+    describe(t) {
+      return t("shortcuts.descriptions.terminal-paste", "Paste");
+    },
     scope: "terminal",
   },
   {
@@ -83,7 +107,12 @@ export const TERMINAL_SHORTCUTS = [
     // Editor's binding for the same action.
     id: "terminal-add-selection-to-prompt",
     keys: ["mod", "shift", "enter"],
-    description: "Add selection to the agent prompt",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.terminal-add-selection-to-prompt",
+        "Add selection to the agent prompt",
+      );
+    },
     scope: "terminal",
     aliases: ["context", "agent", "prompt"],
   },

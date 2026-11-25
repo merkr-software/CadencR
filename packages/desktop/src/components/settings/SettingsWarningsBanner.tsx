@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { SettingWarning } from "@/api/generated";
@@ -76,10 +77,14 @@ export function SettingsWarningsBanner({
   /** Overrides the default "N settings warnings" heading. */
   title?: string;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   if (warnings.length === 0) return null;
   const heading =
     title ??
-    (warnings.length === 1 ? "1 settings warning" : `${warnings.length} settings warnings`);
+    t("settings.general.json.warningCount", "{{count}} settings warning", {
+      count: warnings.length,
+      defaultValue_other: "{{count}} settings warnings",
+    });
   return (
     <SettingsBanner tone={tone} title={heading}>
       <ul className="mt-1.5 space-y-1 text-muted-foreground">
