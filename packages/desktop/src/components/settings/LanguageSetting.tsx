@@ -47,7 +47,12 @@ export function LanguageSetting() {
               {isSaving && <Loader2 className="size-4 animate-spin" aria-hidden />}
               <SelectValue />
             </SelectTrigger>
-            <SelectContent lang={i18n.resolvedLanguage}>
+            <SelectContent
+              lang={i18n.resolvedLanguage}
+              position="popper"
+              align="end"
+              className="z-[60] animate-none! bg-[oklch(from_var(--popover)_l_c_h/1)]"
+            >
               <SelectItem value="system">
                 {t("system", { language: languageNames[system] })}
               </SelectItem>
