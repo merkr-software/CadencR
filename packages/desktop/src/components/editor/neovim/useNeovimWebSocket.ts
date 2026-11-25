@@ -161,7 +161,7 @@ export function useNeovimWebSocket(options: UseNeovimWebSocketOptions): UseNeovi
         if (intentional || generation !== generationRef.current) return;
         useConnectionStatusStore
           .getState()
-          .reportSource(reconnectKey, "reconnecting", "Neovim WebSocket error");
+          .reportSource(reconnectKey, "reconnecting", { kind: "neovimSocketError" });
       },
       onClose: (intentional) => {
         if (generation !== generationRef.current) return;
@@ -173,7 +173,7 @@ export function useNeovimWebSocket(options: UseNeovimWebSocketOptions): UseNeovi
         // could not be started; the user should see that, not "Reconnecting…".
         useConnectionStatusStore
           .getState()
-          .reportSource(reconnectKey, "reconnecting", "Neovim WebSocket dropped");
+          .reportSource(reconnectKey, "reconnecting", { kind: "neovimSocketDropped" });
         scheduleReconnect(reconnectKey, doConnect);
       },
     });

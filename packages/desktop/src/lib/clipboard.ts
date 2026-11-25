@@ -1,4 +1,5 @@
-import { translateUi } from "@/lib/i18n/ui";
+import { createElement, type ReactNode } from "react";
+import { UiTrans } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 /**
@@ -9,11 +10,13 @@ import { toast } from "sonner";
  * For markdown-format conversions (plain/slack/markdown), use `copyAs` from
  * `lib/markdown-export.ts` instead.
  */
-export async function copyToClipboard(text: string, successLabel: string): Promise<void> {
+export async function copyToClipboard(text: string, successLabel: ReactNode): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     toast.success(successLabel);
   } catch {
-    toast.error(translateUi("common.copyFailed", "Failed to copy"));
+    toast.error(
+      createElement(UiTrans, { i18nKey: "common.copyFailed", defaults: "Failed to copy" }),
+    );
   }
 }

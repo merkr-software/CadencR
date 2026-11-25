@@ -114,7 +114,7 @@ function createSessionConnection(context: SessionConnectionContext): WsConnectio
     key: context.reconnectKey,
     url: getWsUrl(),
     protocols: getWsProtocols(),
-    statusLabel: "Session WebSocket",
+    statusChannel: "session",
     // A replaced mobile socket can remain registered while its close is in
     // flight, so every callback verifies it still owns the shared store entry.
     isCurrent: (connection) => ctx.transport.get(sessionId)?.conn === connection,

@@ -106,7 +106,7 @@ describe("ensurePaired", () => {
     await ensurePaired();
     expect(replaceState).toHaveBeenCalledWith(null, "", "/?view=list#tab=agent");
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(takePairingError()).toMatch(/malformed/i);
+    expect(takePairingError()).toEqual({ kind: "malformedCode" });
   });
 
   it("does not send the code if URL cleanup fails", async () => {
@@ -118,7 +118,7 @@ describe("ensurePaired", () => {
     vi.stubGlobal("fetch", fetchMock);
     await ensurePaired();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(takePairingError()).toMatch(/pairing was stopped/i);
+    expect(takePairingError()).toEqual({ kind: "unsafeAddress" });
   });
 
   it("ignores a legacy host trust flag (decision is the device's) and strips it", async () => {
@@ -140,14 +140,24 @@ describe("ensurePaired", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("stashes a friendly error on 400, does not flag just-paired, and strips the code", async () => {
+  it("stashes an expired-code issue on 400, does not flag just-paired, and strips the code", async () => {
     stubLocation("?code=expired");
     vi.stubGlobal("fetch", () => Promise.resolve(mockResponse(400, {})));
     await ensurePaired();
     expect(sessionStorage.getItem(KEY)).toBeNull();
     expect(takeJustPaired()).toBe(null);
-    expect(takePairingError()).toMatch(/expired/i);
+    expect(takePairingError()).toEqual({ kind: "expired" });
+    expect(takePairingError()).toBeNull();
     expect(replaceState).toHaveBeenCalled();
+  });
+
+  it("keeps technical details from a previously stored error", () => {
+    sessionStorage.setItem("cadencr.remotePairingError", "TLS connection interrupted (ERR_123)");
+    expect(takePairingError()).toEqual({
+      kind: "technical",
+      message: "TLS connection interrupted (ERR_123)",
+    });
+    expect(takePairingError()).toBeNull();
   });
 });
 

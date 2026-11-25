@@ -25,3 +25,15 @@ export function matchSystemLocale(preferences: readonly string[]): string {
   }
   return "en";
 }
+
+export function readBrowserLocale(): string {
+  if (typeof navigator === "undefined") return "en";
+  return matchSystemLocale(
+    navigator.languages?.length ? navigator.languages : [navigator.language],
+  );
+}
+
+export function subscribeToBrowserLanguage(notify: () => void): () => void {
+  window.addEventListener("languagechange", notify);
+  return () => window.removeEventListener("languagechange", notify);
+}

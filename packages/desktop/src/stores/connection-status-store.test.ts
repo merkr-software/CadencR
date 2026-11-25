@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { formatConnectionReason } from "@/lib/connection-reason";
+import { translateUi } from "@/lib/i18n/ui";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
@@ -153,6 +156,33 @@ describe("connection-status-store / probeHealth", () => {
     expect(notifyRateLimited).not.toHaveBeenCalled();
   });
 
+  it("ignores repeated HTTP failures with the same status and diagnostic", async () => {
+    vi.mocked(pingHealth).mockResolvedValueOnce({
+      ok: false,
+      reason: { kind: "httpError", status: 503, statusText: "Service Unavailable" },
+    });
+    const { probeHealth } = useConnectionStatusStore.getState();
+    await probeHealth();
+    const first = useConnectionStatusStore.getState();
+
+    vi.mocked(pingHealth).mockResolvedValueOnce({
+      ok: false,
+      reason: { kind: "httpError", status: 503, statusText: "Service Unavailable" },
+    });
+    await probeHealth();
+    expect(useConnectionStatusStore.getState()).toBe(first);
+
+    vi.mocked(pingHealth).mockResolvedValueOnce({
+      ok: false,
+      reason: { kind: "httpError", status: 503, statusText: "Backend starting" },
+    });
+    await probeHealth();
+    const { reason } = useConnectionStatusStore.getState();
+    expect(reason && formatConnectionReason(reason, translateUi, "en")).toBe(
+      "Backend returned 503 Backend starting",
+    );
+  });
+
   it("holds off reconnects when a probe is rate-limited (429)", async () => {
     vi.mocked(pingHealth).mockResolvedValueOnce({
       ok: false,
@@ -191,10 +221,11 @@ describe("connection-status-store / forceReconnectAll", () => {
     useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true });
 
     expect(forceReconnectAllWs).toHaveBeenCalledWith({ bypassManualPause: true });
-    expect(useConnectionStatusStore.getState().sources["ws-a"]).toEqual({
-      status: "reconnecting",
-      reason: "Retrying backend connection",
-    });
+    const source = useConnectionStatusStore.getState().sources["ws-a"];
+    expect(source.status).toBe("reconnecting");
+    expect(source.reason && formatConnectionReason(source.reason, translateUi, "en")).toBe(
+      "Retrying backend connection",
+    );
   });
 });
 
@@ -208,15 +239,20 @@ describe("connection-status-store / manual reconnect toast", () => {
         "Backend WebSocket failed to reconnect for 240 seconds",
       );
 
-    expect(toast.error).toHaveBeenCalledWith(
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    const [title, options] = vi.mocked(toast.error).mock.calls[0];
+    expect(options).toMatchObject({ id: "backend-manual-reconnect-required", duration: Infinity });
+    expect(renderToStaticMarkup(typeof title === "function" ? title() : title)).toBe(
       "Backend reconnect paused",
-      expect.objectContaining({
-        id: "backend-manual-reconnect-required",
-        description: expect.stringContaining("240 seconds"),
-        duration: Infinity,
-        action: expect.objectContaining({ label: "Retry now" }),
-      }),
     );
+    const { description, action } = options ?? {};
+    expect(
+      renderToStaticMarkup(typeof description === "function" ? description() : description),
+    ).toContain("240 seconds");
+    expect(action).toHaveProperty("onClick", expect.any(Function));
+    if (typeof action === "object" && action && "label" in action) {
+      expect(renderToStaticMarkup(action.label)).toBe("Retry now");
+    }
   });
 
   it("toast retry action performs a manual reconnect", () => {
@@ -258,7 +294,10 @@ describe("connection-status-store / reconnected toast", () => {
     reportSource("ws-a", "reconnecting", "dropped");
     reportSource("ws-a", "connected");
 
-    expect(toast.success).toHaveBeenCalledWith("Reconnected to backend", expect.anything());
+    const title = vi.mocked(toast.success).mock.calls[0]?.[0];
+    expect(renderToStaticMarkup(typeof title === "function" ? title() : title)).toBe(
+      "Reconnected to backend",
+    );
   });
 
   it("counts a source reopened after a forced reconnect, toasting once all recover", () => {

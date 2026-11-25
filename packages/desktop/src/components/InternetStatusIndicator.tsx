@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { WifiOff } from "lucide-react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -15,6 +16,7 @@ function readNavigatorOnline(): boolean {
 export function InternetStatusIndicator({
   className,
 }: InternetStatusIndicatorProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const [isOnline, setIsOnline] = useState(readNavigatorOnline);
   const [open, setOpen] = useState(false);
 
@@ -34,12 +36,13 @@ export function InternetStatusIndicator({
 
   if (isOnline) return null;
 
+  const label = t("conversation.connection.noInternet", "No internet connection");
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="No internet connection"
+          aria-label={label}
           className={cn(
             "inline-flex size-5 items-center justify-center rounded-full",
             "text-[var(--acc-orange)] opacity-75 transition-opacity hover:opacity-100",
@@ -58,10 +61,13 @@ export function InternetStatusIndicator({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 font-semibold text-[var(--acc-orange)]">
             <WifiOff className="size-3.5" aria-hidden />
-            <span>No internet connection</span>
+            <span>{label}</span>
           </div>
           <p className="text-muted-foreground leading-relaxed">
-            Cloud models may be unavailable while local work can continue.
+            {t(
+              "conversation.connection.noInternetDetail",
+              "Cloud models may be unavailable while local work can continue.",
+            )}
           </p>
         </div>
       </PopoverContent>

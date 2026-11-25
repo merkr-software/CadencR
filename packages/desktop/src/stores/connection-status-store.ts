@@ -1,4 +1,3 @@
-import { translateUi } from "@/lib/i18n/ui";
 /**
  * Single source of truth for "is the backend reachable right now?".
  *
@@ -25,10 +24,15 @@ import { translateUi } from "@/lib/i18n/ui";
 
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import { toast } from "sonner";
+import { shallow } from "zustand/shallow";
 import { pingHealth } from "@/api/client";
+import type { ConnectionReason } from "@/lib/connection-reason";
 import {
-  AUTO_RECONNECT_TIMEOUT_SECONDS,
+  dismissReconnectPausedToast,
+  showBackendReconnectedToast,
+  showReconnectPausedToast,
+} from "@/lib/connection-status-toast";
+import {
   clearRateLimit,
   forceReconnectAll as forceReconnectAllWs,
   notifyRateLimited,
@@ -42,12 +46,12 @@ export type ConnectionStatus =
 
 interface SourceState {
   status: ConnectionStatus;
-  reason: string | null;
+  reason: ConnectionReason | null;
 }
 
 interface ConnectionStatusState {
   status: ConnectionStatus;
-  reason: string | null;
+  reason: ConnectionReason | null;
   /** Wall-clock millis of the last time we observed a healthy `connected`. */
   lastConnectedAt: number | null;
   /** Internal: per-source latest report so we can recompute on changes. */
@@ -57,7 +61,7 @@ interface ConnectionStatusState {
    * Clearing a failing source (pane closed mid-reconnect) is not a recovery.
    */
   recoveredSinceOutage: boolean;
-  reportSource: (key: string, status: ConnectionStatus, reason?: string | null) => void;
+  reportSource: (key: string, status: ConnectionStatus, reason?: ConnectionReason | null) => void;
   clearSource: (key: string) => void;
   /** Force every registered WS reconnector + a fresh health probe. */
   forceReconnectAll: (options?: { bypassManualPause?: boolean }) => void;
@@ -74,7 +78,7 @@ let latestProbe = 0;
 let recoveryProbe: Promise<void> | null = null;
 function aggregate(sources: Record<string, SourceState>): {
   status: ConnectionStatus;
-  reason: string | null;
+  reason: ConnectionReason | null;
 } {
   let reconnecting: SourceState | null = null;
   for (const [key, src] of Object.entries(sources)) {
@@ -96,18 +100,9 @@ function aggregate(sources: Record<string, SourceState>): {
 }
 
 export function reportManualReconnectRequired(key: string): void {
-  useConnectionStatusStore.getState().reportSource(
-    key,
-    "manual_reconnect_required",
-    translateUi(
-      "conversation.connection.reconnectTimeout",
-      "Backend WebSocket failed to reconnect for {{count}} seconds",
-      {
-        count: AUTO_RECONNECT_TIMEOUT_SECONDS,
-        defaultValue_one: "Backend WebSocket failed to reconnect for {{count}} second",
-      },
-    ),
-  );
+  useConnectionStatusStore
+    .getState()
+    .reportSource(key, "manual_reconnect_required", { kind: "reconnectTimeout" });
 }
 
 export const useConnectionStatusStore = create<ConnectionStatusState>((set, get) => ({
@@ -122,7 +117,7 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
 
   reportSource(key, status, reason = null) {
     const prev = get().sources[key];
-    if (prev?.status === status && (prev.reason ?? null) === reason) return;
+    if (prev?.status === status && shallow(prev.reason, reason)) return;
     const sources = { ...get().sources, [key]: { status, reason } };
     const agg = aggregate(sources);
     const wasConnected = get().status === "connected";
@@ -187,7 +182,7 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
         if (src.status !== "manual_reconnect_required") continue;
         sources[key] = {
           status: "reconnecting",
-          reason: translateUi("conversation.connection.retrying", "Retrying backend connection"),
+          reason: { kind: "retrying" },
         };
         changed = true;
       }
@@ -205,46 +200,20 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
 //
 // One module-level subscription so transitions fire exactly once. Component
 // subscribers would multiply per mount and double-toast.
-const MANUAL_RECONNECT_TOAST_ID = "backend-manual-reconnect-required";
-const RECONNECTED_TOAST_ID = "backend-reconnected";
-
 useConnectionStatusStore.subscribe((state, prev) => {
   if (state.status === prev.status) return;
 
   if (state.status === "manual_reconnect_required") {
-    toast.error(translateUi("conversation.connection.paused", "Backend reconnect paused"), {
-      id: MANUAL_RECONNECT_TOAST_ID,
-      description: translateUi(
-        "conversation.connection.pausedDetail",
-        "{{reason}} Automatic retries are paused after {{count}} seconds.",
-        {
-          reason:
-            state.reason ??
-            translateUi(
-              "conversation.connection.failed",
-              "Cadencr could not reconnect to the local backend.",
-            ),
-          count: AUTO_RECONNECT_TIMEOUT_SECONDS,
-          defaultValue_one: "{{reason}} Automatic retries are paused after {{count}} second.",
-        },
-      ),
-      duration: Infinity,
-      action: {
-        label: translateUi("conversation.connection.retryNow", "Retry now"),
-        onClick: () =>
-          useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true }),
-      },
-    });
+    showReconnectPausedToast(state.reason, () =>
+      useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true }),
+    );
     return;
   }
 
-  toast.dismiss(MANUAL_RECONNECT_TOAST_ID);
+  dismissReconnectPausedToast();
 
   if (state.status === "connected" && state.recoveredSinceOutage) {
-    toast.success(translateUi("conversation.connection.restored", "Reconnected to backend"), {
-      id: RECONNECTED_TOAST_ID,
-      duration: 3000,
-    });
+    showBackendReconnectedToast();
   }
 });
 
@@ -281,11 +250,11 @@ export function stopHealthPolling(): void {
 /**
  * Narrow selector for the indicator UI; never subscribes to `sources`.
  * Wrapped in `useShallow` so the consumer only re-renders when one of
- * the three primitive fields actually changes.
+ * the three selected fields actually changes.
  */
 export function useConnectionStatus(): {
   status: ConnectionStatus;
-  reason: string | null;
+  reason: ConnectionReason | null;
   lastConnectedAt: number | null;
 } {
   return useConnectionStatusStore(

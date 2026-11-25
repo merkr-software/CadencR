@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { ShieldCheck } from "lucide-react";
 import type { RemoteStatus } from "@/api/generated";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { CopyIconButton } from "./remote-ui";
 
 /**
@@ -8,11 +9,15 @@ import { CopyIconButton } from "./remote-ui";
  * self-signed cert fingerprint for trust-on-first-use verification.
  */
 export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <section className="space-y-2">
       {status.lan_urls.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No local network address detected. Connect to Wi-Fi or use a tunnel.
+          {t(
+            "remote.lan.noAddress",
+            "No local network address detected. Connect to Wi-Fi or use a tunnel.",
+          )}
         </p>
       ) : (
         <ul className="space-y-1">
@@ -22,7 +27,10 @@ export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactEle
               className="flex items-center justify-between gap-2 rounded border border-border bg-card px-2 py-1"
             >
               <code className="truncate font-mono text-xs">{url}</code>
-              <CopyIconButton value={url} successLabel="URL copied" />
+              <CopyIconButton
+                value={url}
+                successLabel={<UiTrans i18nKey="remote.lan.urlCopied" defaults="URL copied" />}
+              />
             </li>
           ))}
         </ul>
@@ -33,16 +41,22 @@ export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactEle
           <p className="flex items-start gap-1.5">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-green)]" aria-hidden />
             <span>
-              For LAN access, compare this SHA-256 fingerprint with the certificate shown by the
-              other device's browser before accepting its warning. The pairing section above
-              requires that comparison before showing a code:
+              {t(
+                "remote.lan.compareHint",
+                "For LAN access, compare this SHA-256 fingerprint with the certificate shown by the other device's browser before accepting its warning. The pairing section above requires that comparison before showing a code:",
+              )}
             </span>
           </p>
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <code className="truncate font-mono text-[11px] text-foreground">
               {status.fingerprint}
             </code>
-            <CopyIconButton value={status.fingerprint} successLabel="Fingerprint copied" />
+            <CopyIconButton
+              value={status.fingerprint}
+              successLabel={
+                <UiTrans i18nKey="remote.lan.fingerprintCopied" defaults="Fingerprint copied" />
+              }
+            />
           </div>
         </div>
       ) : null}

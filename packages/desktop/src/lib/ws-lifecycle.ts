@@ -26,6 +26,7 @@ import {
   reportManualReconnectRequired,
   useConnectionStatusStore,
 } from "@/stores/connection-status-store";
+import type { ConnectionReason, SocketStatusChannel } from "./connection-reason";
 import { createWsConnection, type WebSocketFactory, type WsConnection } from "./ws-connection";
 import {
   isRateLimited,
@@ -65,11 +66,11 @@ export interface LifecycleSocketOptions {
   protocols?: string[];
   createSocket?: WebSocketFactory;
   /**
-   * Connection-status source label ("Session WebSocket"). Omitted for a socket
+   * Connection-status channel. Omitted for a socket
    * that does not speak for backend reachability: it is neither reported nor
    * paused for a manual retry.
    */
-  statusLabel?: string;
+  statusChannel?: SocketStatusChannel;
   /** Whether `connection` is still the one its owner holds. */
   isCurrent: (connection: WsConnection) => boolean;
   /** Open and current: record it before anything is sent. */
@@ -105,15 +106,11 @@ function retryFloorMs(drop: SocketDrop): number | undefined {
   return undefined;
 }
 
-function dropReason(label: string, drop: SocketDrop): string {
-  if (drop.cause === "error") return `${label} error`;
-  if (isLocalOverloadDrop(drop)) {
-    return `${label} overloaded; reconnecting`;
-  }
-  if (drop.code === WS_CLOSE_TRY_AGAIN_LATER) {
-    return `${label} rate limited; retrying in ${Math.ceil(WS_RATE_LIMIT_RETRY_MS / 1000)}s`;
-  }
-  return `${label} closed (${drop.code})`;
+function dropReason(channel: SocketStatusChannel, drop: SocketDrop): ConnectionReason {
+  if (drop.cause === "error") return { kind: "socketError", channel };
+  if (isLocalOverloadDrop(drop)) return { kind: "socketOverloaded", channel };
+  if (drop.code === WS_CLOSE_TRY_AGAIN_LATER) return { kind: "socketRateLimited", channel };
+  return { kind: "socketClosed", channel, code: drop.code };
 }
 
 /** Reports the pause, then lets the owner drop what was waiting for a reconnect. */
@@ -125,17 +122,17 @@ function manualRequiredHandler(onRetriesExhausted?: () => void): (key: string) =
 }
 
 function scheduleRetry(options: LifecycleSocketOptions, drop: SocketDrop): void {
-  const label = options.statusLabel;
-  if (label !== undefined) {
+  const channel = options.statusChannel;
+  if (channel !== undefined) {
     useConnectionStatusStore
       .getState()
-      .reportSource(options.key, "reconnecting", dropReason(label, drop));
+      .reportSource(options.key, "reconnecting", dropReason(channel, drop));
   }
   if (options.shouldRetry && !options.shouldRetry()) return;
   scheduleReconnect(options.key, options.reconnect, {
     minimumDelayMs: retryFloorMs(drop),
     onManualRequired:
-      label === undefined ? undefined : manualRequiredHandler(options.onRetriesExhausted),
+      channel === undefined ? undefined : manualRequiredHandler(options.onRetriesExhausted),
   });
 }
 
@@ -171,7 +168,7 @@ export function openLifecycleSocket(options: LifecycleSocketOptions): WsConnecti
       if (dropped || !options.isCurrent(connection)) return;
       opened = true;
       resetReconnectState(options.key);
-      if (options.statusLabel !== undefined) {
+      if (options.statusChannel !== undefined) {
         useConnectionStatusStore.getState().reportSource(options.key, "connected");
       }
       options.onConnected?.(connection);

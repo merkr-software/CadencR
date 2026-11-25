@@ -17,6 +17,8 @@ import {
   LANGUAGE_SETTING,
   isLanguage,
   matchSystemLocale,
+  readBrowserLocale,
+  subscribeToBrowserLanguage,
   type Language,
 } from "./languages";
 
@@ -38,12 +40,12 @@ export function useLanguageSettingState() {
 function subscribeToLanguageChange(notify: () => void) {
   // Electron supplies the OS preference at startup. Browsers can change it while open.
   if (getRuntimeConfigSync().preferredLanguages) return () => {};
-  window.addEventListener("languagechange", notify);
-  return () => window.removeEventListener("languagechange", notify);
+  return subscribeToBrowserLanguage(notify);
 }
 
 function readSystemLocale() {
-  return matchSystemLocale(getRuntimeConfigSync().preferredLanguages ?? navigator.languages);
+  const preferredLanguages = getRuntimeConfigSync().preferredLanguages;
+  return preferredLanguages ? matchSystemLocale(preferredLanguages) : readBrowserLocale();
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {

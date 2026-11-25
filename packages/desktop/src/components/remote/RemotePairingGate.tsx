@@ -1,12 +1,29 @@
-import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Loader2, QrCode } from "lucide-react";
 
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
-import { extractPairingCode, pairRemoteDevice } from "@/api/remote-pairing";
-import { apiErrorMessage } from "@/lib/api-errors";
+import {
+  isBrowserRemote,
+  readDeviceToken,
+  subscribeToDeviceRevocation,
+} from "@/lib/remote/device-token";
+import { extractPairingCode, pairRemoteDevice, takePairingError } from "@/api/remote-pairing";
+import { UiTrans, useBrowserUiLocale, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import {
+  formatPairingError,
+  pairingIssueFromError,
+  type PairingIssue,
+} from "@/lib/remote/pairing-errors";
 
 // The scanner pulls in the camera plumbing + jsQR decoder, so it only loads
 // when the user actually chooses to scan rather than paste.
@@ -26,8 +43,14 @@ const QrPairingScanner = lazy(() =>
  * Pass-through on the desktop shell and on any already-paired device.
  */
 export function RemotePairingGate({ children }: { children: ReactNode }): ReactNode {
-  if (!isBrowserRemote() || readDeviceToken()) return children;
-  return <PairingScreen />;
+  return isBrowserRemote() ? <BrowserPairingGate>{children}</BrowserPairingGate> : children;
+}
+
+function BrowserPairingGate({ children }: { children: ReactNode }): ReactNode {
+  const paired = useSyncExternalStore(subscribeToDeviceRevocation, () =>
+    Boolean(readDeviceToken()),
+  );
+  return paired ? children : <PairingScreen />;
 }
 
 export { extractPairingCode } from "@/api/remote-pairing";
@@ -52,35 +75,60 @@ function PairingScannerScreen({
   );
 }
 
+function PairingInstructions({ t }: { t: UiTranslator }): ReactNode {
+  return (
+    <div className="space-y-1.5">
+      <h1 className="text-lg font-semibold">
+        {t("remote.pairing.gate.title", "Pair this device")}
+      </h1>
+      <p className="mx-auto max-w-sm text-sm text-muted-foreground">
+        <UiTrans
+          t={t}
+          i18nKey="remote.pairing.gate.instructions"
+          defaults="Open <setting>Remote access</setting> on your computer, then scan the QR code — or paste the pairing link below."
+          components={{ setting: <span className="font-medium text-foreground" /> }}
+        />
+      </p>
+    </div>
+  );
+}
+
 function PairingScreen(): ReactNode {
+  const locale = useBrowserUiLocale();
+  const { t } = useUiTranslation(locale);
   const [value, setValue] = useState("");
   const [pairing, setPairing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PairingIssue | null>(null);
   const [scanning, setScanning] = useState(false);
+
+  useEffect(() => {
+    const startupError = takePairingError();
+    if (startupError) setError(startupError);
+  }, []);
 
   // Shared by both the paste form and the QR scanner — `rawCode` is a pasted
   // link, a bare `?code=…`, or the URL decoded from a scanned QR.
   const runPair = async (rawCode: string): Promise<void> => {
     const code = extractPairingCode(rawCode);
+    setScanning(false);
     if (!code) {
-      setScanning(false);
-      setError("Paste the pairing link or code from your computer.");
+      setError({ kind: "invalidInput" });
       return;
     }
-    setScanning(false);
     setPairing(true);
     setError(null);
     try {
       const paired = await pairRemoteDevice(code);
-      if (!paired.storagePersisted) {
-        throw new Error("Paired, but this browser couldn't save the sign-in. Try another browser.");
+      if (paired.storagePersisted) {
+        // Reload once session storage succeeded so bootstrap reads the saved token.
+        location.reload();
+        return;
       }
-      // Reload once session storage succeeded so bootstrap reads the saved token.
-      location.reload();
+      setError({ kind: "signInNotSaved" });
     } catch (err) {
-      setError(apiErrorMessage(err, "Pairing failed."));
-      setPairing(false);
+      setError(pairingIssueFromError(err));
     }
+    setPairing(false);
   };
 
   if (scanning) {
@@ -100,13 +148,7 @@ function PairingScreen(): ReactNode {
   return (
     <div className="flex h-dvh w-full flex-col items-center justify-center gap-6 bg-background px-6 text-center">
       <CadencrLogo className="size-12" />
-      <div className="space-y-1.5">
-        <h1 className="text-lg font-semibold">Pair this device</h1>
-        <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-          Open <span className="font-medium text-foreground">Remote access</span> on your computer,
-          then scan the QR code — or paste the pairing link below.
-        </p>
-      </div>
+      <PairingInstructions t={t} />
 
       <Button
         type="button"
@@ -119,12 +161,12 @@ function PairingScreen(): ReactNode {
         }}
       >
         <QrCode className="size-4" />
-        Scan QR code
+        {t("remote.pairing.gate.scan", "Scan QR code")}
       </Button>
 
       <div className="flex w-full max-w-sm items-center gap-3 text-xs text-muted-foreground">
         <span className="h-px flex-1 bg-border" />
-        or paste the link
+        {t("remote.pairing.gate.pasteAlternative", "or paste the link")}
         <span className="h-px flex-1 bg-border" />
       </div>
 
@@ -132,16 +174,22 @@ function PairingScreen(): ReactNode {
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Paste pairing link…"
+          placeholder={t("remote.pairing.gate.placeholder", "Paste pairing link…")}
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
           disabled={pairing}
-          aria-label="Pairing link or code"
+          aria-label={t("remote.pairing.gate.inputLabel", "Pairing link or code")}
         />
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {formatPairingError(error, t)}
+          </p>
+        )}
         <Button type="submit" disabled={pairing || !value.trim()}>
-          {pairing ? "Pairing…" : "Pair device"}
+          {pairing
+            ? t("remote.pairing.gate.pairing", "Pairing…")
+            : t("remote.pairing.gate.submit", "Pair device")}
         </Button>
       </form>
     </div>

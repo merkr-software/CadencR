@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStatusStore } from "@/stores/connection-status-store";
+import { formatConnectionReason } from "./connection-reason";
+import { translateUi, uiI18n } from "./i18n/ui";
 import type { WebSocketLike, WsConnection } from "./ws-connection";
 import { openLifecycleSocket, retireSocket, type LifecycleSocketOptions } from "./ws-lifecycle";
 import {
@@ -50,7 +52,7 @@ function setup(overrides: Partial<LifecycleSocketOptions> = {}) {
       sockets.push(socket);
       return socket;
     },
-    statusLabel: "Test WebSocket",
+    statusChannel: "session",
     isCurrent: (connection) => connection === current,
     onConnected: () => calls.push("connected"),
     replay: () => calls.push("replay"),
@@ -70,6 +72,10 @@ function setup(overrides: Partial<LifecycleSocketOptions> = {}) {
 }
 
 const status = () => useConnectionStatusStore.getState().sources[KEY];
+const reasonLabel = () => {
+  const reason = status()?.reason;
+  return reason ? formatConnectionReason(reason, translateUi, "en") : null;
+};
 
 describe("openLifecycleSocket", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -105,9 +111,41 @@ describe("openLifecycleSocket", () => {
     sockets[0].fire("error");
     sockets[0].drop(1006);
     expect(calls.filter((call) => call.startsWith("drop"))).toEqual(["drop:error:null:true"]);
-    expect(status()).toEqual({ status: "reconnecting", reason: "Test WebSocket error" });
+    expect(status()?.status).toBe("reconnecting");
+    expect(reasonLabel()).toBe("Session WebSocket error");
     await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS * 3);
     expect(sockets).toHaveLength(2);
+  });
+
+  it("keeps an identical drop stable and renders its channel in the current language", () => {
+    const { sockets, connect } = setup({ shouldRetry: () => false });
+    connect();
+    sockets[0].drop(1008);
+    const first = useConnectionStatusStore.getState();
+    connect();
+    sockets[1].drop(1008);
+    expect(useConnectionStatusStore.getState()).toBe(first);
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      conversation: {
+        connection: {
+          sessionSocket: "WebSocket de session",
+          socketClosed: "{{label}} fermé ({{code}})",
+        },
+      },
+    });
+    try {
+      const reason = first.reason;
+      expect(reason && formatConnectionReason(reason, uiI18n.getFixedT("fr", "ui"), "fr")).toBe(
+        "WebSocket de session fermé (1008)",
+      );
+    } finally {
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+
+    connect();
+    sockets[2].drop(1006);
+    expect(reasonLabel()).toBe("Session WebSocket closed (1006)");
   });
 
   it("holds every socket off on 1013 and waits the same floor after 1006", async () => {
@@ -131,7 +169,7 @@ describe("openLifecycleSocket", () => {
     connect();
     sockets[0].drop(1008);
     expect(calls).toEqual(["drop:close:1008:false"]);
-    expect(status()?.reason).toBe("Test WebSocket closed (1008)");
+    expect(reasonLabel()).toBe("Session WebSocket closed (1008)");
     await vi.advanceTimersByTimeAsync(1_100);
     expect(sockets).toHaveLength(2);
   });
@@ -161,9 +199,9 @@ describe("openLifecycleSocket", () => {
     expect(sockets).toHaveLength(1);
   });
 
-  it("reports nothing without a status label, and retries only while asked to", async () => {
+  it("reports nothing without a status channel, and retries only while asked to", async () => {
     let wanted = false;
-    const { sockets, connect } = setup({ statusLabel: undefined, shouldRetry: () => wanted });
+    const { sockets, connect } = setup({ statusChannel: undefined, shouldRetry: () => wanted });
     connect();
     sockets[0].open();
     sockets[0].drop(1001);
@@ -185,10 +223,8 @@ describe("openLifecycleSocket", () => {
     sockets[0].drop(1013, "overloaded");
 
     expect(isRateLimited()).toBe(false);
-    expect(status()).toEqual({
-      status: "reconnecting",
-      reason: "Test WebSocket overloaded; reconnecting",
-    });
+    expect(status()?.status).toBe("reconnecting");
+    expect(reasonLabel()).toBe("Session WebSocket overloaded; reconnecting");
 
     // Uses normal per-socket backoff (~1s) rather than the 5s global rate-limit floor.
     await vi.advanceTimersByTimeAsync(1_100);
@@ -202,7 +238,7 @@ describe("openLifecycleSocket", () => {
     sockets[0].drop(1013, "rate-limited");
 
     expect(isRateLimited()).toBe(true);
-    expect(status()?.reason).toContain("rate limited");
+    expect(reasonLabel()).toContain("rate limited");
     await vi.advanceTimersByTimeAsync(WS_RATE_LIMIT_RETRY_MS - 100);
     expect(sockets).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(200);

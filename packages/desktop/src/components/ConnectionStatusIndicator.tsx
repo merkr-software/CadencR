@@ -12,6 +12,10 @@
  */
 
 import { type ReactElement } from "react";
+import { formatConnectionReason } from "@/lib/connection-reason";
+import { formatCompactAge } from "@/lib/date-utils";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { useConnectionStatus, useConnectionStatusStore } from "@/stores/connection-status-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -23,6 +27,7 @@ interface ConnectionStatusIndicatorProps {
 export function ConnectionStatusIndicator({
   className,
 }: ConnectionStatusIndicatorProps): ReactElement | null {
+  const { t, i18n } = useUiTranslation();
   const { status, reason, lastConnectedAt } = useConnectionStatus();
 
   // Hide entirely while healthy — per the chosen UX, the indicator only
@@ -32,23 +37,35 @@ export function ConnectionStatusIndicator({
   // Computed at render time; the popover is only visible while
   // disconnected/reconnecting, and a parent re-render is what shows it,
   // so this stays fresh enough without a memo or interval.
-  const lastConnectedLabel = lastConnectedAt == null ? null : formatRelativeAge(lastConnectedAt);
+  const locale = formattingLocale(i18n.language);
+  const lastConnectedLabel =
+    lastConnectedAt == null
+      ? null
+      : formatCompactAge(lastConnectedAt, t, locale, { showSeconds: true });
+  const reasonLabel = reason ? formatConnectionReason(reason, t, locale) : null;
 
   const isManualRequired = status === "manual_reconnect_required";
   const dotColor = status === "reconnecting" ? "bg-amber-500 animate-pulse" : "bg-red-500";
   const label =
     status === "reconnecting"
-      ? "Reconnecting…"
+      ? t("conversation.connection.reconnecting", "Reconnecting…")
       : isManualRequired
-        ? "Reconnect paused"
-        : "Disconnected";
+        ? t("conversation.connection.reconnectPaused", "Reconnect paused")
+        : t("conversation.connection.disconnectedStatus", "Disconnected");
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Backend ${label}${reason ? ` — ${reason}` : ""}`}
+          aria-label={
+            reasonLabel
+              ? t("conversation.connection.statusWithReason", "Backend {{status}} — {{reason}}", {
+                  status: label,
+                  reason: reasonLabel,
+                })
+              : t("conversation.connection.status", "Backend {{status}}", { status: label })
+          }
           className={cn(
             "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium",
             "hover:bg-accent transition-colors focus-visible:outline-none focus-visible:bg-accent",
@@ -67,17 +84,21 @@ export function ConnectionStatusIndicator({
             <span className={cn("size-2 rounded-full", dotColor)} />
             <span className="font-semibold">
               {status === "reconnecting"
-                ? "Reconnecting to backend"
+                ? t("conversation.connection.reconnectingToBackend", "Reconnecting to backend")
                 : isManualRequired
-                  ? "Backend reconnect paused"
-                  : "Backend disconnected"}
+                  ? t("conversation.connection.paused", "Backend reconnect paused")
+                  : t("conversation.connection.backendDisconnected", "Backend disconnected")}
             </span>
           </div>
-          {reason ? (
-            <p className="text-muted-foreground leading-relaxed break-words">{reason}</p>
+          {reasonLabel ? (
+            <p className="text-muted-foreground leading-relaxed break-words">{reasonLabel}</p>
           ) : null}
           {lastConnectedLabel ? (
-            <p className="text-muted-foreground">Last connected {lastConnectedLabel}</p>
+            <p className="text-muted-foreground">
+              {t("conversation.connection.lastConnected", "Last connected {{age}}", {
+                age: lastConnectedLabel,
+              })}
+            </p>
           ) : null}
           <button
             type="button"
@@ -89,20 +110,10 @@ export function ConnectionStatusIndicator({
               useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true })
             }
           >
-            Retry now
+            {t("conversation.connection.retryNow", "Retry now")}
           </button>
         </div>
       </PopoverContent>
     </Popover>
   );
-}
-
-function formatRelativeAge(timestamp: number): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
 }

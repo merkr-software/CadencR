@@ -17,15 +17,21 @@
  */
 
 import { isBrowserRemote, writeDeviceToken } from "@/lib/remote/device-token";
+import {
+  PairingError,
+  pairingIssueFromError,
+  parsePairingIssue,
+  type PairingIssue,
+} from "@/lib/remote/pairing-errors";
 import { z } from "zod";
-import { apiErrorMessage } from "@/lib/api-errors";
 
 const CODE_PARAM = "code";
 /** Legacy host-side trust flag; no longer honored, just stripped from the URL. */
 const TRUST_PARAM = "trust";
 
-/** Set when pairing fails so the app can surface a toast once React mounts. */
+/** Set when pairing fails so the app can present the failure once React mounts. */
 const PAIRING_ERROR_KEY = "cadencr.remotePairingError";
+let unstoredPairingError: PairingIssue | null = null;
 
 /** Set after a successful pair so the app can offer "stay signed in" once mounted. */
 const JUST_PAIRED_KEY = "cadencr.remoteJustPaired";
@@ -60,13 +66,15 @@ export async function pairRemoteDevice(
     body: JSON.stringify({ code }),
   });
   if (!resp.ok) {
-    throw new Error(pairingErrorMessage(resp.status));
+    throw new PairingError(
+      resp.status === 400 ? { kind: "expired" } : { kind: "http", status: resp.status },
+    );
   }
   const body = z
     .object({ device_token: z.string().min(1), label: z.string() })
     .safeParse(await resp.json());
   if (!body.success) {
-    throw new Error("The pairing response was malformed.");
+    throw new PairingError({ kind: "malformedResponse" });
   }
   const storagePersisted = writeDeviceToken(body.data.device_token, options.trust);
   // Only flag the toast when the token actually persisted — otherwise the
@@ -74,12 +82,6 @@ export async function pairRemoteDevice(
   // sessionStorage, which survives the gate's `location.reload()`.
   if (storagePersisted) flagJustPaired(options.trust ? "trusted" : "session");
   return { storagePersisted };
-}
-
-function pairingErrorMessage(status: number): string {
-  return status === 400
-    ? "This pairing code has expired. Generate a fresh one on the host computer."
-    : `Pairing failed (HTTP ${status}).`;
 }
 
 export async function ensurePaired(): Promise<void> {
@@ -102,14 +104,12 @@ export async function ensurePaired(): Promise<void> {
   try {
     history.replaceState(null, "", `${location.pathname}${search ? `?${search}` : ""}${hash}`);
   } catch {
-    stashPairingError(
-      "Could not remove the pairing code from this page's address. Pairing was stopped.",
-    );
+    stashPairingError({ kind: "unsafeAddress" });
     return;
   }
   if (!code) return;
   if (!/^[A-Za-z0-9_-]+$/.test(code)) {
-    stashPairingError("The pairing code is malformed. Generate a new link on the host.");
+    stashPairingError({ kind: "malformedCode" });
     return;
   }
 
@@ -119,21 +119,20 @@ export async function ensurePaired(): Promise<void> {
     // persisted, so we only handle the storage-blocked case here.
     const paired = await pairRemoteDevice(code, { trust: false });
     if (!paired.storagePersisted) {
-      stashPairingError(
-        "Paired, but this browser blocks storage — you'll need to re-pair after a reload.",
-      );
+      stashPairingError({ kind: "storageBlocked" });
     }
   } catch (err) {
-    // Pre-React: stash the message so the app can toast it after mount. We
-    // still let the app load (an unauthenticated state the UI surfaces) rather
-    // than blocking on a stale or bad code.
-    stashPairingError(apiErrorMessage(err, "Pairing failed."));
+    // The app mounts and presents failures from stale or bad codes.
+    stashPairingError(pairingIssueFromError(err));
   }
 }
 
 /** Pop the one-shot pairing error (consumed once by the app after mount). */
-export function takePairingError(): string | null {
-  return takeFlag(PAIRING_ERROR_KEY);
+export function takePairingError(): PairingIssue | null {
+  const error = unstoredPairingError;
+  unstoredPairingError = null;
+  const stored = takeFlag(PAIRING_ERROR_KEY);
+  return error ?? (stored ? parsePairingIssue(stored) : null);
 }
 
 /**
@@ -164,13 +163,14 @@ function flagJustPaired(mode: JustPairedMode): void {
   }
 }
 
-function stashPairingError(message: string): void {
+function stashPairingError(error: PairingIssue): void {
   try {
-    sessionStorage.setItem(PAIRING_ERROR_KEY, message);
+    sessionStorage.setItem(PAIRING_ERROR_KEY, JSON.stringify(error));
   } catch {
-    // Storage unavailable; the console error below is the only signal left.
+    // The current mount can still report the problem when storage is blocked.
+    unstoredPairingError = error;
   }
-  console.error("[remote-pairing]", message);
+  console.error("[remote-pairing]", error);
 }
 
 function pairingFragment(hash: string): {

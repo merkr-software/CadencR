@@ -40,6 +40,8 @@ import { StorageMaintenanceProgress } from "@/components/StorageMaintenanceProgr
 import { APP_ENVIRONMENT } from "@/lib/app-environment";
 import { getActiveFocusZone } from "@/lib/focus-zones";
 import { APP_VERSION } from "@/lib/app-version";
+import { formatExactNumber } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
@@ -285,7 +287,10 @@ function SidebarFullscreenButton(): ReactElement | null {
 }
 
 function AddToHomeScreenDialog(): ReactElement {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
+  const stepNumber = (number: number) =>
+    t("sidebar.homeScreenStepNumber", "{{number}}.", { number: formatExactNumber(number, locale) });
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -313,7 +318,7 @@ function AddToHomeScreenDialog(): ReactElement {
         </DialogHeader>
         <ol className="space-y-3 text-sm">
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">1.</span>
+            <span className="font-medium text-foreground">{stepNumber(1)}</span>
             <span>
               <UiTrans
                 i18nKey="sidebar.tapShare"
@@ -325,7 +330,7 @@ function AddToHomeScreenDialog(): ReactElement {
             </span>
           </li>
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">2.</span>
+            <span className="font-medium text-foreground">{stepNumber(2)}</span>
             <span>
               <UiTrans
                 i18nKey="sidebar.chooseAddToHomeScreen"
@@ -335,7 +340,7 @@ function AddToHomeScreenDialog(): ReactElement {
             </span>
           </li>
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">3.</span>
+            <span className="font-medium text-foreground">{stepNumber(3)}</span>
             <span>
               <UiTrans
                 i18nKey="sidebar.openHomeScreenIcon"

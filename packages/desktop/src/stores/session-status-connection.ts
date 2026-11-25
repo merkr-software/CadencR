@@ -150,7 +150,7 @@ export function createAppWsConnection(
       key: APP_WS_SOURCE,
       url: getWsUrl(),
       protocols: getWsProtocols(),
-      statusLabel: "App WebSocket",
+      statusChannel: "app",
       isCurrent: (ws) => current?.ws === ws,
       onConnected: withCurrent(markAppWsConnected),
       replay: withCurrent(replayAppSubscriptions),

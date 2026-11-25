@@ -67,7 +67,8 @@ it("follows the confirmed setting and returns to the browser language without re
     queryClient.setQueryData(key, { value: "system" });
   });
   expect(await screen.findByText("Seul cet aperçu change de langue.")).toBeVisible();
-  languages.mockReturnValue(["en-GB"]);
+  languages.mockReturnValue([]);
+  vi.spyOn(navigator, "language", "get").mockReturnValue("en-GB");
   act(() => {
     window.dispatchEvent(new Event("languagechange"));
   });

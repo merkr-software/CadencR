@@ -295,14 +295,7 @@ function useTerminalConnector(
           if (refs.ptyExitedRef.current) return;
           useConnectionStatusStore
             .getState()
-            .reportSource(
-              reconnectKey,
-              "reconnecting",
-              translateUi(
-                "workspace.tools.useTerminalWebSocket.socketError",
-                "Terminal WebSocket error",
-              ),
-            );
+            .reportSource(reconnectKey, "reconnecting", { kind: "terminalSocketError" });
         },
         onClose: (intentional, event) => {
           if (generation !== refs.generationRef.current) return;
@@ -317,14 +310,7 @@ function useTerminalConnector(
           );
           useConnectionStatusStore
             .getState()
-            .reportSource(
-              reconnectKey,
-              "reconnecting",
-              translateUi(
-                "workspace.tools.useTerminalWebSocket.socketDropped",
-                "Terminal WebSocket dropped",
-              ),
-            );
+            .reportSource(reconnectKey, "reconnecting", { kind: "terminalSocketDropped" });
           scheduleReconnect(reconnectKey, reconnect, {
             minimumDelayMs:
               event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
@@ -365,11 +351,7 @@ function reportDroppedWrite(data: string, connector: TerminalConnector): void {
   lastForcedAtRef.current = now;
   useConnectionStatusStore
     .getState()
-    .reportSource(
-      connector.reconnectKey,
-      "reconnecting",
-      translateUi("workspace.tools.useTerminalWebSocket.writeStalled", "Terminal write stalled"),
-    );
+    .reportSource(connector.reconnectKey, "reconnecting", { kind: "terminalWriteStalled" });
   forceReconnect(connector.reconnectKey);
 }
 

@@ -5,6 +5,7 @@ import Axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 import type { RuntimeConfig } from "@/lib/desktop-bridge-types";
+import type { ConnectionReason } from "@/lib/connection-reason";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
@@ -303,7 +304,7 @@ function isWorkspaceSettingEntryArray(value: unknown): value is WorkspaceSetting
  * should flip the indicator within a few seconds, not half a minute.
  */
 export async function pingHealth(): Promise<
-  { ok: true } | { ok: false; reason: string; retryAfterMs?: number }
+  { ok: true } | { ok: false; reason: ConnectionReason; retryAfterMs?: number }
 > {
   try {
     await axiosInstance.get("/api/health", { timeout: 5000 });
@@ -311,27 +312,28 @@ export async function pingHealth(): Promise<
   } catch (err) {
     const axiosErr = err as AxiosError;
     if (axiosErr.code === "ECONNABORTED") {
-      return { ok: false, reason: "Backend not responding (timed out)" };
+      return { ok: false, reason: { kind: "backendTimedOut" } };
     }
     if (axiosErr.code === "ERR_NETWORK") {
-      return { ok: false, reason: "Backend unreachable" };
+      return { ok: false, reason: { kind: "backendUnreachable" } };
     }
     if (axiosErr.response) {
       // A 429 means the per-IP rate limit tripped (remote access). Surface the
       // Retry-After so reconnect logic can back off instead of hammering it.
-      if (axiosErr.response.status === 429) {
+      const { status, statusText, headers } = axiosErr.response;
+      if (status === 429) {
         return {
           ok: false,
-          reason: "Backend rate limit reached; backing off",
-          retryAfterMs: parseRetryAfterMs(axiosErr.response.headers),
+          reason: { kind: "backendRateLimited" },
+          retryAfterMs: parseRetryAfterMs(headers),
         };
       }
       return {
         ok: false,
-        reason: `Backend returned ${axiosErr.response.status} ${axiosErr.response.statusText}`,
+        reason: { kind: "httpError", status, statusText },
       };
     }
-    return { ok: false, reason: axiosErr.message ?? "Backend unreachable" };
+    return { ok: false, reason: axiosErr.message ?? { kind: "backendUnreachable" } };
   }
 }
 
