@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { useListFeatures } from "@/api/generated";
@@ -20,6 +21,7 @@ export function ConversationPicker({
   fallbackTitle,
   onChange,
 }: ConversationPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const query = useListFeatures(
     { project_id: projectId ?? 0 },
     { query: { enabled: projectId != null } },
@@ -34,36 +36,51 @@ export function ConversationPicker({
   );
 
   if (projectId == null) {
-    return <PickerPlaceholder>Pick a project first.</PickerPlaceholder>;
+    return (
+      <PickerPlaceholder>
+        {t("schedules.picker.chooseProjectFirst", "Pick a project first.")}
+      </PickerPlaceholder>
+    );
   }
   if (query.isLoading) {
     return (
       <PickerPlaceholder aria-busy="true">
         <Loader2 className="size-3.5 animate-spin" />
-        Loading conversations…
+        {t("schedules.picker.loadingConversations", "Loading conversations…")}
       </PickerPlaceholder>
     );
   }
   if (query.isError) {
     return (
       <PickerPlaceholder className="border-destructive/40 text-destructive">
-        Could not load this project&apos;s conversations.
+        {t(
+          "schedules.picker.loadConversationsFailed",
+          "Could not load this project's conversations.",
+        )}
       </PickerPlaceholder>
     );
   }
   if (options.length === 0) {
-    return <PickerPlaceholder>This project has no conversations yet.</PickerPlaceholder>;
+    return (
+      <PickerPlaceholder>
+        {t("schedules.picker.noConversations", "This project has no conversations yet.")}
+      </PickerPlaceholder>
+    );
   }
 
   return (
     <SchedulePicker
-      ariaLabel="Conversation"
+      ariaLabel={t("schedules.editor.conversation", "Conversation")}
+      searchLabel={t("schedules.picker.searchConversation", "Search conversation")}
       options={options}
       value={featureId}
       fallbackLabel={fallbackTitle}
-      placeholder="Pick a conversation…"
-      searchPlaceholder="Search conversations…"
-      emptyLabel="No matching conversations."
+      placeholder={t("schedules.picker.chooseConversation", "Pick a conversation…")}
+      searchPlaceholder={t(
+        "schedules.picker.searchConversationsPlaceholder",
+        "Search conversations…",
+      )}
+      emptyLabel={t("schedules.picker.noMatchingConversations", "No matching conversations.")}
       onChange={onChange}
     />
   );

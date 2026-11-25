@@ -1,5 +1,6 @@
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { displayProviderAccessMode } from "@/lib/provider-access-modes";
 import { CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -40,23 +41,29 @@ export function AccessModePopover({
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const providerConfig = useProviderAccessModeConfig(providerId);
+  const displayedOptions = useMemo(
+    () => options.map((option) => displayProviderAccessMode(providerId, option, t)),
+    [options, providerId, t],
+  );
   const activeMode = getAccessModeDefinition(mode);
   const selectedAccessMode = getAccessModeDefinition(selectedMode);
   if (!activeMode || !selectedAccessMode || !providerConfig) return null;
-  const activeCopy = options.find((option) => option.id === mode);
+  const activeCopy = displayedOptions.find((option) => option.id === mode) ?? activeMode;
+  const activeDescription = activeCopy.description ?? activeMode.description;
+  const triggerLabel = accessModeLabel(
+    t,
+    providerConfig.providerLabel,
+    activeCopy.label,
+    activeDescription,
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={activeCopy?.description ?? activeMode.description}
-          aria-label={accessModeLabel(
-            t,
-            providerConfig.providerLabel,
-            activeCopy?.label ?? activeMode.label,
-            activeCopy?.description ?? activeMode.description,
-          )}
+          title={activeDescription}
+          aria-label={triggerLabel}
           className={
             variant === "instrument"
               ? "composer-instrument gap-1.5 text-foreground/85"
@@ -66,7 +73,7 @@ export function AccessModePopover({
           <activeMode.icon
             className={variant === "instrument" ? cn("size-3.5", activeMode.textClass) : "size-3"}
           />
-          {activeCopy?.label ?? activeMode.label}
+          {activeCopy.label}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -77,11 +84,11 @@ export function AccessModePopover({
       >
         <AccessModeHeading
           provider={providerConfig.providerLabel}
-          mode={activeCopy?.label ?? activeMode.label}
+          mode={activeCopy.label}
           description={description}
         />
         <div className="space-y-1.5">
-          {options.map((copy) => {
+          {displayedOptions.map((copy) => {
             const option = getAccessModeDefinition(copy.id);
             if (!option) return null;
             const selected = copy.id === selectedMode;
@@ -105,15 +112,7 @@ export function AccessModePopover({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 font-medium text-foreground">
                     {copy.label}
-                    {selected && (
-                      <>
-                        <CheckIcon className="size-3 text-[var(--acc-green)]" />
-                        <span className="text-[10px] font-normal text-muted-foreground">
-                          {selectedHint ??
-                            t("conversation.stream.accessModePopover.newDefault", "New default")}
-                        </span>
-                      </>
-                    )}
+                    {selected && <SelectedModeBadge hint={selectedHint} />}
                   </span>
                   <span className="mt-0.5 block leading-relaxed text-muted-foreground">
                     {copy.description ?? option.longDescription}
@@ -125,6 +124,18 @@ export function AccessModePopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function SelectedModeBadge({ hint }: { hint?: string }) {
+  const { t } = useUiTranslation();
+  return (
+    <>
+      <CheckIcon className="size-3 text-[var(--acc-green)]" />
+      <span className="text-[10px] font-normal text-muted-foreground">
+        {hint ?? t("conversation.stream.accessModePopover.newDefault", "New default")}
+      </span>
+    </>
   );
 }
 
@@ -142,7 +153,7 @@ function AccessModeHeading({
     <div>
       <div className="text-sm font-semibold">
         {t("conversation.stream.accessModePopover.heading", "{{provider}} access mode", {
-          provider: provider,
+          provider,
         })}
       </div>
       <p className="mt-1 text-muted-foreground">
@@ -151,8 +162,8 @@ function AccessModeHeading({
             "conversation.stream.accessModePopover.changeDefault",
             "This conversation is using {{mode}}. Pick a mode below to switch it for this conversation and set the default for new {{provider}} conversations.",
             {
-              mode: mode,
-              provider: provider,
+              mode,
+              provider,
             },
           )}
       </p>

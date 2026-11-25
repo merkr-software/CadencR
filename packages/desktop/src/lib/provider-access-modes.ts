@@ -54,7 +54,7 @@ export function providerAccessModeConfig(
  * with changed, absent, or already localized metadata keeps its own wording.
  */
 export function displayProviderAccessMode(
-  providerId: string,
+  providerId: string | undefined,
   option: RuntimeProviderAccessModeOption,
   t: UiTranslator,
 ): RuntimeProviderAccessModeOption {

@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { focusFollowedKeyboardNavigation } from "@/lib/focus-navigation";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,7 @@ export function ShortcutTooltip({
   className,
   disabled,
 }: ShortcutTooltipProps) {
+  const { t } = useUiTranslation();
   const [visible, setVisible] = useState(false);
   const suppressUntilLeaveRef = useRef(false);
   const isMobile = useIsMobile();
@@ -106,7 +108,7 @@ export function ShortcutTooltip({
         <TooltipContent
           side={side}
           align={align}
-          aria-label={`${label} tooltip`}
+          aria-label={t("shell.shortcutTooltip.accessibleLabel", "{{label}} tooltip", { label })}
           // `open` is controlled: Radix's Esc dismissal must close it here, or a
           // keyboard-opened tooltip would swallow every Esc while focus stays put.
           onEscapeKeyDown={handleMouseLeave}

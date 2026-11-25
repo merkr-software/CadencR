@@ -1,8 +1,9 @@
 import { forwardRef, useState, type ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@/test-utils";
 import type { ScheduleTarget } from "@/api/generated";
 import type { PromptEditorHandle } from "@/components/prompt-editor/PromptEditor";
+import { uiI18n } from "@/lib/i18n/ui";
 import { ScheduleComposer } from "./ScheduleComposer";
 
 const {
@@ -131,6 +132,45 @@ describe("ScheduleComposer", () => {
       isLoading: false,
       isError: false,
     });
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  });
+
+  it("keeps the focused editor and its prompt when the locale changes", async () => {
+    const caret = vi.fn(() => new DOMRect());
+    Range.prototype.getBoundingClientRect = caret;
+    try {
+      const { user } = render(
+        <ScheduleComposer
+          initialPrompt="Review the report"
+          onPromptChange={vi.fn()}
+          target={{ kind: "conversation", project_id: 1, feature_id: 7 }}
+          onTargetChange={vi.fn()}
+        />,
+      );
+      const editor = screen.getByRole("textbox", { name: "Message to the agent" });
+      await user.click(editor);
+      expect(editor).toHaveFocus();
+
+      uiI18n.addResourceBundle("fr", "ui", {
+        conversation: { composer: { agentPromptBar: { describeWithSyntax: "Décrivez la tâche" } } },
+      });
+      await act(async () => {
+        await uiI18n.changeLanguage("fr");
+      });
+
+      expect(lastEditorProps.placeholder).toBe("Décrivez la tâche");
+      expect(screen.getByRole("textbox", { name: "Message to the agent" })).toBe(editor);
+      expect(editor).toHaveFocus();
+      expect(editor).toHaveTextContent("Review the report");
+    } finally {
+      Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+    }
   });
 
   it("writes the prompt into the real editor rather than a textarea", () => {

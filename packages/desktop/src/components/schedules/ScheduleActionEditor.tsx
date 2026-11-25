@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import { Loader2, MessageSquareText, SquareTerminal } from "lucide-react";
 import { useListCustomActions, type Project, type ScheduleTarget } from "@/api/generated";
@@ -19,20 +20,31 @@ export function ScheduleKindToggle({
   runsAction: boolean;
   onChange: (runsAction: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <div className="grid grid-cols-2 gap-2" role="group" aria-label="What the schedule does">
+    <div
+      className="grid grid-cols-2 gap-2"
+      role="group"
+      aria-label={t("schedules.editor.scheduleKind", "What the schedule does")}
+    >
       <TargetKindCard
         selected={!runsAction}
         icon={<MessageSquareText className="size-4" />}
-        title="Send a prompt"
-        description="An agent works on it at the times you pick"
+        title={t("schedules.editor.promptKind", "Send a prompt")}
+        description={t(
+          "schedules.editor.promptKindDescription",
+          "An agent works on it at the times you pick",
+        )}
         onSelect={() => onChange(false)}
       />
       <TargetKindCard
         selected={runsAction}
         icon={<SquareTerminal className="size-4" />}
-        title="Run a custom action"
-        description="Runs its command in a conversation's working copy"
+        title={t("schedules.editor.customActionKind", "Run a custom action")}
+        description={t(
+          "schedules.editor.customActionKindDescription",
+          "Runs its command in a conversation's working copy",
+        )}
         onSelect={() => onChange(true)}
       />
     </div>
@@ -85,9 +97,10 @@ export const ScheduleActionEditor = memo(function ScheduleActionEditor({
   targetedConversationTitle,
   targetedActionName,
 }: ScheduleActionEditorProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col gap-3">
-      <Field label="Project">
+      <Field label={t("schedules.editor.project", "Project")}>
         <ProjectPicker
           projects={projects}
           value={value.project_id}
@@ -103,7 +116,7 @@ export const ScheduleActionEditor = memo(function ScheduleActionEditor({
           }
         />
       </Field>
-      <Field label="Action">
+      <Field label={t("schedules.editor.action", "Action")}>
         <ActionPicker
           projectId={value.project_id}
           actionId={value.action_id}
@@ -112,8 +125,11 @@ export const ScheduleActionEditor = memo(function ScheduleActionEditor({
         />
       </Field>
       <Field
-        label="Run in"
-        hint="Runs in the background in this conversation's working copy, with the variable values saved there."
+        label={t("schedules.editor.actionConversation", "Run in")}
+        hint={t(
+          "schedules.editor.actionConversationDescription",
+          "Runs in the background in this conversation's working copy, with the variable values saved there.",
+        )}
       >
         <ConversationPicker
           projectId={value.project_id}
@@ -137,6 +153,7 @@ function ActionPicker({
   fallbackName?: string | null;
   onChange: (actionId: number) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const query = useListCustomActions(
     { project_id: projectId ?? 0 },
     { query: { enabled: projectId != null } },
@@ -162,35 +179,44 @@ function ActionPicker({
   );
 
   if (projectId == null) {
-    return <PickerPlaceholder>Pick a project first.</PickerPlaceholder>;
+    return (
+      <PickerPlaceholder>
+        {t("schedules.picker.chooseProjectFirst", "Pick a project first.")}
+      </PickerPlaceholder>
+    );
   }
   if (query.isLoading) {
     return (
       <PickerPlaceholder aria-busy="true">
         <Loader2 className="size-3.5 animate-spin" />
-        Loading actions…
+        {t("schedules.picker.loadingActions", "Loading actions…")}
       </PickerPlaceholder>
     );
   }
   if (query.isError) {
     return (
       <PickerPlaceholder className="border-destructive/40 text-destructive">
-        Could not load this project&apos;s actions.
+        {t("schedules.picker.loadActionsFailed", "Could not load this project's actions.")}
       </PickerPlaceholder>
     );
   }
   if (options.length === 0) {
-    return <PickerPlaceholder>This project has no custom actions yet.</PickerPlaceholder>;
+    return (
+      <PickerPlaceholder>
+        {t("schedules.picker.noActions", "This project has no custom actions yet.")}
+      </PickerPlaceholder>
+    );
   }
   return (
     <SchedulePicker
-      ariaLabel="Action"
+      ariaLabel={t("schedules.editor.action", "Action")}
+      searchLabel={t("schedules.picker.searchAction", "Search action")}
       options={options}
       value={actionId}
       fallbackLabel={fallbackName}
-      placeholder="Pick an action…"
-      searchPlaceholder="Search actions…"
-      emptyLabel="No matching actions."
+      placeholder={t("schedules.picker.chooseAction", "Pick an action…")}
+      searchPlaceholder={t("schedules.picker.searchActionsPlaceholder", "Search actions…")}
+      emptyLabel={t("schedules.picker.noMatchingActions", "No matching actions.")}
       onChange={onChange}
     />
   );

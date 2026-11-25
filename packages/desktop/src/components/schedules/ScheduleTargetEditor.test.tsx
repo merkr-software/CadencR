@@ -1,7 +1,8 @@
 import { useState, type ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@/test-utils";
 import type { Feature, Project, ScheduleTarget } from "@/api/generated";
+import { uiI18n } from "@/lib/i18n/ui";
 import { ScheduleTargetEditor } from "./ScheduleTargetEditor";
 
 const { mockUseListFeatures } = vi.hoisted(() => ({
@@ -54,6 +55,44 @@ describe("ScheduleTargetEditor", () => {
     mockUseListFeatures.mockReturnValue(
       listResult([feature(10, "Fix the parser"), feature(11, "Ship schedules")]),
     );
+  });
+
+  afterEach(async () => {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  });
+
+  it("retranslates an open picker while keeping its search, focus and raw titles", async () => {
+    const { user } = render(<Harness initial={{ kind: "conversation", project_id: 1 }} />);
+    await user.click(screen.getByRole("combobox", { name: "Conversation" }));
+    const search = await screen.findByRole("combobox", { name: "Search conversation" });
+    await user.type(search, "Ship");
+    expect(await screen.findByRole("option", { name: "Ship schedules" })).toBeVisible();
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      schedules: {
+        editor: { conversation: "Discussion" },
+        picker: {
+          searchConversation: "Rechercher une discussion",
+          searchConversationsPlaceholder: "Rechercher des discussions…",
+        },
+      },
+    });
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+
+    expect(screen.getByRole("combobox", { name: "Rechercher une discussion" })).toBe(search);
+    expect(search).toHaveFocus();
+    expect(search).toHaveValue("Ship");
+    expect(search).toHaveAttribute("placeholder", "Rechercher des discussions…");
+    await user.click(screen.getByRole("option", { name: "Ship schedules" }));
+    expect(screen.getByRole("combobox", { name: "Discussion" })).toHaveTextContent(
+      "Ship schedules",
+    );
+    expect(currentTarget().feature_id).toBe(11);
   });
 
   it("lets you pick a conversation after switching to an existing conversation", async () => {

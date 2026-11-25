@@ -1,6 +1,7 @@
 import { memo, useId, type ReactElement } from "react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   conditionDraftError,
   MAX_CONDITION_TIMEOUT_SECONDS,
@@ -28,6 +29,7 @@ export const ConditionEditor = memo(function ConditionEditor({
   onChange,
   targetsExistingConversation,
 }: ConditionEditorProps): ReactElement {
+  const { t } = useUiTranslation();
   const switchId = useId();
   const error = conditionDraftError(value);
 
@@ -42,15 +44,19 @@ export const ConditionEditor = memo(function ConditionEditor({
           onCheckedChange={(enabled) => onChange({ ...value, enabled })}
         />
         <label htmlFor={switchId} className="flex cursor-pointer flex-col gap-0.5">
-          <span className="text-sm text-foreground">Only send when a command fails</span>
+          <span className="text-sm text-foreground">
+            {t("schedules.condition.enable", "Only send when a command fails")}
+          </span>
           <span className="text-xs text-muted-foreground">
-            At each scheduled time, Cadencr runs the command in{" "}
             {targetsExistingConversation
-              ? "the conversation's working copy"
-              : "the project's root folder"}
-            . Exit 0 sends nothing; any other exit sends the prompt with the command&apos;s output.
-            {targetsExistingConversation &&
-              " Checks are skipped while the agent is working or waiting on you."}
+              ? t(
+                  "schedules.condition.existingConversationHelp",
+                  "At each scheduled time, Cadencr runs the command in the conversation's working copy. Exit 0 sends nothing; any other exit sends the prompt with the command's output. Checks are skipped while the agent is working or waiting on you.",
+                )
+              : t(
+                  "schedules.condition.newConversationHelp",
+                  "At each scheduled time, Cadencr runs the command in the project's root folder. Exit 0 sends nothing; any other exit sends the prompt with the command's output.",
+                )}
           </span>
         </label>
       </div>
@@ -61,7 +67,7 @@ export const ConditionEditor = memo(function ConditionEditor({
             value={value.command}
             onChange={(event) => onChange({ ...value, command: event.target.value })}
             placeholder="pnpm test"
-            aria-label="Command to check"
+            aria-label={t("schedules.condition.command", "Command to check")}
             aria-invalid={!value.command.trim() || undefined}
             spellCheck={false}
             autoCapitalize="off"
@@ -69,21 +75,23 @@ export const ConditionEditor = memo(function ConditionEditor({
             className="h-8 font-mono text-[12px]"
           />
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Give up after</span>
-            <Input
-              type="number"
-              min={1}
-              max={MAX_CONDITION_TIMEOUT_SECONDS}
-              step={1}
-              aria-label="Command timeout in seconds"
-              value={String(value.timeoutSeconds)}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (Number.isFinite(parsed)) onChange({ ...value, timeoutSeconds: parsed });
-              }}
-              className="h-8 w-20 text-sm no-spinner"
-            />
-            <span className="text-muted-foreground">seconds</span>
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">
+                {t("schedules.condition.timeoutAria", "Command timeout in seconds")}
+              </span>
+              <Input
+                type="number"
+                min={1}
+                max={MAX_CONDITION_TIMEOUT_SECONDS}
+                step={1}
+                value={String(value.timeoutSeconds)}
+                onChange={(event) => {
+                  const parsed = Number(event.target.value);
+                  if (Number.isFinite(parsed)) onChange({ ...value, timeoutSeconds: parsed });
+                }}
+                className="h-8 w-20 text-sm no-spinner"
+              />
+            </label>
           </div>
           {error && (
             <p className="text-xs text-destructive" role="alert">

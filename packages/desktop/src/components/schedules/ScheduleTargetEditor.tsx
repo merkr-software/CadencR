@@ -1,4 +1,5 @@
-import { memo, useMemo, type ReactElement } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { memo, useId, type ReactElement } from "react";
 import { MessageSquarePlus, MessagesSquare } from "lucide-react";
 import type { Project, ScheduleTarget } from "@/api/generated";
 import { cn } from "@/lib/utils";
@@ -33,11 +34,14 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
   lockedToConversation,
   targetedConversationTitle,
 }: ScheduleTargetEditorProps): ReactElement {
+  const { t } = useUiTranslation();
   if (lockedToConversation) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
         <MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate">This conversation</span>
+        <span className="min-w-0 flex-1 truncate">
+          {t("schedules.editor.currentConversation", "This conversation")}
+        </span>
       </div>
     );
   }
@@ -48,8 +52,11 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
         <TargetKindCard
           selected={value.kind === "new_conversation"}
           icon={<MessageSquarePlus className="size-4" />}
-          title="New conversation"
-          description="Starts a fresh session each run"
+          title={t("schedules.target.newConversation", "New conversation")}
+          description={t(
+            "schedules.editor.newConversationDescription",
+            "Starts a fresh session each run",
+          )}
           onSelect={() =>
             onChange({
               ...value,
@@ -62,8 +69,11 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
         <TargetKindCard
           selected={value.kind === "conversation"}
           icon={<MessagesSquare className="size-4" />}
-          title="Existing conversation"
-          description="Sends into a thread you already have"
+          title={t("schedules.editor.existingConversation", "Existing conversation")}
+          description={t(
+            "schedules.editor.existingConversationDescription",
+            "Sends into a thread you already have",
+          )}
           onSelect={() =>
             onChange({
               ...value,
@@ -74,7 +84,7 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
         />
       </div>
 
-      <Field label="Project">
+      <Field label={t("schedules.editor.project", "Project")}>
         <ProjectPicker
           projects={projects}
           value={value.project_id}
@@ -90,7 +100,7 @@ export const ScheduleTargetEditor = memo(function ScheduleTargetEditor({
       </Field>
 
       {value.kind === "conversation" && (
-        <Field label="Conversation">
+        <Field label={t("schedules.editor.conversation", "Conversation")}>
           <ConversationPicker
             projectId={value.project_id}
             featureId={value.feature_id}
@@ -146,10 +156,7 @@ export function Field({
   hint?: string;
   children: ReactElement;
 }): ReactElement {
-  const hintId = useMemo(
-    () => (hint ? `${label.replace(/\s+/g, "-")}-hint` : undefined),
-    [hint, label],
-  );
+  const hintId = useId();
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>

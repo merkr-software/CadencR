@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import type { Project } from "@/api/generated";
 import { ProjectBadge } from "@/components/ProjectBadge";
@@ -11,6 +12,7 @@ export interface ProjectPickerProps {
 
 /** Searchable project list, shared by every kind of schedule target. */
 export function ProjectPicker({ projects, value, onChange }: ProjectPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const options = useMemo(
     () =>
       projects.map((project) => ({
@@ -23,16 +25,21 @@ export function ProjectPicker({ projects, value, onChange }: ProjectPickerProps)
     [projects],
   );
   if (projects.length === 0) {
-    return <PickerPlaceholder>No projects yet — add one first.</PickerPlaceholder>;
+    return (
+      <PickerPlaceholder>
+        {t("schedules.picker.noProjects", "No projects yet — add one first.")}
+      </PickerPlaceholder>
+    );
   }
   return (
     <SchedulePicker
-      ariaLabel="Project"
+      ariaLabel={t("schedules.editor.project", "Project")}
+      searchLabel={t("schedules.picker.searchProject", "Search project")}
       options={options}
       value={value}
-      placeholder="Pick a project…"
-      searchPlaceholder="Search projects…"
-      emptyLabel="No matching projects."
+      placeholder={t("schedules.picker.chooseProject", "Pick a project…")}
+      searchPlaceholder={t("schedules.picker.searchProjectsPlaceholder", "Search projects…")}
+      emptyLabel={t("schedules.picker.noMatchingProjects", "No matching projects.")}
       onChange={onChange}
     />
   );

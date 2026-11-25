@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import type { Project, SaveScheduleRequest, Schedule, ScheduleTarget } from "@/api/generated";
 import {
   draftError,
@@ -167,6 +168,7 @@ export function useScheduleDraft({
   onSave,
   onDelete,
 }: ScheduleDraftParams): ScheduleDraft {
+  const { t } = useUiTranslation();
   const fields = useDraftFields();
   const { name, prompt, target, setTarget, recurrence, condition, runsAction, load } = fields;
   const [busy, setBusy] = useState(false);
@@ -208,7 +210,7 @@ export function useScheduleDraft({
     );
   }, [open, firstProjectId, setTarget]);
 
-  const { worktreeError, canSave } = validate(fields, busy);
+  const { worktreeError, canSave } = validate(t, fields, busy);
 
   const save = useCallback(async (): Promise<void> => {
     if (!canSave) return;
@@ -263,6 +265,7 @@ export function useScheduleDraft({
 
 /** What stops a save, in the order the user can act on it. */
 function validate(
+  t: UiTranslator,
   { target, prompt, recurrence, condition, now, runsAction }: ReturnType<typeof useDraftFields>,
   busy: boolean,
 ): { worktreeError: string | null; canSave: boolean } {
@@ -274,7 +277,10 @@ function validate(
   // round-trip rather than after it.
   const worktreeError =
     target.worktree_mode === "reuse" && !target.reuse_branch?.trim()
-      ? "Pick the branch whose worktree the run should use."
+      ? t(
+          "schedules.editor.missingReuseBranch",
+          "Pick the branch whose worktree the run should use.",
+        )
       : null;
   const canSave =
     !busy &&

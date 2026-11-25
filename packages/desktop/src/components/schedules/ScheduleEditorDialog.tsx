@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, type ReactElement } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ const SUBMIT_KEYS: string[] = ["cmd", "enter"];
  * from the page — which is the whole point of unifying the two systems.
  */
 export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const { open, onOpenChange, schedule, lockedConversation, projects, onDelete } = props;
   const draft = useScheduleDraft(props);
   const projectPath = projects.find((project) => project.id === draft.target.project_id)?.path;
@@ -58,8 +60,12 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
           those pickers' lists scroll — see its docs. */}
       <DialogContent className="max-h-[min(90vh,var(--dialog-max-h))] sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{schedule ? "Edit schedule" : "New schedule"}</DialogTitle>
-          <DialogDescription>{describe(runsAction, gated)}</DialogDescription>
+          <DialogTitle>
+            {schedule
+              ? t("schedules.editor.editTitle", "Edit schedule")
+              : t("schedules.editor.createTitle", "New schedule")}
+          </DialogTitle>
+          <DialogDescription>{describe(t, runsAction, gated)}</DialogDescription>
         </DialogHeader>
 
         <PopoverModality>
@@ -75,23 +81,29 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
             )}
 
             <Field
-              label="Name"
+              label={t("schedules.editor.name", "Name")}
               hint={
                 runsAction
-                  ? "Optional — falls back to the action's name"
-                  : "Optional — falls back to the first line of the prompt"
+                  ? t(
+                      "schedules.editor.actionNameHint",
+                      "Optional — falls back to the action's name",
+                    )
+                  : t(
+                      "schedules.editor.promptNameHint",
+                      "Optional — falls back to the first line of the prompt",
+                    )
               }
             >
               <Input
                 value={draft.name}
                 onChange={(event) => draft.setName(event.target.value)}
-                placeholder="Nightly review"
+                placeholder={t("schedules.editor.namePlaceholder", "Nightly review")}
                 className="h-8 text-sm"
               />
             </Field>
 
             {runsAction ? (
-              <Section title="Action">
+              <Section title={t("schedules.editor.action", "Action")}>
                 <ScheduleActionEditor
                   value={draft.target}
                   onChange={draft.setTarget}
@@ -104,7 +116,7 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
               <PromptSections draft={draft} props={props} projectPath={projectPath} />
             )}
 
-            <Section title="When">
+            <Section title={t("schedules.editor.when", "When")}>
               <RecurrenceEditor
                 value={draft.recurrence}
                 onChange={draft.setRecurrence}
@@ -115,7 +127,7 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
             </Section>
 
             {!runsAction && (
-              <Section title="Condition">
+              <Section title={t("schedules.editor.condition", "Condition")}>
                 <ConditionEditor
                   value={draft.condition}
                   onChange={draft.setCondition}
@@ -136,13 +148,22 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
   );
 }
 
-function describe(runsAction: boolean, gated: boolean): string {
+function describe(t: UiTranslator, runsAction: boolean, gated: boolean): string {
   if (runsAction) {
-    return "While Cadencr is running, it runs the action at the times you pick. A run that exits non-zero is listed as failed.";
+    return t(
+      "schedules.editor.actionDescription",
+      "While Cadencr is running, it runs the action at the times you pick. A run that exits non-zero is listed as failed.",
+    );
   }
   return gated
-    ? "While Cadencr is running, it runs the command at the times you pick and sends the prompt only when the command fails."
-    : "Cadencr sends the prompt at the times you pick, as long as it is running.";
+    ? t(
+        "schedules.editor.gatedPromptDescription",
+        "While Cadencr is running, it runs the command at the times you pick and sends the prompt only when the command fails.",
+      )
+    : t(
+        "schedules.editor.promptDescription",
+        "Cadencr sends the prompt at the times you pick, as long as it is running.",
+      );
 }
 
 /** Where the prompt goes and what it says — everything a prompt schedule has
@@ -156,9 +177,10 @@ function PromptSections({
   props: ScheduleEditorDialogProps;
   projectPath: string | undefined;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
-      <Section title="Send to">
+      <Section title={t("schedules.editor.sendTo", "Send to")}>
         <ScheduleTargetEditor
           value={draft.target}
           onChange={draft.setTarget}
@@ -168,7 +190,7 @@ function PromptSections({
         />
       </Section>
 
-      <Section title="Prompt">
+      <Section title={t("schedules.editor.prompt", "Prompt")}>
         <div className="flex flex-col gap-1.5">
           <ScheduleComposer
             key={draft.formKey}
@@ -198,6 +220,7 @@ function Footer({
   editing: boolean;
   onDelete: ScheduleDraftParams["onDelete"];
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <DialogFooter className="gap-2 sm:justify-between">
       {onDelete ? (
@@ -210,14 +233,14 @@ function Footer({
           className="text-destructive hover:text-destructive"
         >
           <Trash2 className="size-3.5" />
-          Delete
+          {t("common.delete", "Delete")}
         </Button>
       ) : (
         <span />
       )}
       <Button type="button" onClick={() => void draft.save()} disabled={!draft.canSave}>
         {draft.busy && <Loader2 className="size-3.5 animate-spin" />}
-        {editing ? "Save" : "Create schedule"}
+        {editing ? t("common.save", "Save") : t("schedules.editor.create", "Create schedule")}
         <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
       </Button>
     </DialogFooter>

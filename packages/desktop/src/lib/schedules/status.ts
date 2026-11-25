@@ -7,15 +7,22 @@
  * sidebar count, the filter chips and the row badge eventually disagree.
  */
 import type { Schedule } from "@/api/generated";
+import type { UiTranslator } from "@/lib/i18n/ui";
 
 export type ScheduleState = "upcoming" | "failed" | "paused" | "completed";
 
-export const SCHEDULE_STATE_LABELS: Record<ScheduleState, string> = {
-  upcoming: "Upcoming",
-  failed: "Failed",
-  paused: "Paused",
-  completed: "Done",
-};
+export function scheduleStateLabel(t: UiTranslator, state: ScheduleState): string {
+  switch (state) {
+    case "upcoming":
+      return t("schedule.list.status.upcoming", "Upcoming");
+    case "failed":
+      return t("schedule.list.status.failed", "Failed");
+    case "paused":
+      return t("schedule.list.status.paused", "Paused");
+    case "completed":
+      return t("schedule.list.status.completed", "Done");
+  }
+}
 
 /**
  * Order matters: a paused schedule is paused even if its last run failed (the

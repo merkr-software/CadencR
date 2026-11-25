@@ -23,6 +23,7 @@ import {
   type Schedule,
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { translateUi } from "@/lib/i18n/ui";
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { isActive } from "@/lib/schedules/status";
 
@@ -90,15 +91,50 @@ export function fireAndForget(promise: Promise<unknown>): void {
   void promise.catch(() => {});
 }
 
+const mutationFailure = {
+  save: (error: string) =>
+    translateUi("schedule.list.mutations.saveFailed", "Could not save the schedule: {{error}}", {
+      error,
+    }),
+  delete: (error: string) =>
+    translateUi(
+      "schedule.list.mutations.deleteFailed",
+      "Could not delete the schedule: {{error}}",
+      { error },
+    ),
+  resume: (error: string) =>
+    translateUi(
+      "schedule.list.mutations.resumeFailed",
+      "Could not resume the schedule: {{error}}",
+      { error },
+    ),
+  pause: (error: string) =>
+    translateUi("schedule.list.mutations.pauseFailed", "Could not pause the schedule: {{error}}", {
+      error,
+    }),
+  run: (error: string) =>
+    translateUi("schedule.list.mutations.runFailed", "Could not run the schedule: {{error}}", {
+      error,
+    }),
+};
+
+function unknownError(): string {
+  return translateUi("common.unknownError", "Unknown error");
+}
+
 /** Every mutation shares this shape: run it, refresh every list variant, and
  *  surface a failure as a toast rather than a silent no-op. */
-async function run<T>(action: string, invalidate: () => void, call: () => Promise<T>): Promise<T> {
+async function run<T>(
+  action: keyof typeof mutationFailure,
+  invalidate: () => void,
+  call: () => Promise<T>,
+): Promise<T> {
   try {
     const result = await call();
     invalidate();
     return result;
   } catch (error) {
-    toast.error(`Could not ${action}: ${apiErrorMessage(error, "Unknown error")}`);
+    toast.error(mutationFailure[action](apiErrorMessage(error, unknownError())));
     throw error;
   }
 }
@@ -121,7 +157,7 @@ function useScheduleMutations(): Omit<UseSchedulesResult, "schedules" | "isLoadi
 
   const save = useCallback(
     (body: SaveScheduleRequest, id?: number): Promise<Schedule> =>
-      run("save the schedule", invalidate, () =>
+      run("save", invalidate, () =>
         id
           ? updateMutation.mutateAsync({ id, data: body })
           : createMutation.mutateAsync({ data: body }),
@@ -131,14 +167,14 @@ function useScheduleMutations(): Omit<UseSchedulesResult, "schedules" | "isLoadi
 
   const remove = useCallback(
     async (id: number): Promise<void> => {
-      await run("delete the schedule", invalidate, () => deleteMutation.mutateAsync({ id }));
+      await run("delete", invalidate, () => deleteMutation.mutateAsync({ id }));
     },
     [deleteMutation, invalidate],
   );
 
   const setEnabled = useCallback(
     async (id: number, enabled: boolean): Promise<void> => {
-      await run(`${enabled ? "resume" : "pause"} the schedule`, invalidate, () =>
+      await run(enabled ? "resume" : "pause", invalidate, () =>
         enabledMutation.mutateAsync({ id, data: { enabled } }),
       );
     },
@@ -150,20 +186,35 @@ function useScheduleMutations(): Omit<UseSchedulesResult, "schedules" | "isLoadi
   // success path has to check it too.
   const runNow = useCallback(
     async (schedule: Schedule): Promise<void> => {
-      const result = await run("run the schedule", invalidate, () =>
+      const result = await run("run", invalidate, () =>
         runMutation.mutateAsync({ id: schedule.id }),
       );
       if (result.ran) {
         // An action run only reports that it started: its output streams into
         // the conversation, and it may never exit.
         toast.success(
-          schedule.target.kind === "custom_action" ? "Action started." : "Schedule sent.",
+          schedule.target.kind === "custom_action"
+            ? translateUi("schedule.list.mutations.actionStarted", "Action started.")
+            : translateUi("schedule.list.mutations.scheduleSent", "Schedule sent."),
         );
       } else if (result.condition_passed) {
         // Not a failure: the check is the thing being tested.
-        toast.success("The command passed — nothing to send.");
+        toast.success(
+          translateUi(
+            "schedule.list.mutations.commandPassed",
+            "The command passed — nothing to send.",
+          ),
+        );
       } else {
-        toast.error(`The schedule could not run: ${result.error ?? "Unknown error"}`);
+        toast.error(
+          translateUi(
+            "schedule.list.mutations.attemptFailed",
+            "The schedule could not run: {{error}}",
+            {
+              error: result.error ?? unknownError(),
+            },
+          ),
+        );
       }
     },
     [invalidate, runMutation],

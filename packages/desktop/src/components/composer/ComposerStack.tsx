@@ -97,7 +97,8 @@ export function StackSection({
   children,
   ...rest
 }: StackSectionProps): ReactElement {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
+  const countLabel = count?.toLocaleString(i18n.language);
   const ownFold = useSectionFold(!lentFold && summary != null && title != null, opensOnArrival);
   const fold = useShownFold(lentFold ?? ownFold);
   const { folding } = lentFold ?? ownFold;
@@ -120,7 +121,7 @@ export function StackSection({
           onClick={fold.toggle}
           className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded px-1.5 text-left text-[11px] transition-colors hover:bg-background/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <StackTitle icon={icon} title={title} count={count} />
+          <StackTitle icon={icon} title={title} count={countLabel} />
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         </button>
@@ -130,7 +131,7 @@ export function StackSection({
             <StackHeader
               icon={icon}
               title={title}
-              count={count}
+              count={countLabel}
               hint={hint}
               className={headerClassName}
               actions={
@@ -175,7 +176,7 @@ function StackTitle({
 }: {
   icon: ReactNode;
   title: ReactNode;
-  count?: number;
+  count?: string;
 }): ReactElement {
   return (
     <>
@@ -204,7 +205,7 @@ function StackHeader({
 }: {
   icon: ReactNode;
   title: ReactNode;
-  count?: number;
+  count?: string;
   hint?: ReactNode;
   actions?: ReactNode;
   className?: string;

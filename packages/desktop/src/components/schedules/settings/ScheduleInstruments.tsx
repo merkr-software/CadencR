@@ -14,6 +14,7 @@
  * backend drops both — but can still pin the rest, which dispatch writes onto
  * the session before sending.
  */
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import type { ScheduleTarget } from "@/api/generated";
 import { AccessModePopover } from "@/components/agent-session/AccessModePopover";
@@ -73,8 +74,13 @@ export function ScheduleInstruments({
 /** Placeholders in the instruments' own sizes, so the row doesn't jump when
  *  the real ones arrive. */
 function InstrumentRowSkeleton(): ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <div className={ROW_CLASS} aria-busy="true" aria-label="Loading schedule settings">
+    <div
+      className={ROW_CLASS}
+      aria-busy="true"
+      aria-label={t("schedules.instruments.loading", "Loading schedule settings")}
+    >
       {[64, 112, 72].map((width) => (
         <Skeleton key={width} className="h-7 rounded-md" style={{ width }} />
       ))}
@@ -110,6 +116,7 @@ function ScheduleAccessControl({
   onChange,
   runtime,
 }: ScheduleChipProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const options = runtime.provider?.access_modes ?? [];
   if (options.length === 0) return null;
   return (
@@ -119,8 +126,11 @@ function ScheduleAccessControl({
       onChange={(accessMode) => onChange({ ...target, access_mode: accessMode })}
       providerId={runtime.providerId}
       options={options}
-      description="Every run of this schedule uses the mode you pick here. It applies to this schedule only — conversations you start yourself keep their own."
-      selectedHint="This schedule"
+      description={t(
+        "schedules.instruments.accessDescription",
+        "Every run of this schedule uses the mode you pick here. It applies to this schedule only — conversations you start yourself keep their own.",
+      )}
+      selectedHint={t("schedules.instruments.currentSchedule", "This schedule")}
     />
   );
 }

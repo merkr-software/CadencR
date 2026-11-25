@@ -5,8 +5,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useScheduleList } from "@/hooks/useSchedules";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
-import { formatDistanceToNowStrict } from "date-fns";
-import { fr } from "date-fns/locale";
+import { formatRelative } from "@/lib/schedules/format";
 import { isActive, nextRunAcross } from "@/lib/schedules/status";
 import { cn } from "@/lib/utils";
 
@@ -54,9 +53,7 @@ export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactE
         )}
       >
         <CalendarClock className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {t("sidebar.schedulesSidebarLink.schedules", "Schedules")}
-        </span>
+        <span className="min-w-0 flex-1 truncate">{t("schedules.page.title", "Schedules")}</span>
         <ScheduledCountIndicator count={count} nextRun={nextRun} />
       </Link>
     </ShortcutTooltip>
@@ -72,12 +69,7 @@ function ScheduledCountIndicator({
 }): ReactElement {
   const { t, i18n } = useUiTranslation();
   const armed = count > 0;
-  const next =
-    nextRun &&
-    formatDistanceToNowStrict(nextRun, {
-      addSuffix: true,
-      locale: i18n.language.split("-")[0] === "fr" ? fr : undefined,
-    });
+  const next = nextRun && formatRelative(nextRun, i18n.language);
   return (
     <span
       className="ml-auto inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
@@ -86,16 +78,16 @@ function ScheduledCountIndicator({
           ? next
             ? t(
                 "sidebar.schedulesSidebarLink.armedWithNextRun",
-                "{{count}} schedules armed · next {{next}}",
+                "{{count, number}} schedules armed · next {{next}}",
                 {
                   count,
                   next,
-                  defaultValue_one: "{{count}} schedule armed · next {{next}}",
+                  defaultValue_one: "{{count, number}} schedule armed · next {{next}}",
                 },
               )
-            : t("sidebar.schedulesSidebarLink.armed", "{{count}} schedules armed", {
+            : t("sidebar.schedulesSidebarLink.armed", "{{count, number}} schedules armed", {
                 count,
-                defaultValue_one: "{{count}} schedule armed",
+                defaultValue_one: "{{count, number}} schedule armed",
               })
           : t("sidebar.schedulesSidebarLink.noSchedulesArmed", "No schedules armed")
       }
@@ -103,7 +95,7 @@ function ScheduledCountIndicator({
       <span
         className={cn("size-1.5 rounded-full", armed ? "bg-primary" : "bg-muted-foreground/40")}
       />
-      <span className="tabular-nums">{count}</span>
+      <span className="tabular-nums">{count.toLocaleString(i18n.language)}</span>
     </span>
   );
 }
