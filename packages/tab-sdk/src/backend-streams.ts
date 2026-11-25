@@ -15,6 +15,22 @@ export interface BackendSubscription {
   unsubscribe(): void;
 }
 
+interface Binding {
+  promise: Promise<void>;
+  resolve(): void;
+  reject(error: unknown): void;
+}
+
+function binding(): Binding {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 interface Subscription {
   topic: string;
   handler: (event: BackendEvent) => void;
@@ -24,6 +40,9 @@ interface Subscription {
   attempt: number;
   seq: number;
   runId: string | null;
+  /** Settles once an attempt registered an id on the current connection, or
+   *  the subscription failed terminally. */
+  bound: Binding;
 }
 
 /** Native subscriptions only. Backend methods and event payloads stay opaque. */
@@ -55,31 +74,25 @@ export class BackendStreams {
       attempt: 0,
       seq: 0,
       runId: null,
+      bound: binding(),
     };
     this.subscriptions.add(sub);
     const generation = this.connectionGeneration;
-    try {
-      await this.open(sub, false, generation);
-      return { unsubscribe: () => this.close(sub) };
-    } catch (error) {
+    void this.open(sub, false, generation).catch((error: unknown) => {
       // A newer connection took over while registering: it rebinds this
       // logical subscription, so the failure is transient, not terminal.
-      // Wait until that rebind completes so a caller starting work right
-      // after `await subscribe(...)` does not race the listener setup.
-      if (generation !== this.connectionGeneration) {
-        await this.waitForRebind(sub, this.connectionGeneration);
-        return { unsubscribe: () => this.close(sub) };
-      }
+      if (!sub.active || generation !== this.connectionGeneration) return;
+      sub.bound.reject(error);
+    });
+    try {
+      // Resolves only once an attempt registered an id on the current
+      // connection, so a caller starting work right after `await subscribe`
+      // does not race the listener setup.
+      await sub.bound.promise;
+      return { unsubscribe: () => this.close(sub) };
+    } catch (error) {
       this.close(sub);
       throw error;
-    }
-  }
-
-  /** Resolve once `sub` is bound on `generation`, or the generation moves on. */
-  private async waitForRebind(sub: Subscription, generation: number): Promise<void> {
-    for (let i = 0; i < 500 && sub.active && this.connectionGeneration === generation; i++) {
-      if (sub.id !== null) return;
-      await new Promise((r) => setTimeout(r, 10));
     }
   }
 
@@ -164,7 +177,7 @@ export class BackendStreams {
     const { subscriptionId } = await this.send("backend.subscribe", { topic: sub.topic }, 45_000);
     if (!sub.active) {
       await this.release(subscriptionId);
-      throw new CadencrError("DISCONNECTED", "The backend subscription was closed");
+      return;
     }
     if (attempt !== sub.attempt || generation !== this.connectionGeneration) {
       // Superseded by a newer rebind: release what this attempt obtained and
@@ -176,6 +189,7 @@ export class BackendStreams {
     sub.seq = 0;
     sub.runId = null;
     this.byId.set(subscriptionId, sub);
+    sub.bound.resolve();
     if (resync) sub.options.onResync?.();
   }
 
@@ -183,6 +197,7 @@ export class BackendStreams {
     if (!sub.active) return;
     sub.active = false;
     this.subscriptions.delete(sub);
+    sub.bound.reject(new CadencrError("DISCONNECTED", "The backend subscription was closed"));
     if (sub.id === null) return;
     this.byId.delete(sub.id);
     void this.release(sub.id).catch((error: unknown) => this.fail(sub, toCadencrError(error)));

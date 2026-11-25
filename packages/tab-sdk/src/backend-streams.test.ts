@@ -1,5 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { connected } from "./test-utils.js";
+import { BackendStreams } from "./backend-streams.js";
+import { CadencrError } from "./errors.js";
+import type { Requester } from "./requester.js";
+import { connected, flush } from "./test-utils.js";
 
 it("refuses subscriptions on an older host before sending any request", async () => {
   const { host, client } = await connected();
@@ -153,6 +156,68 @@ it("releases an acknowledged subscription when the client closes during registra
     const subscribe = client.backend.subscribe("clock.tick", () => {});
     client.close();
     await expect(subscribe).rejects.toMatchObject({ code: "DISCONNECTED" });
+  } finally {
+    client.close();
+    host.close();
+  }
+});
+
+it("binds the initial subscribe to the replacement registration, not a stale id", async () => {
+  const requests: string[] = [];
+  const answers: ((result: { subscriptionId: string }) => void)[] = [];
+  const send = vi.fn((method: string) => {
+    requests.push(method);
+    if (method !== "backend.subscribe") return Promise.resolve(null);
+    return new Promise<{ subscriptionId: string }>((resolve) => answers.push(resolve));
+  });
+  const streams = new BackendStreams(send as unknown as Requester, () => true, vi.fn());
+  const seen = vi.fn();
+  const subscribe = streams.subscribe("clock.tick", seen);
+  await flush();
+  expect(requests).toEqual(["backend.subscribe"]);
+  // A replacement arrives while the initial registration is still pending.
+  streams.connectionReplaced();
+  streams.resubscribeAll();
+  await flush();
+  expect(requests).toEqual(["backend.subscribe", "backend.subscribe"]);
+  // The superseded attempt answers late: its id is released, not bound.
+  answers[0]!({ subscriptionId: "backend-stale" });
+  await flush();
+  expect(requests).toEqual(["backend.subscribe", "backend.subscribe", "backend.unsubscribe"]);
+  // A second replacement supersedes the rebind that was still pending.
+  streams.connectionReplaced();
+  streams.resubscribeAll();
+  await flush();
+  answers[1]!({ subscriptionId: "backend-replaced" });
+  await flush();
+  let settled = false;
+  void subscribe.then(() => {
+    settled = true;
+  });
+  await flush();
+  expect(settled).toBe(false);
+  answers[2]!({ subscriptionId: "backend-bound" });
+  await subscribe;
+  streams.handleEvent("backend.event", {
+    subscriptionId: "backend-bound",
+    topic: "clock.tick",
+    runId: "run-1",
+    seq: 1,
+    processSeq: 1,
+    payload: { tick: 1 },
+  });
+  expect(seen).toHaveBeenCalledTimes(1);
+});
+
+it("propagates a terminal registration failure", async () => {
+  const { host, client } = await connected({ capabilities: ["backend.subscribe"] });
+  try {
+    host.handle("backend.subscribe", () => {
+      throw new CadencrError("HOST_ERROR", "the backend could not start");
+    });
+    await expect(client.backend.subscribe("clock.tick", () => {})).rejects.toMatchObject({
+      code: "HOST_ERROR",
+    });
   } finally {
     client.close();
     host.close();
