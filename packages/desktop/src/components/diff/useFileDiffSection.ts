@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useGetFileDiff } from "@/api/generated";
 import { isBinaryPatch, parseUnifiedDiff, type FileDiffSection } from "@/lib/parse-unified-diff";
@@ -158,7 +159,15 @@ export function useFileDiffSection({
   // NB: don't gate `section` on `enabled` — once fetched, keep the parsed diff
   // mounted through scroll-out. `data`/`isLoading`/`isError` already reflect the
   // cache: an un-fetched, disabled row has `data === undefined` → `section` null.
-  const errorMessage = isError ? apiErrorMessage(error, "Failed to load this file's diff") : null;
+  const errorMessage = isError
+    ? apiErrorMessage(
+        error,
+        translateUi(
+          "workspace.git.useFileDiffSection.failedToLoadThisFileSDiff",
+          "Failed to load this file's diff",
+        ),
+      )
+    : null;
   return useMemo(
     () => ({ section, rawLength, isDeferredLarge, isLoading, errorMessage, displayLargeDiff }),
     [displayLargeDiff, errorMessage, isDeferredLarge, isLoading, rawLength, section],

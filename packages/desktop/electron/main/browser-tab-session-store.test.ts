@@ -56,6 +56,21 @@ describe("BrowserTabSessionStore", () => {
     });
   });
 
+  it("preserves the title origin for restored tabs whose first navigation failed", async () => {
+    const { filePath, store } = await storeAt();
+    const page = {
+      title: "New tab",
+      url: "http://localhost:4000/",
+      sessionProfileId: "default",
+      pinned: false,
+    };
+    await store.replaceScope(1, { tabs: [{ ...page, defaultTitle: true }, page], activeIndex: 0 });
+    expect((await new BrowserTabSessionStore(filePath).loadScope(1))?.tabs).toEqual([
+      { ...page, defaultTitle: true },
+      page,
+    ]);
+  });
+
   it("removes an empty scope without touching the others", async () => {
     const { filePath, store } = await storeAt();
     const scope = {

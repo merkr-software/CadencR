@@ -1,5 +1,6 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_BROWSER_LIBRARY_QUERY_LENGTH,
   MAX_BROWSER_LIBRARY_URL_LENGTH,
@@ -88,6 +89,53 @@ beforeEach(() => {
   bridgeMocks.setBrowserBookmark.mockResolvedValue(null);
   bridgeMocks.removeBrowserHistoryEntry.mockResolvedValue(undefined);
   bridgeMocks.clearBrowserHistory.mockResolvedValue(undefined);
+});
+
+afterEach(() =>
+  act(async () => {
+    await uiI18n.changeLanguage("en");
+  }),
+);
+
+it("localizes an in-flight rejection and existing fallback without replaying library work", async () => {
+  const activeTab = tab("normal", "https://example.com");
+  const deletion = Promise.withResolvers<void>();
+  bridgeMocks.removeBrowserHistoryEntry.mockReturnValueOnce(deletion.promise);
+  const { result } = renderHook(() =>
+    useBrowserOmnibox({
+      enabled: true,
+      query: "",
+      tabs: [activeTab],
+      activeTab,
+      searchEngine: "google",
+    }),
+  );
+  await waitFor(() => expect(bridgeMocks.queryBrowserOmnibox).toHaveBeenCalledTimes(1));
+  let removing: Promise<void>;
+  act(() => {
+    removing = result.current.removeHistoryEntry("entry");
+  });
+  expect(result.current.mutationPending).toBe(true);
+
+  await act(async () => {
+    await uiI18n.changeLanguage("cimode");
+  });
+  await act(async () => {
+    deletion.reject(null);
+    await removing;
+  });
+  expect(result.current.error).toBe(
+    "workspace.tools.useBrowserOmnibox.couldNotDeleteThisHistoryEntry",
+  );
+
+  await act(async () => {
+    await uiI18n.changeLanguage("en");
+  });
+  expect(result.current.error).toBe("Could not delete this history entry.");
+  expect(bridgeMocks.queryBrowserOmnibox).toHaveBeenCalledTimes(1);
+  expect(bridgeMocks.getBrowserBookmark).toHaveBeenCalledTimes(1);
+  expect(bridgeMocks.onBrowserLibraryChanged).toHaveBeenCalledTimes(2);
+  expect(bridgeMocks.removeBrowserHistoryEntry).toHaveBeenCalledTimes(1);
 });
 
 describe("useBrowserOmnibox bookmark authority", () => {

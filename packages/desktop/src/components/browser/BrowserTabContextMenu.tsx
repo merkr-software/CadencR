@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { CopyIcon, PinIcon, PinOffIcon } from "lucide-react";
 
@@ -43,30 +44,38 @@ export function BrowserTabContextMenu({
   onClose,
   onRevokeAgentAccess,
 }: BrowserTabContextMenuProps): ReactElement {
+  const { t } = useUiTranslation();
   const canRevokeAgent = isAgentSharedTab(tab) && isHttpBrowserUrl(tab.url);
 
   return (
     <ContextMenuContent className="min-w-52">
       <ContextMenuItem disabled={busy} onSelect={() => onSetPinned(tab.id, !tab.pinned)}>
         {tab.pinned ? <PinOffIcon /> : <PinIcon />}
-        {tab.pinned ? "Unpin tab" : "Pin tab"}
+        {tab.pinned
+          ? t("workspace.tools.browserTabContextMenu.unpinTab", "Unpin tab")
+          : t("workspace.tools.browserTabContextMenu.pinTab", "Pin tab")}
       </ContextMenuItem>
       <ContextMenuItem
         disabled={busy || tab.temporary === true}
         title={
-          tab.temporary ? "Temporary sign-in tabs cannot be replayed as GET requests" : undefined
+          tab.temporary
+            ? t(
+                "workspace.tools.browserTabContextMenu.temporarySignInTabsCannotBeReplayedAs",
+                "Temporary sign-in tabs cannot be replayed as GET requests",
+              )
+            : undefined
         }
         onSelect={() => onDuplicate(tab.id)}
       >
         <CopyIcon />
-        Duplicate tab
+        {t("workspace.tools.browserTabContextMenu.duplicateTab", "Duplicate tab")}
       </ContextMenuItem>
       {canRevokeAgent ? (
         <>
           <ContextMenuSeparator />
           <ContextMenuItem disabled={busy} onSelect={() => onRevokeAgentAccess(tab)}>
             <AgentIcon />
-            Revoke agent access
+            {t("workspace.tools.browserTabContextMenu.revokeAgentAccess", "Revoke agent access")}
           </ContextMenuItem>
         </>
       ) : null}
@@ -75,20 +84,23 @@ export function BrowserTabContextMenu({
         disabled={busy || index <= groupStart}
         onSelect={() => onReorder(tab.id, index - 1)}
       >
-        Move left
+        {t("workspace.tools.browserTabContextMenu.moveLeft", "Move left")}
       </ContextMenuItem>
       <ContextMenuItem
         disabled={busy || index >= groupEnd}
         onSelect={() => onReorder(tab.id, index + 1)}
       >
-        Move right
+        {t("workspace.tools.browserTabContextMenu.moveRight", "Move right")}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={busy || !closableOthers} onSelect={() => onCloseOthers(tab.id)}>
-        Close other unpinned tabs
+        {t(
+          "workspace.tools.browserTabContextMenu.closeOtherUnpinnedTabs",
+          "Close other unpinned tabs",
+        )}
       </ContextMenuItem>
       <ContextMenuItem disabled={busy} variant="destructive" onSelect={() => onClose(tab.id)}>
-        Close tab
+        {t("workspace.tools.browserTabContextMenu.closeTab", "Close tab")}
       </ContextMenuItem>
     </ContextMenuContent>
   );

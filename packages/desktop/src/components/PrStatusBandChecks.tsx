@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import {
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -42,11 +43,16 @@ function reviewTone(reviewState: ReviewState): PrIndicatorTone {
   return "neutral";
 }
 
-export function reviewStateLabel(reviewState: ReviewState): string | null {
+export function reviewStateLabel(
+  reviewState: ReviewState,
+  t: UiTranslator = translateUi,
+): string | null {
   if (reviewState === "none") return null;
-  if (reviewState === "changes_requested") return "changes requested";
-  if (reviewState === "pending") return "review pending";
-  return "approved";
+  if (reviewState === "changes_requested")
+    return t("workspace.git.prStatusBandChecks.changesRequested", "changes requested");
+  if (reviewState === "pending")
+    return t("workspace.git.prStatusBandChecks.reviewPending", "review pending");
+  return t("workspace.git.prStatusBandChecks.approved", "approved");
 }
 
 /**
@@ -70,11 +76,12 @@ export function ChecksDisclosure({
   /** Replaces the coarse review-state pill once approvals are known. */
   reviewFact?: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const ciState = status.ci?.state ?? "none";
   const checks = status.ci?.checks ?? [];
   const [override, setOverride] = useState<boolean | null>(null);
   const open = override ?? ciState === "failing";
-  const reviewLabel = reviewFact ? null : reviewStateLabel(status.pr!.review_state);
+  const reviewLabel = reviewFact ? null : reviewStateLabel(status.pr!.review_state, t);
 
   return (
     <>
@@ -86,7 +93,7 @@ export function ChecksDisclosure({
             expanded={open}
             onClick={() => setOverride(!open)}
           >
-            {checkSummary(ciState, checks)}
+            {checkSummary(ciState, checks, t)}
           </Fact>
         )}
         {unresolvedCount > 0 && (
@@ -96,14 +103,19 @@ export function ChecksDisclosure({
             pressed={unresolvedFiltered}
             onClick={onToggleUnresolved}
           >
-            {unresolvedCount} unresolved
+            {t("workspace.git.prStatusBandChecks.unresolvedCount", "{{count, number}} unresolved", {
+              count: unresolvedCount,
+            })}
           </Fact>
         )}
         {reviewFact}
         {reviewLabel && <Fact tone={reviewTone(status.pr!.review_state)}>{reviewLabel}</Fact>}
         {checks.length === 0 && unresolvedCount === 0 && !reviewLabel && !reviewFact && (
           <span className="text-[11.5px] text-muted-foreground">
-            Nothing reported yet — no checks, no reviews, no open threads.
+            {t(
+              "workspace.git.prStatusBandChecks.nothingReportedYetNoChecksNo",
+              "Nothing reported yet — no checks, no reviews, no open threads.",
+            )}
           </span>
         )}
       </div>
@@ -161,14 +173,37 @@ function ciTone(state: CiState): PrIndicatorTone {
  * one job broke. The failing and running counts are the numbers a developer is
  * asking for; the total is context, not the headline.
  */
-function checkSummary(state: CiState, checks: readonly CiCheck[]): string {
+function checkSummary(state: CiState, checks: readonly CiCheck[], t: UiTranslator): string {
   const total = checks.length;
   const failing = checks.filter((check) => check.state === "failing").length;
-  if (failing > 0) return `${failing} of ${total} failing`;
+  if (failing > 0)
+    return t(
+      "workspace.git.prStatusBandChecks.checksFailing",
+      "{{failing, number}} of {{total, number}} failing",
+      {
+        failing,
+        total,
+      },
+    );
   const running = checks.filter((check) => check.state === "running").length;
-  if (running > 0) return `${running} of ${total} running`;
-  if (state === "passing") return `${total} ${total === 1 ? "check" : "checks"} passing`;
-  return `${total} ${total === 1 ? "check" : "checks"}`;
+  if (running > 0)
+    return t(
+      "workspace.git.prStatusBandChecks.checksRunning",
+      "{{running, number}} of {{total, number}} running",
+      {
+        running,
+        total,
+      },
+    );
+  if (state === "passing")
+    return t("workspace.git.prStatusBandChecks.checksPassing", "{{count, number}} checks passing", {
+      count: total,
+      defaultValue_one: "{{count, number}} check passing",
+    });
+  return t("workspace.git.prStatusBandChecks.checksCount", "{{count, number}} checks", {
+    count: total,
+    defaultValue_one: "{{count, number}} check",
+  });
 }
 
 /** The verdict row's pill: one shape, coloured by tone. */
@@ -256,7 +291,10 @@ function CiCheckRow({ check }: { check: CiCheck }): ReactElement {
   const handleOpen = useCallback(async (): Promise<void> => {
     if (!check.url) return;
     setOpening(true);
-    await openExternalUrl(check.url, "Could not open check.");
+    await openExternalUrl(
+      check.url,
+      translateUi("workspace.git.prStatusBandChecks.couldNotOpenCheck", "Could not open check."),
+    );
     setOpening(false);
   }, [check.url]);
   const rowClass = "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12px]";

@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { type PointerEvent, type ReactElement } from "react";
 import {
   BookOpenIcon,
@@ -28,12 +29,16 @@ type BrowserSuggestionPanelProps = Pick<
 >;
 
 export function BrowserOmniboxPanel(props: BrowserSuggestionPanelProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md">
       <ul
         id={props.listboxId}
         role="listbox"
-        aria-label="Browser suggestions"
+        aria-label={t(
+          "workspace.tools.browserOmniboxPanel.browserSuggestions",
+          "Browser suggestions",
+        )}
         className="max-h-64 overflow-y-auto p-1"
       >
         {props.suggestions.map((suggestion, index) => (
@@ -54,12 +59,16 @@ export function BrowserOmniboxPanel(props: BrowserSuggestionPanelProps): ReactEl
             role="presentation"
             className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground"
           >
-            <Loader2Icon className="size-3.5 animate-spin" /> Loading local suggestions…
+            <Loader2Icon className="size-3.5 animate-spin" />{" "}
+            {t(
+              "workspace.tools.browserOmniboxPanel.loadingLocalSuggestions",
+              "Loading local suggestions…",
+            )}
           </li>
         ) : null}
         {!props.isQuerying && props.suggestions.length === 0 && !props.error ? (
           <li role="presentation" className="px-2 py-2 text-xs text-muted-foreground">
-            No local suggestions
+            {t("workspace.tools.browserOmniboxPanel.noLocalSuggestions", "No local suggestions")}
           </li>
         ) : null}
       </ul>
@@ -74,12 +83,20 @@ export function BrowserOmniboxPanel(props: BrowserSuggestionPanelProps): ReactEl
 }
 
 function HistoryFooter(props: BrowserSuggestionPanelProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center justify-between border-t border-border/60 px-2 py-1.5 text-[11px] text-muted-foreground">
       <span>
         {props.historyCount > 0
-          ? `${props.historyCount} recent history ${props.historyCount === 1 ? "entry" : "entries"}`
-          : "Recent history and legacy suggestions"}
+          ? t("workspace.tools.browserOmniboxPanel.historyCount", {
+              count: props.historyCount,
+              defaultValue_one: "{{count}} recent history entry",
+              defaultValue_other: "{{count}} recent history entries",
+            })
+          : t(
+              "workspace.tools.browserOmniboxPanel.recentHistoryAndLegacySuggestions",
+              "Recent history and legacy suggestions",
+            )}
       </span>
       <Button
         type="button"
@@ -89,7 +106,8 @@ function HistoryFooter(props: BrowserSuggestionPanelProps): ReactElement {
         onPointerDown={(event) => event.preventDefault()}
         onClick={props.onClearHistory}
       >
-        <Trash2Icon className="size-3" /> Clear history
+        <Trash2Icon className="size-3" />{" "}
+        {t("workspace.tools.browserOmniboxPanel.clearHistory", "Clear history")}
       </Button>
     </div>
   );
@@ -107,6 +125,7 @@ interface SuggestionOptionProps {
 }
 
 function BrowserSuggestionOption(props: SuggestionOptionProps): ReactElement {
+  const { t } = useUiTranslation();
   const { suggestion } = props;
   function handlePointerDown(event: PointerEvent<HTMLLIElement>): void {
     event.preventDefault();
@@ -132,9 +151,15 @@ function BrowserSuggestionOption(props: SuggestionOptionProps): ReactElement {
     >
       <SuggestionIcon source={suggestion.source} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{suggestion.title}</span>
+        <span className="block truncate font-medium">
+          {suggestion.source === "search"
+            ? t("workspace.tools.browserOmniboxPanel.searchFor", "Search for “{{query}}”", {
+                query: suggestion.title,
+              })
+            : suggestion.title}
+        </span>
         <span className="block truncate font-mono text-[10px] text-muted-foreground">
-          {suggestionSourceLabel(suggestion.source)} · {suggestion.url}
+          {suggestionSourceLabel(t, suggestion.source)} · {suggestion.url}
         </span>
       </span>
       {suggestion.historyId ? (
@@ -143,7 +168,11 @@ function BrowserSuggestionOption(props: SuggestionOptionProps): ReactElement {
           variant="ghost"
           size="icon-xs"
           disabled={props.mutationPending}
-          aria-label={`Delete ${suggestion.title} from history`}
+          aria-label={t(
+            "workspace.tools.browserOmniboxPanel.deleteHistoryEntry",
+            "Delete {{title}} from history",
+            { title: suggestion.title },
+          )}
           onPointerDown={handleDeletePointerDown}
           onClick={() => suggestion.historyId && props.onRemoveHistory(suggestion.historyId)}
           className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -165,9 +194,12 @@ function SuggestionIcon({ source }: { source: BrowserOmniboxSuggestion["source"]
   return <StarIcon className="size-3.5 shrink-0 opacity-70" aria-hidden="true" />;
 }
 
-function suggestionSourceLabel(source: BrowserOmniboxSuggestion["source"]): string {
-  if (source === "tab") return "Open tab";
-  if (source === "bookmark") return "Bookmark";
-  if (source === "history") return "History";
-  return "Search";
+function suggestionSourceLabel(
+  t: UiTranslator,
+  source: BrowserOmniboxSuggestion["source"],
+): string {
+  if (source === "tab") return t("workspace.tools.browserOmniboxPanel.openTab", "Open tab");
+  if (source === "bookmark") return t("workspace.tools.browserOmniboxPanel.bookmark", "Bookmark");
+  if (source === "history") return t("workspace.tools.browserOmniboxPanel.history", "History");
+  return t("workspace.tools.browserOmniboxPanel.search", "Search");
 }

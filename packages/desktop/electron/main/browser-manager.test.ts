@@ -1615,6 +1615,7 @@ describe("BrowserManager", () => {
       tabs: [
         {
           title: "New tab",
+          defaultTitle: true,
           url: "https://keep.example/",
           sessionProfileId: "default",
           pinned: false,

@@ -1,3 +1,5 @@
+import { browserTabLabel } from "./browser-tab-label";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useCallback,
   useId,
@@ -42,6 +44,7 @@ export function BrowserTabOverflow({
   busy: boolean;
   onOpenChange?: (open: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -72,6 +75,10 @@ export function BrowserTabOverflow({
     ),
     [activeTabId, listId, onClose],
   );
+  const tabSearchLabel = useCallback(
+    (tab: BrowserTabMetadata) => `${browserTabLabel(tab, t)} ${tab.url}`,
+    [t],
+  );
   const { list, onKeyDown, filteredCount, activeIndex } =
     useFilteredVirtualList<BrowserTabMetadata>({
       items: tabs,
@@ -81,7 +88,11 @@ export function BrowserTabOverflow({
       renderRow,
       height: LIST_HEIGHT,
       rowHeight: ROW_HEIGHT,
-      emptyState: <p className="py-6 text-center text-xs text-muted-foreground">No tabs found</p>,
+      emptyState: (
+        <p className="py-6 text-center text-xs text-muted-foreground">
+          {t("workspace.tools.browserTabOverflow.noTabsFound", "No tabs found")}
+        </p>
+      ),
     });
   return (
     <Popover open={open} onOpenChange={changeOpen}>
@@ -115,6 +126,7 @@ export function BrowserTabOverflow({
 }
 
 function OverflowTrigger({ count }: { count: number }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <PopoverTrigger asChild>
       <Button
@@ -122,8 +134,12 @@ function OverflowTrigger({ count }: { count: number }): ReactElement {
         variant="ghost"
         size="icon-sm"
         className="h-7 shrink-0"
-        aria-label={`Search all ${count} browser tabs`}
-        title="Search all tabs"
+        aria-label={t("workspace.tools.browserTabOverflow.searchAllCount", {
+          count: count,
+          defaultValue_one: "Search all {{count}} browser tabs",
+          defaultValue_other: "Search all {{count}} browser tabs",
+        })}
+        title={t("workspace.tools.browserTabOverflow.searchAllTabs", "Search all tabs")}
       >
         <ChevronsUpDownIcon className="size-3.5" />
       </Button>
@@ -154,6 +170,7 @@ function OverflowPanel({
   onKeyDown: (event: KeyboardEvent) => void;
   onReopen: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <div className="flex items-center gap-2 border-b px-2 py-1.5">
@@ -162,18 +179,25 @@ function OverflowPanel({
           ref={inputRef}
           variant="ghost"
           role="combobox"
-          aria-label="Search browser tabs"
+          aria-label={t(
+            "workspace.tools.browserTabOverflow.searchBrowserTabs",
+            "Search browser tabs",
+          )}
           aria-controls={listId}
           aria-expanded
           aria-activedescendant={filteredCount > 0 ? `${listId}-option-${activeIndex}` : undefined}
-          placeholder="Search tabs"
+          placeholder={t("workspace.tools.browserTabOverflow.searchTabs", "Search tabs")}
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={onKeyDown}
           className="h-7 px-0 text-sm"
         />
       </div>
-      <div id={listId} role="listbox" aria-label="Browser tabs">
+      <div
+        id={listId}
+        role="listbox"
+        aria-label={t("workspace.tools.browserTabOverflow.browserTabs", "Browser tabs")}
+      >
         {list}
       </div>
       <div className="border-t p-1">
@@ -186,7 +210,7 @@ function OverflowPanel({
           onClick={onReopen}
         >
           <RotateCcwIcon className="size-3.5" />
-          Reopen last closed tab
+          {t("workspace.tools.browserTabOverflow.reopenLastClosedTab", "Reopen last closed tab")}
           <span className="ml-auto">
             <ResolvedShortcutHint shortcutId="browser-reopen-tab" />
           </span>
@@ -208,7 +232,8 @@ function OverflowRow({
   active: boolean;
   onClose: (tabId: string) => void;
 }): ReactElement {
-  const label = item.title || "New tab";
+  const { t } = useUiTranslation();
+  const label = browserTabLabel(item, t);
   return (
     <div
       className={cn(
@@ -235,7 +260,9 @@ function OverflowRow({
         type="button"
         variant="ghost"
         size="icon-xs"
-        aria-label={`Close ${label}`}
+        aria-label={t("workspace.tools.browserTabStrip.closeNamedTab", "Close {{label}}", {
+          label,
+        })}
         className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
         onClick={() => onClose(item.id)}
       >
@@ -243,8 +270,4 @@ function OverflowRow({
       </Button>
     </div>
   );
-}
-
-function tabSearchLabel(tab: BrowserTabMetadata): string {
-  return `${tab.title} ${tab.url}`;
 }

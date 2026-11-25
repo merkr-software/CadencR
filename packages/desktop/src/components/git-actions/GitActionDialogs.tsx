@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { lazy, Suspense, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -62,13 +63,14 @@ export function GitActionDialogs({
 }
 
 function GitActionDialogLoading(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="fixed left-1/2 top-1/2 z-50 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-md border border-border bg-background px-4 py-3 text-sm shadow-lg"
     >
       <Loader2 className="size-4 animate-spin" />
-      Loading Git action…
+      {t("workspace.git.gitActionDialogs.loadingGitAction", "Loading Git action…")}
     </div>
   );
 }

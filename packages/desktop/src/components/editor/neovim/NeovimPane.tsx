@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
@@ -55,9 +56,16 @@ function useNeovimAppearance(featureId: number): {
 
   useEffect(() => {
     if (!error || !options) return;
-    toast.error(`Terminal configuration error: ${error}`, {
-      id: `neovim-config:${featureId}`,
-    });
+    toast.error(
+      translateUi(
+        "workspace.editor.neovimPane.terminalError",
+        "Terminal configuration error: {{error}}",
+        { error },
+      ),
+      {
+        id: `neovim-config:${featureId}`,
+      },
+    );
   }, [error, options, featureId]);
 
   const fatalError = options ? null : error;
@@ -77,6 +85,7 @@ function useNeovimAppearance(featureId: number): {
  * via `useCelerittyTerminal`).
  */
 function NeovimPane({ featureId }: NeovimPaneProps) {
+  const { t } = useUiTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   const socket = useNeovimWebSocket({
@@ -130,18 +139,24 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
       <div
         ref={hostRef}
         role="application"
-        aria-label="Neovim editor"
+        aria-label={t("workspace.editor.neovimPane.neovimEditor", "Neovim editor")}
         data-neovim-feature-id={featureId}
         className="relative h-full w-full outline-none"
       />
       {(paneStatus !== "ready" || !socket.isConnected || error) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
           {error ? (
-            <p className="text-sm text-destructive">Neovim could not start: {error}</p>
+            <p className="text-sm text-destructive">
+              {t("workspace.editor.neovimPane.startFailed", "Neovim could not start: {{error}}", {
+                error,
+              })}
+            </p>
           ) : (
             <>
               <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Connecting to Neovim…</p>
+              <p className="text-sm text-muted-foreground">
+                {t("workspace.editor.neovimPane.connectingToNeovim", "Connecting to Neovim…")}
+              </p>
             </>
           )}
           {paneStatus !== "error" && <RestartAction onRestart={socket.connect} />}
@@ -152,9 +167,10 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
 }
 
 function RestartAction({ onRestart }: { onRestart: () => void }) {
+  const { t } = useUiTranslation();
   return (
     <Button variant="outline" size="sm" onClick={onRestart}>
-      Restart Neovim session
+      {t("workspace.editor.neovimPane.restartNeovimSession", "Restart Neovim session")}
     </Button>
   );
 }

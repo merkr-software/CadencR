@@ -1,6 +1,10 @@
+import type { BrowserFailure } from "../../src/shared/browser-types";
+import { browserFailureCopy } from "../../src/shared/browser-error-copy";
+import { uiI18n } from "../../src/shared/ui-i18n";
 import { isLoopbackHost } from "./loopback-host";
 import type { BrowserTabError, BrowserTabErrorKind } from "./browser-types";
 
+const fallbackText = uiI18n.getFixedT("en", "ui");
 const ERR_ABORTED_CODE = -3;
 const ERR_ABORTED_PATTERN = /\bERR_ABORTED\b/;
 const CHROMIUM_LOAD_ERROR_PATTERN = /\bERR_[A-Z0-9_]+\s*\(-\d+\)\s+loading\b/;
@@ -40,12 +44,12 @@ export function formatBrowserLoadError(
   const loopback = parsed !== null && isLoopbackHost(parsed.hostname);
   const kind: BrowserTabErrorKind =
     errorCode === -312 || isTlsError(errorCode, code) ? "security" : "load";
-  const { title, description: message } = describeLoadError(errorCode, code, parsed, loopback, url);
+  const failure = loadFailure(errorCode, code, parsed, loopback, url);
 
   return {
     kind,
-    title,
-    description: message,
+    failure,
+    ...browserFailureCopy(failure, fallbackText),
     url,
     code,
     retryable: true,
@@ -53,13 +57,11 @@ export function formatBrowserLoadError(
 }
 
 export function formatBrowserCrashError(reason: string, url: string): BrowserTabError {
-  const oom = reason === "oom";
+  const failure: BrowserFailure = { reason: reason === "oom" ? "outOfMemory" : "crash" };
   return {
     kind: "crash",
-    title: oom ? "This page ran out of memory" : "This page crashed",
-    description: oom
-      ? "Reload the tab to try again."
-      : "Something went wrong while displaying this page. Reload to try again.",
+    failure,
+    ...browserFailureCopy(failure, fallbackText),
     url,
     code: reason,
     retryable: true,
@@ -80,72 +82,49 @@ export function formatBlockedNavigationError(
   };
 }
 
-function describeLoadError(
+export function blockedSelfRedirect(url: string): BrowserTabError {
+  const failure: BrowserFailure = { reason: "selfRedirect" };
+  const copy = browserFailureCopy(failure, fallbackText);
+  return { ...formatBlockedNavigationError(copy.title, copy.description, url), failure };
+}
+
+function loadFailure(
   errorCode: number,
   code: string | undefined,
   parsed: URL | null,
   loopback: boolean,
   url: string,
-): { title: string; description: string } {
-  const host = parsed?.host || url || "this site";
+): BrowserFailure {
+  const host = parsed?.host || url;
   switch (errorCode) {
     case -102:
-      if (loopback && parsed) {
-        return {
-          title: `Can't connect to ${parsed.host}`,
-          description: "Nothing is listening on this port. Make sure your dev server is running.",
-        };
-      }
-      return { title: "This site can't be reached", description: `${host} refused to connect.` };
-    case -105: {
-      const target = parsed?.hostname || url;
-      return {
-        title: "Site not found",
-        description: target
-          ? `Check the address for typos (${target}).`
-          : "Check the address for typos.",
-      };
-    }
+      return { reason: loopback ? "localRefused" : "refused", host };
+    case -105:
+      return host
+        ? { reason: "notFound", host: parsed?.hostname || url }
+        : { reason: "addressMissing" };
     case -106:
-      return {
-        title: "No internet connection",
-        description: "Check your network connection and try again.",
-      };
+      return { reason: "offline" };
     case -118:
     case -7:
-      return { title: "Connection timed out", description: `${host} took too long to respond.` };
+      return { reason: "timeout", host };
     case -101:
     case -100:
-      return {
-        title: "Connection interrupted",
-        description: `The connection to ${host} was closed unexpectedly.`,
-      };
+      return { reason: "interrupted", host };
     case -324:
-      return { title: "No response from server", description: `${host} didn't send any data.` };
+      return { reason: "emptyResponse", host };
     case -310:
-      return {
-        title: "Too many redirects",
-        description: `${host} redirected you too many times.`,
-      };
+      return { reason: "redirectLoop", host };
     case -109:
-      return { title: "Address unreachable", description: `Could not reach ${host}.` };
+      return { reason: "unreachable", host };
     case -6:
-      return { title: "File not found", description: "The requested file could not be found." };
+      return { reason: "fileMissing" };
     case -312:
-      return { title: "Port blocked", description: "This port is blocked for security reasons." };
+      return { reason: "unsafePort" };
     default:
-      if (isTlsError(errorCode, code)) {
-        return {
-          title: "Connection isn't private",
-          description: loopback
-            ? `The local HTTPS certificate for ${host} isn't trusted.`
-            : `The security certificate for ${host} isn't trusted.`,
-        };
-      }
-      return {
-        title: "This page can't be loaded",
-        description: `Could not load ${parsed?.host || url || "this page"}.`,
-      };
+      if (isTlsError(errorCode, code))
+        return { reason: loopback ? "localCertificate" : "certificate", host };
+      return { reason: "other", host };
   }
 }
 

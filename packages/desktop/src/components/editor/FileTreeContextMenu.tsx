@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
 import {
   ClipboardCopyIcon,
@@ -60,52 +61,57 @@ interface FileTreeContextMenuProps {
  * an `Open in Preview` one), directories skip them. Order matches the user's expected verb sequence.
  */
 function buildMenuItems(
+  t: UiTranslator,
   item: FileTreeContextMenuItem,
   context: FileTreeContextMenuOpenContext,
   onAction: FileTreeContextMenuProps["onAction"],
 ): MenuItemSpec[] {
   const isDir = item.kind === "directory";
   const items: MenuItemSpec[] = [
-    { label: "New File…", icon: FilePlusIcon, onSelect: () => onAction("new-file", item, context) },
     {
-      label: "New Folder…",
+      label: t("workspace.editor.fileTreeContextMenu.newFile", "New File…"),
+      icon: FilePlusIcon,
+      onSelect: () => onAction("new-file", item, context),
+    },
+    {
+      label: t("workspace.editor.fileTreeContextMenu.newFolder", "New Folder…"),
       icon: FolderPlusIcon,
       onSelect: () => onAction("new-folder", item, context),
     },
   ];
   if (!isDir) {
     items.push({
-      label: "Open",
+      label: t("workspace.editor.fileTreeContextMenu.open", "Open"),
       icon: FolderOpenIcon,
       onSelect: () => onAction("open", item, context),
     });
   }
   if (!isDir && isDocumentFile(fromPierrePath(item.path))) {
     items.push({
-      label: "Open in Preview",
+      label: t("workspace.editor.fileTreeContextMenu.preview", "Open in Preview"),
       icon: EyeIcon,
       onSelect: () => onAction("open-preview", item, context),
     });
   }
   items.push(
     {
-      label: "Copy Path",
+      label: t("workspace.editor.fileTreeContextMenu.copyPath", "Copy Path"),
       icon: ClipboardCopyIcon,
       onSelect: () => onAction("copy-path", item, context),
     },
     {
-      label: "Reveal in File Manager",
+      label: t("workspace.editor.fileTreeContextMenu.reveal", "Reveal in File Manager"),
       icon: FolderOpenIcon,
       onSelect: () => onAction("reveal", item, context),
     },
     {
-      label: "Rename",
+      label: t("workspace.editor.fileTreeContextMenu.rename", "Rename"),
       icon: PencilIcon,
       shortcut: RENAME_KEYS,
       onSelect: () => onAction("rename", item, context),
     },
     {
-      label: "Move to Trash",
+      label: t("workspace.editor.fileTreeContextMenu.trash", "Move to Trash"),
       icon: Trash2Icon,
       shortcut: MOVE_TO_TRASH_KEYS,
       destructive: true,
@@ -128,7 +134,8 @@ export function FileTreeContextMenu({
   context,
   onAction,
 }: FileTreeContextMenuProps): React.JSX.Element {
-  const items = buildMenuItems(item, context, onAction);
+  const { t } = useUiTranslation();
+  const items = buildMenuItems(t, item, context, onAction);
   // The shortcut hints in the menu (↵, ⌘⌫) are served by the tree-level
   // key handler in `FileTree.tsx`, which already binds these to the
   // focused row. We deliberately don't add a document-level listener
@@ -138,7 +145,7 @@ export function FileTreeContextMenu({
     <FileTreeContextMenuPortal context={context}>
       {items.map((entry, index) => (
         <MenuRow
-          key={`${index}-${entry.label}`}
+          key={index}
           label={entry.label}
           icon={entry.icon}
           shortcut={entry.shortcut}

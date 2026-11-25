@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Document formatting for the editor: a manual "Format document" command and
  * the format-on-save hook. Both run the project's configured formatter CLI via
@@ -80,7 +81,12 @@ export function useEditorFormat({
       applyFormatted(view, content);
       return true;
     } catch (err) {
-      toast.error(apiErrorMessage(err, "Failed to format document"));
+      toast.error(
+        apiErrorMessage(
+          err,
+          translateUi("workspace.editor.useEditorFormat.formatFailed", "Failed to format document"),
+        ),
+      );
       return false;
     } finally {
       setPendingFormats((count) => count - 1);

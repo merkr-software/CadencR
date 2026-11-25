@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,12 +45,25 @@ export function useGitUpdateRecoveryActions({
     (result: GitOperationResponse, action: GitUpdateControlAction): void => {
       if (!operation) return;
       if (result.outcome === "conflicts") {
-        toast.warning("Update paused for conflicts", {
-          description: describeGitUpdateConflictFiles(result.conflict_files),
-        });
+        toast.warning(
+          translateUi(
+            "workspace.git.useGitUpdateRecoveryActions.updatePausedForConflicts",
+            "Update paused for conflicts",
+          ),
+          {
+            description: describeGitUpdateConflictFiles(result.conflict_files),
+          },
+        );
         return;
       }
-      toast.success(action === "abort" ? "Update aborted" : "Update completed");
+      toast.success(
+        action === "abort"
+          ? translateUi("workspace.git.useGitUpdateRecoveryActions.updateAborted", "Update aborted")
+          : translateUi(
+              "workspace.git.useGitUpdateRecoveryActions.updateCompleted",
+              "Update completed",
+            ),
+      );
     },
     [operation],
   );
@@ -61,9 +75,21 @@ export function useGitUpdateRecoveryActions({
       const result = await continueBranch({ data: { feature_id: featureId } });
       handleResponse(result, "continue");
     } catch (caught) {
-      const message = apiErrorMessage(caught, "Could not continue the update.");
+      const message = apiErrorMessage(
+        caught,
+        translateUi(
+          "workspace.git.useGitUpdateRecoveryActions.couldNotContinueTheUpdateDetail",
+          "Could not continue the update.",
+        ),
+      );
       setError(message);
-      toast.error("Could not continue the update", { description: message });
+      toast.error(
+        translateUi(
+          "workspace.git.useGitUpdateRecoveryActions.couldNotContinueTheUpdate",
+          "Could not continue the update",
+        ),
+        { description: message },
+      );
     }
   }, [conflictCount, continueBranch, featureId, handleResponse, operation, pending]);
 
@@ -74,9 +100,21 @@ export function useGitUpdateRecoveryActions({
       const result = await abortBranch({ data: { feature_id: featureId } });
       handleResponse(result, "abort");
     } catch (caught) {
-      const message = apiErrorMessage(caught, "Could not abort the update.");
+      const message = apiErrorMessage(
+        caught,
+        translateUi(
+          "workspace.git.useGitUpdateRecoveryActions.couldNotAbortTheUpdateDetail",
+          "Could not abort the update.",
+        ),
+      );
       setError(message);
-      toast.error("Could not abort the update", { description: message });
+      toast.error(
+        translateUi(
+          "workspace.git.useGitUpdateRecoveryActions.couldNotAbortTheUpdate",
+          "Could not abort the update",
+        ),
+        { description: message },
+      );
     }
   }, [abortBranch, featureId, handleResponse, operation, pending]);
 

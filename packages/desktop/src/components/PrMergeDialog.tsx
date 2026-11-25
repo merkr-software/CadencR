@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { GitMerge, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,8 +26,8 @@ import {
 } from "@/components/ui/dialog";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  MERGE_METHOD_DESCRIPTION,
-  MERGE_METHOD_LABEL,
+  mergeMethodDescription,
+  mergeMethodLabel,
   mergeActionExplanation,
   mergeActionLabel,
   mergeOutcomeMessage,
@@ -60,6 +61,7 @@ export function PrMergeDialog({
   onOpenChange,
   onDone,
 }: PrMergeDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const queued = action === "enqueue" || action === "enqueue_when_ready";
   const [method, setMethod] = useState<MergeMethod | null>(null);
   const [deleteBranch, setDeleteBranch] = useState<boolean | null>(null);
@@ -99,9 +101,9 @@ export function PrMergeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitMerge className="size-5" aria-hidden />
-            {mergeActionLabel(action, status)} #{pr.number}
+            {mergeActionLabel(action, status, t)} #{pr.number}
           </DialogTitle>
-          <DialogDescription>{mergeActionExplanation(action, status)}</DialogDescription>
+          <DialogDescription>{mergeActionExplanation(action, status, t)}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1 rounded-md border p-3 text-sm">
@@ -136,14 +138,14 @@ export function PrMergeDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
+            {t("workspace.git.prMergeDialog.cancel", "Cancel")}
             <KbdShortcut keys={ESC_KEYS} variant="hint" />
           </Button>
           <Button onClick={() => void submit()} disabled={submitting || moved}>
             {submitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
             {queued || !effectiveMethod || action !== "merge"
-              ? mergeActionLabel(action, status)
-              : MERGE_METHOD_LABEL[effectiveMethod]}
+              ? mergeActionLabel(action, status, t)
+              : mergeMethodLabel(effectiveMethod, t)}
             <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
           </Button>
         </DialogFooter>
@@ -187,7 +189,13 @@ function useMergeSubmit({
       if (result.warning) toast.warning(result.warning);
       onSuccess();
     } catch (err) {
-      const message = apiErrorMessage(err, "The forge refused the merge");
+      const message = apiErrorMessage(
+        err,
+        translateUi(
+          "workspace.git.prMergeDialog.theForgeRefusedTheMerge",
+          "The forge refused the merge",
+        ),
+      );
       // The dialog may be gone (the pane moved to another proposal); the
       // refusal still has to reach the user.
       if (mounted.current) setError(message);
@@ -210,23 +218,30 @@ function MethodPicker({
   disabled: boolean;
   onChange: (next: MergeMethod) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (methods.length <= 1) {
     return (
       <p className="text-sm text-muted-foreground">
-        {MERGE_METHOD_LABEL[value]} — the only method this branch allows.
+        {t(
+          "workspace.git.prMergeDialog.onlyMergeMethod",
+          "{{method}} — the only method this branch allows.",
+          { method: mergeMethodLabel(value, t) },
+        )}
       </p>
     );
   }
   const options: RadioCardOption<MergeMethod>[] = methods.map((method) => ({
     value: method,
-    label: MERGE_METHOD_LABEL[method],
-    description: MERGE_METHOD_DESCRIPTION[method],
+    label: mergeMethodLabel(method, t),
+    description: mergeMethodDescription(method, t),
   }));
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium">Merge method</div>
+      <div className="text-sm font-medium">
+        {t("workspace.git.prMergeDialog.mergeMethod", "Merge method")}
+      </div>
       <RadioCardGroup<MergeMethod>
-        ariaLabel="Merge method"
+        ariaLabel={t("workspace.git.prMergeDialog.mergeMethod", "Merge method")}
         value={value}
         onChange={onChange}
         options={options}
@@ -246,17 +261,22 @@ function MovedHeadNotice({
   disabled: boolean;
   onAccept: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="flex items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
     >
       <p className="min-w-0 flex-1">
-        New commits were pushed while this was open. The branch is now at{" "}
-        <span className="font-mono">{sha.slice(0, 7)}</span>.
+        <UiTrans
+          i18nKey="workspace.git.prMergeDialog.branchAdvanced"
+          defaults="New commits were pushed while this was open. The branch is now at <sha>{{sha}}</sha>."
+          values={{ sha: sha.slice(0, 7) }}
+          components={{ sha: <span className="font-mono" /> }}
+        />
       </p>
       <Button size="xs" variant="outline" disabled={disabled} onClick={onAccept}>
-        Use the new head
+        {t("workspace.git.prMergeDialog.useTheNewHead", "Use the new head")}
       </Button>
     </div>
   );
@@ -276,13 +296,17 @@ function DeleteBranchOption({
   disabled: boolean;
   onChange: (next: boolean) => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { configurable, default: byDefault } = status.delete_source_branch;
   // Where the forge cannot carry the choice to a later merge, the repository
   // setting decides; the server applies it either way.
   if (!configurable || (deferred && !status.delete_source_branch.deferred)) {
     return byDefault ? (
       <p className="text-xs text-muted-foreground">
-        The repository deletes the source branch after it merges.
+        {t(
+          "workspace.git.prMergeDialog.theRepositoryDeletesTheSourceBranchAfter",
+          "The repository deletes the source branch after it merges.",
+        )}
       </p>
     ) : null;
   }
@@ -293,7 +317,10 @@ function DeleteBranchOption({
         disabled={disabled}
         onCheckedChange={(next) => onChange(next === true)}
       />
-      Delete the source branch after merging
+      {t(
+        "workspace.git.prMergeDialog.deleteSourceBranch",
+        "Delete the source branch after merging",
+      )}
     </label>
   );
 }

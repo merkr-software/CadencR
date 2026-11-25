@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { startTransition, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import {
@@ -283,6 +284,7 @@ export function CadencrFileTree({
   className,
   ...pierreProps
 }: CadencrFileTreeProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (isLoading) {
     return (
       <div
@@ -291,7 +293,9 @@ export function CadencrFileTree({
         aria-live="polite"
       >
         <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
-        <span className="sr-only">Loading file tree…</span>
+        <span className="sr-only">
+          {t("workspace.editor.cadencrFileTree.loadingFileTree", "Loading file tree…")}
+        </span>
       </div>
     );
   }

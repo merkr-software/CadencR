@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useMemo, useRef, useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -102,7 +103,15 @@ export function seedBatchFileContentCache(
 export type DiffMode = "worktree" | "branch" | "uncommitted";
 
 export function changedFilesErrorMessage(isError: boolean, error: unknown): string | null {
-  return isError ? apiErrorMessage(error, "Failed to load changed files") : null;
+  return isError
+    ? apiErrorMessage(
+        error,
+        translateUi(
+          "workspace.git.useDiffData.failedToLoadChangedFiles",
+          "Failed to load changed files",
+        ),
+      )
+    : null;
 }
 
 function useChangedFiles(
@@ -289,8 +298,16 @@ function useStaleCommentInvalidation(
     const batchKey = [...staleIds].sort((a, b) => a - b).join(",");
     if (lastToastedStaleBatchKeys.get(featureId) !== batchKey) {
       lastToastedStaleBatchKeys.set(featureId, batchKey);
-      const noun = staleIds.length === 1 ? "comment" : "comments";
-      toast.info(`Removed ${staleIds.length} ${noun} on changed files`);
+      toast.info(
+        translateUi(
+          "workspace.git.useDiffData.removedStaleComments",
+          "Removed {{count, number}} comments on changed files",
+          {
+            count: staleIds.length,
+            defaultValue_one: "Removed {{count, number}} comment on changed files",
+          },
+        ),
+      );
     }
     for (const id of staleIds) {
       inFlightStaleDeleteIds.add(id);
@@ -299,8 +316,17 @@ function useStaleCommentInvalidation(
         {
           onSettled: () => inFlightStaleDeleteIds.delete(id),
           onError: (error: unknown) => {
-            const message = apiErrorMessage(error, "Unknown error");
-            toast.error(`Failed to remove stale comment: ${message}`);
+            const message = apiErrorMessage(
+              error,
+              translateUi("workspace.git.useDiffData.unknownError", "Unknown error"),
+            );
+            toast.error(
+              translateUi(
+                "workspace.git.useDiffData.failedToRemoveStaleCommentError",
+                "Failed to remove stale comment: {{error}}",
+                { error: message },
+              ),
+            );
           },
         },
       );

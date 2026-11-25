@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement, type ReactNode } from "react";
 import type { EditorView } from "@codemirror/view";
 import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
@@ -21,6 +22,7 @@ interface ConflictResolverEditorProps {
 }
 
 export default function ConflictResolverEditor(props: ConflictResolverEditorProps): ReactElement {
+  const { t } = useUiTranslation();
   const query = useGetFileContent(
     { feature_id: props.featureId, file_path: props.gitFilePath, mode: "uncommitted" },
     {
@@ -36,42 +38,45 @@ export default function ConflictResolverEditor(props: ConflictResolverEditorProp
   );
   const indexActions = useGitFileIndexActions(props.featureId);
 
-  if (query.isLoading) return <ResolverMessage pending>Loading conflict result…</ResolverMessage>;
+  if (query.isLoading)
+    return (
+      <ResolverMessage pending>
+        {t("workspace.editor.conflict.loadingConflictResult", "Loading conflict result…")}
+      </ResolverMessage>
+    );
   if (query.isError) {
     if (props.conflictKind === ConflictKind.dd) {
       return (
         <StageGuidanceMessage
           filePath={props.gitFilePath}
-          message="Both sides deleted this path. Stage the deletion to mark it resolved."
+          message={t(
+            "workspace.editor.conflict.bothDeleted",
+            "Both sides deleted this path. Stage the deletion to mark it resolved.",
+          )}
           stageDeletion
           indexActions={indexActions}
         />
       );
     }
     return (
-      <ResolverMessage
-        error
-        action={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
-          >
-            {query.isFetching ? "Retrying…" : "Retry"}
-          </Button>
-        }
-      >
-        Could not load the conflict result: {apiErrorMessage(query.error, "Unknown error")}
-      </ResolverMessage>
+      <ConflictLoadError
+        error={query.error}
+        retrying={query.isFetching}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
-  if (!query.data) return <ResolverMessage error>No conflict result was returned.</ResolverMessage>;
+  if (!query.data) {
+    return <MissingConflictResult />;
+  }
   if (query.data.is_binary) {
     return (
       <StageGuidanceMessage
         filePath={props.gitFilePath}
-        message="Binary content cannot be resolved safely in the text editor. Choose the desired file externally, then stage it."
+        message={t(
+          "workspace.editor.conflict.binaryConflict",
+          "Binary content cannot be resolved safely in the text editor. Choose the desired file externally, then stage it.",
+        )}
         stageDeletion={false}
         indexActions={indexActions}
       />
@@ -87,8 +92,14 @@ export default function ConflictResolverEditor(props: ConflictResolverEditorProp
         filePath={props.gitFilePath}
         message={
           deleted
-            ? "The worktree result is deleted. Stage the deletion to mark this conflict resolved."
-            : "The conflict result is unavailable. Inspect the repository before staging."
+            ? t(
+                "workspace.editor.conflict.deletedResult",
+                "The worktree result is deleted. Stage the deletion to mark this conflict resolved.",
+              )
+            : t(
+                "workspace.editor.conflict.unavailableResult",
+                "The conflict result is unavailable. Inspect the repository before staging.",
+              )
         }
         stageDeletion={deleted}
         indexActions={indexActions}
@@ -146,6 +157,7 @@ function StageGuidanceMessage({
   stageDeletion: boolean;
   indexActions: ReturnType<typeof useGitFileIndexActions>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const pending = indexActions.pendingPath === filePath && indexActions.pendingAction === "stage";
   const stageError = indexActions.error?.filePath === filePath ? indexActions.error.message : null;
   return (
@@ -157,12 +169,57 @@ function StageGuidanceMessage({
           aria-busy={pending}
           onClick={() => indexActions.stage(filePath, { conflicted: true })}
         >
-          {pending ? "Staging…" : stageDeletion ? "Stage deletion" : "Stage"}
+          {pending
+            ? t("workspace.editor.conflict.staging", "Staging…")
+            : stageDeletion
+              ? t("workspace.editor.conflict.stageDeletion", "Stage deletion")
+              : t("workspace.editor.conflict.stage", "Stage")}
         </Button>
       }
     >
       {message}
-      {stageError ? ` Stage failed: ${stageError}` : ""}
+      {stageError
+        ? t("workspace.editor.conflict.stageFailed", " Stage failed: {{error}}", {
+            error: stageError,
+          })
+        : ""}
+    </ResolverMessage>
+  );
+}
+
+function ConflictLoadError({
+  error,
+  retrying,
+  onRetry,
+}: {
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const { t } = useUiTranslation();
+  return (
+    <ResolverMessage
+      error
+      action={
+        <Button size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+          {retrying
+            ? t("workspace.editor.conflict.retrying", "Retrying…")
+            : t("workspace.editor.conflict.retry", "Retry")}
+        </Button>
+      }
+    >
+      {t("workspace.editor.conflict.loadFailed", "Could not load the conflict result: {{error}}", {
+        error: apiErrorMessage(error, t("workspace.editor.conflict.unknownError", "Unknown error")),
+      })}
+    </ResolverMessage>
+  );
+}
+
+function MissingConflictResult() {
+  const { t } = useUiTranslation();
+  return (
+    <ResolverMessage error>
+      {t("workspace.editor.conflict.missingResult", "No conflict result was returned.")}
     </ResolverMessage>
   );
 }

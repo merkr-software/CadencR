@@ -1,7 +1,8 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@/test-utils";
+import { act, fireEvent, render, screen } from "@/test-utils";
 import type { PrStatusSnapshot } from "@/api/generated";
-import { PrDescription } from "./FeaturePrViewParts";
+import { PrDescription, PrRelativeTime } from "./FeaturePrViewParts";
 
 function snapshot(bodyMarkdown: string): PrStatusSnapshot {
   return {
@@ -58,4 +59,20 @@ describe("PrDescription", () => {
     expect(screen.getByText("No description provided.")).toBeVisible();
     expect(screen.queryByRole("button", { name: /Description/ })).not.toBeInTheDocument();
   });
+});
+
+it("updates an already displayed PR timestamp with the UI language", async () => {
+  const value = new Date(Date.now() - 120_000).toISOString();
+  render(<PrRelativeTime value={value} />);
+  try {
+    expect(screen.getByText("2 minutes ago")).toBeVisible();
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+    expect(screen.getByText("il y a 2 minutes")).toBeVisible();
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+  }
 });

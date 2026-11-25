@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { FilePenLineIcon, TriangleAlertIcon } from "lucide-react";
 import {
@@ -23,6 +24,7 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
   indexActions,
   onOpenFileInEditor,
 }: GitConflictFileBannerProps): ReactElement | null {
+  const { t } = useUiTranslation();
   if (resolvedStageState(file) !== FileStageState.conflicted) return null;
 
   const stagePending =
@@ -33,7 +35,9 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
 
   return (
     <section
-      aria-label={`Conflict in ${displayGitPath(file.file)}`}
+      aria-label={t("workspace.git.gitConflictFileBanner.conflictInPath", "Conflict in {{path}}", {
+        path: displayGitPath(file.file),
+      })}
       className="border-t border-border border-l-2 border-l-[var(--acc-orange)] bg-[color-mix(in_srgb,var(--acc-orange)_6%,var(--background))] px-4 py-2"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -45,7 +49,7 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
           <p className="font-medium text-foreground capitalize">
             {conflictKindLabel(file.conflict_kind)}
           </p>
-          <p className="mt-0.5 text-muted-foreground">{conflictMessage(file.conflict_kind)}</p>
+          <p className="mt-0.5 text-muted-foreground">{conflictMessage(file.conflict_kind, t)}</p>
         </div>
         {stageDeletion && indexActions ? (
           <Button
@@ -55,7 +59,9 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
             aria-busy={stagePending}
             onClick={() => indexActions.stage(file.file, { conflicted: true })}
           >
-            {stagePending ? "Staging…" : "Stage deletion"}
+            {stagePending
+              ? t("workspace.git.gitConflictFileBanner.staging", "Staging…")
+              : t("workspace.git.gitConflictFileBanner.stageDeletion", "Stage deletion")}
           </Button>
         ) : null}
         {canFix ? (
@@ -66,36 +72,61 @@ export const GitConflictFileBanner = memo(function GitConflictFileBanner({
             onClick={() => openGitFileInEditor(file, () => onOpenFileInEditor?.())}
           >
             <FilePenLineIcon />
-            Fix
+            {t("workspace.git.gitConflictFileBanner.fix", "Fix")}
           </Button>
         ) : null}
       </div>
       {error && (
         <p className="mt-1 text-xs text-destructive" role="alert">
-          Stage failed: {error}
+          {t("workspace.git.gitConflictFileBanner.stageFailed", "Stage failed:")}
+          {error}
         </p>
       )}
     </section>
   );
 });
 
-function conflictMessage(kind: ConflictKindValue | null | undefined): string {
+function conflictMessage(kind: ConflictKindValue | null | undefined, t: UiTranslator): string {
   switch (kind) {
     case ConflictKind.dd:
-      return "Both sides deleted this path. Stage the deletion to mark it resolved.";
+      return t(
+        "workspace.git.gitConflictFileBanner.bothSidesDeletedThisPathStageThe",
+        "Both sides deleted this path. Stage the deletion to mark it resolved.",
+      );
     case ConflictKind.au:
-      return "Added on the current side. Open it to confirm the result, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.addedOnTheCurrentSideOpenIt",
+        "Added on the current side. Open it to confirm the result, then stage it.",
+      );
     case ConflictKind.ud:
-      return "Deleted on the incoming side while modified here. Open it to keep or remove the result, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.deletedOnTheIncomingSideWhileModified",
+        "Deleted on the incoming side while modified here. Open it to keep or remove the result, then stage it.",
+      );
     case ConflictKind.ua:
-      return "Added on the incoming side. Open it to confirm the result, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.addedOnTheIncomingSideOpenIt",
+        "Added on the incoming side. Open it to confirm the result, then stage it.",
+      );
     case ConflictKind.du:
-      return "Deleted here while modified on the incoming side. Open it to keep or remove the result, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.deletedHereWhileModifiedOnTheIncoming",
+        "Deleted here while modified on the incoming side. Open it to keep or remove the result, then stage it.",
+      );
     case ConflictKind.aa:
-      return "Both sides added this file. Open it to resolve the result, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.bothSidesAddedThisFileOpenIt",
+        "Both sides added this file. Open it to resolve the result, then stage it.",
+      );
     case ConflictKind.uu:
-      return "Both sides modified this file. Open it to resolve the markers, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.bothSidesModifiedThisFileOpenIt",
+        "Both sides modified this file. Open it to resolve the markers, then stage it.",
+      );
     default:
-      return "Open this file to resolve the conflict, then stage it.";
+      return t(
+        "workspace.git.gitConflictFileBanner.openThisFileToResolveTheConflict",
+        "Open this file to resolve the conflict, then stage it.",
+      );
   }
 }

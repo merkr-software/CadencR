@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { PushForceMode, usePush } from "@/api/generated";
 import { selectPushStatus, usePushOutputStore } from "@/stores/usePushOutputStore";
@@ -31,12 +32,20 @@ export interface PushSubmissionController extends GitOutputSubmissionController<
   markPromptAnswered: (offset: number) => void;
 }
 
-const PUSH_COPY: GitOutputSubmissionCopy = {
-  failure: "Push failed",
-  failureHint: "Open the push output to inspect the error.",
-  success: "Pushed",
-  backgroundSuccess: "Background push completed",
-};
+function submissionCopy(): GitOutputSubmissionCopy {
+  return {
+    failure: translateUi("workspace.git.usePushSubmission.pushFailed", "Push failed"),
+    failureHint: translateUi(
+      "workspace.git.usePushSubmission.openThePushOutputToInspectThe",
+      "Open the push output to inspect the error.",
+    ),
+    success: translateUi("workspace.git.usePushSubmission.pushed", "Pushed"),
+    backgroundSuccess: translateUi(
+      "workspace.git.usePushSubmission.backgroundPushCompleted",
+      "Background push completed",
+    ),
+  };
+}
 
 export function usePushSubmission({
   featureId,
@@ -64,7 +73,7 @@ export function usePushSubmission({
     selectStatus: selectPushStatus,
     isPending: push.isPending,
     run,
-    copy: PUSH_COPY,
+    copy: submissionCopy,
     onStart,
     onSuccess,
   });

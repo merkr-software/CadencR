@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -41,13 +42,27 @@ function useOpenCommitOnline(featureId: number): (sha: string) => Promise<void> 
       try {
         const response = await getCommitUrl({ feature_id: featureId, sha });
         if (!response.available || !response.url) {
-          toast.error("No remote host is configured for this repository.");
+          toast.error(
+            translateUi(
+              "workspace.git.useGitGraphViewModel.noRemoteHostIsConfiguredForThis",
+              "No remote host is configured for this repository.",
+            ),
+          );
           return;
         }
         await desktopBridge.openExternal(response.url);
       } catch (error) {
-        const message = apiErrorMessage(error, "Unknown error");
-        toast.error(`Could not open the commit online: ${message}`);
+        const message = apiErrorMessage(
+          error,
+          translateUi("workspace.git.useGitGraphViewModel.unknownError", "Unknown error"),
+        );
+        toast.error(
+          translateUi(
+            "workspace.git.useGitGraphViewModel.couldNotOpenTheCommitOnlineError",
+            "Could not open the commit online: {{error}}",
+            { error: message },
+          ),
+        );
       }
     },
     [featureId],

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,16 +16,22 @@ interface LargeFileBannerProps {
 export const LargeFileBanner = memo(function LargeFileBanner({
   onEditAnyway,
 }: LargeFileBannerProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="bg-muted/40 flex items-center justify-between gap-4 border-b p-4">
       <div className="flex items-center gap-2">
-        <Badge variant="outline">Large file</Badge>
+        <Badge variant="outline">
+          {t("workspace.editor.largeFileBanner.largeFile", "Large file")}
+        </Badge>
         <span className="text-muted-foreground text-xs">
-          Opened read-only, language features disabled.
+          {t(
+            "workspace.editor.largeFileBanner.openedReadOnlyLanguageFeaturesDisabled",
+            "Opened read-only, language features disabled.",
+          )}
         </span>
       </div>
       <Button variant="outline" size="sm" onClick={onEditAnyway}>
-        Edit anyway
+        {t("workspace.editor.largeFileBanner.editAnyway", "Edit anyway")}
       </Button>
     </div>
   );

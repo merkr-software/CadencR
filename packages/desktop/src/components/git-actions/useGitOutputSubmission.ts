@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Submission controller for the streaming Git actions (commit, push).
  *
@@ -42,7 +43,7 @@ interface UseGitOutputSubmissionOptions<TArgs> {
   selectStatus: (featureId: number) => (state: GitOutputState) => GitOutputStatus | null;
   isPending: boolean;
   run: (args: TArgs) => Promise<GitOutputSubmissionResult>;
-  copy: GitOutputSubmissionCopy;
+  copy: () => GitOutputSubmissionCopy;
   /** Fired once the run is registered — clears per-run dialog state. */
   onStart?: () => void;
   /** Fired after a successful run, before the dialog closes. */
@@ -97,7 +98,13 @@ export function useGitOutputSubmission<TArgs>({
 
   const submit = useCallback(
     async (args: TArgs): Promise<void> => {
-      const { run: startRun, copy: text, onStart: started, onSuccess: succeeded } = latest.current;
+      const {
+        run: startRun,
+        copy: getCopy,
+        onStart: started,
+        onSuccess: succeeded,
+      } = latest.current;
+      const text = getCopy();
       const store = useStore.getState();
       // The backend refuses a second PTY for this feature anyway; keep
       // showing the run that is already streaming.
@@ -112,7 +119,10 @@ export function useGitOutputSubmission<TArgs>({
         if (openRef.current) return;
         toast.error(text.failure, {
           description: scopedToastDescription({ featureId }, text.failureHint),
-          action: { label: "View output", onClick: () => onDialogOpenChange(true) },
+          action: {
+            label: translateUi("workspace.git.useGitOutputSubmission.viewOutput", "View output"),
+            onClick: () => onDialogOpenChange(true),
+          },
         });
       };
 

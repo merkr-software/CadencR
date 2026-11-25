@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -91,11 +92,32 @@ function useLayoutWrite(
           },
           onError: (err: unknown): void => {
             if (seq !== sentRef.current) return;
-            toast.error(`Could not save the layout: ${apiErrorMessage(err, "Unknown error")}`, {
-              id: toastId,
-              description: "This arrangement is kept until the app restarts.",
-              action: { label: "Retry", onClick: retry },
-            });
+            toast.error(
+              translateUi(
+                "workspace.tools.useFeatureLayoutPersistence.saveFailed",
+                "Could not save the layout: {{message}}",
+                {
+                  message: apiErrorMessage(
+                    err,
+                    translateUi(
+                      "workspace.tools.useFeatureLayoutPersistence.unknownError",
+                      "Unknown error",
+                    ),
+                  ),
+                },
+              ),
+              {
+                id: toastId,
+                description: translateUi(
+                  "workspace.tools.useFeatureLayoutPersistence.unsavedNotice",
+                  "This arrangement is kept until the app restarts.",
+                ),
+                action: {
+                  label: translateUi("workspace.tools.useFeatureLayoutPersistence.retry", "Retry"),
+                  onClick: retry,
+                },
+              },
+            );
           },
         },
       );

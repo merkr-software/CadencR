@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,7 +52,13 @@ export function useEditorLanguage(projectId: number, filePath: string): EditorLa
     } catch (error) {
       return {
         overrides: emptyEditorLanguageOverrides(),
-        error: apiErrorMessage(error, "Could not read language overrides"),
+        error: apiErrorMessage(
+          error,
+          translateUi(
+            "workspace.editor.useEditorLanguage.readFailed",
+            "Could not read language overrides",
+          ),
+        ),
       };
     }
   }, [raw]);
@@ -67,12 +74,24 @@ export function useEditorLanguage(projectId: number, filePath: string): EditorLa
     [filePath, parsed.overrides],
   );
   const queryError = settingsError
-    ? apiErrorMessage(settingsError, "Could not load language overrides")
+    ? apiErrorMessage(
+        settingsError,
+        translateUi(
+          "workspace.editor.useEditorLanguage.loadFailed",
+          "Could not load language overrides",
+        ),
+      )
     : null;
 
   const save = useCallback(
     async (selection: LanguagePickerSelection): Promise<void> => {
-      if (settingsError) throw new Error("Language overrides have not loaded");
+      if (settingsError)
+        throw new Error(
+          translateUi(
+            "workspace.editor.useEditorLanguage.overridesPending",
+            "Language overrides have not loaded",
+          ),
+        );
       setPendingSaveCount((count) => count + 1);
       try {
         await enqueueProjectSave(projectId, async () => {

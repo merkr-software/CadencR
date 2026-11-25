@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 import type { FeatureLayout, FeatureSetting } from "@/api/generated";
@@ -23,13 +24,24 @@ function resolveInitialLayout(
   if (savedCurrent) {
     const parsed = parseLayoutState(savedCurrent.value);
     if (parsed) return parsed;
-    toast.error("Saved feature layout is malformed and was skipped.");
+    toast.error(
+      translateUi(
+        "workspace.tools.featureLayoutHydration.savedFeatureLayoutIsMalformedAndWas",
+        "Saved feature layout is malformed and was skipped.",
+      ),
+    );
   }
   const defaultLayout = layouts.find((layout) => layout.is_default);
   if (defaultLayout) {
     const parsed = parseLayoutState(defaultLayout.config);
     if (parsed) return { ...parsed, appliedLayoutId: defaultLayout.id };
-    toast.error(`Default layout "${defaultLayout.name}" is malformed and was skipped.`);
+    toast.error(
+      translateUi(
+        "workspace.tools.featureLayoutHydration.defaultMalformed",
+        'Default layout "{{name}}" is malformed and was skipped.',
+        { name: defaultLayout.name },
+      ),
+    );
   }
   return flatLayoutState();
 }

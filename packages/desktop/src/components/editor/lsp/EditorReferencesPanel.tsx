@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Find-references results panel. Opened by Shift+F12. Reuses the cross-file
  * search-results layout convention (grouped-by-file rows in a dialog) and
@@ -63,6 +64,7 @@ function EditorReferencesPanel({
   open,
   onOpenChange,
 }: EditorReferencesPanelProps) {
+  const { t } = useUiTranslation();
   const rows = useMemo(() => buildRows(references, workspaceRoot), [references, workspaceRoot]);
   const fileCount = useMemo(() => rows.filter((r) => r.type === "file").length, [rows]);
 
@@ -70,12 +72,23 @@ function EditorReferencesPanel({
     try {
       const target = await openLspLocation(view, location);
       if (!target) {
-        toast.error("Could not open the reference location.");
+        toast.error(
+          translateUi(
+            "workspace.editor.references.invalidReference",
+            "Could not open the reference location.",
+          ),
+        );
         return;
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(`Failed to open reference: ${apiErrorMessage(err, String(err))}`);
+      toast.error(
+        translateUi(
+          "workspace.editor.references.openFailed",
+          "Failed to open reference: {{error}}",
+          { error: apiErrorMessage(err, String(err)) },
+        ),
+      );
     }
   };
 
@@ -87,13 +100,23 @@ function EditorReferencesPanel({
       >
         <DialogHeader className="px-3 pb-2 border-b border-border">
           <DialogTitle className="text-sm font-medium">
-            {references.length} reference{references.length === 1 ? "" : "s"} in {fileCount} file
-            {fileCount === 1 ? "" : "s"}
+            {t("workspace.editor.references.referenceSummary", {
+              count: fileCount,
+              references: t("workspace.editor.references.referenceCount", {
+                count: references.length,
+                defaultValue_zero: "{{count, number}} references",
+                defaultValue_one: "{{count, number}} reference",
+                defaultValue_other: "{{count, number}} references",
+              }),
+              defaultValue_zero: "{{references}} in {{count, number}} files",
+              defaultValue_one: "{{references}} in {{count, number}} file",
+              defaultValue_other: "{{references}} in {{count, number}} files",
+            })}
           </DialogTitle>
         </DialogHeader>
         {rows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-            No references found.
+            {t("workspace.editor.references.noReferencesFound", "No references found.")}
           </div>
         ) : (
           <Virtuoso

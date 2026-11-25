@@ -1,5 +1,6 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { within } from "@testing-library/react";
+import { act, within } from "@testing-library/react";
 
 import type { GitStatusSnapshot } from "@/api/generated";
 import { render, screen } from "@/test-utils";
@@ -245,4 +246,35 @@ describe("UpdateBranchDialog", () => {
     expect(screen.getByRole("radio", { name: /Rebase/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
   });
+});
+
+it("updates a visible fallback after a locale change without submitting the operation again", async () => {
+  const key = "workspace.git.updateBranchDialog.couldNotUpdateTheCurrentBranch";
+  uiI18n.addResource("fr", "ui", key, "Impossible de mettre à jour la branche.");
+  mocks.mutateAsync.mockRejectedValueOnce({});
+  const { user } = render(
+    <UpdateBranchDialog
+      featureId={42}
+      open
+      snapshot={snapshot()}
+      disabledReason={null}
+      onOpenChange={vi.fn()}
+    />,
+  );
+  try {
+    await user.click(screen.getByRole("button", { name: "Update branch" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not update the current branch.",
+    );
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("Impossible de mettre à jour la branche.");
+    expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  }
 });

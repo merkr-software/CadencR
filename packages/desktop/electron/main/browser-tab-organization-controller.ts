@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
 import type { BrowserScopeState } from "./browser-scope-state";
@@ -63,7 +64,12 @@ export class BrowserTabOrganizationController {
     const source = live?.metadata ?? this.workspace.dormantTab(tabId)?.metadata;
     if (!source) throw unknownTab(tabId);
     if (live?.temporary) {
-      throw new Error("Temporary sign-in tabs cannot be duplicated or replayed as a GET request.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.tab.duplicateTemporary",
+          "Temporary sign-in tabs cannot be duplicated or replayed as a GET request.",
+        ),
+      );
     }
     const profile = live?.profile ?? profileFromSelection(source.sessionProfileId);
     return this.host.create(source, profile, duplicateMetadata(source));
@@ -154,6 +160,7 @@ function restoredMetadata(tab: RestorableBrowserTab, scopeId: number): BrowserTa
   return {
     id: randomUUID(),
     title: tab.title,
+    defaultTitle: tab.defaultTitle,
     url: tab.url,
     loading: false,
     canGoBack: false,
@@ -180,7 +187,11 @@ function shouldPersistRemoval(metadata: BrowserTabMetadata, live?: ManagedTab): 
 function throwRejected(...results: PromiseSettledResult<unknown>[]): void {
   const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   if (errors.length === 1) throw errors[0];
-  if (errors.length > 1) throw new AggregateError(errors, "Browser tab close failed");
+  if (errors.length > 1)
+    throw new AggregateError(
+      errors,
+      translateUi("workspace.browser.tab.closeFailed", "Browser tab close failed"),
+    );
 }
 
 function unknownTab(tabId: string): Error {

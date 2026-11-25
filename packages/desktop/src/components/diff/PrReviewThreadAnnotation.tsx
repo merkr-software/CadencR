@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useId, useMemo, useState, type ReactElement } from "react";
 import {
   ChevronDownIcon,
@@ -9,7 +10,7 @@ import {
 import type { CommentThread } from "@/api/generated";
 import { Markdown } from "@/components/Markdown";
 import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
-import { relativeTime } from "@/components/FeaturePrViewParts";
+import { PrRelativeTime } from "@/components/FeaturePrViewParts";
 import { ForgeAvatar } from "@/components/ForgeImage";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -67,6 +68,7 @@ function RemoteThread({
   selected: boolean;
   onSelectedChange?: (selected: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const link = thread.comments.find((comment) => comment.url)?.url ?? undefined;
   const bodyLength = useMemo(
     () => thread.comments.reduce((total, comment) => total + comment.body_markdown.length, 0),
@@ -107,7 +109,9 @@ function RemoteThread({
               <span className="truncate text-xs font-medium !text-[var(--editor-fg)]">
                 {comment.author.display_name ?? comment.author.username}
               </span>
-              <span className="shrink-0 tabular-nums">{relativeTime(comment.created_at)}</span>
+              <span className="shrink-0 tabular-nums">
+                <PrRelativeTime value={comment.created_at} />
+              </span>
             </div>
             <Markdown
               content={comment.body_markdown}
@@ -136,10 +140,15 @@ function RemoteThread({
           >
             {expanded ? <ChevronUpIcon aria-hidden /> : <ChevronDownIcon aria-hidden />}
             {expanded
-              ? "Collapse thread"
-              : `Show full thread · ${thread.comments.length} ${
-                  thread.comments.length === 1 ? "message" : "messages"
-                }`}
+              ? t("workspace.git.prReviewThreadAnnotation.collapseThread", "Collapse thread")
+              : t(
+                  "workspace.git.prReviewThreadAnnotation.showFullThread",
+                  "Show full thread · {{count, number}} messages",
+                  {
+                    count: thread.comments.length,
+                    defaultValue_one: "Show full thread · {{count, number}} message",
+                  },
+                )}
           </Button>
         </div>
       )}
@@ -158,6 +167,7 @@ function ReviewThreadHeader({
   selected: boolean;
   onSelectedChange?: (selected: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const selectionId = useId();
   return (
     <header className="flex items-center gap-2 border-b border-[var(--editor-border)] bg-[var(--editor-blue)]/10 px-3 py-1.5">
@@ -165,18 +175,33 @@ function ReviewThreadHeader({
         <label
           htmlFor={selectionId}
           className="-my-1.5 flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5"
-          title="Send this thread to the agent"
+          title={t(
+            "workspace.git.prReviewThreadAnnotation.sendThisThreadToTheAgent",
+            "Send this thread to the agent",
+          )}
         >
           <Checkbox
             id={selectionId}
             checked={selected}
             onCheckedChange={(checked) => onSelectedChange(checked === true)}
-            aria-label={`Send ${threadLocation(thread) ?? "this general comment"} to the agent`}
+            aria-label={
+              threadLocation(thread)
+                ? t(
+                    "workspace.git.prReviewThreadAnnotation.sendReviewCommentLocal",
+                    "Send {{location}} to the agent",
+                    { location: threadLocation(thread) },
+                  )
+                : t(
+                    "workspace.git.prReviewThreadAnnotation.sendReviewCommentRemote",
+                    "Send this general comment to the agent",
+                    { location: threadLocation(thread) },
+                  )
+            }
             className="mr-0.5"
           />
           <MessageSquareIcon className="size-3 shrink-0 !text-[var(--editor-blue)]" aria-hidden />
           <span className="text-[11px] font-medium tracking-wide !text-[var(--editor-blue)]">
-            Review thread
+            {t("workspace.git.prReviewThreadAnnotation.reviewThread", "Review thread")}
           </span>
           {thread.outdated && <OutdatedBadge />}
         </label>
@@ -185,7 +210,7 @@ function ReviewThreadHeader({
         <>
           <MessageSquareIcon className="size-3 shrink-0 !text-[var(--editor-blue)]" aria-hidden />
           <span className="text-[11px] font-medium tracking-wide !text-[var(--editor-blue)]">
-            Review thread
+            {t("workspace.git.prReviewThreadAnnotation.reviewThread", "Review thread")}
           </span>
           {thread.outdated && <OutdatedBadge />}
         </>
@@ -198,21 +223,32 @@ function ReviewThreadHeader({
 }
 
 function OutdatedBadge(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       className="rounded-full bg-[var(--editor-selection-bg)] px-2 py-0.5 text-[10px] !text-[var(--editor-comment)]"
-      title="The diff moved since this comment was written"
+      title={t(
+        "workspace.git.prReviewThreadAnnotation.theDiffMovedSinceThisCommentWas",
+        "The diff moved since this comment was written",
+      )}
     >
-      outdated
+      {t("workspace.git.prReviewThreadAnnotation.outdated", "outdated")}
     </span>
   );
 }
 
 function OpenOnForgeButton({ url, host }: { url: string; host: string | null }): ReactElement {
+  const { t } = useUiTranslation();
   const [opening, setOpening] = useState(false);
   const handleOpen = useCallback(async (): Promise<void> => {
     setOpening(true);
-    await openExternalUrl(url, "Could not open the review comment.");
+    await openExternalUrl(
+      url,
+      translateUi(
+        "workspace.git.prReviewThreadAnnotation.couldNotOpenTheReviewComment",
+        "Could not open the review comment.",
+      ),
+    );
     setOpening(false);
   }, [url]);
   return (
@@ -226,14 +262,19 @@ function OpenOnForgeButton({ url, host }: { url: string; host: string | null }):
       className="!text-[var(--editor-comment)] hover:!text-[var(--editor-fg)]"
       disabled={opening}
       onClick={() => void handleOpen()}
-      title="Open this review thread on the forge"
+      title={t(
+        "workspace.git.prReviewThreadAnnotation.openThisReviewThreadOnTheForge",
+        "Open this review thread on the forge",
+      )}
     >
       {opening ? (
         <Loader2Icon className="size-3 animate-spin" aria-hidden />
       ) : (
         <ExternalLinkIcon className="size-3" aria-hidden />
       )}
-      Reply on {host ?? "remote"}
+      {t("workspace.git.prReviewThreadAnnotation.replyOn", "Reply on {{host}}", {
+        host: host ?? t("workspace.git.prReviewThreadAnnotation.remote", "remote"),
+      })}
     </Button>
   );
 }

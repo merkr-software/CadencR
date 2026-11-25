@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { EditorView } from "@codemirror/view";
 import { toast } from "sonner";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
@@ -24,7 +25,12 @@ export function useAddSelectionToPrompt({
       const { state } = active.view;
       const range = state.selection.main;
       if (range.empty) {
-        toast.error("Select some code first, then add it to the prompt.");
+        toast.error(
+          translateUi(
+            "workspace.editor.useAddSelectionToPrompt.selectCode",
+            "Select some code first, then add it to the prompt.",
+          ),
+        );
         return;
       }
       const startLine = state.doc.lineAt(range.from).number;
@@ -33,6 +39,7 @@ export function useAddSelectionToPrompt({
         kind: "selection",
         label: active.filePath,
         detail: startLine === endLine ? `line ${startLine}` : `lines ${startLine}–${endLine}`,
+        lineRange: { start: startLine, end: endLine },
         content: state.sliceDoc(range.from, range.to),
         language: fenceLanguage(active.filePath),
       });

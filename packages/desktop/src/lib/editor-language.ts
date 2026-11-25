@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { getFileExtension, isDockerfilePath, isEnvFilePath } from "@/lib/file-language";
 
 export const EDITOR_LANGUAGES = [
@@ -78,6 +79,13 @@ export function detectEditorLanguageId(filePath: string): EditorLanguageId {
     : "plaintext";
 }
 
-export function getEditorLanguageLabel(languageId: EditorLanguageId): string {
-  return LANGUAGE_BY_ID.get(languageId)?.label ?? "Plain Text";
+export function getEditorLanguageLabel(
+  languageId: EditorLanguageId,
+  t: UiTranslator = translateUi,
+): string {
+  if (languageId === "shellscript") return t("workspace.editor.editorLanguage.shell", "Shell");
+  const label = LANGUAGE_BY_ID.get(languageId)?.label;
+  return languageId === "plaintext" || label === undefined
+    ? t("workspace.editor.editorLanguage.plainText", "Plain Text")
+    : label;
 }

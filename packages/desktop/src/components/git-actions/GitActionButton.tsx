@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { toast } from "sonner";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -47,15 +48,32 @@ function useOpenCompare(
         const response = await getCompareUrl({ feature_id: featureId });
         if (response.available) url = response.url;
       } catch (error) {
-        toastError(error, "Failed to resolve compare URL.");
+        toastError(
+          error,
+          translateUi(
+            "workspace.git.gitActionButton.failedToResolveCompareUrl",
+            "Failed to resolve compare URL.",
+          ),
+        );
         return;
       }
     }
     if (!url) {
-      toast.error("Compare URL not available for this remote.");
+      toast.error(
+        translateUi(
+          "workspace.git.gitActionButton.compareUrlNotAvailableForThisRemote",
+          "Compare URL not available for this remote.",
+        ),
+      );
       return;
     }
-    await openExternalUrl(url, "Couldn't open compare URL.");
+    await openExternalUrl(
+      url,
+      translateUi(
+        "workspace.git.gitActionButton.couldnTOpenCompareUrl",
+        "Couldn't open compare URL.",
+      ),
+    );
   }, [compareUrl, featureId]);
 }
 
@@ -192,7 +210,10 @@ export const GitActionButton = memo(function GitActionButton({
       if (action === "stash") {
         const blockedReason = getStashMutationBlockedReason();
         if (blockedReason) {
-          toast.error("Cannot stash changes", { description: blockedReason });
+          toast.error(
+            translateUi("workspace.git.gitActionButton.cannotStashChanges", "Cannot stash changes"),
+            { description: blockedReason },
+          );
           return;
         }
       }

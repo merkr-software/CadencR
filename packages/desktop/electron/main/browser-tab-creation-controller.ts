@@ -117,6 +117,7 @@ export class BrowserTabCreationController {
     tab.metadata = {
       ...tab.metadata,
       url: details.url,
+      defaultTitle: false,
       title: details.frameName && details.frameName !== "_blank" ? details.frameName : details.url,
     };
     tab.openerTabId = temporary ? parent.metadata.id : null;

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactElement, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ChangedFile } from "@/api/generated";
@@ -51,6 +52,7 @@ function DiffFileHeaderPrefix({
   statusIcon,
   onToggle,
 }: DiffFileHeaderPrefixProps): ReactElement {
+  const { t } = useUiTranslation();
   // The copy button copies the real path; the label shows control characters escaped.
   const shownName = displayGitPath(displayName);
   return (
@@ -67,7 +69,13 @@ function DiffFileHeaderPrefix({
             ? "flex min-w-0 flex-1 items-center gap-2 text-left"
             : "inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         }
-        aria-label={isCollapsed ? `Expand ${shownName}` : `Collapse ${shownName}`}
+        aria-label={
+          isCollapsed
+            ? t("workspace.git.diffFileHeader.expandFile", "Expand {{file}}", { file: shownName })
+            : t("workspace.git.diffFileHeader.collapseFile", "Collapse {{file}}", {
+                file: shownName,
+              })
+        }
         onClick={onToggle}
       >
         {isCollapsed ? (
@@ -90,6 +98,7 @@ function DiffFileHeaderViewed({
   onMarkViewed,
   onUnmarkViewed,
 }: DiffFileHeaderViewedProps): ReactElement {
+  const { t } = useUiTranslation();
   const checkboxId = useId();
   const pendingDescriptionId = `${checkboxId}-pending`;
   return (
@@ -110,11 +119,11 @@ function DiffFileHeaderViewed({
         htmlFor={checkboxId}
         className={`select-none ${isPending ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       >
-        Viewed
+        {t("workspace.git.diffFileHeader.viewed", "Viewed")}
       </label>
       {isPending && (
         <span id={pendingDescriptionId} className="sr-only">
-          Updating viewed state
+          {t("workspace.git.diffFileHeader.updatingViewedState", "Updating viewed state")}
         </span>
       )}
     </div>

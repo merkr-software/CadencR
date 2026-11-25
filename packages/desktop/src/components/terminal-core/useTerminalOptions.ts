@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import {
@@ -20,9 +21,16 @@ const WATCH_ERROR_TOAST_ID = "alacritty-config-watch-error";
 function useWatchErrorToast(watchError: string | null | undefined): void {
   useEffect(() => {
     if (watchError) {
-      toast.warning(`Terminal config live reload is unavailable: ${watchError}`, {
-        id: WATCH_ERROR_TOAST_ID,
-      });
+      toast.warning(
+        translateUi(
+          "workspace.tools.useTerminalOptions.liveReloadUnavailable",
+          "Terminal config live reload is unavailable: {{error}}",
+          { error: watchError },
+        ),
+        {
+          id: WATCH_ERROR_TOAST_ID,
+        },
+      );
     } else {
       toast.dismiss(WATCH_ERROR_TOAST_ID);
     }
@@ -145,7 +153,12 @@ export function useTerminalOptions(appearance: TerminalAppearance = {}): UseTerm
   return useMemo(() => {
     if (fetchError) {
       const message =
-        fetchError instanceof Error ? fetchError.message : "Failed to load terminal configuration";
+        fetchError instanceof Error
+          ? fetchError.message
+          : translateUi(
+              "workspace.tools.useTerminalOptions.failedToLoadTerminalConfiguration",
+              "Failed to load terminal configuration",
+            );
       return { options: undefined, isLoading: false, error: message };
     }
 

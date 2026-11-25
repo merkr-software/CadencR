@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import * as React from "react";
 import { Loader2Icon, MousePointerClickIcon, SendIcon, XIcon } from "lucide-react";
 
@@ -18,6 +19,7 @@ export interface BrowserCommentDockProps {
  * each comment is anchored.
  */
 function BrowserCommentDockImpl(props: BrowserCommentDockProps): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { count, picking, onSend, onDiscardAll } = props;
   if (count === 0 && !picking) return null;
 
@@ -27,12 +29,19 @@ function BrowserCommentDockImpl(props: BrowserCommentDockProps): React.JSX.Eleme
         {picking ? (
           <>
             <Loader2Icon className="size-3.5 animate-spin" />
-            Click an element to comment…
+            {t(
+              "workspace.tools.browserCommentDock.clickAnElementToComment",
+              "Click an element to comment…",
+            )}
           </>
         ) : (
           <>
             <MousePointerClickIcon className="size-3.5" />
-            {count} comment{count === 1 ? "" : "s"} ready · click a circle to edit
+            {t("workspace.tools.browserCommentDock.commentsReady", {
+              count: count,
+              defaultValue_one: "{{count}} comment ready · click a circle to edit",
+              defaultValue_other: "{{count}} comments ready · click a circle to edit",
+            })}
           </>
         )}
       </span>
@@ -45,11 +54,11 @@ function BrowserCommentDockImpl(props: BrowserCommentDockProps): React.JSX.Eleme
           disabled={count === 0}
         >
           <XIcon className="size-3.5" />
-          Discard
+          {t("workspace.tools.browserCommentDock.discard", "Discard")}
         </Button>
         <Button type="button" size="sm" onClick={onSend} disabled={count === 0}>
           <SendIcon className="size-3.5" />
-          Send {count}
+          {t("workspace.tools.browserCommentDock.sendCount", "Send {{count}}", { count })}
         </Button>
       </div>
     </div>

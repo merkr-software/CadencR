@@ -29,8 +29,37 @@ export type BrowserTabPrivacy = "normal" | "private" | "feature";
 
 export type BrowserTabErrorKind = "load" | "security" | "crash" | "blocked" | "internal";
 
+export type BrowserFailure =
+  | {
+      reason:
+        | "localRefused"
+        | "refused"
+        | "notFound"
+        | "timeout"
+        | "interrupted"
+        | "emptyResponse"
+        | "redirectLoop"
+        | "unreachable"
+        | "localCertificate"
+        | "certificate"
+        | "other";
+      host?: string;
+    }
+  | {
+      reason:
+        | "addressMissing"
+        | "offline"
+        | "fileMissing"
+        | "unsafePort"
+        | "outOfMemory"
+        | "crash"
+        | "selfRedirect"
+        | "internal";
+    };
+
 /** Structured, human-readable error state for an active browser tab. */
 export interface BrowserTabError {
+  failure?: BrowserFailure;
   kind: BrowserTabErrorKind;
   title: string;
   description: string;
@@ -97,6 +126,8 @@ export interface BrowserSitePermissionRequest {
 export interface BrowserTabMetadata {
   id: string;
   title: string;
+  /** Distinguishes our placeholder from a page whose actual title is "New tab". */
+  defaultTitle?: boolean;
   url: string;
   faviconUrl?: string;
   loading: boolean;
@@ -165,6 +196,7 @@ export interface BrowserDownload {
   private: boolean;
   startedAt: string;
   finishedAt?: string;
+  errorReason?: "interrupted" | "startFailed" | "failed";
   error?: string;
 }
 

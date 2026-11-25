@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -25,7 +26,7 @@ function useLayoutMutationRunner() {
   return useCallback(
     async <T>(
       action: () => Promise<T>,
-      errorPrefix: string,
+      errorText: (message: string) => string,
       success?: (result: T) => string,
     ): Promise<T | null> => {
       try {
@@ -34,8 +35,11 @@ function useLayoutMutationRunner() {
         if (success) toast.success(success(result));
         return result;
       } catch (error) {
-        const message = apiErrorMessage(error, "Unknown error");
-        toast.error(`${errorPrefix}: ${message}`);
+        const message = apiErrorMessage(
+          error,
+          translateUi("workspace.tools.useSavedLayouts.unknownError", "Unknown error"),
+        );
+        toast.error(errorText(message));
         return null;
       }
     },
@@ -58,8 +62,16 @@ function useNamedLayoutMutations(
       const config = serializeLayoutForSave(current);
       const created = await runMutation(
         () => createMutation.mutateAsync({ data: { name, config } }),
-        "Could not save layout",
-        (layout) => `Layout "${layout.name}" saved`,
+        (message) =>
+          translateUi(
+            "workspace.tools.useSavedLayouts.saveFailed",
+            "Could not save layout: {{message}}",
+            { message },
+          ),
+        (layout) =>
+          translateUi("workspace.tools.useSavedLayouts.saved", 'Layout "{{name}}" saved', {
+            name: layout.name,
+          }),
       );
       if (created) setAppliedLayoutId(featureId, created.id);
       return created;
@@ -75,8 +87,16 @@ function useNamedLayoutMutations(
             id,
             data: { config: serializeLayoutForSave(current) },
           }),
-        "Could not update layout",
-        (layout) => `Layout "${layout.name}" updated`,
+        (message) =>
+          translateUi(
+            "workspace.tools.useSavedLayouts.updateFailed",
+            "Could not update layout: {{message}}",
+            { message },
+          ),
+        (layout) =>
+          translateUi("workspace.tools.useSavedLayouts.updated", 'Layout "{{name}}" updated', {
+            name: layout.name,
+          }),
       );
     },
     [featureId, runMutation, updateMutation],
@@ -85,8 +105,18 @@ function useNamedLayoutMutations(
     async (id: number): Promise<void> => {
       await runMutation(
         () => setDefaultMutation.mutateAsync({ id }),
-        "Could not set default",
-        (layout) => `"${layout.name}" is now the default layout`,
+        (message) =>
+          translateUi(
+            "workspace.tools.useSavedLayouts.setDefaultFailed",
+            "Could not set default: {{message}}",
+            { message },
+          ),
+        (layout) =>
+          translateUi(
+            "workspace.tools.useSavedLayouts.defaultUpdated",
+            '"{{name}}" is now the default layout',
+            { name: layout.name },
+          ),
       );
     },
     [runMutation, setDefaultMutation],
@@ -95,8 +125,13 @@ function useNamedLayoutMutations(
     async (id: number): Promise<void> => {
       const result = await runMutation(
         () => deleteMutation.mutateAsync({ id }),
-        "Could not delete layout",
-        () => "Layout deleted",
+        (message) =>
+          translateUi(
+            "workspace.tools.useSavedLayouts.deleteFailed",
+            "Could not delete layout: {{message}}",
+            { message },
+          ),
+        () => translateUi("workspace.tools.useSavedLayouts.deleted", "Layout deleted"),
       );
       if (result === null) return;
       const applied = selectFeatureLayout(featureId)(
@@ -140,7 +175,13 @@ export function useSavedLayouts(featureId: number) {
     (layout: FeatureLayout): void => {
       const parsed = parseLayoutState(layout.config);
       if (!parsed) {
-        toast.error(`Layout "${layout.name}" is malformed.`);
+        toast.error(
+          translateUi(
+            "workspace.tools.useSavedLayouts.malformed",
+            'Layout "{{name}}" is malformed.',
+            { name: layout.name },
+          ),
+        );
         return;
       }
       // A template carries no size memory; keep what auto layout learned here.

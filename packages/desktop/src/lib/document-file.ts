@@ -41,14 +41,6 @@ export function isBinaryDocumentFile(filePath: string): boolean {
   return kind !== null && kind !== "csv";
 }
 
-export const DOCUMENT_KIND_LABELS: Readonly<Record<DocumentKind, string>> = {
-  pdf: "PDF",
-  docx: "Word document",
-  xlsx: "Excel workbook",
-  pptx: "PowerPoint presentation",
-  csv: "CSV file",
-};
-
 const READ_DOCUMENT_URL = "/api/editor/read-document";
 
 /**

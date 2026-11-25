@@ -1,4 +1,4 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
@@ -133,6 +133,7 @@ function RequestedFullContent({
         {children(query.data.content, "full")}
         <TruncationLine
           label={sizeLabel(
+            t,
             t("conversation.stream.fullContentPreview.fullContent", "Full content"),
             fullBytes,
           )}
@@ -205,6 +206,7 @@ function PreviewContent({
       {!hideLine && (
         <TruncationLine
           label={sizeLabel(
+            t,
             t("conversation.stream.fullContentPreview.truncated", "Truncated"),
             fullBytes,
           )}
@@ -245,8 +247,13 @@ function PreviewContent({
   );
 }
 
-function sizeLabel(prefix: string, fullBytes: number | undefined): string {
-  return fullBytes === undefined ? prefix : `${prefix} · ${formatBytes(fullBytes)}`;
+function sizeLabel(t: UiTranslator, prefix: string, fullBytes: number | undefined): string {
+  return fullBytes === undefined
+    ? prefix
+    : t("conversation.stream.fullContentPreview.size", "{{label}} · {{size}}", {
+        label: prefix,
+        size: formatBytes(fullBytes, t),
+      });
 }
 
 function TruncationLine({ label, children }: { label: string; children: ReactNode }) {

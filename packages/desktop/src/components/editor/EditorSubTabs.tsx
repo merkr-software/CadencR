@@ -1,12 +1,13 @@
+import { useUiTranslation, translateUi, UiTrans, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { ClipboardCopyIcon, EyeIcon, PanelRightCloseIcon, X } from "lucide-react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { copyFilePath } from "./copyFilePath";
 import { FileSymbolIcon } from "./file-icons";
-import { useEditorStore } from "@/stores/editor-store";
+import { isUntitledPath, useEditorStore } from "@/stores/editor-store";
 import { saveFile } from "./editorSaveRegistry";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { editorErrorMessage } from "./editor-error-message";
 import { displayGitPath, displayGitTreePath } from "@/lib/git-display-path";
 import {
   Dialog,
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
 import { useFileTreeMutations } from "@/hooks/useFileTreeMutations";
-import type { EditorTab } from "@/stores/editor-store-types";
+import { DEFAULT_ARTIFACT_TYPE, type EditorTab } from "@/stores/editor-store-types";
 
 interface EditorSubTabsProps {
   featureId: number;
@@ -127,7 +128,12 @@ function useEditorSubTabsController({ featureId, paneId, projectId }: EditorSubT
       closeTab(featureId, paneId, pendingClose.filePath);
       setPendingClose(null);
     } catch (error) {
-      toast.error(apiErrorMessage(error, "Failed to save file"));
+      toast.error(
+        editorErrorMessage(
+          error,
+          translateUi("workspace.editor.editorSubTabs.saveFailed", "Failed to save file"),
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -198,10 +204,11 @@ function EditorSubTab({
   controller: EditorSubTabsController;
   tab: EditorTab;
 }) {
+  const { t } = useUiTranslation();
   const isActive = controller.activeFilePath === tab.filePath;
   const showClose = !tab.isDirty || controller.hoveredClose === tab.filePath;
   // HTML folds a newline in a name into a space: show it the way git prints it.
-  const shownName = displayGitTreePath(tab.disambiguatedName);
+  const shownName = displayGitTreePath(tabDisplayName(tab, t));
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -217,7 +224,9 @@ function EditorSubTab({
           <span>{shownName}</span>
           <span
             role="button"
-            aria-label={`Close ${shownName}`}
+            aria-label={t("workspace.editor.editorSubTabs.closeNamedTab", "Close {{name}}", {
+              name: shownName,
+            })}
             tabIndex={0}
             className="ml-0.5 rounded hover:bg-muted p-0.5 flex items-center justify-center w-4 h-4"
             onMouseEnter={() => controller.setHoveredClose(tab.filePath)}
@@ -252,19 +261,20 @@ function EditorSubTabMenu({
   controller: EditorSubTabsController;
   tab: EditorTab;
 }) {
+  const { t } = useUiTranslation();
   return (
     <ContextMenuContent>
       <ContextMenuActionItem
         icon={X}
         onSelect={() => controller.requestClose(tab.filePath, tab.fileName, tab.isDirty)}
       >
-        Close
+        {t("workspace.editor.editorSubTabs.close", "Close")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={PanelRightCloseIcon}
         onSelect={() => controller.closeMany((path) => path !== tab.filePath)}
       >
-        Close Others
+        {t("workspace.editor.editorSubTabs.closeOthers", "Close Others")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={PanelRightCloseIcon}
@@ -277,10 +287,10 @@ function EditorSubTabMenu({
           );
         }}
       >
-        Close to the Right
+        {t("workspace.editor.editorSubTabs.closeToTheRight", "Close to the Right")}
       </ContextMenuActionItem>
       <ContextMenuActionItem icon={X} onSelect={() => controller.closeMany(() => true)}>
-        Close All
+        {t("workspace.editor.editorSubTabs.closeAll", "Close All")}
       </ContextMenuActionItem>
       <ContextMenuSeparator />
       <ContextMenuActionItem
@@ -288,16 +298,17 @@ function EditorSubTabMenu({
         shortcutId="editor-copy-path"
         onSelect={() => copyFilePath(tab.filePath)}
       >
-        Copy Path
+        {t("workspace.editor.editorSubTabs.copyPath", "Copy Path")}
       </ContextMenuActionItem>
       <ContextMenuActionItem icon={EyeIcon} onSelect={() => void controller.reveal(tab.filePath)}>
-        Reveal in File Manager
+        {t("workspace.editor.editorSubTabs.revealInFileManager", "Reveal in File Manager")}
       </ContextMenuActionItem>
     </ContextMenuContent>
   );
 }
 
 function UnsavedChangesDialog({ controller }: { controller: EditorSubTabsController }) {
+  const { t } = useUiTranslation();
   return (
     <Dialog
       open={controller.pendingClose !== null}
@@ -307,28 +318,65 @@ function UnsavedChangesDialog({ controller }: { controller: EditorSubTabsControl
     >
       <DialogContent showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>Unsaved Changes</DialogTitle>
+          <DialogTitle>
+            {t("workspace.editor.editorSubTabs.unsavedChanges", "Unsaved Changes")}
+          </DialogTitle>
           <DialogDescription>
-            You have unsaved changes in{" "}
-            <strong>{displayGitPath(controller.pendingClose?.fileName ?? "")}</strong>. Discard
-            changes?
+            <UiTrans
+              i18nKey="workspace.editor.editorSubTabs.discardPrompt"
+              defaults="You have unsaved changes in <file>{{name}}</file>. Discard changes?"
+              values={{
+                name: displayGitPath(
+                  controller.pendingClose ? untitledTabName(controller.pendingClose, t) : "",
+                ),
+              }}
+              components={{ file: <strong /> }}
+            />
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => controller.setPendingClose(null)}>
-            Cancel
+            {t("workspace.editor.editorSubTabs.cancel", "Cancel")}
           </Button>
           <Button variant="outline" onClick={controller.handleDiscard}>
-            Discard
+            {t("workspace.editor.editorSubTabs.discard", "Discard")}
           </Button>
           <Button
             onClick={() => void controller.handleSaveAndClose()}
             disabled={controller.isSaving}
           >
-            {controller.isSaving ? "Saving…" : "Save & Close"}
+            {controller.isSaving
+              ? t("workspace.editor.editorSubTabs.saving", "Saving…")
+              : t("workspace.editor.editorSubTabs.saveAndClose", "Save & Close")}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+function tabDisplayName(tab: EditorTab, t: UiTranslator): string {
+  if (tab.isArtifact && tab.artifactPhaseSlug) {
+    return tab.artifactType && tab.artifactType !== DEFAULT_ARTIFACT_TYPE
+      ? t("workspace.editor.artifact.typedTab", "{{phase}}/{{type}} (Artifact)", {
+          phase: tab.artifactPhaseSlug,
+          type: tab.artifactType,
+        })
+      : t("workspace.editor.artifact.tab", "{{phase}} (Artifact)", {
+          phase: tab.artifactPhaseSlug,
+        });
+  }
+  return isUntitledPath(tab.filePath) ? untitledTabName(tab, t) : tab.disambiguatedName;
+}
+
+function untitledTabName(tab: PendingClose, t: UiTranslator): string {
+  if (isUntitledPath(tab.filePath)) {
+    const bufferNumber = /^Untitled-(\d+)$/.exec(tab.fileName)?.[1];
+    if (bufferNumber) {
+      return t("workspace.editor.untitled.numberedTab", "Untitled-{{number}}", {
+        number: bufferNumber,
+      });
+    }
+  }
+  return tab.fileName;
 }

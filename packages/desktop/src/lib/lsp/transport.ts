@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * WebSocket implementation of `@codemirror/lsp-client`'s `Transport`
  * interface. Carries raw LSP JSON-RPC text frames between the renderer's
@@ -61,7 +62,9 @@ export class WebSocketLspTransport implements Transport {
 
   send(message: string): void {
     if (this.closed || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error("LSP transport is not connected");
+      throw new Error(
+        translateUi("workspace.editor.transport.disconnected", "LSP transport is not connected"),
+      );
     }
     this.ws.send(message);
   }
@@ -241,7 +244,7 @@ export async function connectLspWs(sessionId: string): Promise<WebSocketLspTrans
     const timer = setTimeout(() => {
       cleanup();
       ws.close();
-      reject(new Error("LSP connect timed out"));
+      reject(new Error(translateUi("workspace.editor.transport.timeout", "LSP connect timed out")));
     }, OPEN_TIMEOUT_MS);
     const onOpen = (): void => {
       cleanup();
@@ -249,7 +252,9 @@ export async function connectLspWs(sessionId: string): Promise<WebSocketLspTrans
     };
     const onError = (): void => {
       cleanup();
-      reject(new Error("LSP connect failed"));
+      reject(
+        new Error(translateUi("workspace.editor.transport.connectFailed", "LSP connect failed")),
+      );
     };
     const cleanup = (): void => {
       clearTimeout(timer);

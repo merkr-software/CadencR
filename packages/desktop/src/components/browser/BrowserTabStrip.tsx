@@ -1,3 +1,5 @@
+import { browserTabLabel } from "./browser-tab-label";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useState, type DragEvent, type ReactElement } from "react";
 import {
   ChevronDownIcon,
@@ -25,6 +27,7 @@ import { BrowserTabDragSurface, BROWSER_TAB_DRAG_TYPE } from "./BrowserTabDragSu
 import { BrowserTabOverflow } from "./BrowserTabOverflow";
 import { scrollBrowserTabs, useRevealActiveBrowserTab } from "./browser-tab-strip-rail";
 import { BrowserPageIcon, BrowserTemporaryTabIcon } from "./BrowserTabIcons";
+import { browserTabActionLabel } from "./useBrowserTabOrganization";
 import type { BrowserWorkspaceModel } from "./useBrowserWorkspaceModel";
 
 const MAX_VISIBLE_TABS = 20;
@@ -38,6 +41,7 @@ export function BrowserTabStrip({
   model,
   onChromeOverlayOpenChange,
 }: BrowserTabStripProps): ReactElement {
+  const { t } = useUiTranslation();
   const busy = model.pendingAction !== null;
   const pinnedCount = model.state.tabs.findIndex((tab) => !tab.pinned);
   const pinnedEnd = pinnedCount < 0 ? model.state.tabs.length : pinnedCount;
@@ -97,7 +101,13 @@ export function BrowserTabStrip({
         />
       </div>
       {busy ? (
-        <span role="status" className="shrink-0" aria-label={model.pendingAction ?? undefined}>
+        <span
+          role="status"
+          className="shrink-0"
+          aria-label={
+            model.pendingAction ? browserTabActionLabel(model.pendingAction, t) : undefined
+          }
+        >
           <Loader2Icon className="size-3.5 animate-spin text-muted-foreground" />
         </span>
       ) : null}
@@ -161,9 +171,8 @@ const BrowserTabPill = memo(function BrowserTabPill({
   onDragLeave,
   onDragEnd,
 }: BrowserTabPillProps): ReactElement {
-  const label = tab.title || "New tab";
-  const isPrivate = tab.sessionProfileId === PROFILE_ID.private;
-  const isAgentShared = isAgentSharedTab(tab);
+  const { t } = useUiTranslation();
+  const label = browserTabLabel(tab, t);
   const drop = (event: DragEvent<HTMLDivElement>): void => {
     if (!acceptsDrop) return;
     event.preventDefault();
@@ -191,28 +200,26 @@ const BrowserTabPill = memo(function BrowserTabPill({
             type="button"
             className="flex min-w-0 items-center gap-1.5"
             onClick={() => onActivate(tab.id)}
-            title={tab.suspended ? `${label} — opens when selected` : tab.title || tab.url}
+            title={
+              tab.suspended
+                ? t(
+                    "workspace.tools.browserTabStrip.suspended",
+                    "{{label}} — opens when selected",
+                    { label },
+                  )
+                : tab.title
+                  ? label
+                  : tab.url
+            }
           >
-            <span className="flex shrink-0 items-center gap-1">
-              {tab.pinned ? <PinIcon aria-label="Pinned tab" className="size-3" /> : null}
-              <BrowserPageIcon tab={tab} />
-              {isAgentShared ? (
-                <span role="img" aria-label="Shared with agent" title="Shared with agent">
-                  <AgentIcon aria-hidden="true" className="size-3 shrink-0 text-primary" />
-                </span>
-              ) : null}
-              {isPrivate ? (
-                <span role="img" aria-label="Private tab" title="Private tab">
-                  <EyeOffIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-                </span>
-              ) : null}
-              {tab.temporary ? <BrowserTemporaryTabIcon /> : null}
-            </span>
+            <BrowserTabIndicators tab={tab} />
             <span className="truncate">{label}</span>
           </button>
           <button
             type="button"
-            aria-label={`Close ${label}`}
+            aria-label={t("workspace.tools.browserTabStrip.closeNamedTab", "Close {{label}}", {
+              label,
+            })}
             className="flex size-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted-foreground/20 focus-visible:opacity-100 group-hover/tab:opacity-100"
             disabled={busy}
             onClick={() => onClose(tab.id)}
@@ -250,11 +257,19 @@ const NewBrowserTabButton = memo(function NewBrowserTabButton({
   onNewTab: (mode?: CookieMode) => Promise<void>;
   onOpenChange?: (open: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const creating = creatingMode !== null;
-  const defaultLabel = defaultMode === "private" ? "Private" : "Normal";
+  const defaultLabel =
+    defaultMode === "private"
+      ? t("workspace.tools.browserTabStrip.private", "Private")
+      : t("workspace.tools.browserTabStrip.normal", "Normal");
   const primaryLabel = creating
-    ? `Opening ${creatingMode === "private" ? "private " : ""}browser tab`
-    : `New browser tab (default: ${defaultLabel})`;
+    ? creatingMode === "private"
+      ? t("workspace.tools.browserTabStrip.openingPrivate", "Opening private browser tab")
+      : t("workspace.tools.browserTabStrip.openingNormal", "Opening browser tab")
+    : t("workspace.tools.browserTabStrip.newTabDefault", "New browser tab (default: {{mode}})", {
+        mode: defaultLabel,
+      });
   return (
     <div className="flex shrink-0 items-center">
       <Button
@@ -282,8 +297,14 @@ const NewBrowserTabButton = memo(function NewBrowserTabButton({
             size="icon-xs"
             className="h-7 w-5 rounded-l-none border-l px-0"
             disabled={creating}
-            aria-label="Choose browser tab type"
-            title="Choose browser tab type"
+            aria-label={t(
+              "workspace.tools.browserTabStrip.chooseBrowserTabType",
+              "Choose browser tab type",
+            )}
+            title={t(
+              "workspace.tools.browserTabStrip.chooseBrowserTabType",
+              "Choose browser tab type",
+            )}
           >
             <ChevronDownIcon className="size-3" />
           </Button>
@@ -291,11 +312,11 @@ const NewBrowserTabButton = memo(function NewBrowserTabButton({
         <DropdownMenuContent align="start" className="min-w-48">
           <DropdownMenuItem onSelect={() => void onNewTab("normal")}>
             <GlobeIcon />
-            New tab (normal)
+            {t("workspace.tools.browserTabStrip.newTabNormal", "New tab (normal)")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void onNewTab("private")}>
             <EyeOffIcon />
-            New private tab
+            {t("workspace.tools.browserTabStrip.newPrivateTab", "New private tab")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -313,4 +334,40 @@ function boundedVisibleTabs(
   const active = indexed.find(({ tab }) => tab.id === activeTabId);
   if (active && active.index >= MAX_VISIBLE_TABS) visible[MAX_VISIBLE_TABS - 1] = active;
   return visible;
+}
+
+function BrowserTabIndicators({ tab }: { tab: BrowserTabMetadata }): ReactElement {
+  const { t } = useUiTranslation();
+  const isPrivate = tab.sessionProfileId === PROFILE_ID.private;
+  const isAgentShared = isAgentSharedTab(tab);
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {tab.pinned ? (
+        <PinIcon
+          aria-label={t("workspace.tools.browserTabStrip.pinnedTab", "Pinned tab")}
+          className="size-3"
+        />
+      ) : null}
+      <BrowserPageIcon tab={tab} />
+      {isAgentShared ? (
+        <span
+          role="img"
+          aria-label={t("workspace.tools.browserTabStrip.sharedWithAgent", "Shared with agent")}
+          title={t("workspace.tools.browserTabStrip.sharedWithAgent", "Shared with agent")}
+        >
+          <AgentIcon aria-hidden="true" className="size-3 shrink-0 text-primary" />
+        </span>
+      ) : null}
+      {isPrivate ? (
+        <span
+          role="img"
+          aria-label={t("workspace.tools.browserTabStrip.privateTab", "Private tab")}
+          title={t("workspace.tools.browserTabStrip.privateTab", "Private tab")}
+        >
+          <EyeOffIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+        </span>
+      ) : null}
+      {tab.temporary ? <BrowserTemporaryTabIcon /> : null}
+    </span>
+  );
 }

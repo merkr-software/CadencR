@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   ArchiveIcon,
   GitBranchIcon,
@@ -34,35 +35,39 @@ const COMPACT_LABELS = "@max-[30rem]:hidden";
 /** Below this, a wait is not a wait — it is a flicker. */
 const SPINNER_DELAY_MS = 400;
 
-const SECOND_RANK: {
+interface SecondaryGitTab {
   mode: GitViewMode;
   icon: LucideIcon;
   label: string;
   hint: string;
   shortcutId: ShortcutId;
-}[] = [
-  {
-    mode: "graph",
-    icon: GitCommitVerticalIcon,
-    label: "Commits",
-    hint: "Commit history graph",
-    shortcutId: "git-show-commits",
-  },
-  {
-    mode: "branches",
-    icon: GitBranchIcon,
-    label: "Branches",
-    hint: "Local and remote branches",
-    shortcutId: "git-show-branches",
-  },
-  {
-    mode: "stashes",
-    icon: ArchiveIcon,
-    label: "Stashes",
-    hint: "Stashed changes",
-    shortcutId: "git-show-stashes",
-  },
-];
+}
+
+function secondaryGitTabs(t: UiTranslator): SecondaryGitTab[] {
+  return [
+    {
+      mode: "graph",
+      icon: GitCommitVerticalIcon,
+      label: t("workspace.git.gitTabToggle.commits", "Commits"),
+      hint: t("workspace.git.gitTabToggle.commitHistoryGraph", "Commit history graph"),
+      shortcutId: "git-show-commits",
+    },
+    {
+      mode: "branches",
+      icon: GitBranchIcon,
+      label: t("workspace.git.gitTabToggle.branches", "Branches"),
+      hint: t("workspace.git.gitTabToggle.localAndRemoteBranches", "Local and remote branches"),
+      shortcutId: "git-show-branches",
+    },
+    {
+      mode: "stashes",
+      icon: ArchiveIcon,
+      label: t("workspace.git.gitTabToggle.stashes", "Stashes"),
+      hint: t("workspace.git.gitTabToggle.stashedChanges", "Stashed changes"),
+      shortcutId: "git-show-stashes",
+    },
+  ];
+}
 
 export interface GitTabToggleProps {
   value: GitViewMode;
@@ -102,7 +107,7 @@ export const GitTabToggle = memo(function GitTabToggle({
   value,
   onChange,
   targetBranch,
-  prLabel = "Pull request",
+  prLabel: providedPrLabel,
   prNumber,
   prTone = "neutral",
   prAttention = false,
@@ -112,10 +117,11 @@ export const GitTabToggle = memo(function GitTabToggle({
   conflictCount = 0,
   pendingValue = null,
 }: GitTabToggleProps) {
-  const targetLabel = useMemo(
-    () => (targetBranch && targetBranch.trim() ? `vs ${targetBranch}` : "vs target"),
-    [targetBranch],
-  );
+  const { t } = useUiTranslation();
+  const prLabel = providedPrLabel ?? t("workspace.git.gitTabToggle.pullRequest", "Pull request");
+  const targetLabel = targetBranch?.trim()
+    ? t("workspace.git.gitTabToggle.compareWithBranch", "vs {{branch}}", { branch: targetBranch })
+    : t("workspace.git.gitTabToggle.compareWithTarget", "vs target");
   // Every label and badge that can change the thumb's target width, in one
   // cheap string — see `useSegmentedThumb`.
   // `prAttention` belongs here even though it only rings a dot: the ring grows
@@ -133,7 +139,7 @@ export const GitTabToggle = memo(function GitTabToggle({
   return (
     <div
       role="tablist"
-      aria-label="Git view mode"
+      aria-label={t("workspace.git.gitTabToggle.gitViewMode", "Git view mode")}
       ref={listRef}
       className="relative flex min-w-0 items-center gap-0.5 rounded-lg border border-border bg-card/70 p-1"
     >
@@ -152,9 +158,9 @@ export const GitTabToggle = memo(function GitTabToggle({
         active={value === "uncommitted"}
         pending={slowPending === "uncommitted"}
         icon={PencilLineIcon}
-        label="Changes"
-        statusLabel={changesStatusLabel(uncommittedCount, conflictCount)}
-        hint="Working-tree changes"
+        label={t("workspace.git.gitTabToggle.changes", "Changes")}
+        statusLabel={changesStatusLabel(uncommittedCount, conflictCount, t)}
+        hint={t("workspace.git.gitTabToggle.workingTreeChanges", "Working-tree changes")}
         shortcutId="git-show-uncommitted"
         onChange={onChange}
       >
@@ -167,7 +173,7 @@ export const GitTabToggle = memo(function GitTabToggle({
         icon={GitCompareArrowsIcon}
         label={targetLabel}
         labelClassName="max-w-36"
-        hint={`Diff against ${targetBranch?.trim() || "the target branch"}`}
+        hint={targetHint(targetBranch, t)}
         shortcutId="git-show-vs-target"
         onChange={onChange}
       />
@@ -180,7 +186,11 @@ export const GitTabToggle = memo(function GitTabToggle({
         // The visible label sheds the noun once there is a number to show, but
         // "#128" on its own is not a name — screen readers get the whole thing.
         name={prNumber == null ? prLabel : `${prLabel} #${prNumber}`}
-        hint={`${prLabel} status, checks, and comments`}
+        hint={t(
+          "workspace.git.gitTabToggle.proposalDetails",
+          "{{proposal}} status, checks, and comments",
+          { proposal: prLabel },
+        )}
         shortcutId="git-show-pull-request"
         onChange={onChange}
       >
@@ -188,7 +198,7 @@ export const GitTabToggle = memo(function GitTabToggle({
         <PrOthersBadge count={prOtherCount} tone={prOtherTone} />
       </Tab>
       <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-      {SECOND_RANK.map((tab) => (
+      {secondaryGitTabs(t).map((tab) => (
         <Tab
           key={tab.mode}
           compact
@@ -336,11 +346,18 @@ function Tab({
 function changesStatusLabel(
   uncommittedCount: number | undefined,
   conflictCount: number,
+  t: UiTranslator,
 ): string | undefined {
   if (conflictCount > 0)
-    return `${conflictCount} conflicted ${conflictCount === 1 ? "file" : "files"}`;
+    return t("workspace.git.gitTabToggle.conflictCount", "{{count, number}} conflicted files", {
+      count: conflictCount,
+      defaultValue_one: "{{count, number}} conflicted file",
+    });
   if (!uncommittedCount) return undefined;
-  return `${uncommittedCount} uncommitted ${uncommittedCount === 1 ? "change" : "changes"}`;
+  return t("workspace.git.gitTabToggle.uncommittedCount", "{{count, number}} uncommitted changes", {
+    count: uncommittedCount,
+    defaultValue_one: "{{count, number}} uncommitted change",
+  });
 }
 
 function ChangesBadge({
@@ -350,11 +367,15 @@ function ChangesBadge({
   uncommittedCount: number | undefined;
   conflictCount: number;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (conflictCount > 0) {
     return (
       <span
         className="shrink-0 rounded px-1 font-mono text-[10px] leading-[15px] text-[var(--acc-red)] ring-1 ring-[var(--acc-red)]/40 ring-inset"
-        title={`${conflictCount} conflicted ${conflictCount === 1 ? "file" : "files"}`}
+        title={t("workspace.git.gitTabToggle.conflictCount", "{{count, number}} conflicted files", {
+          count: conflictCount,
+          defaultValue_one: "{{count, number}} conflicted file",
+        })}
       >
         {conflictCount}
       </span>
@@ -364,7 +385,14 @@ function ChangesBadge({
   return (
     <span
       className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground"
-      title={`${uncommittedCount} uncommitted ${uncommittedCount === 1 ? "change" : "changes"}`}
+      title={t(
+        "workspace.git.gitTabToggle.uncommittedCount",
+        "{{count, number}} uncommitted changes",
+        {
+          count: uncommittedCount,
+          defaultValue_one: "{{count, number}} uncommitted change",
+        },
+      )}
     >
       {uncommittedCount}
     </span>
@@ -407,14 +435,27 @@ function PrOthersBadge({
   count: number;
   tone: PrIndicatorTone;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (count <= 0) return null;
   return (
     <span
       data-pr-tab-others
       className={cn("shrink-0 font-mono text-[10px] tabular-nums", PR_ICON_STYLE[tone])}
-      title={`${count} more on this conversation's other branches`}
+      title={t(
+        "workspace.git.gitTabToggle.otherBranches",
+        "{{count, number}} more on this conversation's other branches",
+        { count },
+      )}
     >
       +{count}
     </span>
   );
+}
+
+function targetHint(targetBranch: string | undefined, t: UiTranslator): string {
+  return targetBranch?.trim()
+    ? t("workspace.git.gitTabToggle.diffAgainstBranch", "Diff against {{branch}}", {
+        branch: targetBranch,
+      })
+    : t("workspace.git.gitTabToggle.diffAgainstTarget", "Diff against the target branch");
 }

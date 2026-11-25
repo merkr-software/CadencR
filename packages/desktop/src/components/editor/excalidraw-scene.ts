@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 
 export interface ParsedScene {
@@ -22,10 +23,22 @@ export function parseScene(content: string | undefined): ParsedScene {
   try {
     scene = content.trim() === "" ? {} : JSON.parse(content);
   } catch {
-    return { initialData: null, error: "This .excalidraw file isn't valid JSON." };
+    return {
+      initialData: null,
+      error: translateUi(
+        "workspace.editor.excalidraw-scene.invalidJson",
+        "This .excalidraw file isn't valid JSON.",
+      ),
+    };
   }
   if (typeof scene !== "object" || scene === null || Array.isArray(scene)) {
-    return { initialData: null, error: "This .excalidraw file isn't a valid scene." };
+    return {
+      initialData: null,
+      error: translateUi(
+        "workspace.editor.excalidraw-scene.invalidScene",
+        "This .excalidraw file isn't a valid scene.",
+      ),
+    };
   }
   return {
     initialData: { ...scene, scrollToContent: true } as ExcalidrawInitialDataState,

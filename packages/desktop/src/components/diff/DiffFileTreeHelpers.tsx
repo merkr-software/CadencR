@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 import { ArrowUp, Check } from "lucide-react";
 import { HoverCard } from "radix-ui";
@@ -19,24 +20,35 @@ function parseGitDate(dateStr: string): number {
   return new Date(dateStr.replace(GIT_DATE_RE, "$1T$2$3")).getTime();
 }
 
-export function formatRelativeDate(dateStr: string): string {
+export function formatRelativeDate(dateStr: string, t: UiTranslator): string {
   const then = parseGitDate(dateStr);
   if (Number.isNaN(then)) return dateStr;
   const diffSec = Math.floor((Date.now() - then) / 1000);
-  if (diffSec < 60) return "just now";
+  if (diffSec < 60) return t("workspace.git.diffFileTreeHelpers.justNow", "just now");
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 60)
+    return t("workspace.git.diffFileTreeHelpers.minutesAgo", "{{count, number}}m ago", {
+      count: diffMin,
+    });
   const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
+  if (diffHrs < 24)
+    return t("workspace.git.diffFileTreeHelpers.hoursAgo", "{{count, number}}h ago", {
+      count: diffHrs,
+    });
   const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return `${Math.floor(diffDays / 30)}mo ago`;
+  if (diffDays < 30)
+    return t("workspace.git.diffFileTreeHelpers.daysAgo", "{{count, number}}d ago", {
+      count: diffDays,
+    });
+  return t("workspace.git.diffFileTreeHelpers.monthsAgo", "{{count, number}}mo ago", {
+    count: Math.floor(diffDays / 30),
+  });
 }
 
-function formatAbsoluteDate(dateStr: string): string {
+function formatAbsoluteDate(dateStr: string, language?: string): string {
   const then = parseGitDate(dateStr);
   if (Number.isNaN(then)) return dateStr;
-  return new Date(then).toLocaleString(undefined, {
+  return new Date(then).toLocaleString(language, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -46,6 +58,7 @@ function formatAbsoluteDate(dateStr: string): string {
 }
 
 function CommitHoverContent({ commit }: { commit: CommitEntry }) {
+  const { t, i18n } = useUiTranslation();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-1">
@@ -55,7 +68,8 @@ function CommitHoverContent({ commit }: { commit: CommitEntry }) {
       <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span>{commit.author}</span>
         <span>
-          {formatRelativeDate(commit.date)} · {formatAbsoluteDate(commit.date)}
+          {formatRelativeDate(commit.date, t)} ·{" "}
+          {formatAbsoluteDate(commit.date, i18n.resolvedLanguage)}
         </span>
       </div>
       <PushState isPushed={commit.isPushed} />
@@ -80,13 +94,19 @@ export function NotPushedLabel({ children }: { children: ReactNode }) {
 }
 
 function PushState({ isPushed }: { isPushed: boolean }) {
+  const { t } = useUiTranslation();
   return isPushed ? (
     <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
       <Check className="size-3" aria-hidden />
-      Pushed
+      {t("workspace.git.diffFileTreeHelpers.pushed", "Pushed")}
     </span>
   ) : (
-    <NotPushedLabel>Not pushed — only on your machine</NotPushedLabel>
+    <NotPushedLabel>
+      {t(
+        "workspace.git.diffFileTreeHelpers.notPushedOnlyOnYourMachine",
+        "Not pushed — only on your machine",
+      )}
+    </NotPushedLabel>
   );
 }
 

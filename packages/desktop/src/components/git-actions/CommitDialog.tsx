@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Loader2, Minimize2 } from "lucide-react";
 import {
@@ -46,23 +47,30 @@ function CommitFields({
   onMessageChange,
   onToggle,
 }: CommitFieldsProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-3">
       <Textarea
         value={message}
         onChange={(event) => onMessageChange(event.target.value)}
-        placeholder="Commit message"
+        placeholder={t("workspace.git.commitDialog.commitMessage", "Commit message")}
         rows={3}
         autoFocus
       />
       {loading ? (
         <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          <span>Loading changes…</span>
+          <span>{t("workspace.git.commitDialog.loadingChanges", "Loading changes…")}</span>
         </div>
       ) : error ? (
         <p className="text-sm text-destructive">
-          {apiErrorMessage(error, "Failed to load uncommitted files.")}
+          {apiErrorMessage(
+            error,
+            translateUi(
+              "workspace.git.commitDialog.failedToLoadUncommittedFiles",
+              "Failed to load uncommitted files.",
+            ),
+          )}
         </p>
       ) : (
         <UncommittedFileList files={files} selected={selected} onToggle={onToggle} />
@@ -125,6 +133,7 @@ export default function CommitDialog({
   open,
   submission,
 }: CommitDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const [message, setMessage] = useState("");
   const { outcome, submitting, submit, onDialogOpenChange } = submission;
   const filesQuery = useGetUncommittedFiles(
@@ -162,16 +171,26 @@ export default function CommitDialog({
       <DialogContent className="!w-[min(90vw,48rem)] !max-w-[min(90vw,48rem)] sm:!max-w-[min(90vw,48rem)]">
         <DialogHeader>
           <DialogTitle>
-            {submitting ? "Committing changes" : failed ? "Commit failed" : "Commit changes"}
+            {submitting
+              ? t("workspace.git.commitDialog.committingChanges", "Committing changes")
+              : failed
+                ? t("workspace.git.commitDialog.commitFailed", "Commit failed")
+                : t("workspace.git.commitDialog.commitChanges", "Commit changes")}
           </DialogTitle>
           {submitting && (
             <DialogDescription>
-              Pre-commit hooks are running. You can keep this open or continue in the background.
+              {t(
+                "workspace.git.commitDialog.preCommitHooksAreRunningYouCanKeep",
+                "Pre-commit hooks are running. You can keep this open or continue in the background.",
+              )}
             </DialogDescription>
           )}
           {failed && (
             <DialogDescription>
-              Review the output, fix the problem, then update the message or selection and retry.
+              {t(
+                "workspace.git.commitDialog.reviewTheOutputFixTheProblemThen",
+                "Review the output, fix the problem, then update the message or selection and retry.",
+              )}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -218,12 +237,13 @@ function CommitFooter({
   onSubmit,
   onClose,
 }: CommitFooterProps): ReactElement {
+  const { t } = useUiTranslation();
   if (submitting) {
     return (
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
           <Minimize2 className="mr-2 size-4" />
-          Run in background
+          {t("workspace.git.commitDialog.runInBackground", "Run in background")}
           <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
         </Button>
       </DialogFooter>
@@ -232,11 +252,13 @@ function CommitFooter({
   return (
     <DialogFooter>
       <Button variant="outline" onClick={onClose}>
-        Close
+        {t("workspace.git.commitDialog.close", "Close")}
         <KbdShortcut keys={ESC_KEYS} variant="hint" />
       </Button>
       <Button onClick={onSubmit} disabled={!canSubmit}>
-        {failed ? "Retry commit" : "Commit"}
+        {failed
+          ? t("workspace.git.commitDialog.retryCommit", "Retry commit")
+          : t("workspace.git.commitDialog.commit", "Commit")}
         <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
       </Button>
     </DialogFooter>

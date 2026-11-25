@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { type Diagnostic } from "@codemirror/lint";
 import { LSPPlugin, type LSPClient } from "@codemirror/lsp-client";
 import type { EditorView } from "@codemirror/view";
@@ -94,7 +95,14 @@ export class PullDiagnostics {
       const cancellation = z
         .object({ code: z.union([z.literal(-32800), z.literal(-32801)]) })
         .safeParse(error);
-      if (!cancellation.success) toast.error(`Could not refresh diagnostics from ${this.lspId}.`);
+      if (!cancellation.success)
+        toast.error(
+          translateUi(
+            "workspace.editor.pull-diagnostics.refreshFailed",
+            "Could not refresh diagnostics from {{server}}.",
+            { server: this.lspId },
+          ),
+        );
     } finally {
       if (this.request === params) this.request = null;
     }

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -71,7 +72,13 @@ export const FeaturePrView = memo(function FeaturePrView({
   if (summaryQuery.isError && !status) {
     return (
       <PrViewError
-        message={apiErrorMessage(summaryQuery.error, "Could not load pull request status")}
+        message={apiErrorMessage(
+          summaryQuery.error,
+          translateUi(
+            "workspace.git.featurePrView.couldNotLoadPullRequestStatus",
+            "Could not load pull request status",
+          ),
+        )}
       />
     );
   }
@@ -309,14 +316,18 @@ function usePinnedBandScroll(): {
  * always prose: a rejected call carries the forge's own body, which can be JSON.
  */
 function ForgeConnectEmptyState({ reason }: { reason?: string | null }): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   return (
     <EmptyState
-      title="Connect this remote"
+      title={t("workspace.git.featurePrView.connectThisRemote", "Connect this remote")}
       // Deliberately not a second "…to load pull requests, checks, and comments":
       // the backend's reason already says that, and the two stacked read as a
       // stutter. This line states the situation, `detail` gives the specifics.
-      description="Cadencr can't reach the forge behind this remote yet."
+      description={t(
+        "workspace.git.featurePrView.cadencrCanTReachTheForgeBehindThis",
+        "Cadencr can't reach the forge behind this remote yet.",
+      )}
       detail={reason}
       icon={<PrEmptyIcon />}
       action={
@@ -327,7 +338,7 @@ function ForgeConnectEmptyState({ reason }: { reason?: string | null }): ReactEl
             void navigate({ to: "/settings", search: { section: FORGE_SETTINGS_ANCHOR } })
           }
         >
-          Connect a provider
+          {t("workspace.git.featurePrView.connectAProvider", "Connect a provider")}
         </Button>
       }
     />
@@ -335,10 +346,14 @@ function ForgeConnectEmptyState({ reason }: { reason?: string | null }): ReactEl
 }
 
 function NoPrEmptyState(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <EmptyState
-      title="No open pull request"
-      description="Push this branch and open a pull request or merge request to see its summary here."
+      title={t("workspace.git.featurePrView.noOpenPullRequest", "No open pull request")}
+      description={t(
+        "workspace.git.featurePrView.pushThisBranchAndOpenAPull",
+        "Push this branch and open a pull request or merge request to see its summary here.",
+      )}
       icon={<PrEmptyIcon />}
     />
   );

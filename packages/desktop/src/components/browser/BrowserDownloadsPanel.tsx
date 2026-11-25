@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useRef, type ReactElement } from "react";
 import { Virtuoso } from "react-virtuoso";
 import {
@@ -13,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
+import { formatBytes } from "@/lib/diff-thresholds";
 import type { BrowserDownload } from "@/lib/desktop-bridge";
 import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,7 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
   open,
   onOpenChange,
 }: BrowserDownloadsPanelProps): ReactElement {
+  const { t } = useUiTranslation();
   const controller = useBrowserDownloads(scopeId);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Radix returns focus to the trigger on close, which an invisible (folded)
@@ -49,8 +52,16 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
   const { activeCount = 0, aggregatePercent = null } = controller.snapshot ?? {};
   const summary =
     activeCount > 0
-      ? `${activeCount} active${aggregatePercent === null ? "" : `, ${aggregatePercent}%`}`
-      : "No active downloads";
+      ? aggregatePercent === null
+        ? t("workspace.tools.browserDownloadsPanel.activeCount", "{{count}} active", {
+            count: activeCount,
+          })
+        : t(
+            "workspace.tools.browserDownloadsPanel.activeProgress",
+            "{{count}} active, {{percent}}%",
+            { count: activeCount, percent: aggregatePercent },
+          )
+      : t("workspace.tools.browserDownloadsPanel.noActiveDownloads", "No active downloads");
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -67,8 +78,14 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
             activeCount === 0 &&
               "@max-[50rem]:invisible @max-[50rem]:absolute @max-[50rem]:right-0",
           )}
-          aria-label={`Downloads: ${summary}`}
-          title={`${summary} (${shortcut})`}
+          aria-label={t("workspace.tools.browserDownloadsPanel.summary", "Downloads: {{summary}}", {
+            summary,
+          })}
+          title={t(
+            "workspace.tools.browserDownloadsPanel.summaryShortcut",
+            "{{summary}} ({{shortcut}})",
+            { summary, shortcut },
+          )}
         >
           <DownloadIcon className="size-4" />
           {activeCount > 0 ? (
@@ -91,12 +108,20 @@ export const BrowserDownloadsPanel = memo(function BrowserDownloadsPanel({
 });
 
 function DownloadsHeader({ controller }: { controller: BrowserDownloadsController }): ReactElement {
+  const { t } = useUiTranslation();
   const finished = controller.snapshot?.downloads.some((download) => !download.canCancel) ?? false;
   return (
     <div className="flex items-center gap-2 border-b px-3 py-2.5">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">Downloads</p>
-        <p className="text-xs text-muted-foreground">Saved to your Downloads folder</p>
+        <p className="text-sm font-medium">
+          {t("workspace.tools.browserDownloadsPanel.downloads", "Downloads")}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "workspace.tools.browserDownloadsPanel.savedToYourDownloadsFolder",
+            "Saved to your Downloads folder",
+          )}
+        </p>
       </div>
       {finished ? (
         <Button
@@ -112,7 +137,7 @@ function DownloadsHeader({ controller }: { controller: BrowserDownloadsControlle
           ) : (
             <Trash2Icon />
           )}
-          Clear finished
+          {t("workspace.tools.browserDownloadsPanel.clearFinished", "Clear finished")}
         </Button>
       ) : null}
     </div>
@@ -120,6 +145,7 @@ function DownloadsHeader({ controller }: { controller: BrowserDownloadsControlle
 }
 
 function DownloadsBody({ controller }: { controller: BrowserDownloadsController }): ReactElement {
+  const { t } = useUiTranslation();
   const downloads = controller.snapshot?.downloads ?? [];
   const hasPrivate = downloads.some((download) => download.private);
   return (
@@ -138,14 +164,17 @@ function DownloadsBody({ controller }: { controller: BrowserDownloadsController 
               disabled={controller.pending !== null}
               onClick={() => void controller.reload()}
             >
-              Retry
+              {t("workspace.tools.browserDownloadsPanel.retry", "Retry")}
             </Button>
           ) : null}
           <Button
             type="button"
             size="icon-xs"
             variant="ghost"
-            aria-label="Dismiss download error"
+            aria-label={t(
+              "workspace.tools.browserDownloadsPanel.dismissDownloadError",
+              "Dismiss download error",
+            )}
             onClick={controller.dismissError}
           >
             <XIcon />
@@ -155,13 +184,22 @@ function DownloadsBody({ controller }: { controller: BrowserDownloadsController 
       {hasPrivate ? (
         <div className="flex gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           <ShieldAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-          Private browsing history is not saved, but downloaded files remain on disk.
+          {t(
+            "workspace.tools.browserDownloadsPanel.privateBrowsingHistoryIsNotSavedBut",
+            "Private browsing history is not saved, but downloaded files remain on disk.",
+          )}
         </div>
       ) : null}
       {controller.loading ? (
-        <PanelMessage icon={<Loader2Icon className="animate-spin" />} text="Loading downloads…" />
+        <PanelMessage
+          icon={<Loader2Icon className="animate-spin" />}
+          text={t("workspace.tools.browserDownloadsPanel.loadingDownloads", "Loading downloads…")}
+        />
       ) : downloads.length === 0 ? (
-        <PanelMessage icon={<DownloadIcon />} text="No downloads yet" />
+        <PanelMessage
+          icon={<DownloadIcon />}
+          text={t("workspace.tools.browserDownloadsPanel.noDownloadsYet", "No downloads yet")}
+        />
       ) : (
         <DownloadsList downloads={downloads} controller={controller} />
       )}
@@ -211,27 +249,13 @@ const DownloadRow = memo(function DownloadRow({
   cancel: (id: string) => Promise<void>;
   reveal: (id: string) => Promise<void>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex gap-2 px-3 py-2.5">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
         <DownloadIcon className="size-4" />
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium" title={download.filename}>
-          {download.filename}
-        </p>
-        <p className="text-[11px] text-muted-foreground">
-          {downloadStatus(download)} · {formatBytes(download.receivedBytes)}
-          {download.totalBytes === null ? "" : ` of ${formatBytes(download.totalBytes)}`}
-        </p>
-        <p className="truncate text-[10px] text-muted-foreground" title={download.destination}>
-          {download.destination}
-        </p>
-        {download.canCancel ? <DownloadProgress download={download} /> : null}
-        {download.error ? (
-          <p className="mt-0.5 text-[11px] text-destructive">{download.error}</p>
-        ) : null}
-      </div>
+      <DownloadDetails download={download} />
       <div className="flex shrink-0 items-center gap-0.5">
         {pending ? (
           <Loader2Icon className="mx-1 size-3.5 animate-spin text-muted-foreground" />
@@ -239,7 +263,7 @@ const DownloadRow = memo(function DownloadRow({
         {!pending && download.canPause ? (
           <IconAction
             disabled={busy}
-            label="Pause download"
+            label={t("workspace.tools.browserDownloadsPanel.pauseDownload", "Pause download")}
             icon={<PauseIcon />}
             onClick={() => void pause(download.id)}
           />
@@ -247,7 +271,7 @@ const DownloadRow = memo(function DownloadRow({
         {!pending && download.canResume ? (
           <IconAction
             disabled={busy}
-            label="Resume download"
+            label={t("workspace.tools.browserDownloadsPanel.resumeDownload", "Resume download")}
             icon={<PlayIcon />}
             onClick={() => void resume(download.id)}
           />
@@ -255,7 +279,7 @@ const DownloadRow = memo(function DownloadRow({
         {!pending && download.canCancel ? (
           <IconAction
             disabled={busy}
-            label="Cancel download"
+            label={t("workspace.tools.browserDownloadsPanel.cancelDownload", "Cancel download")}
             icon={<XIcon />}
             onClick={() => void cancel(download.id)}
           />
@@ -263,7 +287,11 @@ const DownloadRow = memo(function DownloadRow({
         {!pending && download.state === "completed" ? (
           <IconAction
             disabled={busy}
-            label={PLATFORM_IS_MAC ? "Show in Finder" : "Show in folder"}
+            label={
+              PLATFORM_IS_MAC
+                ? t("workspace.tools.browserDownloadsPanel.showInFinder", "Show in Finder")
+                : t("workspace.tools.browserDownloadsPanel.showInFolder", "Show in folder")
+            }
             icon={<FolderOpenIcon />}
             onClick={() => void reveal(download.id)}
           />
@@ -273,12 +301,53 @@ const DownloadRow = memo(function DownloadRow({
   );
 });
 
+function DownloadDetails({ download }: { download: BrowserDownload }): ReactElement {
+  const { t } = useUiTranslation();
+  return (
+    <div className="min-w-0 flex-1">
+      <p className="truncate text-xs font-medium" title={download.filename}>
+        {download.filename}
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        {download.totalBytes === null
+          ? t("workspace.tools.browserDownloadsPanel.receivedBytes", "{{status}} · {{received}}", {
+              status: DOWNLOAD_STATUS[download.state](t),
+              received: formatBytes(download.receivedBytes, t, "GB"),
+            })
+          : t(
+              "workspace.tools.browserDownloadsPanel.totalBytes",
+              "{{status}} · {{received}} of {{total}}",
+              {
+                status: DOWNLOAD_STATUS[download.state](t),
+                received: formatBytes(download.receivedBytes, t, "GB"),
+                total: formatBytes(download.totalBytes, t, "GB"),
+              },
+            )}
+      </p>
+      <p className="truncate text-[10px] text-muted-foreground" title={download.destination}>
+        {download.destination}
+      </p>
+      {download.canCancel ? <DownloadProgress download={download} /> : null}
+      {download.error ? (
+        <p className="mt-0.5 text-[11px] text-destructive">
+          {download.errorReason ? downloadFailureLabels[download.errorReason](t) : download.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function DownloadProgress({ download }: { download: BrowserDownload }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Progress
       className="mt-1"
       value={download.percent}
-      aria-label={`${download.filename} download progress`}
+      aria-label={t(
+        "workspace.tools.browserDownloadsPanel.progress",
+        "{{filename}} download progress",
+        { filename: download.filename },
+      )}
     />
   );
 }
@@ -318,13 +387,21 @@ function PanelMessage({ icon, text }: { icon: ReactElement; text: string }): Rea
   );
 }
 
-function downloadStatus(download: BrowserDownload): string {
-  return download.state[0].toUpperCase() + download.state.slice(1);
-}
+const downloadFailureLabels = {
+  interrupted: (t: UiTranslator) =>
+    t("workspace.browser.downloads.interrupted", "The download was interrupted."),
+  startFailed: (t: UiTranslator) =>
+    t("workspace.browser.downloads.startFailed", "Download could not start"),
+  failed: (t: UiTranslator) => t("workspace.browser.downloads.failed", "Download failed"),
+} satisfies Record<NonNullable<BrowserDownload["errorReason"]>, (t: UiTranslator) => string>;
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
-  if (bytes < 1_073_741_824) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-}
+const DOWNLOAD_STATUS = {
+  progressing: (t: UiTranslator) =>
+    t("workspace.tools.browserDownloadsPanel.progressing", "Progressing"),
+  paused: (t: UiTranslator) => t("workspace.tools.browserDownloadsPanel.paused", "Paused"),
+  interrupted: (t: UiTranslator) =>
+    t("workspace.tools.browserDownloadsPanel.interrupted", "Interrupted"),
+  completed: (t: UiTranslator) => t("workspace.tools.browserDownloadsPanel.completed", "Completed"),
+  cancelled: (t: UiTranslator) => t("workspace.tools.browserDownloadsPanel.cancelled", "Cancelled"),
+  failed: (t: UiTranslator) => t("workspace.tools.browserDownloadsPanel.failed", "Failed"),
+} satisfies Record<BrowserDownload["state"], (t: UiTranslator) => string>;

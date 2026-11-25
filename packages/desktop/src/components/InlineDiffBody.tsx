@@ -37,8 +37,8 @@ function LargeInlineDiff({ patch, patchLines }: Pick<InlineDiffBodyProps, "patch
         <span>
           {t(
             "conversation.stream.inlineDiffBody.largeDiff",
-            "Large diff shown without syntax highlighting (about {{bytes}}, {{lines}} changed lines)",
-            { bytes: formatBytes(patchBytes), lines: patchLines.toLocaleString() },
+            "Large diff shown without syntax highlighting (about {{bytes}}, {{lines, number}} changed lines)",
+            { bytes: formatBytes(patchBytes, t), lines: patchLines },
           )}
         </span>
       </div>

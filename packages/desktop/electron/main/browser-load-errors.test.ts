@@ -1,3 +1,5 @@
+import { localizedBrowserError } from "../../src/shared/browser-error-copy";
+import { uiI18n } from "../../src/shared/ui-i18n";
 import { describe, expect, it } from "vitest";
 import {
   formatBlockedNavigationError,
@@ -73,6 +75,7 @@ describe("formatBrowserLoadError", () => {
       const err = formatBrowserLoadError(-102, "ERR_CONNECTION_REFUSED", url);
       expect(err).toEqual({
         kind: "load",
+        failure: { reason: "localRefused", host },
         title: `Can't connect to ${host}`,
         description: "Nothing is listening on this port. Make sure your dev server is running.",
         url,
@@ -230,6 +233,7 @@ describe("formatBrowserCrashError", () => {
     const err = formatBrowserCrashError("oom", "https://heavy.example.com/");
     expect(err).toEqual({
       kind: "crash",
+      failure: { reason: "outOfMemory" },
       title: "This page ran out of memory",
       description: "Reload the tab to try again.",
       url: "https://heavy.example.com/",
@@ -242,6 +246,7 @@ describe("formatBrowserCrashError", () => {
     const err = formatBrowserCrashError("crashed", "https://example.com/");
     expect(err).toEqual({
       kind: "crash",
+      failure: { reason: "crash" },
       title: "This page crashed",
       description: "Something went wrong while displaying this page. Reload to try again.",
       url: "https://example.com/",
@@ -293,4 +298,14 @@ describe("isViewportPageError", () => {
     expect(isViewportPageError(null)).toBe(false);
     expect(isViewportPageError(undefined)).toBe(false);
   });
+});
+
+it("relabels an existing navigation failure without loading a new page or altering diagnostic data", () => {
+  const url = "https://missing.invalid/keep-this-path";
+  const error = formatBrowserLoadError(-105, "ERR_NAME_NOT_RESOLVED", url);
+  expect(localizedBrowserError(error, uiI18n.getFixedT("cimode", "ui"))).toEqual({
+    title: "workspace.browser.error.notFound.title",
+    description: "workspace.browser.error.notFound.description",
+  });
+  expect(error).toMatchObject({ url, code: "ERR_NAME_NOT_RESOLVED", title: "Site not found" });
 });

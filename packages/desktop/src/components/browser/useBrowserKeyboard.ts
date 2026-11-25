@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect } from "react";
 
 import { desktopBridge, type BrowserShortcut } from "@/lib/desktop-bridge";
@@ -213,7 +214,13 @@ function useBrowserGuestShortcutPublication(): void {
         navigateForward: { keys: navigateForward.keys, altKeys: navigateForward.altKeys },
       })
       .catch((error: unknown) => {
-        showBrowserError(error, "Could not configure Browser shortcuts");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserKeyboard.couldNotConfigureBrowserShortcuts",
+            "Could not configure Browser shortcuts",
+          ),
+        );
       });
   }, [devtools, downloads, find, navigateBack, navigateForward, responsive, zoomReset]);
 }

@@ -1,14 +1,14 @@
+import { SiteIdentity } from "./BrowserSiteIdentity";
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactElement } from "react";
 import {
   CameraIcon,
   ClipboardIcon,
-  EyeOffIcon,
   GlobeIcon,
   Loader2Icon,
   LockIcon,
   MapPinIcon,
   MicIcon,
-  ShieldCheckIcon,
   Trash2Icon,
 } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -42,14 +42,27 @@ import {
 const PERMISSION_DETAILS: Record<
   BrowserSitePermission,
   {
-    label: string;
+    label: (t: UiTranslator) => string;
     Icon: typeof CameraIcon;
   }
 > = {
-  camera: { label: "Camera", Icon: CameraIcon },
-  microphone: { label: "Microphone", Icon: MicIcon },
-  location: { label: "Location", Icon: MapPinIcon },
-  clipboard: { label: "Clipboard", Icon: ClipboardIcon },
+  camera: {
+    label: (t: UiTranslator) => t("workspace.tools.browserSiteInformation.camera", "Camera"),
+    Icon: CameraIcon,
+  },
+  microphone: {
+    label: (t: UiTranslator) =>
+      t("workspace.tools.browserSiteInformation.microphone", "Microphone"),
+    Icon: MicIcon,
+  },
+  location: {
+    label: (t: UiTranslator) => t("workspace.tools.browserSiteInformation.location", "Location"),
+    Icon: MapPinIcon,
+  },
+  clipboard: {
+    label: (t: UiTranslator) => t("workspace.tools.browserSiteInformation.clipboard", "Clipboard"),
+    Icon: ClipboardIcon,
+  },
 };
 
 interface Confirmation {
@@ -66,6 +79,7 @@ export function BrowserSiteInformation({
   activeTab,
   onOverlayOpenChange,
 }: BrowserSiteInformationProps): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const controller = useBrowserSiteInfo(activeTab, open);
@@ -93,7 +107,10 @@ export function BrowserSiteInformation({
             size="icon-xs"
             className="shrink-0 text-muted-foreground"
             disabled={!activeTab}
-            aria-label="Site information and permissions"
+            aria-label={t(
+              "workspace.tools.browserSiteInformation.siteInformationAndPermissions",
+              "Site information and permissions",
+            )}
           >
             {isSecureUrl(activeTab?.url) ? (
               <LockIcon className="size-3.5 text-[var(--acc-green)]" />
@@ -128,55 +145,42 @@ function SitePanel({
   controller: BrowserSiteInfoController;
   onConfirm: (confirmation: Confirmation | null) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { info } = controller;
   if (controller.loading && !info) {
     return (
       <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2Icon className="size-4 animate-spin" /> Loading site information…
+        <Loader2Icon className="size-4 animate-spin" />{" "}
+        {t(
+          "workspace.tools.browserSiteInformation.loadingSiteInformation",
+          "Loading site information…",
+        )}
       </div>
     );
   }
-  if (!info) return <p className="py-4 text-sm text-muted-foreground">No site is loaded.</p>;
+  if (!info)
+    return (
+      <p className="py-4 text-sm text-muted-foreground">
+        {t("workspace.tools.browserSiteInformation.noSiteIsLoaded", "No site is loaded.")}
+      </p>
+    );
   return (
     <>
-      <div className="space-y-1">
-        <div className="flex items-center gap-2 font-medium">
-          {info.secure ? (
-            <ShieldCheckIcon className="size-4 text-[var(--acc-green)]" />
-          ) : (
-            <GlobeIcon className="size-4 text-muted-foreground" />
-          )}
-          <span>{info.secure ? "Secure connection" : "Connection not secure"}</span>
-        </div>
-        <p className="truncate font-mono text-xs text-muted-foreground">
-          {info.origin ?? "No website origin"}
-        </p>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {info.privacy === "private" ? <EyeOffIcon className="size-3.5" /> : null}
-          <span>
-            {info.privacy === "private"
-              ? "Private"
-              : info.privacy === "normal"
-                ? "Normal"
-                : "Feature session"}{" "}
-            · {info.profile.label}
-          </span>
-        </div>
-      </div>
+      <SiteIdentity info={info} />
       <Separator />
       <section aria-labelledby="website-permissions-heading" className="space-y-2">
         <h3
           id="website-permissions-heading"
           className="text-xs font-medium uppercase tracking-wide"
         >
-          Website permissions
+          {t("workspace.tools.browserSiteInformation.websitePermissions", "Website permissions")}
         </h3>
         {BROWSER_SITE_PERMISSIONS.map((permission) => {
           const { label, Icon } = PERMISSION_DETAILS[permission];
           return (
             <PermissionRow
               key={permission}
-              label={label}
+              label={label(t)}
               Icon={Icon}
               disabled={!info.origin || controller.action !== null}
               value={info.permissions[permission]}
@@ -199,7 +203,11 @@ function SitePanel({
             onConfirm({ kind: "clear", target: { tabId: info.tabId, origin: info.origin } });
         }}
       >
-        <Trash2Icon className="size-3.5" /> Clear data for this site…
+        <Trash2Icon className="size-3.5" />{" "}
+        {t(
+          "workspace.tools.browserSiteInformation.clearDataForThisSite",
+          "Clear data for this site…",
+        )}
       </Button>
     </>
   );
@@ -218,6 +226,7 @@ function PermissionRow({
   disabled: boolean;
   onChange: (decision: BrowserSitePermissionDecision) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -231,13 +240,27 @@ function PermissionRow({
           if (isPermissionDecision(next)) onChange(next);
         }}
       >
-        <SelectTrigger size="sm" className="w-24" aria-label={`${label} permission`}>
+        <SelectTrigger
+          size="sm"
+          className="w-24"
+          aria-label={t(
+            "workspace.tools.browserSiteInformation.permissionLabel",
+            "{{label}} permission",
+            { label },
+          )}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="ask">Ask</SelectItem>
-          <SelectItem value="allow">Allow</SelectItem>
-          <SelectItem value="deny">Block</SelectItem>
+          <SelectItem value="ask">
+            {t("workspace.tools.browserSiteInformation.ask", "Ask")}
+          </SelectItem>
+          <SelectItem value="allow">
+            {t("workspace.tools.browserSiteInformation.allow", "Allow")}
+          </SelectItem>
+          <SelectItem value="deny">
+            {t("workspace.tools.browserSiteInformation.block", "Block")}
+          </SelectItem>
         </SelectContent>
       </Select>
     </div>
@@ -251,6 +274,7 @@ function AgentSharing({
   controller: BrowserSiteInfoController;
   onConfirm: (confirmation: Confirmation | null) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const info = controller.info;
   if (!info) return <></>;
   const shared = info.agentAccess !== "user";
@@ -260,10 +284,13 @@ function AgentSharing({
         <AgentIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <h3 id="agent-sharing-heading" className="text-sm font-medium">
-            Agent sharing
+            {t("workspace.tools.browserSiteInformation.agentSharing", "Agent sharing")}
           </h3>
           <p className="text-xs text-muted-foreground">
-            Separate from website permissions. Sharing lets the agent read and control this tab.
+            {t(
+              "workspace.tools.browserSiteInformation.separateFromWebsitePermissionsSharingLetsThe",
+              "Separate from website permissions. Sharing lets the agent read and control this tab.",
+            )}
           </p>
         </div>
       </div>
@@ -281,7 +308,12 @@ function AgentSharing({
           }
         }}
       >
-        {shared ? "Revoke agent access" : "Share this tab with agent…"}
+        {shared
+          ? t("workspace.tools.browserSiteInformation.revokeAgentAccess", "Revoke agent access")
+          : t(
+              "workspace.tools.browserSiteInformation.shareThisTabWithAgent",
+              "Share this tab with agent…",
+            )}
       </Button>
     </section>
   );
@@ -298,18 +330,36 @@ function SiteConfirmation({
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const sharing = confirmation?.kind === "share";
   return (
     <ConfirmDialog
       open={confirmation !== null}
       onOpenChange={(next) => !next && onCancel()}
-      title={sharing ? "Share this tab with the agent?" : "Clear site data?"}
+      title={
+        sharing
+          ? t(
+              "workspace.tools.browserSiteInformation.shareThisTabWithTheAgent",
+              "Share this tab with the agent?",
+            )
+          : t("workspace.tools.browserSiteInformation.clearSiteDataTitle", "Clear site data?")
+      }
       description={
         sharing
-          ? "The agent will be able to read and control everything visible in this tab, including signed-in account data. Access lasts until you revoke it or close the tab."
-          : "Storage and cache for this origin will be removed from this tab’s actual browser profile. Chromium may also remove cookies shared by the same registrable domain; other profiles are not cleared."
+          ? t(
+              "workspace.tools.browserSiteInformation.theAgentWillBeAbleToRead",
+              "The agent will be able to read and control everything visible in this tab, including signed-in account data. Access lasts until you revoke it or close the tab.",
+            )
+          : t(
+              "workspace.tools.browserSiteInformation.storageAndCacheForThisOriginWill",
+              "Storage and cache for this origin will be removed from this tab’s actual browser profile. Chromium may also remove cookies shared by the same registrable domain; other profiles are not cleared.",
+            )
       }
-      confirmText={sharing ? "Share with agent" : "Clear site data"}
+      confirmText={
+        sharing
+          ? t("workspace.tools.browserSiteInformation.shareWithAgent", "Share with agent")
+          : t("workspace.tools.browserSiteInformation.clearSiteData", "Clear site data")
+      }
       variant={sharing ? "default" : "destructive"}
       busy={busy}
       onConfirm={onConfirm}

@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Pure derivation: turn a `GitStatusSnapshot` into the smart-button state used
  * by `GitActionButton`. Kept pure (no React) so the snapshot matrix can be
@@ -14,7 +15,6 @@ import { prNoun } from "@/lib/open-pull-request";
 import { gitUpdateContinueDisabledReason } from "./gitUpdateMessages";
 
 /** Used until the backend names the host's own action ("Open merge request"). */
-const DEFAULT_COMPARE_LABEL = "Open pull request";
 
 export type GitAction = "commit" | "stash" | "update" | "push" | "pr" | "merge";
 export type PrimaryGitAction = Exclude<GitAction, "stash">;
@@ -39,17 +39,19 @@ export function isActivityAction(action: GitAction): action is ActivityAction {
   return (ACTIVITY_ACTIONS as readonly GitAction[]).includes(action);
 }
 
-const ACTIVITY_LABELS: Record<ActivityAction, Record<Exclude<GitActivity, null>, string>> = {
-  commit: { running: "Committing", failed: "Commit failed" },
-  push: { running: "Pushing", failed: "Push failed" },
-};
-
 /** Button copy while a run is in flight or has failed. */
 export function gitActivityLabel(
   action: ActivityAction,
   activity: Exclude<GitActivity, null>,
+  t: UiTranslator = translateUi,
 ): string {
-  return ACTIVITY_LABELS[action][activity];
+  return action === "commit"
+    ? activity === "running"
+      ? t("workspace.git.useGitAction.committing", "Committing")
+      : t("workspace.git.useGitAction.commitFailed", "Commit failed")
+    : activity === "running"
+      ? t("workspace.git.useGitAction.pushing", "Pushing")
+      : t("workspace.git.useGitAction.pushFailed", "Push failed");
 }
 
 /**
@@ -59,8 +61,15 @@ export function gitActivityLabel(
 export function gitActivityHint(
   action: ActivityAction,
   activity: Exclude<GitActivity, null>,
+  t: UiTranslator = translateUi,
 ): string {
-  return `View ${action} ${activity === "running" ? "progress" : "error"}`;
+  return action === "commit"
+    ? activity === "running"
+      ? t("workspace.git.useGitAction.commitProgress", "View commit progress")
+      : t("workspace.git.useGitAction.commitError", "View commit error")
+    : activity === "running"
+      ? t("workspace.git.useGitAction.pushProgress", "View push progress")
+      : t("workspace.git.useGitAction.pushError", "View push error");
 }
 
 /** The busiest action to surface on the primary button, if any. */
@@ -117,64 +126,111 @@ function disabledActions(reason: string): Record<GitAction, string> {
   return { commit: reason, stash: reason, update: reason, push: reason, pr: reason, merge: reason };
 }
 
-const LOADING_STATE: GitActionState = {
-  primary: null,
-  label: "Loading…",
-  disabled: disabledActions("Loading…"),
-  compareLabel: DEFAULT_COMPARE_LABEL,
-  updatePending: false,
-  recovery: null,
-};
-
-function deriveCommitDisabled(snapshot: GitStatusSnapshot): string | null {
-  return snapshot.uncommitted_count > 0 ? null : "No uncommitted changes";
+function loadingState(t: UiTranslator): GitActionState {
+  return {
+    primary: null,
+    label: t("workspace.git.useGitAction.loading", "Loading…"),
+    disabled: {
+      commit: t("workspace.git.useGitAction.loading", "Loading…"),
+      stash: t("workspace.git.useGitAction.loading", "Loading…"),
+      update: t("workspace.git.useGitAction.loading", "Loading…"),
+      push: t("workspace.git.useGitAction.loading", "Loading…"),
+      pr: t("workspace.git.useGitAction.loading", "Loading…"),
+      merge: t("workspace.git.useGitAction.loading", "Loading…"),
+    },
+    compareLabel: t("workspace.git.useGitAction.openPullRequest", "Open pull request"),
+    updatePending: false,
+    recovery: null,
+  };
 }
 
-function deriveStashDisabled(snapshot: GitStatusSnapshot): string | null {
-  if ((snapshot.conflict_count ?? 0) > 0) return "Resolve conflicting files first";
+function deriveCommitDisabled(snapshot: GitStatusSnapshot, t: UiTranslator): string | null {
+  return snapshot.uncommitted_count > 0
+    ? null
+    : t("workspace.git.useGitAction.noUncommittedChanges", "No uncommitted changes");
+}
+
+function deriveStashDisabled(snapshot: GitStatusSnapshot, t: UiTranslator): string | null {
+  if ((snapshot.conflict_count ?? 0) > 0)
+    return t(
+      "workspace.git.useGitAction.resolveConflictingFilesFirst",
+      "Resolve conflicting files first",
+    );
   if (snapshot.uncommitted_count > 0) return null;
-  return "No changes to stash";
+  return t("workspace.git.useGitAction.noChangesToStash", "No changes to stash");
 }
 
-function derivePushDisabled(snapshot: GitStatusSnapshot): string | null {
+function derivePushDisabled(snapshot: GitStatusSnapshot, t: UiTranslator): string | null {
   // Uncommitted changes never block push (or compare): `git push` only sends commits.
-  return snapshot.ahead_of_remote > 0 ? null : "Nothing to push";
+  return snapshot.ahead_of_remote > 0
+    ? null
+    : t("workspace.git.useGitAction.nothingToPush", "Nothing to push");
 }
 
-function derivePrDisabled(snapshot: GitStatusSnapshot): string | null {
-  if (snapshot.ahead_of_remote > 0) return "Push your commits first";
-  if (!snapshot.has_remote) return "No remote configured";
-  if (snapshot.ahead_of_target <= 0) return "Nothing to compare";
+function derivePrDisabled(
+  snapshot: GitStatusSnapshot,
+  t: UiTranslator,
+  existingPr?: PrSummary,
+): string | null {
+  if (existingPr) return null;
+  if (snapshot.ahead_of_remote > 0)
+    return t("workspace.git.useGitAction.pushYourCommitsFirst", "Push your commits first");
+  if (!snapshot.has_remote)
+    return t("workspace.git.useGitAction.noRemoteConfigured", "No remote configured");
+  if (snapshot.ahead_of_target <= 0)
+    return t("workspace.git.useGitAction.nothingToCompare", "Nothing to compare");
   // Provider-neutral: the backend ships `compare_url` only when it can
   // confidently build one (GitHub / GitLab / Bitbucket). For self-hosted or
   // unrecognized remotes (`host = Other`) the field is absent and we treat
   // the action as unavailable here. The frontend never branches on host
   // identity itself — that boundary lives in `host.rs`.
   if (snapshot.compare_url == null) {
-    return "Compare URL not available for this remote";
+    return t(
+      "workspace.git.useGitAction.compareUrlNotAvailableForThisRemote",
+      "Compare URL not available for this remote",
+    );
   }
   return null;
 }
 
-function deriveMergeDisabled(snapshot: GitStatusSnapshot): string | null {
+function deriveMergeDisabled(snapshot: GitStatusSnapshot, t: UiTranslator): string | null {
   if (isSameLocalBranch(snapshot.current_branch, snapshot.target_branch)) {
-    return "Cannot merge a branch into itself";
+    return t(
+      "workspace.git.useGitAction.cannotMergeABranchIntoItself",
+      "Cannot merge a branch into itself",
+    );
   }
-  if (snapshot.ahead_of_target <= 0) return "Nothing to merge";
+  if (snapshot.ahead_of_target <= 0)
+    return t("workspace.git.useGitAction.nothingToMerge", "Nothing to merge");
   return null;
 }
 
-function deriveUpdateDisabled(snapshot: GitStatusSnapshot): string | null {
-  if (!isWorktreeClean(snapshot)) return "Commit or stash your changes first";
+function deriveUpdateDisabled(snapshot: GitStatusSnapshot, t: UiTranslator): string | null {
+  if (!isWorktreeClean(snapshot))
+    return t(
+      "workspace.git.useGitAction.commitOrStashYourChangesFirst",
+      "Commit or stash your changes first",
+    );
   const source = resolveGitUpdateSource(snapshot);
   if (!source.resolved) {
-    const noun = source.kind === "target" ? "Target" : "Update source";
-    return `${noun} '${source.branch}' does not resolve`;
+    return source.kind === "target"
+      ? t("workspace.git.useGitAction.targetUnresolved", "Target '{{branch}}' does not resolve", {
+          branch: source.branch,
+        })
+      : t(
+          "workspace.git.useGitAction.updateSourceUnresolved",
+          "Update source '{{branch}}' does not resolve",
+          { branch: source.branch },
+        );
   }
   if (isSameUpdateBranch(snapshot.current_branch, source.branch)) {
-    return "Current branch is already the update target";
+    return t(
+      "workspace.git.useGitAction.currentBranchIsAlreadyTheUpdateTarget",
+      "Current branch is already the update target",
+    );
   }
-  if (source.behind <= 0) return "Already up to date";
+  if (source.behind <= 0)
+    return t("workspace.git.useGitAction.alreadyUpToDate", "Already up to date");
   return null;
 }
 
@@ -242,37 +298,47 @@ export function deriveGitAction(
     existingPr,
     statusError,
   }: GitActionOptions = {},
+  t: UiTranslator = translateUi,
 ): GitActionState {
   const unavailable = statusError ? "Git status unavailable" : null;
   if (!snapshot) {
     return unavailable
       ? {
-          ...LOADING_STATE,
+          ...loadingState(t),
           label: unavailable,
           disabled: disabledActions(unavailable),
           statusUnavailable: true,
         }
-      : LOADING_STATE;
+      : loadingState(t);
   }
 
   const operation = snapshot.operation ?? null;
   const operationConflictCount = snapshot.conflict_count ?? 0;
-  const mutationBlockedReason =
-    unavailable ??
-    (updatePending
-      ? "Update request in progress"
-      : operation
-        ? `Finish or abort the active ${operation} update first`
-        : null);
+  const mutationBlockedReason = unavailable ?? (updatePending
+    ? t("workspace.git.useGitAction.updateRequestInProgress", "Update request in progress")
+    : operation
+      ? operation === "rebase"
+        ? t(
+            "workspace.git.useGitAction.activeRebase",
+            "Finish or abort the active rebase update first",
+          )
+        : t(
+            "workspace.git.useGitAction.activeMerge",
+            "Finish or abort the active merge update first",
+          )
+      : null);
 
   // A project directory can be open before it has a Git checkout.
   if (!snapshot.current_branch) {
-    const reason = unavailable ?? "No worktree available yet";
+    const reason = unavailable ?? t(
+      "workspace.git.useGitAction.noWorktreeAvailableYet",
+      "No worktree available yet",
+    );
     return {
       primary: null,
       label: reason,
       disabled: disabledActions(reason),
-      compareLabel: snapshot.action_label ?? DEFAULT_COMPARE_LABEL,
+      compareLabel: snapshot.action_label ?? t("workspace.git.useGitAction.openPullRequest", "Open pull request"),
       updatePending,
       recovery: null,
       statusUnavailable: !!unavailable,
@@ -280,45 +346,47 @@ export function deriveGitAction(
   }
 
   const compareLabel = existingPr
-    ? `View ${prNoun(existingPr)} #${existingPr.number}`
-    : (snapshot.action_label ?? DEFAULT_COMPARE_LABEL);
+    ? t("workspace.git.useGitAction.viewProposal", "View {{proposal}} #{{number}}", {
+        proposal: prNoun(existingPr),
+        number: existingPr.number,
+      })
+    : (snapshot.action_label ??
+      t("workspace.git.useGitAction.openPullRequest", "Open pull request"));
   const disabled: Record<GitAction, string | null> = {
-    commit: mutationBlockedReason ?? deriveCommitDisabled(snapshot),
-    stash: mutationBlockedReason ?? stashMutationBlockedReason ?? deriveStashDisabled(snapshot),
-    update: mutationBlockedReason ?? deriveUpdateDisabled(snapshot),
-    push: mutationBlockedReason ?? derivePushDisabled(snapshot),
+    commit: mutationBlockedReason ?? deriveCommitDisabled(snapshot, t),
+    stash: mutationBlockedReason ?? stashMutationBlockedReason ?? deriveStashDisabled(snapshot, t),
+    update: mutationBlockedReason ?? deriveUpdateDisabled(snapshot, t),
+    push: mutationBlockedReason ?? derivePushDisabled(snapshot, t),
     // Opening an existing compare URL does not mutate Git, so keep it
     // available while an update request or recovery operation is active.
-    pr: existingPr ? null : (unavailable ?? derivePrDisabled(snapshot)),
-    merge: mutationBlockedReason ?? deriveMergeDisabled(snapshot),
+    pr: existingPr ? null : (unavailable ?? derivePrDisabled(snapshot, t)),
+    merge: mutationBlockedReason ?? deriveMergeDisabled(snapshot, t),
   };
 
   const primary = mutationBlockedReason
     ? null
     : (PRIMARY_ORDER.find((action) => disabled[action] === null) ?? null);
-  const label =
-    unavailable ??
-    (updatePending
-      ? "Updating…"
-      : primary === "commit"
-        ? "Commit"
-        : primary === "update"
-          ? "Update"
-          : primary === "push"
-            ? "Push"
-            : primary === "pr"
-              ? compareLabel
-              : primary === "merge"
-                ? "Merge"
-                : (disabled.commit ?? "No action"));
+  const label = unavailable ?? (updatePending
+    ? t("workspace.git.useGitAction.updating", "Updating…")
+    : primary === "commit"
+      ? t("workspace.git.useGitAction.commit", "Commit")
+      : primary === "update"
+        ? t("workspace.git.useGitAction.update", "Update")
+        : primary === "push"
+          ? t("workspace.git.useGitAction.push", "Push")
+          : primary === "pr"
+            ? compareLabel
+            : primary === "merge"
+              ? t("workspace.git.useGitAction.merge", "Merge")
+              : (disabled.commit ?? t("workspace.git.useGitAction.noAction", "No action")));
 
   const recovery = operation
     ? {
         operation,
         conflictCount: operationConflictCount,
         continueDisabled: updatePending
-          ? "Update request in progress"
-          : gitUpdateContinueDisabledReason(operationConflictCount),
+          ? t("workspace.git.useGitAction.updateRequestInProgress", "Update request in progress")
+          : gitUpdateContinueDisabledReason(operationConflictCount, t),
         abortDisabled: updatePending ? "Update request in progress" : null,
       }
     : null;
@@ -339,6 +407,7 @@ export function useGitAction(
   snapshot: GitStatusSnapshot | undefined,
   { updatePending, stashMutationBlockedReason, existingPr, statusError }: GitActionOptions,
 ): GitActionState {
+  const { t } = useUiTranslation();
   return useMemo(
     () =>
       deriveGitAction(snapshot, {
@@ -346,7 +415,7 @@ export function useGitAction(
         stashMutationBlockedReason,
         existingPr,
         statusError,
-      }),
-    [existingPr, snapshot, stashMutationBlockedReason, statusError, updatePending],
+      }, t),
+    [existingPr, snapshot, stashMutationBlockedReason, statusError, t, updatePending],
   );
 }

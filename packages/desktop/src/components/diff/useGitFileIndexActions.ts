@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -19,6 +20,9 @@ export interface GitFileIndexError {
   filePath: string;
   message: string;
 }
+
+type IndexFailure = Pick<GitFileIndexError, "action" | "filePath"> &
+  ({ kind: "backend"; rawMessage: string } | { kind: "root-loading" | "dirty-buffer" });
 
 export interface StageFileOptions {
   /** When true, toast a warning after a successful stage (unresolved conflict path). */
@@ -65,7 +69,19 @@ export function getGitFileActionAvailability(
 
 /** Stage/reset mutations with exact paths, shared pending state, and visible failures. */
 export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
-  const [error, setError] = useState<GitFileIndexError | null>(null);
+  const { t } = useUiTranslation();
+  const [failure, setError] = useState<IndexFailure | null>(null);
+  const error = useMemo(
+    () =>
+      failure
+        ? {
+            action: failure.action,
+            filePath: failure.filePath,
+            message: indexFailureMessage(failure, t),
+          }
+        : null,
+    [failure, t],
+  );
   const [pending, setPending] = useState<{
     action: GitFileIndexAction;
     filePath: string;
@@ -77,44 +93,11 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
     flightAcquiredRef.current = false;
     setPending(null);
   }, []);
-  const stageMutation = useStageFile({
-    mutation: {
-      onSuccess: (_response, variables) => {
-        setError(null);
-        const path = variables.data.file_path;
-        if (conflictWarnPathRef.current === path) {
-          toast.warning(`Staged ${displayGitPath(path)} with conflicts`, {
-            description: "Confirm conflict markers are resolved before continuing the merge.",
-          });
-        }
-        conflictWarnPathRef.current = null;
-      },
-      onError: (mutationError, variables) => {
-        conflictWarnPathRef.current = null;
-        const message = apiErrorMessage(mutationError, "Git could not stage this path");
-        setError({ action: "stage", filePath: variables.data.file_path, message });
-        toast.error(`Could not stage ${displayGitPath(variables.data.file_path)}`, {
-          description: message,
-        });
-      },
-      onSettled: releaseFlight,
-    },
-  });
-  const resetMutation = useResetFile({
-    mutation: {
-      onSuccess: () => {
-        setError(null);
-      },
-      onError: (mutationError, variables) => {
-        const message = apiErrorMessage(mutationError, "Git could not unstage this path");
-        setError({ action: "reset", filePath: variables.data.file_path, message });
-        toast.error(`Could not unstage ${displayGitPath(variables.data.file_path)}`, {
-          description: message,
-        });
-      },
-      onSettled: releaseFlight,
-    },
-  });
+  const { stageMutation, resetMutation } = useIndexMutations(
+    setError,
+    conflictWarnPathRef,
+    releaseFlight,
+  );
   const stageMutate = stageMutation.mutate;
   const resetMutate = resetMutation.mutate;
   const acquireFlight = useCallback((action: GitFileIndexAction, filePath: string): boolean => {
@@ -129,15 +112,24 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
     (filePath: string, options?: StageFileOptions): void => {
       // Without the prefix an open Editor buffer cannot be matched, so a
       // dirty one could be staged from stale disk content.
-      const message =
+      const kind =
         gitPrefix == null
-          ? "The project's Git root is still loading; try again."
+          ? "root-loading"
           : hasDirtyEditorBuffer(featureId, filePath, gitPrefix)
-            ? "Save the open Editor buffer before staging this file."
+            ? "dirty-buffer"
             : null;
-      if (message != null) {
-        setError({ action: "stage", filePath, message });
-        toast.error(`Could not stage ${displayGitPath(filePath)}`, { description: message });
+      if (kind != null) {
+        const blocked: IndexFailure = { action: "stage", filePath, kind };
+        setError(blocked);
+        const message = indexFailureMessage(blocked, translateUi);
+        toast.error(
+          translateUi(
+            "workspace.git.useGitFileIndexActions.couldNotStagePath",
+            "Could not stage {{path}}",
+            { path: displayGitPath(filePath) },
+          ),
+          { description: message },
+        );
         return;
       }
       if (!acquireFlight("stage", filePath)) return;
@@ -162,4 +154,114 @@ export function useGitFileIndexActions(featureId: number): GitFileIndexActions {
     () => ({ stage, reset, isPending, pendingAction, pendingPath, error }),
     [error, isPending, pendingAction, pendingPath, reset, stage],
   );
+}
+
+function useIndexMutations(
+  setError: (error: IndexFailure | null) => void,
+  conflictWarnPathRef: { current: string | null },
+  releaseFlight: () => void,
+) {
+  const stageMutation = useStageFile({
+    mutation: {
+      onSuccess: (_response, variables) => {
+        setError(null);
+        const path = variables.data.file_path;
+        if (conflictWarnPathRef.current === path) {
+          toast.warning(
+            translateUi(
+              "workspace.git.useGitFileIndexActions.stagedPathWithConflicts",
+              "Staged {{path}} with conflicts",
+              { path: displayGitPath(path) },
+            ),
+            {
+              description: translateUi(
+                "workspace.git.useGitFileIndexActions.confirmConflictMarkersAreResolvedBeforeContinuing",
+                "Confirm conflict markers are resolved before continuing the merge.",
+              ),
+            },
+          );
+        }
+        conflictWarnPathRef.current = null;
+      },
+      onError: (mutationError, variables) => {
+        conflictWarnPathRef.current = null;
+        const failure: IndexFailure = {
+          action: "stage",
+          filePath: variables.data.file_path,
+          kind: "backend",
+          rawMessage: apiErrorMessage(mutationError, ""),
+        };
+        setError(failure);
+        const message = indexFailureMessage(failure, translateUi);
+        toast.error(
+          translateUi(
+            "workspace.git.useGitFileIndexActions.couldNotStagePath",
+            "Could not stage {{path}}",
+            { path: displayGitPath(variables.data.file_path) },
+          ),
+          {
+            description: message,
+          },
+        );
+      },
+      onSettled: releaseFlight,
+    },
+  });
+  const resetMutation = useResetFile({
+    mutation: {
+      onSuccess: () => {
+        setError(null);
+      },
+      onError: (mutationError, variables) => {
+        const failure: IndexFailure = {
+          action: "reset",
+          filePath: variables.data.file_path,
+          kind: "backend",
+          rawMessage: apiErrorMessage(mutationError, ""),
+        };
+        setError(failure);
+        const message = indexFailureMessage(failure, translateUi);
+        toast.error(
+          translateUi(
+            "workspace.git.useGitFileIndexActions.couldNotUnstagePath",
+            "Could not unstage {{path}}",
+            { path: displayGitPath(variables.data.file_path) },
+          ),
+          {
+            description: message,
+          },
+        );
+      },
+      onSettled: releaseFlight,
+    },
+  });
+  return { stageMutation, resetMutation };
+}
+
+function indexFailureMessage(failure: IndexFailure, t: UiTranslator): string {
+  switch (failure.kind) {
+    case "root-loading":
+      return t(
+        "workspace.git.useGitFileIndexActions.theProjectSGitRootIsStillLoading",
+        "The project's Git root is still loading; try again.",
+      );
+    case "dirty-buffer":
+      return t(
+        "workspace.git.useGitFileIndexActions.saveTheOpenEditorBufferBeforeStaging",
+        "Save the open Editor buffer before staging this file.",
+      );
+    case "backend":
+      return (
+        failure.rawMessage ||
+        (failure.action === "stage"
+          ? t(
+              "workspace.git.useGitFileIndexActions.gitCouldNotStageThisPath",
+              "Git could not stage this path",
+            )
+          : t(
+              "workspace.git.useGitFileIndexActions.gitCouldNotUnstageThisPath",
+              "Git could not unstage this path",
+            ))
+      );
+  }
 }

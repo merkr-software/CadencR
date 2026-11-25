@@ -7,6 +7,8 @@ import {
   type WebContents,
 } from "electron";
 
+import { translateUi } from "../../src/shared/ui-i18n";
+import { editMenuLabels } from "./edit-menu-labels";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
 
 interface BrowserContextMenuActions {
@@ -22,7 +24,10 @@ function guardedAction(
 ): () => void {
   return () => {
     try {
-      if (contents.isDestroyed()) throw new Error("Browser tab is no longer available.");
+      if (contents.isDestroyed())
+        throw new Error(
+          translateUi("workspace.browser.tabGone", "Browser tab is no longer available."),
+        );
       action();
     } catch (error) {
       reportError(error);
@@ -48,16 +53,33 @@ export function buildBrowserContextMenuTemplate(
   const run = (action: () => void): (() => void) =>
     guardedAction(contents, actions.reportError, action);
   const items: MenuItemConstructorOptions[] = [
-    { label: "Back", enabled: contents.canGoBack(), click: run(() => contents.goBack()) },
-    { label: "Forward", enabled: contents.canGoForward(), click: run(() => contents.goForward()) },
-    { label: "Reload", click: run(() => contents.reload()) },
+    {
+      label: translateUi("workspace.browser.menu.back", "Back"),
+      enabled: contents.canGoBack(),
+      click: run(() => contents.goBack()),
+    },
+    {
+      label: translateUi("workspace.browser.menu.forward", "Forward"),
+      enabled: contents.canGoForward(),
+      click: run(() => contents.goForward()),
+    },
+    {
+      label: translateUi("workspace.browser.menu.reload", "Reload"),
+      click: run(() => contents.reload()),
+    },
     { type: "separator" },
   ];
   const linkUrl = safeBrowserLink(params.linkURL);
   if (linkUrl) {
     items.push(
-      { label: "Open Link in New Tab", click: run(() => actions.openLinkInNewTab(linkUrl)) },
-      { label: "Copy Link Address", click: run(() => clipboard.writeText(linkUrl)) },
+      {
+        label: translateUi("workspace.browser.menu.openLinkTab", "Open Link in New Tab"),
+        click: run(() => actions.openLinkInNewTab(linkUrl)),
+      },
+      {
+        label: translateUi("native.context.copyLinkAddress", "Copy Link Address"),
+        click: run(() => clipboard.writeText(linkUrl)),
+      },
       { type: "separator" },
     );
   }
@@ -69,25 +91,48 @@ export function buildBrowserContextMenuTemplate(
       });
     }
     if (params.dictionarySuggestions.length === 0) {
-      items.push({ label: "No suggestions", enabled: false });
+      items.push({
+        label: translateUi("native.context.noSuggestions", "No suggestions"),
+        enabled: false,
+      });
     }
     items.push({ type: "separator" });
   }
   items.push(
-    { label: "Undo", enabled: params.editFlags.canUndo, click: run(() => contents.undo()) },
-    { label: "Redo", enabled: params.editFlags.canRedo, click: run(() => contents.redo()) },
-    { type: "separator" },
-    { label: "Cut", enabled: params.editFlags.canCut, click: run(() => contents.cut()) },
-    { label: "Copy", enabled: params.editFlags.canCopy, click: run(() => contents.copy()) },
-    { label: "Paste", enabled: params.editFlags.canPaste, click: run(() => contents.paste()) },
     {
-      label: "Select All",
+      label: editMenuLabels.undo(),
+      enabled: params.editFlags.canUndo,
+      click: run(() => contents.undo()),
+    },
+    {
+      label: editMenuLabels.redo(),
+      enabled: params.editFlags.canRedo,
+      click: run(() => contents.redo()),
+    },
+    { type: "separator" },
+    {
+      label: editMenuLabels.cut(),
+      enabled: params.editFlags.canCut,
+      click: run(() => contents.cut()),
+    },
+    {
+      label: editMenuLabels.copy(),
+      enabled: params.editFlags.canCopy,
+      click: run(() => contents.copy()),
+    },
+    {
+      label: editMenuLabels.paste(),
+      enabled: params.editFlags.canPaste,
+      click: run(() => contents.paste()),
+    },
+    {
+      label: editMenuLabels.selectAll(),
       enabled: params.editFlags.canSelectAll,
       click: run(() => contents.selectAll()),
     },
     { type: "separator" },
     {
-      label: "Inspect Element",
+      label: translateUi("workspace.browser.menu.inspect", "Inspect Element"),
       click: run(() => actions.inspectElement(params.x, params.y)),
     },
   );
@@ -102,9 +147,15 @@ export function installBrowserContextMenu(
   contents.on("context-menu", (event, params) => {
     event.preventDefault();
     try {
-      if (contents.isDestroyed()) throw new Error("Browser tab is no longer available.");
+      if (contents.isDestroyed())
+        throw new Error(
+          translateUi("workspace.browser.tabGone", "Browser tab is no longer available."),
+        );
       const window = getWindow();
-      if (!window || window.isDestroyed()) throw new Error("Browser window is not available.");
+      if (!window || window.isDestroyed())
+        throw new Error(
+          translateUi("workspace.browser.windowGone", "Browser window is not available."),
+        );
       Menu.buildFromTemplate(buildBrowserContextMenuTemplate(contents, params, actions)).popup({
         window,
       });

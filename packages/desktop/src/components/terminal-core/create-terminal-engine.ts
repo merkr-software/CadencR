@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { createWebGpuRenderer, Terminal, type TerminalOptions } from "celeritty";
 import { toast } from "sonner";
 import type { TerminalEngine } from "./terminal-engine";
@@ -38,10 +39,22 @@ export function createTerminalEngine(host: HTMLElement, options: TerminalOptions
         host.dataset.terminalRenderer = "xterm";
         if (!compatibilityNoticeShown) {
           compatibilityNoticeShown = true;
-          toast.warning("Using the compatibility terminal", {
-            id: "terminal-compatibility",
-            description: error instanceof Error ? error.message : "WebGPU initialization failed",
-          });
+          toast.warning(
+            translateUi(
+              "workspace.tools.createTerminalEngine.usingTheCompatibilityTerminal",
+              "Using the compatibility terminal",
+            ),
+            {
+              id: "terminal-compatibility",
+              description:
+                error instanceof Error
+                  ? error.message
+                  : translateUi(
+                      "workspace.tools.createTerminalEngine.webGpuInitializationFailed",
+                      "WebGPU initialization failed",
+                    ),
+            },
+          );
         }
       }
     }

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 export interface FullTreeFetchState {
@@ -40,7 +41,13 @@ export function getFileTreeLoadState(input: FileTreeLoadStateInput): FileTreeLoa
   if (input.countIsError) {
     return {
       isLoading: false,
-      errorMessage: apiErrorMessage(input.countError, "Failed to count project files"),
+      errorMessage: apiErrorMessage(
+        input.countError,
+        translateUi(
+          "workspace.editor.fileTreeLoadMode.countFailed",
+          "Failed to count project files",
+        ),
+      ),
     };
   }
   if (input.lazyMode) {
@@ -50,7 +57,10 @@ export function getFileTreeLoadState(input: FileTreeLoadStateInput): FileTreeLoa
     isLoading: input.trackedIsLoading && !input.trackedHasData,
     errorMessage:
       input.trackedIsError && !input.trackedHasData
-        ? apiErrorMessage(input.trackedError, "Failed to load file tree")
+        ? apiErrorMessage(
+            input.trackedError,
+            translateUi("workspace.editor.fileTreeLoadMode.loadFailed", "Failed to load file tree"),
+          )
         : null,
   };
 }

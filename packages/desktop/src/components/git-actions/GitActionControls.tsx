@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * The split primary/menu control, in its desktop and mobile shapes.
  *
@@ -67,6 +68,7 @@ function MobileGitActionControl({
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const active = activeGitActivity(activities);
   return (
     <div className="inline-flex items-center">
@@ -137,6 +139,7 @@ function DesktopGitActionControl({
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const gitActionsKeys = useShortcutKeys("git-actions");
   const active = activeGitActivity(activities);
   const primaryAction = active?.action ?? state.primary;
@@ -190,13 +193,16 @@ function DesktopGitActionControl({
         </Button>
       )}
       <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-        <ShortcutTooltip label="Git actions" keys={gitActionsKeys}>
+        <ShortcutTooltip
+          label={t("workspace.git.gitActionControls.gitActions", "Git actions")}
+          keys={gitActionsKeys}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="xs"
               className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
-              aria-label="More git actions"
+              aria-label={t("workspace.git.gitActionControls.moreGitActions", "More git actions")}
             >
               <ChevronDown className="size-3.5" />
             </Button>
@@ -230,6 +236,7 @@ const GitActivityButton = memo(function GitActivityButton({
   className,
   onSelect,
 }: GitActivityButtonProps): ReactElement {
+  const { t } = useUiTranslation();
   const running = activity === "running";
   return (
     <Button
@@ -238,7 +245,7 @@ const GitActivityButton = memo(function GitActivityButton({
       className={cn(GIT_ACTION_BUTTON_CLASS, className)}
       onClick={() => onSelect(action)}
       aria-live="polite"
-      title={gitActivityHint(action, activity)}
+      title={gitActivityHint(action, activity, t)}
     >
       {running ? (
         <Loader2 className="size-3.5 animate-spin" />
@@ -246,7 +253,7 @@ const GitActivityButton = memo(function GitActivityButton({
         <CircleAlert className="size-3.5 text-destructive" />
       )}
       <span className={running ? undefined : "text-destructive"}>
-        {gitActivityLabel(action, activity)}
+        {gitActivityLabel(action, activity, t)}
       </span>
     </Button>
   );

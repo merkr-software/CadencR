@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Apply an LSP `WorkspaceEdit` to Cadencr's files.
  *
@@ -110,7 +111,10 @@ export async function applyWorkspaceEdit(
   host: WorkspaceEditHost,
 ): Promise<WorkspaceEditResult> {
   const plugin = LSPPlugin.get(view);
-  if (!plugin) throw new Error("No language server attached");
+  if (!plugin)
+    throw new Error(
+      translateUi("workspace.editor.workspace-edit.noServer", "No language server attached"),
+    );
   const workspace = plugin.client.workspace;
   const byUri = collectEdits(edit);
   let fileCount = 0;
@@ -125,7 +129,14 @@ export async function applyWorkspaceEdit(
       continue;
     }
     const absPath = fileUriToPath(uri);
-    if (!absPath) throw new Error(`Cannot resolve file: ${uri}`);
+    if (!absPath)
+      throw new Error(
+        translateUi(
+          "workspace.editor.workspace-edit.unresolvedFile",
+          "Cannot resolve file: {{uri}}",
+          { uri },
+        ),
+      );
     const original = await host.readFileText(absPath);
     const docLike = textFromString(view, original);
     const next = applyEditsToText(docLike, edits);

@@ -12,6 +12,7 @@ export function restorableFromMetadata(
 ): RestorableBrowserTab {
   return {
     title: metadata.title,
+    ...(metadata.defaultTitle ? { defaultTitle: true as const } : {}),
     url: metadata.url,
     sessionProfileId: resolvedProfileId,
     pinned: metadata.pinned,

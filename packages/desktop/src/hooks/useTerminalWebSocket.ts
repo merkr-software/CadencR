@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { createWsConnection, type WsConnection } from "@/lib/ws-connection";
@@ -216,13 +217,26 @@ function handleTerminalMessage(
         callbacks.onError(message.message, "protocol");
         break;
       case "input_error":
-        toast.error(`Terminal input was not delivered: ${message.message}`, {
-          id: TERMINAL_INPUT_ERROR_TOAST_ID,
-        });
+        toast.error(
+          translateUi(
+            "workspace.tools.useTerminalWebSocket.inputNotDelivered",
+            "Terminal input was not delivered: {{message}}",
+            { message: message.message },
+          ),
+          {
+            id: TERMINAL_INPUT_ERROR_TOAST_ID,
+          },
+        );
         break;
     }
   } catch {
-    refs.optionsRef.current.onError("Failed to parse terminal message", "protocol");
+    refs.optionsRef.current.onError(
+      translateUi(
+        "workspace.tools.useTerminalWebSocket.invalidMessage",
+        "Failed to parse terminal message",
+      ),
+      "protocol",
+    );
   }
 }
 
@@ -281,16 +295,36 @@ function useTerminalConnector(
           if (refs.ptyExitedRef.current) return;
           useConnectionStatusStore
             .getState()
-            .reportSource(reconnectKey, "reconnecting", "Terminal WebSocket error");
+            .reportSource(
+              reconnectKey,
+              "reconnecting",
+              translateUi(
+                "workspace.tools.useTerminalWebSocket.socketError",
+                "Terminal WebSocket error",
+              ),
+            );
         },
         onClose: (intentional, event) => {
           if (generation !== refs.generationRef.current) return;
           setIsConnected(false);
           if (intentional || refs.ptyExitedRef.current) return;
-          refs.optionsRef.current.onError("Connection lost. Reconnecting…", "transport");
+          refs.optionsRef.current.onError(
+            translateUi(
+              "workspace.tools.useTerminalWebSocket.reconnecting",
+              "Connection lost. Reconnecting…",
+            ),
+            "transport",
+          );
           useConnectionStatusStore
             .getState()
-            .reportSource(reconnectKey, "reconnecting", "Terminal WebSocket dropped");
+            .reportSource(
+              reconnectKey,
+              "reconnecting",
+              translateUi(
+                "workspace.tools.useTerminalWebSocket.socketDropped",
+                "Terminal WebSocket dropped",
+              ),
+            );
           scheduleReconnect(reconnectKey, reconnect, {
             minimumDelayMs:
               event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
@@ -317,15 +351,25 @@ function reportDroppedWrite(data: string, connector: TerminalConnector): void {
     isConnecting: connection?.isConnecting() ?? false,
     devFrozen: devFrozen.current,
   });
-  toast.error("Terminal disconnected — your input was dropped. Reconnecting…", {
-    id: TERMINAL_DROPPED_TOAST_ID,
-  });
+  toast.error(
+    translateUi(
+      "workspace.tools.useTerminalWebSocket.terminalDisconnectedYourInputWasDropped",
+      "Terminal disconnected — your input was dropped. Reconnecting…",
+    ),
+    {
+      id: TERMINAL_DROPPED_TOAST_ID,
+    },
+  );
   const now = Date.now();
   if (now - lastForcedAtRef.current < FORCE_RECONNECT_COOLDOWN_MS) return;
   lastForcedAtRef.current = now;
   useConnectionStatusStore
     .getState()
-    .reportSource(connector.reconnectKey, "reconnecting", "Terminal write stalled");
+    .reportSource(
+      connector.reconnectKey,
+      "reconnecting",
+      translateUi("workspace.tools.useTerminalWebSocket.writeStalled", "Terminal write stalled"),
+    );
   forceReconnect(connector.reconnectKey);
 }
 

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Images that belong to a pull request: the authors' faces, and whatever a
  * reviewer pasted into a comment.
@@ -116,7 +117,15 @@ function useForgeImage(
   const url = useObjectUrl(query.data);
   return {
     url,
-    errorMessage: query.error ? apiErrorMessage(query.error, "Could not load this image") : null,
+    errorMessage: query.error
+      ? apiErrorMessage(
+          query.error,
+          translateUi(
+            "workspace.git.forgeImage.couldNotLoadThisImage",
+            "Could not load this image",
+          ),
+        )
+      : null,
     direct,
     scoped,
   };

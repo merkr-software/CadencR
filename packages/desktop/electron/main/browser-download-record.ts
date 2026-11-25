@@ -4,7 +4,7 @@ import {
   removeEmptyBrowserDownloadReservation,
   type BrowserDownloadReservation,
 } from "./browser-download-path";
-import { downloadErrorMessage, snapshotFromDownloadItem } from "./browser-download-state";
+import { downloadFailure, snapshotFromDownloadItem } from "./browser-download-state";
 import type { BrowserDownload } from "./browser-types";
 
 const PROGRESS_EMIT_INTERVAL_MS = 100;
@@ -209,7 +209,7 @@ function terminalFailure(
     canCancel: false,
     bytesPerSecond: 0,
     finishedAt: previous.finishedAt ?? new Date(now).toISOString(),
-    error: downloadErrorMessage(error, "Download failed"),
+    ...downloadFailure(error, "failed"),
   };
 }
 

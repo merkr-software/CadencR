@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef } from "react";
 import type { FileTree as FileTreeModel } from "@pierre/trees";
 import { useFileTree as useFileTreeDir, type FileTreeEntry } from "@/api/generated";
@@ -86,7 +87,13 @@ export function useTrackedTreeData({
   return useMemo<TrackedTreeData>(
     () => ({
       isLoading: enabled && rootQuery.isLoading && !rootQuery.data,
-      error: enabled && rootQuery.isError && !rootQuery.data ? "Failed to load file tree" : null,
+      error:
+        enabled && rootQuery.isError && !rootQuery.data
+          ? translateUi(
+              "workspace.editor.useTrackedTreeData.loadFailed",
+              "Failed to load file tree",
+            )
+          : null,
       ensureDirLoaded,
     }),
     [enabled, ensureDirLoaded, rootQuery.data, rootQuery.isError, rootQuery.isLoading],

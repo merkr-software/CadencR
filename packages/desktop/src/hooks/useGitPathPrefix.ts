@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { hashKey, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";

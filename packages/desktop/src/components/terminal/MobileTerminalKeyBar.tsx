@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, type LucideIcon } from "lucide-react";
 import { TERMINAL_KEYS } from "@/lib/terminal-keys";
@@ -21,7 +22,7 @@ interface KeyDef {
   seq: string;
   label?: string;
   icon?: LucideIcon;
-  ariaLabel?: string;
+  ariaLabel?: (t: UiTranslator) => string;
 }
 
 const TEXT_KEYS: KeyDef[] = [
@@ -30,10 +31,26 @@ const TEXT_KEYS: KeyDef[] = [
 ];
 
 const ARROW_KEYS: KeyDef[] = [
-  { seq: TERMINAL_KEYS.arrowLeft, icon: ArrowLeft, ariaLabel: "Left" },
-  { seq: TERMINAL_KEYS.arrowDown, icon: ArrowDown, ariaLabel: "Down" },
-  { seq: TERMINAL_KEYS.arrowUp, icon: ArrowUp, ariaLabel: "Up" },
-  { seq: TERMINAL_KEYS.arrowRight, icon: ArrowRight, ariaLabel: "Right" },
+  {
+    seq: TERMINAL_KEYS.arrowLeft,
+    icon: ArrowLeft,
+    ariaLabel: (t) => t("workspace.tools.mobileTerminalKeyBar.left", "Left"),
+  },
+  {
+    seq: TERMINAL_KEYS.arrowDown,
+    icon: ArrowDown,
+    ariaLabel: (t) => t("workspace.tools.mobileTerminalKeyBar.down", "Down"),
+  },
+  {
+    seq: TERMINAL_KEYS.arrowUp,
+    icon: ArrowUp,
+    ariaLabel: (t) => t("workspace.tools.mobileTerminalKeyBar.up", "Up"),
+  },
+  {
+    seq: TERMINAL_KEYS.arrowRight,
+    icon: ArrowRight,
+    ariaLabel: (t) => t("workspace.tools.mobileTerminalKeyBar.right", "Right"),
+  },
 ];
 
 /**
@@ -47,6 +64,7 @@ export const MobileTerminalKeyBar = memo(function MobileTerminalKeyBar({
   onToggleCtrl,
   onSendKey,
 }: MobileTerminalKeyBarProps) {
+  const { t } = useUiTranslation();
   // Fire on pointer-down and preventDefault so the xterm textarea keeps focus —
   // otherwise tapping a key would dismiss the on-screen keyboard.
   const press = (action: () => void) => (e: React.PointerEvent) => {
@@ -58,7 +76,7 @@ export const MobileTerminalKeyBar = memo(function MobileTerminalKeyBar({
     <button
       key={seq}
       type="button"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel?.(t)}
       className={`${KEY_BTN_BASE} ${KEY_BTN_IDLE}`}
       onPointerDown={press(() => onSendKey(seq))}
     >
@@ -81,7 +99,7 @@ export const MobileTerminalKeyBar = memo(function MobileTerminalKeyBar({
         className={`${KEY_BTN_BASE} ${ctrlArmed ? KEY_BTN_ARMED : KEY_BTN_IDLE}`}
         onPointerDown={press(onToggleCtrl)}
       >
-        ctrl
+        {t("workspace.tools.mobileTerminalKeyBar.ctrl", "ctrl")}
       </button>
       {ARROW_KEYS.map(renderKey)}
     </div>

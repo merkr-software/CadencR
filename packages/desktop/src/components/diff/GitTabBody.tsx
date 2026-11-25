@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { FeaturePrView } from "@/components/FeaturePrView";
 import type { CommentThread } from "@/api/generated";
@@ -142,14 +143,18 @@ export const GitTabBody = memo(function GitTabBody({
  *  `main` in a repository without one): said once, rather than one failed read
  *  per pane. */
 function MissingTargetBranch({ branch }: { branch: string }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       className="flex h-full items-center justify-center bg-background px-4 text-center text-muted-foreground"
       role="status"
     >
       <p>
-        Target branch “{branch}” does not exist in this repository. Pick a target from the branch
-        menu in the header to compare against.
+        {t(
+          "workspace.git.gitTabBody.missingTargetBranch",
+          "Target branch “{{branch}}” does not exist in this repository. Pick a target from the branch menu in the header to compare against.",
+          { branch },
+        )}
       </p>
     </div>
   );

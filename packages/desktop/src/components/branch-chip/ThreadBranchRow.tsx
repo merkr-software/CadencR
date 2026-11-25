@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * One branch of a conversation in the header's branch panel: its name and how
  * it came to belong here, its compare target (click to change), and its pull
@@ -20,21 +21,47 @@ import { openPullRequestExternally } from "@/lib/open-pull-request";
 import type { ThreadPr } from "@/lib/thread-prs";
 import { cn } from "@/lib/utils";
 
-const ORIGIN_LABEL: Record<BranchOrigin, string> = {
-  provisioned: "original",
-  checked_out: "checked out here",
-  agent: "agent",
-  manual: "linked",
-  head: "follows checkout",
-};
+function originLabel(value: BranchOrigin, t: UiTranslator): string {
+  switch (value) {
+    case "provisioned":
+      return t("workspace.git.threadBranchRow.originProvisioned", "original");
+    case "checked_out":
+      return t("workspace.git.threadBranchRow.originCheckedOut", "checked out here");
+    case "agent":
+      return t("workspace.git.threadBranchRow.originAgent", "agent");
+    case "manual":
+      return t("workspace.git.threadBranchRow.originManual", "linked");
+    case "head":
+      return t("workspace.git.threadBranchRow.originHead", "follows checkout");
+  }
+}
 
-const ORIGIN_TITLE: Record<BranchOrigin, string> = {
-  provisioned: "The branch this conversation was created on",
-  checked_out: "Checked out in this conversation's worktree",
-  agent: "Checked out by the agent during this conversation",
-  manual: "Linked by hand",
-  head: "This conversation follows whatever the project has checked out",
-};
+function originTitle(value: BranchOrigin, t: UiTranslator): string {
+  switch (value) {
+    case "provisioned":
+      return t(
+        "workspace.git.threadBranchRow.originHintProvisioned",
+        "The branch this conversation was created on",
+      );
+    case "checked_out":
+      return t(
+        "workspace.git.threadBranchRow.originHintCheckedOut",
+        "Checked out in this conversation's worktree",
+      );
+    case "agent":
+      return t(
+        "workspace.git.threadBranchRow.originHintAgent",
+        "Checked out by the agent during this conversation",
+      );
+    case "manual":
+      return t("workspace.git.threadBranchRow.originHintManual", "Linked by hand");
+    case "head":
+      return t(
+        "workspace.git.threadBranchRow.originHintHead",
+        "This conversation follows whatever the project has checked out",
+      );
+  }
+}
 
 interface ThreadBranchRowProps {
   featureId: number;
@@ -52,6 +79,7 @@ export function ThreadBranchRow({
   divergence,
   onEditTarget,
 }: ThreadBranchRowProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <li
       data-thread-branch={branch.name}
@@ -70,14 +98,14 @@ export function ThreadBranchRow({
         </span>
         {branch.is_current && (
           <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">
-            current
+            {t("workspace.git.threadBranchRow.current", "current")}
           </span>
         )}
         <span
           className="ml-auto shrink-0 text-[10px] text-muted-foreground"
-          title={ORIGIN_TITLE[branch.origin]}
+          title={originTitle(branch.origin, t)}
         >
-          {ORIGIN_LABEL[branch.origin]}
+          {originLabel(branch.origin, t)}
         </span>
         <UnlinkButton featureId={featureId} branch={branch} />
       </div>
@@ -88,10 +116,15 @@ export function ThreadBranchRow({
           data-thread-branch-target
           onClick={() => onEditTarget(branch)}
           className="min-w-0 truncate rounded px-1 py-0.5 font-mono hover:bg-accent hover:text-foreground"
-          aria-label={`Change target of ${branch.name}`}
-          title="Change target branch"
+          aria-label={t(
+            "workspace.git.threadBranchRow.changeTargetOfBranch",
+            "Change target of {{branch}}",
+            { branch: branch.name },
+          )}
+          title={t("workspace.git.threadBranchRow.changeTargetBranch", "Change target branch")}
         >
-          {branch.target_branch ?? "default target"}
+          {branch.target_branch ??
+            t("workspace.git.threadBranchRow.defaultTarget", "default target")}
         </button>
         {divergence && (
           <span className="shrink-0 font-mono tabular-nums">
@@ -105,13 +138,14 @@ export function ThreadBranchRow({
 }
 
 function BranchPrLine({ pr }: { pr: ThreadPr }): ReactElement {
+  const { t } = useUiTranslation();
   const label = prStatusLabel(pr);
   return (
     <button
       type="button"
       onClick={() => void openPullRequestExternally(pr.pr)}
       className="ml-5 flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-      aria-label={`Open ${label}`}
+      aria-label={t("workspace.git.threadBranchRow.openLabel", "Open {{label}}", { label: label })}
       title={pr.pr.title}
     >
       <PrToneDot health={pr} />
@@ -133,8 +167,18 @@ function UnlinkButton({
   featureId: number;
   branch: ThreadBranch;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { mutate, isPending } = useUnlinkFeatureBranch({
-    mutation: { onError: (error) => toastError(error, "Failed to unlink the branch.") },
+    mutation: {
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "workspace.git.threadBranchRow.failedToUnlinkTheBranch",
+            "Failed to unlink the branch.",
+          ),
+        ),
+    },
   });
   if (branch.origin === "provisioned" || branch.origin === "head") return null;
   return (
@@ -143,8 +187,13 @@ function UnlinkButton({
       variant="ghost"
       size="icon-xs"
       className="size-5 shrink-0 text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
-      aria-label={`Unlink ${branch.name}`}
-      title="Unlink from this conversation"
+      aria-label={t("workspace.git.threadBranchRow.unlinkBranch", "Unlink {{branch}}", {
+        branch: branch.name,
+      })}
+      title={t(
+        "workspace.git.threadBranchRow.unlinkFromThisConversation",
+        "Unlink from this conversation",
+      )}
       disabled={isPending}
       onClick={() => mutate({ id: featureId, data: { branch: branch.name } })}
     >

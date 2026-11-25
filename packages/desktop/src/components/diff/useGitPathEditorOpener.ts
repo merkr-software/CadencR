@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -25,16 +26,33 @@ export function useGitPathEditorOpener(
           const featurePath = gitPathToFeaturePath(gitPath, prefix ?? "");
           if (featurePath == null) {
             toast.error(`${gitPath} is outside this project's folder`, {
-              description: `The Editor only opens files under ${prefix}.`,
+              description: translateUi(
+                "workspace.git.useGitPathEditorOpener.theEditorOnlyOpensFilesUnderPath",
+                "The Editor only opens files under {{path}}.",
+                { path: prefix },
+              ),
             });
             return;
           }
           open(featurePath, lineNumber, column);
         })
         .catch((error: unknown) => {
-          toast.error(`Could not open ${gitPath}`, {
-            description: apiErrorMessage(error, "The project's Git root is unavailable"),
-          });
+          toast.error(
+            translateUi(
+              "workspace.git.useGitPathEditorOpener.couldNotOpenPath",
+              "Could not open {{path}}",
+              { path: gitPath },
+            ),
+            {
+              description: apiErrorMessage(
+                error,
+                translateUi(
+                  "workspace.git.useGitPathEditorOpener.theProjectSGitRootIsUnavailable",
+                  "The project's Git root is unavailable",
+                ),
+              ),
+            },
+          );
         });
     },
     [featureId, open, queryClient],

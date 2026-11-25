@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * The feature layout's Preview tab: a read-only viewer for the document last
  * opened from the conversation (a file link, an agent-written file) or sent
@@ -22,6 +23,7 @@ export const FeaturePreviewTab = memo(function FeaturePreviewTab({
   featureId,
   projectId,
 }: FeaturePreviewTabProps): ReactElement {
+  const { t } = useUiTranslation();
   const filePath = useDocumentPreviewStore((state) => state.byFeature[featureId] ?? null);
   const queryClient = useQueryClient();
 
@@ -48,10 +50,16 @@ export const FeaturePreviewTab = memo(function FeaturePreviewTab({
           )}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <DocumentToolButton label="Reload from disk" onClick={reload}>
+          <DocumentToolButton
+            label={t("workspace.editor.featurePreviewTab.reloadFromDisk", "Reload from disk")}
+            onClick={reload}
+          >
             <RotateCwIcon />
           </DocumentToolButton>
-          <DocumentToolButton label="Close preview" onClick={close}>
+          <DocumentToolButton
+            label={t("workspace.editor.featurePreviewTab.closePreview", "Close preview")}
+            onClick={close}
+          >
             <XIcon />
           </DocumentToolButton>
         </div>
@@ -69,13 +77,18 @@ export const FeaturePreviewTab = memo(function FeaturePreviewTab({
 });
 
 function PreviewEmptyState(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
       <FileTextIcon className="size-6 text-muted-foreground/60" />
-      <p className="text-sm text-foreground">No document to preview</p>
+      <p className="text-sm text-foreground">
+        {t("workspace.editor.featurePreviewTab.noDocumentToPreview", "No document to preview")}
+      </p>
       <p className="max-w-sm text-xs text-balance text-muted-foreground">
-        PDF, Word, Excel, PowerPoint and CSV files open here when you click one in the conversation
-        or choose “Open in Preview” in the file tree.
+        {t(
+          "workspace.editor.featurePreviewTab.pdfWordExcelPowerPointAndCsvFiles",
+          "PDF, Word, Excel, PowerPoint and CSV files open here when you click one in the conversation or choose “Open in Preview” in the file tree.",
+        )}
       </p>
     </div>
   );

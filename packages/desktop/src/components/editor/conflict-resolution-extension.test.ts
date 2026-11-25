@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { history, undo } from "@codemirror/commands";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyConflictChoice, buildConflictHunks } from "./conflict-resolution-adapter";
 import { conflictResolutionControls } from "./conflict-resolution-extension";
 
@@ -98,4 +98,32 @@ describe("conflictResolutionControls", () => {
     expect(view.dom.querySelector(".cm-conflictActionsReason")?.textContent).toMatch(/ambiguous/);
     view.destroy();
   });
+});
+
+it("reconfigures conflict action labels without touching the document or its undo history", () => {
+  const compartment = new Compartment();
+  const hunks = buildConflictHunks(result);
+  const onApply = vi.fn();
+  const currentControls = (currentLabel: string) =>
+    conflictResolutionControls({ hunks, currentLabel, incomingLabel: "Incoming branch", onApply });
+  const view = new EditorView({
+    state: EditorState.create({
+      doc: result,
+      extensions: [history(), compartment.of(currentControls("Current branch"))],
+    }),
+  });
+  try {
+    view.dispatch({ changes: { from: 0, insert: "unsaved\n" } });
+    const edited = view.state.doc;
+    view.dispatch({ effects: compartment.reconfigure(currentControls("Branche actuelle")) });
+    expect(view.state.doc).toBe(edited);
+    const current = view.dom.querySelector("[data-choice=current]");
+    expect(current).toHaveTextContent("Accept Branche actuelle");
+    current?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ from: 15 }), "current");
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(result);
+  } finally {
+    view.destroy();
+  }
 });

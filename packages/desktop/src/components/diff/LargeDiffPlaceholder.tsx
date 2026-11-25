@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/diff-thresholds";
@@ -27,6 +28,7 @@ export function LargeDiffPlaceholder({
   deletions,
   onDisplay,
 }: LargeDiffPlaceholderProps) {
+  const { t } = useUiTranslation();
   const isBinary = variant === "binary";
   const showSize = sizeBytes !== undefined;
   return (
@@ -34,10 +36,12 @@ export function LargeDiffPlaceholder({
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <Badge variant={isBinary ? "secondary" : "outline"}>
-            {isBinary ? "Binary file" : "Large file"}
+            {isBinary
+              ? t("workspace.git.largeDiffPlaceholder.binaryFile", "Binary file")
+              : t("workspace.git.largeDiffPlaceholder.largeFile", "Large file")}
           </Badge>
           <span className="text-muted-foreground text-xs">
-            {showSize && formatBytes(sizeBytes)}
+            {showSize && formatBytes(sizeBytes, t)}
             {!isBinary && (
               <>
                 {showSize && " · "}
@@ -53,13 +57,19 @@ export function LargeDiffPlaceholder({
         </div>
         <p className="text-muted-foreground text-xs">
           {isBinary
-            ? "No textual diff is available for binary files."
-            : "Auto-display is disabled for large files to keep the UI responsive."}
+            ? t(
+                "workspace.git.largeDiffPlaceholder.noTextualDiffIsAvailableForBinary",
+                "No textual diff is available for binary files.",
+              )
+            : t(
+                "workspace.git.largeDiffPlaceholder.autoDisplayIsDisabledForLargeFilesTo",
+                "Auto-display is disabled for large files to keep the UI responsive.",
+              )}
         </p>
       </div>
       {!isBinary && onDisplay && (
         <Button variant="outline" size="sm" onClick={onDisplay}>
-          Display diff
+          {t("workspace.git.largeDiffPlaceholder.displayDiff", "Display diff")}
         </Button>
       )}
     </div>

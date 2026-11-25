@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Force-mode picker for the push dialog.
  *
@@ -35,23 +36,37 @@ function label(text: string, mode: PushForceMode): ReactElement {
  * Static: the data never depends on props, so building it once keeps the
  * `options` reference stable across the dialog's streaming re-renders.
  */
-const PUSH_FORCE_OPTIONS: ReadonlyArray<RadioCardOption<PushForceMode>> = [
-  {
-    value: PushForceMode.none,
-    label: label("Push", PushForceMode.none),
-    description: "Fails if the remote has commits you don't have.",
-  },
-  {
-    value: PushForceMode["force-with-lease"],
-    label: label("Force with lease", PushForceMode["force-with-lease"]),
-    description: "Overwrites the remote branch, but refuses if it moved since your last fetch.",
-  },
-  {
-    value: PushForceMode.force,
-    label: label("Force", PushForceMode.force),
-    description: "Overwrites the remote branch unconditionally. Remote-only commits are lost.",
-  },
-];
+function pushForceOptions(t: UiTranslator): ReadonlyArray<RadioCardOption<PushForceMode>> {
+  return [
+    {
+      value: PushForceMode.none,
+      label: label(t("workspace.git.pushForceSelector.push", "Push"), PushForceMode.none),
+      description: t(
+        "workspace.git.pushForceSelector.failsIfTheRemoteHasCommitsYou",
+        "Fails if the remote has commits you don't have.",
+      ),
+    },
+    {
+      value: PushForceMode["force-with-lease"],
+      label: label(
+        t("workspace.git.pushForceSelector.forceWithLease", "Force with lease"),
+        PushForceMode["force-with-lease"],
+      ),
+      description: t(
+        "workspace.git.pushForceSelector.overwritesTheRemoteBranchButRefusesIf",
+        "Overwrites the remote branch, but refuses if it moved since your last fetch.",
+      ),
+    },
+    {
+      value: PushForceMode.force,
+      label: label(t("workspace.git.pushForceSelector.force", "Force"), PushForceMode.force),
+      description: t(
+        "workspace.git.pushForceSelector.overwritesTheRemoteBranchUnconditionallyRemoteOnly",
+        "Overwrites the remote branch unconditionally. Remote-only commits are lost.",
+      ),
+    },
+  ];
+}
 
 /**
  * The exact command the backend will run for this mode. Mirrors
@@ -78,13 +93,14 @@ export const PushForceSelector = memo(function PushForceSelector({
   value,
   onChange,
 }: PushForceSelectorProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-2">
       <RadioCardGroup<PushForceMode>
-        ariaLabel="Push mode"
+        ariaLabel={t("workspace.git.pushForceSelector.pushMode", "Push mode")}
         value={value}
         onChange={onChange}
-        options={PUSH_FORCE_OPTIONS}
+        options={pushForceOptions(t)}
       />
       <p className="px-0.5 font-mono text-[11px] text-muted-foreground">
         <span aria-hidden>$ </span>

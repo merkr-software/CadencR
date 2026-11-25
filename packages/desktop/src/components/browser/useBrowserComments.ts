@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -68,12 +69,28 @@ function useBrowserBadgeActions(): {
   const clearBadges = useCallback((tabId: string): void => {
     void desktopBridge
       .clearBrowserCommentBadges(tabId)
-      .catch((error: unknown) => showBrowserError(error, "Could not clear Browser badges"));
+      .catch((error: unknown) =>
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserComments.couldNotClearBrowserBadges",
+            "Could not clear Browser badges",
+          ),
+        ),
+      );
   }, []);
   const removeBadge = useCallback((tabId: string, anchorId: string): void => {
     void desktopBridge
       .removeBrowserCommentBadge(tabId, anchorId)
-      .catch((error: unknown) => showBrowserError(error, "Could not update Browser badges"));
+      .catch((error: unknown) =>
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserComments.couldNotUpdateBrowserBadges",
+            "Could not update Browser badges",
+          ),
+        ),
+      );
   }, []);
   return useMemo(() => ({ clearBadges, removeBadge }), [clearBadges, removeBadge]);
 }
@@ -131,9 +148,11 @@ function useCommentCollectionActions(
     setComments([]);
     setDraft(null);
     toast.success(
-      comments.length === 1
-        ? "Browser comment sent to the active agent."
-        : `${comments.length} browser comments sent to the active agent.`,
+      translateUi("workspace.tools.useBrowserComments.sent", {
+        count: comments.length,
+        defaultValue_one: "Browser comment sent to the active agent.",
+        defaultValue_other: "{{count}} browser comments sent to the active agent.",
+      }),
     );
   }, [clearBadges, comments, onSend, setComments, setDraft]);
   return useMemo(() => ({ discardAll, send }), [discardAll, send]);

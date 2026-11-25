@@ -132,9 +132,9 @@ export function prStatusDetails(snapshot: KnownPrHealth): string[] {
   const unresolved = snapshot.unresolved_threads ?? 0;
   if (unresolved > 0) {
     details.push(
-      translateUi("sidebar.pr.unresolvedThreads", "{{count}} unresolved threads", {
+      translateUi("sidebar.pr.unresolvedThreads", "{{count, number}} unresolved threads", {
         count: unresolved,
-        defaultValue_one: "{{count}} unresolved thread",
+        defaultValue_one: "{{count, number}} unresolved thread",
       }),
     );
   }

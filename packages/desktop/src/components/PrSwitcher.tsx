@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Which of the conversation's pull requests the PR pane shows: one tab per
  * branch, the current branch first, every tab at the same weight. Opening a
@@ -29,6 +30,7 @@ export const PrSwitcher = memo(function PrSwitcher({
   selected: number | null;
   onSelect: (prNumber: number | null) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const listRef = useRef<HTMLDivElement>(null);
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -49,7 +51,10 @@ export const PrSwitcher = memo(function PrSwitcher({
     <div
       ref={listRef}
       role="tablist"
-      aria-label="Pull requests of this conversation"
+      aria-label={t(
+        "workspace.git.prSwitcher.pullRequestsOfThisConversation",
+        "Pull requests of this conversation",
+      )}
       onKeyDown={onKeyDown}
       // The fade says "more this way" on a phone, where the last tabs sit past
       // the edge; `pr-6` and `scroll-pr-6` let the last one scroll clear of it. Wide, it lands on
@@ -80,7 +85,10 @@ function SwitcherTab({
   active: boolean;
   onSelect: (prNumber: number | null) => void;
 }): ReactElement {
-  const label = tab.pr ? prStatusLabel(tab.pr) : "No pull request yet";
+  const { t } = useUiTranslation();
+  const label = tab.pr
+    ? prStatusLabel(tab.pr)
+    : t("workspace.git.prSwitcher.noPullRequestYet", "No pull request yet");
   const isCurrent = tab.prNumber === null;
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -95,7 +103,18 @@ function SwitcherTab({
       tabIndex={active ? 0 : -1}
       data-pr-switcher-tab={tab.prNumber ?? "current"}
       onClick={() => onSelect(tab.prNumber)}
-      title={`${tab.branch}${isCurrent ? " (current branch)" : ""}: ${label}`}
+      title={
+        isCurrent
+          ? t(
+              "workspace.git.prSwitcher.branchProposalLocal",
+              "{{branch}} (current branch): {{proposal}}",
+              { branch: tab.branch, proposal: label },
+            )
+          : t("workspace.git.prSwitcher.branchProposalRemote", "{{branch}}: {{proposal}}", {
+              branch: tab.branch,
+              proposal: label,
+            })
+      }
       className={cn(
         "relative inline-flex h-9 min-w-0 max-w-64 shrink-0 items-center gap-1.5 px-1.5 text-[12px] transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -106,7 +125,11 @@ function SwitcherTab({
       )}
     >
       {isCurrent && (
-        <GitBranchIcon className="size-3 shrink-0" aria-label="Current branch" role="img" />
+        <GitBranchIcon
+          className="size-3 shrink-0"
+          aria-label={t("workspace.git.prSwitcher.currentBranch", "Current branch")}
+          role="img"
+        />
       )}
       {tab.pr ? (
         <>

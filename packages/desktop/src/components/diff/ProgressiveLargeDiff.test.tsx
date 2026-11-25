@@ -50,7 +50,7 @@ describe("ProgressiveLargeDiff", () => {
 
     // First chunk only, with a visible progress indicator (2000 lines → 5 chunks).
     expect(screen.getAllByTestId("patch-diff-view")).toHaveLength(1);
-    expect(screen.getByRole("status")).toHaveTextContent("Rendering diff…");
+    expect(screen.getByRole("status")).toHaveTextContent("Rendering diff… 20%");
 
     // Each timer tick mounts exactly one more chunk.
     act(() => vi.advanceTimersToNextTimer());

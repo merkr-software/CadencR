@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Keyboard-first Git action picker for `GitActionButton`.
  */
@@ -33,7 +34,7 @@ import {
 } from "./useGitAction";
 
 export interface GitActionRegistration {
-  label: string;
+  label: (t: UiTranslator) => string;
   icon: ComponentType<{ className?: string }>;
   searchTerms?: readonly string[];
 }
@@ -42,16 +43,19 @@ export interface GitActionRegistration {
  * Additive registration seam for action-picker entries.
  */
 export const GIT_ACTION_REGISTRATIONS: Readonly<Record<GitAction, GitActionRegistration>> = {
-  commit: { label: "Commit", icon: GitCommit },
+  commit: { label: (t) => t("workspace.git.gitActionPopover.commit", "Commit"), icon: GitCommit },
   stash: {
-    label: "Stash changes",
+    label: (t) => t("workspace.git.gitActionPopover.stashChanges", "Stash changes"),
     icon: Archive,
     searchTerms: ["save", "tracked", "untracked", "changes"],
   },
-  update: { label: "Update", icon: RefreshCw },
-  push: { label: "Push", icon: Upload },
-  pr: { label: "Open compare", icon: GitPullRequest },
-  merge: { label: "Merge", icon: GitMerge },
+  update: { label: (t) => t("workspace.git.gitActionPopover.update", "Update"), icon: RefreshCw },
+  push: { label: (t) => t("workspace.git.gitActionPopover.push", "Push"), icon: Upload },
+  pr: {
+    label: (t) => t("workspace.git.gitActionPopover.openCompare", "Open compare"),
+    icon: GitPullRequest,
+  },
+  merge: { label: (t) => t("workspace.git.gitActionPopover.merge", "Merge"), icon: GitMerge },
 };
 
 const GIT_ACTION_ORDER: readonly GitAction[] = ["commit", "stash", "update", "push", "pr", "merge"];
@@ -82,11 +86,17 @@ export function GitActionPopover({
   onPick,
   recoveryControls = null,
 }: GitActionPopoverProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Command>
-      <CommandInput autoFocus placeholder="Search git actions…" />
+      <CommandInput
+        autoFocus
+        placeholder={t("workspace.git.gitActionPopover.searchGitActions", "Search git actions…")}
+      />
       <CommandList>
-        <CommandEmpty>No matching git action.</CommandEmpty>
+        <CommandEmpty>
+          {t("workspace.git.gitActionPopover.noMatchingGitAction", "No matching git action.")}
+        </CommandEmpty>
         <CommandGroup>
           {GIT_ACTION_ORDER.map((action) => {
             const {
@@ -101,10 +111,10 @@ export function GitActionPopover({
             const reason = activity ? null : state.disabled[action];
             const label =
               activityAction && activity
-                ? gitActivityHint(activityAction, activity)
+                ? gitActivityHint(activityAction, activity, t)
                 : action === "pr"
                   ? state.compareLabel
-                  : registeredLabel;
+                  : registeredLabel(t);
             return (
               <CommandItem
                 key={action}
@@ -128,7 +138,9 @@ export function GitActionPopover({
           })}
         </CommandGroup>
         {state.recovery && recoveryControls && (
-          <CommandGroup heading="Update recovery">
+          <CommandGroup
+            heading={t("workspace.git.gitActionPopover.updateRecovery", "Update recovery")}
+          >
             <RecoveryCommand
               action="continue"
               operation={state.recovery.operation}
@@ -173,8 +185,9 @@ function RecoveryCommand({
   pendingAction,
   onSelect,
 }: RecoveryCommandProps): ReactElement {
+  const { t } = useUiTranslation();
   const pending = pendingAction === action;
-  const label = gitUpdateActionLabel(action, operation);
+  const label = gitUpdateActionLabel(action, operation, t);
   const Icon = pending ? Loader2 : action === "continue" ? Play : Undo2;
   return (
     <CommandItem

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { startRoute, useOpenFileRoute } from "@/api/generated";
@@ -34,7 +35,11 @@ export function useOpenFileInNeovim(
 
   const openInNeovim = useCallback<OpenInNeovim>(
     (filePath, line, col, revealEditor) => {
-      const pending = toast.loading(`Opening ${filePath} in Neovim…`);
+      const pending = toast.loading(
+        translateUi("workspace.editor.useOpenFileInNeovim.opening", "Opening {{path}} in Neovim…", {
+          path: filePath,
+        }),
+      );
       void (async () => {
         try {
           // Diff links can reach the editor before its pane has ever mounted.
@@ -47,9 +52,19 @@ export function useOpenFileInNeovim(
           // Transfer focus once the requested file is ready for interaction.
           requestAnimationFrame(() => focusNeovimEditor(featureId));
         } catch (error: unknown) {
-          toast.error(`Could not open ${filePath} in Neovim`, {
-            description: apiErrorMessage(error, "Cannot open file"),
-          });
+          toast.error(
+            translateUi(
+              "workspace.editor.useOpenFileInNeovim.openFailed",
+              "Could not open {{path}} in Neovim",
+              { path: filePath },
+            ),
+            {
+              description: apiErrorMessage(
+                error,
+                translateUi("workspace.editor.useOpenFileInNeovim.cannotOpen", "Cannot open file"),
+              ),
+            },
+          );
         } finally {
           toast.dismiss(pending);
         }

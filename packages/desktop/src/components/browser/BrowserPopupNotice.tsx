@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { ExternalLinkIcon, Loader2Icon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ interface PopupNoticeActionsProps {
 }
 
 function PopupNoticeActions({ request, refresh }: PopupNoticeActionsProps): ReactElement {
+  const { t } = useUiTranslation();
   const [pending, setPending] = useState<PendingAction>(null);
   const operationPending = useRef(false);
   const allowed = request.status === "allowed-once";
@@ -28,10 +30,19 @@ function PopupNoticeActions({ request, refresh }: PopupNoticeActionsProps): Reac
       showBrowserError(
         error,
         action === "allow"
-          ? "Could not allow popup"
+          ? translateUi(
+              "workspace.tools.browserPopupNotice.couldNotAllowPopup",
+              "Could not allow popup",
+            )
           : action === "external"
-            ? "Could not open popup externally"
-            : "Could not dismiss popup",
+            ? translateUi(
+                "workspace.tools.browserPopupNotice.couldNotOpenPopupExternally",
+                "Could not open popup externally",
+              )
+            : translateUi(
+                "workspace.tools.browserPopupNotice.couldNotDismissPopup",
+                "Could not dismiss popup",
+              ),
       );
     } finally {
       operationPending.current = false;
@@ -49,7 +60,9 @@ function PopupNoticeActions({ request, refresh }: PopupNoticeActionsProps): Reac
         onClick={() => void run("allow")}
       >
         {pending === "allow" ? <Loader2Icon className="animate-spin" /> : null}
-        {allowed ? "Allowed once" : "Allow once"}
+        {allowed
+          ? t("workspace.tools.browserPopupNotice.allowedOnce", "Allowed once")
+          : t("workspace.tools.browserPopupNotice.allowOnce", "Allow once")}
       </Button>
       {request.externalAvailable ? (
         <Button
@@ -61,7 +74,7 @@ function PopupNoticeActions({ request, refresh }: PopupNoticeActionsProps): Reac
           onClick={() => void run("external")}
         >
           {pending === "external" ? <Loader2Icon className="animate-spin" /> : <ExternalLinkIcon />}
-          Open address externally
+          {t("workspace.tools.browserPopupNotice.openAddressExternally", "Open address externally")}
         </Button>
       ) : null}
       <Button
@@ -69,7 +82,10 @@ function PopupNoticeActions({ request, refresh }: PopupNoticeActionsProps): Reac
         size="icon-xs"
         variant="ghost"
         disabled={pending !== null}
-        aria-label="Dismiss blocked popup"
+        aria-label={t(
+          "workspace.tools.browserPopupNotice.dismissBlockedPopup",
+          "Dismiss blocked popup",
+        )}
         onClick={() => void run("dismiss")}
       >
         {pending === "dismiss" ? <Loader2Icon className="animate-spin" /> : <XIcon />}
@@ -85,6 +101,7 @@ export const BrowserPopupNotice = memo(function BrowserPopupNotice({
   scopeId: number;
   activeTabId: string | null;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const [requests, setRequests] = useState<BrowserPopupRequest[]>([]);
   const revision = useRef(0);
   const mounted = useRef(true);
@@ -95,7 +112,13 @@ export const BrowserPopupNotice = memo(function BrowserPopupNotice({
       if (mounted.current && currentRevision === revision.current) setRequests(next);
     } catch (error) {
       if (mounted.current && currentRevision === revision.current) {
-        showBrowserError(error, "Could not read blocked popups");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.browserPopupNotice.couldNotReadBlockedPopups",
+            "Could not read blocked popups",
+          ),
+        );
       }
     }
   }, [scopeId]);
@@ -116,6 +139,10 @@ export const BrowserPopupNotice = memo(function BrowserPopupNotice({
   const request = requests.find((item) => item.tabId === activeTabId);
   if (!request) return null;
   const allowed = request.status === "allowed-once";
+  const origin =
+    request.origin === "Unknown origin"
+      ? t("workspace.browser.popup.unknownOrigin", "Unknown origin")
+      : request.origin;
   const count = requests.length;
 
   return (
@@ -126,18 +153,43 @@ export const BrowserPopupNotice = memo(function BrowserPopupNotice({
       <ShieldAlertIcon className="size-4 shrink-0 text-[var(--acc-orange)]" />
       <div className="min-w-48 flex-1">
         <p className="font-medium">
-          {allowed ? "Popup allowed once" : "Popup blocked"} from {request.origin}
-          {count > 1 ? ` (+${count - 1} more)` : ""}
+          {allowed
+            ? t(
+                "workspace.tools.browserPopupNotice.allowedFrom",
+                "Popup allowed once from {{origin}}",
+                { origin },
+              )
+            : t("workspace.tools.browserPopupNotice.blockedFrom", "Popup blocked from {{origin}}", {
+                origin,
+              })}
+          {count > 1
+            ? t("workspace.tools.browserPopupNotice.more", " (+{{count}} more)", {
+                count: count - 1,
+              })
+            : ""}
         </p>
         <p className="text-muted-foreground">
           {allowed
-            ? "Retry the sign-in action in the page within 30 seconds."
-            : "Allow the next popup once, then retry the sign-in action."}
+            ? t(
+                "workspace.tools.browserPopupNotice.retryTheSignInActionInThePage",
+                "Retry the sign-in action in the page within 30 seconds.",
+              )
+            : t(
+                "workspace.tools.browserPopupNotice.allowTheNextPopupOnceThenRetry",
+                "Allow the next popup once, then retry the sign-in action.",
+              )}
         </p>
         {request.externalAvailable ? (
           <p className="text-muted-foreground">
-            External opening transfers neither embedded cookies
-            {request.hasPostData ? " nor submitted form data" : " nor sign-in state"}.
+            {request.hasPostData
+              ? t(
+                  "workspace.tools.browserPopupNotice.externalFormPrivacy",
+                  "External opening transfers neither embedded cookies nor submitted form data.",
+                )
+              : t(
+                  "workspace.tools.browserPopupNotice.externalSignInPrivacy",
+                  "External opening transfers neither embedded cookies nor sign-in state.",
+                )}
           </p>
         ) : null}
       </div>

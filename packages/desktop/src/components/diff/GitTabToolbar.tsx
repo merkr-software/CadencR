@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
 import type { ReactElement } from "react";
 import { NumStat } from "@/components/NumStat";
@@ -119,12 +120,13 @@ function FileListToggle({
   unavailable: boolean;
   onToggle: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { keys } = useResolvedShortcut("diff-toggle-sidebar");
   const label = unavailable
-    ? "No file list in this view"
+    ? t("workspace.git.gitTabToolbar.noFileListInThisView", "No file list in this view")
     : collapsed
-      ? "Show file list"
-      : "Hide file list";
+      ? t("workspace.git.gitTabToolbar.showFileList", "Show file list")
+      : t("workspace.git.gitTabToolbar.hideFileList", "Hide file list");
   // With no list on screen, the "hide" glyph would name a panel that isn't
   // there — so the unavailable state shows the same icon as a collapsed one.
   const Icon = unavailable || collapsed ? PanelLeft : PanelLeftClose;
@@ -165,18 +167,23 @@ function GitToolbarNumStat({
   partial,
   hidden = false,
 }: GitTabToolbarProps["stats"]): ReactElement | null {
+  const { t } = useUiTranslation();
   if (hidden) return null;
   if (isLoading) {
     return (
       <Skeleton
         className="h-3.5 w-16 shrink-0 rounded"
         role="status"
-        aria-label="Loading diff stats"
+        aria-label={t("workspace.git.gitTabToolbar.loadingDiffStats", "Loading diff stats")}
       />
     );
   }
   if (isError) {
-    return <span className="shrink-0 text-xs text-destructive">Stats unavailable</span>;
+    return (
+      <span className="shrink-0 text-xs text-destructive">
+        {t("workspace.git.gitTabToolbar.statsUnavailable", "Stats unavailable")}
+      </span>
+    );
   }
   return (
     <NumStat

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CheckIcon, CircleDashedIcon, MessageSquareIcon, XIcon } from "lucide-react";
 import type { ReactElement } from "react";
 import type { PrApprovals, PrReviewer, ReviewerDecision } from "@/api/generated";
@@ -11,12 +12,18 @@ import { cn } from "@/lib/utils";
 /** Faces shown in the pill before the rest fold into the popover. */
 const MAX_STACKED_AVATARS = 3;
 
-const DECISION_LABEL: Record<ReviewerDecision, string> = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  commented: "Commented",
-  pending: "Review requested",
-};
+function decisionLabel(value: ReviewerDecision, t: UiTranslator): string {
+  switch (value) {
+    case "approved":
+      return t("workspace.git.prApprovalsFact.reviewApproved", "Approved");
+    case "changes_requested":
+      return t("workspace.git.prApprovalsFact.reviewChangesRequested", "Changes requested");
+    case "commented":
+      return t("workspace.git.prApprovalsFact.reviewCommented", "Commented");
+    case "pending":
+      return t("workspace.git.prApprovalsFact.reviewPending", "Review requested");
+  }
+}
 
 const DECISION_TONE: Record<ReviewerDecision, PrIndicatorTone> = {
   approved: "ready",
@@ -31,6 +38,7 @@ const DECISION_TONE: Record<ReviewerDecision, PrIndicatorTone> = {
  * look at this?".
  */
 export function PrApprovalsFact({ approvals }: { approvals: PrApprovals }): ReactElement {
+  const { t } = useUiTranslation();
   const tone = approvalsTone(approvals);
   const approvers = approvals.reviewers.filter((reviewer) => reviewer.decision === "approved");
   const changesRequested = approvals.reviewers.filter(
@@ -59,8 +67,12 @@ export function PrApprovalsFact({ approvals }: { approvals: PrApprovals }): Reac
           ) : (
             <CheckIcon className="size-3.5 shrink-0" aria-hidden />
           )}
-          {approvalsSummary(approvals)}
-          {changesRequested > 0 && <span className="text-[11px]">· changes requested</span>}
+          {approvalsSummary(approvals, t)}
+          {changesRequested > 0 && (
+            <span className="text-[11px]">
+              {t("workspace.git.prApprovalsFact.changesRequested", "· changes requested")}
+            </span>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-1.5">
@@ -71,18 +83,32 @@ export function PrApprovalsFact({ approvals }: { approvals: PrApprovals }): Reac
 }
 
 function ReviewerList({ approvals }: { approvals: PrApprovals }): ReactElement {
+  const { t } = useUiTranslation();
   if (approvals.reviewers.length === 0) {
-    return <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No reviewers yet.</p>;
+    return (
+      <p className="px-2 py-1.5 text-[12px] text-muted-foreground">
+        {t("workspace.git.prApprovalsFact.noReviewersYet", "No reviewers yet.")}
+      </p>
+    );
   }
   return (
-    <ul className="max-h-64 overflow-y-auto" aria-label="Reviewers">
+    <ul
+      className="max-h-64 overflow-y-auto"
+      aria-label={t("workspace.git.prApprovalsFact.reviewers", "Reviewers")}
+    >
       {approvals.reviewers.map((reviewer) => (
         <ReviewerRow key={reviewer.user.username} reviewer={reviewer} />
       ))}
       {approvals.required != null && approvals.required > 0 && (
         <li className="mt-1 border-t border-border/70 px-2 pb-0.5 pt-1.5 text-[11px] text-muted-foreground">
-          The target branch requires {approvals.required}{" "}
-          {approvals.required === 1 ? "approval" : "approvals"}.
+          {t(
+            "workspace.git.prApprovalsFact.requiredApprovals",
+            "The target branch requires {{count, number}} approvals.",
+            {
+              count: approvals.required,
+              defaultValue_one: "The target branch requires {{count, number}} approval.",
+            },
+          )}
         </li>
       )}
     </ul>
@@ -90,6 +116,7 @@ function ReviewerList({ approvals }: { approvals: PrApprovals }): ReactElement {
 }
 
 function ReviewerRow({ reviewer }: { reviewer: PrReviewer }): ReactElement {
+  const { t } = useUiTranslation();
   const name = reviewer.user.display_name ?? reviewer.user.username;
   const tone = DECISION_TONE[reviewer.decision];
   return (
@@ -109,7 +136,7 @@ function ReviewerRow({ reviewer }: { reviewer: PrReviewer }): ReactElement {
         <span className={cn("inline-flex", PR_ICON_STYLE[tone])}>
           <DecisionIcon decision={reviewer.decision} />
         </span>
-        {DECISION_LABEL[reviewer.decision]}
+        {decisionLabel(reviewer.decision, t)}
       </span>
     </li>
   );

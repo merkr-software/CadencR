@@ -30,6 +30,7 @@ function CandidateTile({
   selected: boolean;
   onSelect: (path: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { data: blob, isLoading } = useQuery({
     queryKey: projectIconQueryKey(projectId, candidate.path),
     queryFn: ({ signal }) => projectIconBlob(projectId, { path: candidate.path, signal }),
@@ -44,7 +45,10 @@ function CandidateTile({
     <button
       type="button"
       onClick={() => onSelect(candidate.path)}
-      title={`${candidate.path} · ${formatBytes(candidate.size_bytes)}`}
+      title={t("projects.iconCandidate.size", "{{path}} · {{size}}", {
+        path: candidate.path,
+        size: formatBytes(candidate.size_bytes, t),
+      })}
       aria-pressed={selected}
       className={cn(
         "group relative flex flex-col items-center gap-1.5 rounded-md border p-2 transition-colors",

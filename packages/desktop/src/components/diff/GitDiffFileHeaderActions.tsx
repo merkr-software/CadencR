@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   FilePenLineIcon,
   Loader2Icon,
@@ -15,7 +16,7 @@ import {
   isUnavailableDeleteConflict,
   resolvedStageState,
 } from "./useGitDiffFileTreeModel";
-import { openGitFileInEditor } from "./gitFileEditorHandoff";
+import { deletedConflictTooltip, openGitFileInEditor } from "./gitFileEditorHandoff";
 import { displayGitPath } from "@/lib/git-display-path";
 
 interface GitDiffFileHeaderActionsProps {
@@ -69,58 +70,69 @@ export function GitDiffFileHeaderActions({
   indexActions,
   onOpenFileInEditor,
 }: GitDiffFileHeaderActionsProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const deleteConflict = isUnavailableDeleteConflict(file);
   const stageState = resolvedStageState(file);
-  const conflicted = stageState === FileStageState.conflicted;
   const availability = getGitFileActionAvailability(stageState);
-  const pendingPath = indexActions?.pendingPath === file.file;
-  const stagePending = pendingPath && indexActions?.pendingAction === "stage";
-  const resetPending = pendingPath && indexActions?.pendingAction === "reset";
+  const stagePending =
+    indexActions?.pendingPath === file.file && indexActions?.pendingAction === "stage";
+  const resetPending =
+    indexActions?.pendingPath === file.file && indexActions?.pendingAction === "reset";
   const shownPath = displayGitPath(file.file);
 
   return (
     <>
-      {file.conflict_kind ? (
-        <ShortcutTooltip
-          label={`Conflict: ${conflictKindLabel(file.conflict_kind)}`}
-          alignRight
-          className="shrink-0"
-        >
-          <span
-            className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--acc-orange)]"
-            aria-label={`Conflict: ${conflictKindLabel(file.conflict_kind)}`}
-          >
-            <TriangleAlertIcon className="size-3.5" aria-hidden />
-            Conflict
-          </span>
-        </ShortcutTooltip>
-      ) : null}
+      {file.conflict_kind && <ConflictBadge kind={file.conflict_kind} />}
       {onOpenFileInEditor ? (
         <HeaderActionButton
           label={
             deleteConflict
-              ? `Editor unavailable for deleted conflict ${shownPath}`
-              : `Open ${shownPath} in editor`
+              ? t(
+                  "workspace.git.gitDiffFileHeaderActions.editorUnavailableForDeletedConflictPath",
+                  "Editor unavailable for deleted conflict {{path}}",
+                  { path: shownPath },
+                )
+              : t(
+                  "workspace.git.gitDiffFileHeaderActions.openPathInEditor",
+                  "Open {{path}} in editor",
+                  { path: shownPath },
+                )
           }
           title={
             deleteConflict
-              ? "Editor unavailable: both sides deleted this file. Stage the deletion to resolve it."
-              : "Open in Editor"
+              ? deletedConflictTooltip(t)
+              : t("workspace.git.gitDiffFileHeaderActions.openInEditor", "Open in Editor")
           }
           disabled={deleteConflict}
           icon={FilePenLineIcon}
           onClick={() => openGitFileInEditor(file, onOpenFileInEditor)}
         />
       ) : null}
-      {indexActions && availability.canStage && !conflicted ? (
+      {indexActions && availability.canStage && stageState !== FileStageState.conflicted ? (
         <HeaderActionButton
-          label={deleteConflict ? `Stage deletion ${shownPath}` : `Stage ${shownPath}`}
+          label={
+            deleteConflict
+              ? t(
+                  "workspace.git.gitDiffFileHeaderActions.stageDeletionPath",
+                  "Stage deletion {{path}}",
+                  { path: shownPath },
+                )
+              : t("workspace.git.gitDiffFileHeaderActions.stagePath", "Stage {{path}}", {
+                  path: shownPath,
+                })
+          }
           title={
             stagePending
-              ? "Staging file…"
+              ? t("workspace.git.gitDiffFileHeaderActions.stagingFile", "Staging file…")
               : deleteConflict
-                ? "Stage deletion to mark the conflict resolved"
-                : "Stage file — add it to the next commit"
+                ? t(
+                    "workspace.git.gitDiffFileHeaderActions.stageDeletionToMarkTheConflictResolved",
+                    "Stage deletion to mark the conflict resolved",
+                  )
+                : t(
+                    "workspace.git.gitDiffFileHeaderActions.stageFileAddItToThe",
+                    "Stage file — add it to the next commit",
+                  )
           }
           disabled={indexActions.isPending}
           pending={stagePending}
@@ -130,8 +142,19 @@ export function GitDiffFileHeaderActions({
       ) : null}
       {indexActions && availability.canReset ? (
         <HeaderActionButton
-          label={`Unstage ${shownPath}; worktree content is preserved`}
-          title={resetPending ? "Unstaging file…" : "Unstage file — keeps worktree changes intact"}
+          label={t(
+            "workspace.git.gitDiffFileHeaderActions.unstagePathWorktreeContentIsPreserved",
+            "Unstage {{path}}; worktree content is preserved",
+            { path: shownPath },
+          )}
+          title={
+            resetPending
+              ? t("workspace.git.gitDiffFileHeaderActions.unstagingFile", "Unstaging file…")
+              : t(
+                  "workspace.git.gitDiffFileHeaderActions.unstageFileKeepsWorktreeChangesIntact",
+                  "Unstage file — keeps worktree changes intact",
+                )
+          }
           disabled={indexActions.isPending}
           pending={resetPending}
           icon={MinusIcon}
@@ -142,6 +165,28 @@ export function GitDiffFileHeaderActions({
   );
 }
 
+function ConflictBadge({
+  kind,
+}: {
+  kind: NonNullable<ChangedFile["conflict_kind"]>;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const label = t("workspace.git.gitDiffFileHeaderActions.conflictKind", "Conflict: {{kind}}", {
+    kind: conflictKindLabel(kind, t),
+  });
+  return (
+    <ShortcutTooltip label={label} alignRight className="shrink-0">
+      <span
+        className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--acc-orange)]"
+        aria-label={label}
+      >
+        <TriangleAlertIcon className="size-3.5" aria-hidden />
+        {t("workspace.git.gitDiffFileHeaderActions.conflict", "Conflict")}
+      </span>
+    </ShortcutTooltip>
+  );
+}
+
 export function GitDiffFileActionError({
   file,
   indexActions,
@@ -149,6 +194,7 @@ export function GitDiffFileActionError({
   file: ChangedFile;
   indexActions?: GitFileIndexActions;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   if (resolvedStageState(file) === FileStageState.conflicted) return null;
   const error = indexActions?.error;
   if (!error || error.filePath !== file.file) return null;
@@ -157,7 +203,10 @@ export function GitDiffFileActionError({
       role="alert"
       className="border-t border-destructive/40 bg-destructive/10 px-4 py-1.5 text-xs text-destructive"
     >
-      {error.action === "stage" ? "Stage failed" : "Unstage failed"}: {error.message}
+      {error.action === "stage"
+        ? t("workspace.git.gitDiffFileHeaderActions.stageFailed", "Stage failed")
+        : t("workspace.git.gitDiffFileHeaderActions.unstageFailed", "Unstage failed")}
+      : {error.message}
     </div>
   );
 }

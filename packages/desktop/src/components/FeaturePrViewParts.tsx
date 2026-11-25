@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   AlertCircleIcon,
   ChevronRightIcon,
@@ -7,6 +8,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type ReactElement } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
+import { fr } from "date-fns/locale";
 import { type PrStatusSnapshot } from "@/api/generated";
 import { Markdown } from "@/components/Markdown";
 import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
@@ -15,15 +17,23 @@ import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-export function relativeTime(value: string): string {
+function relativeTime(value: string, language: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return formatDistanceToNowStrict(date, { addSuffix: true });
+  return formatDistanceToNowStrict(date, {
+    addSuffix: true,
+    locale: language === "fr" ? fr : undefined,
+  });
 }
 
 export function PrViewLoading(): ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <div className="space-y-4 p-4" role="status" aria-label="Loading pull request">
+    <div
+      className="space-y-4 p-4"
+      role="status"
+      aria-label={t("workspace.git.featurePrViewParts.loadingPullRequest", "Loading pull request")}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-2.5">
           <Skeleton className="h-5 w-64 max-w-full" />
@@ -40,7 +50,8 @@ export function PrViewLoading(): ReactElement {
         <Skeleton className="h-20 w-full rounded-lg" />
       </div>
       <span className="sr-only">
-        <Loader2Icon className="inline size-3 animate-spin" aria-hidden /> Loading pull request…
+        <Loader2Icon className="inline size-3 animate-spin" aria-hidden />{" "}
+        {t("workspace.git.featurePrViewParts.loadingPullRequestProgress", "Loading pull request…")}
       </span>
     </div>
   );
@@ -121,6 +132,7 @@ export function PrEmptyIcon(): ReactElement {
  * recognise, and one click gets the rest.
  */
 export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactElement {
+  const { t } = useUiTranslation();
   const pr = status.pr!;
   const [open, setOpen] = useState(false);
   // The header re-renders on every pick and every keystroke; splitting a body
@@ -128,7 +140,11 @@ export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactEl
   // happen again each time.
   const preview = useMemo(() => descriptionPreview(pr.body_markdown), [pr.body_markdown]);
   if (!pr.body_markdown.trim()) {
-    return <p className="text-[12.5px] text-muted-foreground">No description provided.</p>;
+    return (
+      <p className="text-[12.5px] text-muted-foreground">
+        {t("workspace.git.featurePrViewParts.noDescriptionProvided", "No description provided.")}
+      </p>
+    );
   }
   return (
     <section>
@@ -148,7 +164,9 @@ export function PrDescription({ status }: { status: PrStatusSnapshot }): ReactEl
           )}
           aria-hidden
         />
-        <span className={cn("shrink-0", EYEBROW_TEXT_CLASS)}>Description</span>
+        <span className={cn("shrink-0", EYEBROW_TEXT_CLASS)}>
+          {t("workspace.git.featurePrViewParts.description", "Description")}
+        </span>
         {!open && (
           <span className="min-w-0 truncate text-[12px] text-muted-foreground">{preview}</span>
         )}
@@ -183,4 +201,9 @@ function descriptionPreview(markdown: string): string {
     if (line) return line;
   }
   return "";
+}
+
+export function PrRelativeTime({ value }: { value: string }): ReactElement {
+  const { i18n } = useUiTranslation();
+  return <>{relativeTime(value, i18n.language)}</>;
 }

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -14,7 +15,10 @@ export async function openExternalUrl(url: string, failureMessage: string): Prom
     await desktopBridge.openExternal(url);
   } catch (error) {
     toast.error(failureMessage, {
-      description: apiErrorMessage(error, "External link failed"),
+      description: apiErrorMessage(
+        error,
+        translateUi("workspace.links.openFailed", "External link failed"),
+      ),
     });
   }
 }

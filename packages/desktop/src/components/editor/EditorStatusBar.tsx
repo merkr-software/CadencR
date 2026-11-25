@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Bottom status bar for a single CodeMirror editor buffer. Renders cursor
  * position, autosave indicator, LSP status, language label, encoding, and
@@ -51,23 +52,35 @@ export const EditorStatusBar = memo(function EditorStatusBar({
   onLspRetry,
   preview,
 }: EditorStatusBarProps) {
+  const { t } = useUiTranslation();
   const isPreview = preview?.active ?? false;
   return (
     <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-card text-xs text-muted-foreground shrink-0">
-      <span>{isPreview ? "Preview" : `Ln ${line}, Col ${col}`}</span>
+      <span>
+        {isPreview
+          ? t("workspace.editor.editorStatusBar.preview", "Preview")
+          : t("workspace.editor.editorStatusBar.cursorPosition", "Ln {{line}}, Col {{column}}", {
+              line,
+              column: col,
+            })}
+      </span>
       <div className="flex items-center gap-3">
         {readError && (
           <span role="alert" title={readError} className="text-destructive">
-            Disk check failed
+            {t("workspace.editor.editorStatusBar.diskCheckFailed", "Disk check failed")}
           </span>
         )}
         {diskSync && <EditorDiskSyncIndicator sync={diskSync} />}
         {isFormatting ? (
-          <span role="status">Formatting…</span>
+          <span role="status">
+            {t("workspace.editor.editorStatusBar.formatting", "Formatting…")}
+          </span>
         ) : diskSync?.isSaving ? (
-          <span role="status">Saving…</span>
+          <span role="status">{t("workspace.editor.editorStatusBar.saving", "Saving…")}</span>
         ) : (
-          autoSavedVisible && <span>Auto-saved</span>
+          autoSavedVisible && (
+            <span>{t("workspace.editor.editorStatusBar.autoSaved", "Auto-saved")}</span>
+          )
         )}
         {preview && (
           <button
@@ -77,7 +90,9 @@ export const EditorStatusBar = memo(function EditorStatusBar({
             aria-pressed={isPreview}
           >
             {isPreview ? <PencilIcon className="size-3" /> : <EyeIcon className="size-3" />}
-            {isPreview ? "Edit" : "Preview"}
+            {isPreview
+              ? t("workspace.editor.editorStatusBar.edit", "Edit")
+              : t("workspace.editor.editorStatusBar.preview", "Preview")}
           </button>
         )}
         <span className="inline-flex items-center gap-1">

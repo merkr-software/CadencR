@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { create } from "zustand";
 import type { StashMutationOperation } from "./stash-contracts";
@@ -50,11 +51,42 @@ export interface StashMutationCoordinator {
   release: (lease: StashMutationLease) => void;
 }
 
-export function stashMutationBlockedReason(owner: StashMutationOwner | null): string | null {
+export function stashMutationBlockedReason(
+  owner: StashMutationOwner | null,
+  t: UiTranslator = translateUi,
+): string | null {
   if (!owner) return null;
-  if (owner.kind === "push") return "Stash changes request in progress";
-  const operation = owner.operation[0]?.toUpperCase() + owner.operation.slice(1);
-  return `${operation} ${owner.stashRefName} in progress`;
+  if (owner.kind === "push")
+    return t(
+      "workspace.git.useStashMutationCoordinator.pushPending",
+      "Stash changes request in progress",
+    );
+  return stashRefPendingLabel(owner.operation, owner.stashRefName, t);
+}
+
+export function stashRefPendingLabel(
+  operation: StashMutationOperation,
+  ref: string,
+  t: UiTranslator,
+): string {
+  switch (operation) {
+    case "apply":
+      return t(
+        "workspace.git.useStashMutationCoordinator.applyPending",
+        "Apply {{ref}} in progress",
+        { ref },
+      );
+    case "pop":
+      return t("workspace.git.useStashMutationCoordinator.popPending", "Pop {{ref}} in progress", {
+        ref,
+      });
+    case "drop":
+      return t(
+        "workspace.git.useStashMutationCoordinator.dropPending",
+        "Drop {{ref}} in progress",
+        { ref },
+      );
+  }
 }
 
 /**
@@ -63,9 +95,10 @@ export function stashMutationBlockedReason(owner: StashMutationOwner | null): st
  * can render a disabled state, so same-tick dispatches cannot race through.
  */
 export function useStashMutationCoordinator(featureId: number): StashMutationCoordinator {
+  const { t } = useUiTranslation();
   const activeLease = useStashMutationStore((state) => state.activeByFeature[featureId]);
   const activeMutation = activeLease?.owner ?? null;
-  const blockedReason = stashMutationBlockedReason(activeMutation);
+  const blockedReason = stashMutationBlockedReason(activeMutation, t);
 
   const getBlockedReason = useCallback(
     (): string | null =>

@@ -1,3 +1,4 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { Loader2Icon, SendIcon } from "lucide-react";
 import { useMemo, type ReactElement } from "react";
 import { KbdShortcut } from "@/components/KbdShortcut";
@@ -33,6 +34,7 @@ export function GitSendCommentsBar({
   drafts,
   reviews,
 }: GitSendCommentsBarProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const reviewShortcut = useResolvedShortcut("diff-send-review-comments");
   const pickShortcut = useResolvedShortcut("git-toggle-thread-picked");
   const draftShortcut = useResolvedShortcut("diff-send-comments");
@@ -50,28 +52,45 @@ export function GitSendCommentsBar({
           >
             {reviews.selectedCount > 0 ? (
               <span className="tabular-nums">
-                <span className="font-medium text-foreground">{reviews.selectedCount}</span> of{" "}
-                {reviews.totalCount} picked
+                <UiTrans
+                  i18nKey="workspace.git.gitSendCommentsBar.pickedCount"
+                  defaults="<selected>{{selected, number}}</selected> of {{total, number}} picked"
+                  values={{ selected: reviews.selectedCount, total: reviews.totalCount }}
+                  components={{ selected: <span className="font-medium text-foreground" /> }}
+                />
               </span>
             ) : (
               <>
-                <span className="truncate">Pick threads to send</span>
+                <span className="truncate">
+                  {t("workspace.git.gitSendCommentsBar.pickThreadsToSend", "Pick threads to send")}
+                </span>
                 <KbdShortcut keys={pickKeys} size="sm" />
               </>
             )}
           </span>
           {reviews.selectedCount > 0 && (
             <Button variant="ghost" size="sm" onClick={reviews.onClear}>
-              Clear
+              {t("workspace.git.gitSendCommentsBar.clear", "Clear")}
             </Button>
           )}
-          <ShortcutTooltip label="Send picked threads to the agent" keys={reviewKeys} above>
+          <ShortcutTooltip
+            label={t(
+              "workspace.git.gitSendCommentsBar.sendPickedThreadsToTheAgent",
+              "Send picked threads to the agent",
+            )}
+            keys={reviewKeys}
+            above
+          >
             <span className="inline-flex">
               <Button size="sm" disabled={reviews.disabled} onClick={reviews.onSend}>
                 <SendIcon className="size-3.5" aria-hidden />
                 {reviews.selectedCount > 0
-                  ? `Send ${reviews.selectedCount} to agent`
-                  : "Send to agent"}
+                  ? t(
+                      "workspace.git.gitSendCommentsBar.sendCountToAgent",
+                      "Send {{count, number}} to agent",
+                      { count: reviews.selectedCount },
+                    )
+                  : t("workspace.git.gitSendCommentsBar.sendToAgent", "Send to agent")}
               </Button>
             </span>
           </ShortcutTooltip>

@@ -402,6 +402,7 @@ export class BrowserManager {
   private reportTabError(tab: Pick<ManagedTab, "metadata">, error: unknown): void {
     const tabError: BrowserTabError = {
       kind: "internal",
+      failure: { reason: "internal" },
       title: "Browser error",
       description: browserTabErrorMessage(error),
       retryable: false,

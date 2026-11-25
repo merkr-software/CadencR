@@ -1,4 +1,5 @@
-import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { contextItemDetail, contextItemLabel } from "@/lib/composer-context-presentation";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import {
   ClipboardPaste,
@@ -84,30 +85,11 @@ function ContextChip({
     <Chip
       icon={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
       label={contextItemLabel(t, item)}
-      detail={
-        item.kind === "pasted"
-          ? t("conversation.composer.contextTray.lineCount", {
-              count: item.content.split("\n").length,
-              defaultValue_one: "{{count}} line",
-              defaultValue_other: "{{count}} lines",
-            })
-          : item.detail
-      }
+      detail={contextItemDetail(t, item)}
       title={item.content.length > 400 ? `${item.content.slice(0, 400)}…` : item.content}
       onRemove={() => onRemove(item.id)}
     />
   );
-}
-
-function contextItemLabel(t: UiTranslator, item: ComposerContextItem): string {
-  switch (item.kind) {
-    case "pasted":
-      return t("conversation.composer.contextTray.pastedText", "Pasted text");
-    case "review":
-      return t("conversation.composer.contextTray.reviewComments", "Review comments");
-    default:
-      return item.label;
-  }
 }
 
 /** Image and file attachments as chips; an image opens in the lightbox. */

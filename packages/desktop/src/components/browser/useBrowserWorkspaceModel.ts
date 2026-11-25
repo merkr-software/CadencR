@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   desktopBridge,
@@ -66,7 +67,15 @@ function revokeBrowserTabAgentAccess(tab: BrowserTabMetadata): void {
   if (!origin) return;
   void desktopBridge
     .setBrowserAgentSharing(tab.id, origin, false)
-    .catch((error: unknown) => showBrowserError(error, "Could not revoke agent access"));
+    .catch((error: unknown) =>
+      showBrowserError(
+        error,
+        translateUi(
+          "workspace.tools.useBrowserWorkspaceModel.couldNotRevokeAgentAccess",
+          "Could not revoke agent access",
+        ),
+      ),
+    );
 }
 
 // A blank tab shows an empty, focusable address bar rather than "about:blank".
@@ -98,7 +107,13 @@ function useBrowserTabActions(
         await desktopBridge.createBrowserTab(url, PROFILE_ID[mode], scopeId);
         return true;
       } catch (error) {
-        showBrowserError(error, "Could not open a new tab");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserWorkspaceModel.couldNotOpenANewTab",
+            "Could not open a new tab",
+          ),
+        );
         return false;
       } finally {
         creatingRef.current = false;
@@ -336,7 +351,15 @@ function useBrowserBootstrap(args: BrowserBootstrapArgs): void {
           scopeId,
         );
       })
-      .catch((error: unknown) => showBrowserError(error, "Browser unavailable"))
+      .catch((error: unknown) =>
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserWorkspaceModel.browserUnavailable",
+            "Browser unavailable",
+          ),
+        ),
+      )
       .finally(() => alive && setLoading(false));
     const off = desktopBridge.onBrowserState((next) => {
       // The main process broadcasts one snapshot per feature scope; keep only
@@ -365,7 +388,7 @@ function useRunForActive(
       try {
         await action(activeTab);
       } catch (error) {
-        showBrowserError(error, "Browser action failed");
+        reportBrowserError(error);
       } finally {
         setPending(false);
       }

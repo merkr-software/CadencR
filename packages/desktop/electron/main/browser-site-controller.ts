@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import type { Session, WebContents } from "electron";
 import { applyTabAgentAccess } from "./browser-manager-utils";
@@ -151,7 +152,12 @@ export class BrowserSiteController {
     const partition = browserPartitionForProfile(tab.profile);
     const key = siteKey(partition, origin);
     if (this.clearingSites.has(key)) {
-      throw new Error("Site data is already being cleared for this origin.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.site.clearing",
+          "Site data is already being cleared for this origin.",
+        ),
+      );
     }
     this.clearingSites.add(key);
     this.cancelRequestsForSite(partition, origin);
@@ -168,19 +174,34 @@ export class BrowserSiteController {
     const pending = this.pending.get(requestId);
     if (!pending) {
       if (!allowed) return;
-      throw new Error("This browser permission request is no longer active.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.site.permissionExpired",
+          "This browser permission request is no longer active.",
+        ),
+      );
     }
     const registration = this.tabsByWebContents.get(pending.webContentsId);
     if (!registration || !sameLiveOrigin(registration.tab, pending.request.topOrigin)) {
       this.finishRequest(requestId, false, true);
-      throw new Error("The page changed before the browser permission request was answered.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.site.pageChanged",
+          "The page changed before the browser permission request was answered.",
+        ),
+      );
     }
     const currentDecisions = pending.request.permissions.map((permission) =>
       this.decisions.safeGet(registration.tab, pending.request.origin, permission),
     );
     if (currentDecisions.includes("deny")) {
       this.finishRequest(requestId, false, true);
-      throw new Error("The website permission was blocked while the request was open.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.site.blockedDuringRequest",
+          "The website permission was blocked while the request was open.",
+        ),
+      );
     }
     try {
       this.decisions.setMany(
@@ -312,7 +333,12 @@ export class BrowserSiteController {
   private requireCurrentOrigin(tab: BrowserSiteTab, expectedOrigin: string): void {
     const origin = originOf(expectedOrigin);
     if (!origin || origin !== expectedOrigin || !sameLiveOrigin(tab, origin)) {
-      throw new Error("The browser tab is no longer on this site.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.site.changedOrigin",
+          "The browser tab is no longer on this site.",
+        ),
+      );
     }
   }
 

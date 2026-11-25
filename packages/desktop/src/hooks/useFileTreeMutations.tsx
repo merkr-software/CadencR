@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -44,9 +45,15 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
     mutation: {
       onSuccess: () => {
         void invalidateTree();
-        toast.success("File created");
+        toast.success(translateUi("workspace.editor.fileActions.fileCreated", "File created"));
       },
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to create file")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi("workspace.editor.fileActions.createFileFailed", "Failed to create file"),
+          ),
+        ),
     },
   });
 
@@ -54,9 +61,18 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
     mutation: {
       onSuccess: () => {
         void invalidateTree();
-        toast.success("Folder created");
+        toast.success(translateUi("workspace.editor.fileActions.folderCreated", "Folder created"));
       },
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to create folder")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi(
+              "workspace.editor.fileActions.createFolderFailed",
+              "Failed to create folder",
+            ),
+          ),
+        ),
     },
   });
 
@@ -65,7 +81,13 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
       onSuccess: () => {
         void invalidateTree();
       },
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to rename")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi("workspace.editor.fileActions.renameFailed", "Failed to rename"),
+          ),
+        ),
     },
   });
 
@@ -74,7 +96,13 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
       onSuccess: () => {
         void invalidateTree();
       },
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to move")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi("workspace.editor.fileActions.moveFailed", "Failed to move"),
+          ),
+        ),
     },
   });
 
@@ -82,38 +110,19 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
     mutation: {
       onSuccess: () => {
         void invalidateTree();
-        toast.success("Moved to trash");
+        toast.success(translateUi("workspace.editor.fileActions.movedToTrash", "Moved to trash"));
       },
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to move to trash")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi("workspace.editor.fileActions.trashFailed", "Failed to move to trash"),
+          ),
+        ),
     },
   });
 
-  // Lazily fetch (and cache) the editor root so we can build absolute paths
-  // for the native "Reveal in Finder" command.
-  const rootQuery = useGetEditorRoot(
-    { project_id: projectId, feature_id: featureId },
-    { query: { staleTime: 60_000 } },
-  );
-
-  const reveal = useCallback(
-    async (relativePath: string) => {
-      try {
-        const root = rootQuery.data?.root;
-        if (!root) {
-          toast.error("Editor root unavailable");
-          return;
-        }
-        const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
-        const absolute = root.endsWith(sep)
-          ? `${root}${relativePath}`
-          : `${root}${sep}${relativePath}`;
-        await desktopBridge.revealInFinder(absolute);
-      } catch (err) {
-        toast.error(typeof err === "string" ? err : "Failed to reveal in file manager");
-      }
-    },
-    [rootQuery.data?.root],
-  );
+  const reveal = useRevealInFileManager(projectId, featureId);
 
   // Memoize the return so consumers get stable refs and downstream
   // `React.memo` actually short-circuits.
@@ -129,4 +138,42 @@ export function useFileTreeMutations(projectId: number, featureId: number, lazyM
  */
 export function invalidateEditorTree(): Promise<void> {
   return invalidateByUrlPrefix(queryClient, "/api/editor/tree");
+}
+
+function useRevealInFileManager(projectId: number, featureId: number) {
+  // Lazily fetch (and cache) the editor root so we can build absolute paths
+  // for the native "Reveal in Finder" command.
+  const rootQuery = useGetEditorRoot(
+    { project_id: projectId, feature_id: featureId },
+    { query: { staleTime: 60_000 } },
+  );
+
+  return useCallback(
+    async (relativePath: string) => {
+      try {
+        const root = rootQuery.data?.root;
+        if (!root) {
+          toast.error(
+            translateUi("workspace.editor.fileActions.rootUnavailable", "Editor root unavailable"),
+          );
+          return;
+        }
+        const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
+        const absolute = root.endsWith(sep)
+          ? `${root}${relativePath}`
+          : `${root}${sep}${relativePath}`;
+        await desktopBridge.revealInFinder(absolute);
+      } catch (err) {
+        toast.error(
+          typeof err === "string"
+            ? err
+            : translateUi(
+                "workspace.editor.fileActions.revealFailed",
+                "Failed to reveal in file manager",
+              ),
+        );
+      }
+    },
+    [rootQuery.data?.root],
+  );
 }

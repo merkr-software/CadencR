@@ -20,6 +20,11 @@ const ITEM_SCHEMA = z.object({
   kind: z.enum(["pasted", "selection", "terminal", "pull_request", "review"]),
   label: z.string(),
   detail: z.string().optional(),
+  /** Line metadata for the tray. The stored label and detail are sent verbatim. */
+  lineCount: z.number().int().positive().optional(),
+  lineRange: z
+    .object({ start: z.number().int().positive(), end: z.number().int().positive() })
+    .optional(),
   /** Text appended to the prompt; `language` fences it as code. */
   content: z.string(),
   language: z.string().optional(),

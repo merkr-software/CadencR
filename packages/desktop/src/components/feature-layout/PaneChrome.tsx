@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { useDroppable } from "@dnd-kit/core";
 
@@ -210,6 +211,7 @@ function PaneTabs({
   onDockTab,
   onCloseTab,
 }: PaneTabsProps): ReactNode {
+  const { t } = useUiTranslation();
   const listRef = useRef<HTMLDivElement>(null);
   // Custom tab triggers appear once their definitions load, after the layout.
   const renderedTabCount = leaf.tabIds.filter((tab) => tabs[tab]).length;
@@ -222,7 +224,9 @@ function PaneTabs({
     >
       <TabsList ref={listRef} className="flex-1 overflow-x-auto overflow-y-hidden border-b-0">
         {leaf.tabIds.length === 0 && (
-          <span className="px-3 py-2 text-xs italic text-muted-foreground">Drag tabs here</span>
+          <span className="px-3 py-2 text-xs italic text-muted-foreground">
+            {t("workspace.tools.paneChrome.dragTabsHere", "Drag tabs here")}
+          </span>
         )}
         {leaf.tabIds.map((tab) => {
           // The shell renders a view without unavailable tabs; stay defensive.

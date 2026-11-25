@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   createContext,
   createElement,
@@ -40,9 +41,21 @@ export function useConfirmedConflictPaths(featureId: number): ConfirmedConflictP
 
   useEffect(() => {
     if (!changedFiles.isError) return;
-    toast.error("Could not detect Git conflicts", {
-      description: apiErrorMessage(changedFiles.error, "Git status is unavailable"),
-    });
+    toast.error(
+      translateUi(
+        "workspace.editor.useAutoConflictResolution.detectFailed",
+        "Could not detect Git conflicts",
+      ),
+      {
+        description: apiErrorMessage(
+          changedFiles.error,
+          translateUi(
+            "workspace.editor.useAutoConflictResolution.statusUnavailable",
+            "Git status is unavailable",
+          ),
+        ),
+      },
+    );
   }, [changedFiles.error, changedFiles.isError]);
 
   return useMemo(() => {

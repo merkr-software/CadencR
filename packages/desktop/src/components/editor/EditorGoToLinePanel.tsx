@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Go-to-line overlay panel. Mounted by `CodeMirrorEditor` while the
  * `editor-go-to-line` shortcut (⌃G / ⌘⌥G) is open. Lives next to the
@@ -20,6 +21,7 @@ interface EditorGoToLinePanelProps {
 }
 
 export function EditorGoToLinePanel({ view, reopenSignal, onClose }: EditorGoToLinePanelProps) {
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [value, setValue] = useState("");
 
@@ -69,7 +71,7 @@ export function EditorGoToLinePanel({ view, reopenSignal, onClose }: EditorGoToL
     <div
       className="absolute top-2 right-3 z-20 flex items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1 shadow-md backdrop-blur"
       role="dialog"
-      aria-label="Go to line"
+      aria-label={t("workspace.editor.editorGoToLinePanel.goToLine", "Go to line")}
       onMouseDown={(event) => {
         if (event.target !== inputRef.current) event.preventDefault();
       }}
@@ -83,7 +85,9 @@ export function EditorGoToLinePanel({ view, reopenSignal, onClose }: EditorGoToL
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={`Line 1–${view.state.doc.lines}`}
+        placeholder={t("workspace.editor.editorGoToLinePanel.lineRange", "Line 1–{{lastLine}}", {
+          lastLine: view.state.doc.lines,
+        })}
         className={cn(
           "w-44 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70",
           value.length > 0 && !isValid && "text-destructive",
@@ -93,8 +97,8 @@ export function EditorGoToLinePanel({ view, reopenSignal, onClose }: EditorGoToL
       <Button
         variant="ghost"
         size="icon-xs"
-        title="Close (Esc)"
-        aria-label="Close go-to-line"
+        title={t("workspace.editor.editorGoToLinePanel.closeEsc", "Close (Esc)")}
+        aria-label={t("workspace.editor.editorGoToLinePanel.closeGoToLine", "Close go-to-line")}
         onClick={handleClose}
       >
         <X />

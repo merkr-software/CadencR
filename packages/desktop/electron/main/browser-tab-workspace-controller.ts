@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
 import type { ManagedTab } from "./browser-tab-events";
@@ -111,7 +112,11 @@ export class BrowserTabWorkspaceController {
     }
     if (this.persistableItems(scopeId, liveTabs).length >= MAX_RESTORABLE_TABS_PER_SCOPE) {
       throw new Error(
-        `Normal Browser tabs are limited to ${MAX_RESTORABLE_TABS_PER_SCOPE} per feature.`,
+        translateUi(
+          "workspace.browser.tab.limit",
+          "Normal Browser tabs are limited to {{count}} per feature.",
+          { count: MAX_RESTORABLE_TABS_PER_SCOPE },
+        ),
       );
     }
   }
@@ -260,7 +265,12 @@ export class BrowserTabWorkspaceController {
     try {
       this.persistence.schedule(scopeId, this.persistableScope(scopeId, liveTabs, activeId));
     } catch (error) {
-      this.reportError(`Could not save Browser tabs: ${browserTabErrorMessage(error)}`, scopeId);
+      this.reportError(
+        translateUi("workspace.browser.tab.saveFailed", "Could not save Browser tabs: {{detail}}", {
+          detail: browserTabErrorMessage(error),
+        }),
+        scopeId,
+      );
     }
   }
 
@@ -335,6 +345,7 @@ export class BrowserTabWorkspaceController {
       metadata: {
         id,
         title: saved.title,
+        defaultTitle: saved.defaultTitle,
         url: saved.url,
         loading: false,
         canGoBack: false,
@@ -362,7 +373,11 @@ export class BrowserTabWorkspaceController {
     if (tabsWithIds.length === 0) return null;
     if (tabsWithIds.length > MAX_RESTORABLE_TABS_PER_SCOPE) {
       throw new Error(
-        `Normal Browser tabs are limited to ${MAX_RESTORABLE_TABS_PER_SCOPE} per feature.`,
+        translateUi(
+          "workspace.browser.tab.limit",
+          "Normal Browser tabs are limited to {{count}} per feature.",
+          { count: MAX_RESTORABLE_TABS_PER_SCOPE },
+        ),
       );
     }
     const selectedId = tabsWithIds.some(({ id }) => id === activeId)

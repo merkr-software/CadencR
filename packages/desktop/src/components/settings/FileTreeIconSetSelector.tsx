@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { useFileTreeIconSet, type FileTreeIconSet } from "@/hooks/useFileTreeIconSet";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
@@ -8,23 +9,34 @@ interface IconSetEntry {
   description: string;
 }
 
-const ICON_SETS: readonly IconSetEntry[] = [
-  {
-    value: "minimal",
-    label: "Minimal",
-    description: "Single generic file and folder icon with minimal visual noise.",
-  },
-  {
-    value: "standard",
-    label: "Standard",
-    description: "File-type icons for popular languages and config files.",
-  },
-  {
-    value: "complete",
-    label: "Complete",
-    description: "Full VS Code-style icon set, every common extension covered.",
-  },
-];
+function iconSets(t: UiTranslator): readonly IconSetEntry[] {
+  return [
+    {
+      value: "minimal",
+      label: t("workspace.editor.fileTreeIconSetSelector.minimal", "Minimal"),
+      description: t(
+        "workspace.editor.fileTreeIconSetSelector.minimalDescription",
+        "Single generic file and folder icon with minimal visual noise.",
+      ),
+    },
+    {
+      value: "standard",
+      label: t("workspace.editor.fileTreeIconSetSelector.standard", "Standard"),
+      description: t(
+        "workspace.editor.fileTreeIconSetSelector.standardDescription",
+        "File-type icons for popular languages and config files.",
+      ),
+    },
+    {
+      value: "complete",
+      label: t("workspace.editor.fileTreeIconSetSelector.complete", "Complete"),
+      description: t(
+        "workspace.editor.fileTreeIconSetSelector.completeDescription",
+        "Full VS Code-style icon set, every common extension covered.",
+      ),
+    },
+  ];
+}
 
 /**
  * Picker for the file-tree icon set used by the editor's @pierre/trees
@@ -32,21 +44,22 @@ const ICON_SETS: readonly IconSetEntry[] = [
  * apply immediately to every open tree without a remount.
  */
 export function FileTreeIconSetSelector(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { iconSet, setIconSet, isLoading } = useFileTreeIconSet();
 
   const options = useMemo<RadioCardOption<FileTreeIconSet>[]>(
     () =>
-      ICON_SETS.map((entry) => ({
+      iconSets(t).map((entry) => ({
         value: entry.value,
         label: entry.label,
         description: entry.description,
       })),
-    [],
+    [t],
   );
 
   return (
     <RadioCardGroup<FileTreeIconSet>
-      ariaLabel="File tree icon set"
+      ariaLabel={t("workspace.editor.fileTreeIconSetSelector.ariaLabel", "File tree icon set")}
       value={iconSet}
       onChange={setIconSet}
       options={options}

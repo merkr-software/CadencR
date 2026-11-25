@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Workspace-symbol quick picker (Cmd+T). Reuses the fuzzy-picker UI and
  * queries `workspace/symbol` as the user types (debounced). Unlike the file
@@ -36,6 +37,7 @@ export function EditorWorkspaceSymbolPicker({
   open,
   onOpenChange,
 }: EditorWorkspaceSymbolPickerProps) {
+  const { t } = useUiTranslation();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<WorkspaceSymbolResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,7 +47,12 @@ export function EditorWorkspaceSymbolPicker({
     if (!open) return;
     setQuery("");
     if (!canWorkspaceSymbols(view)) {
-      toast.info("This language server doesn't support workspace symbols.");
+      toast.info(
+        translateUi(
+          "workspace.editor.workspaceSymbols.unsupported",
+          "This language server doesn't support workspace symbols.",
+        ),
+      );
       onOpenChange(false);
     }
   }, [open, view, onOpenChange]);
@@ -63,7 +70,13 @@ export function EditorWorkspaceSymbolPicker({
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        toast.error(`Symbol search failed: ${apiErrorMessage(err, String(err))}`);
+        toast.error(
+          translateUi(
+            "workspace.editor.workspaceSymbols.searchFailed",
+            "Symbol search failed: {{error}}",
+            { error: apiErrorMessage(err, String(err)) },
+          ),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -73,54 +86,79 @@ export function EditorWorkspaceSymbolPicker({
     };
   }, [open, debounced, view]);
 
-  const handleSelect = async (symbol: WorkspaceSymbolResult): Promise<void> => {
-    try {
-      const target = await openLspLocation(view, symbol.location);
-      if (!target) {
-        toast.error("Could not open the symbol location.");
-        return;
-      }
-      onOpenChange(false);
-    } catch (err) {
-      toast.error(`Failed to open symbol: ${apiErrorMessage(err, String(err))}`);
-    }
-  };
-
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} commandProps={{ shouldFilter: false }}>
       <CommandInput
-        placeholder="Go to symbol in workspace..."
+        placeholder={t(
+          "workspace.editor.workspaceSymbols.goToSymbolInWorkspace",
+          "Go to symbol in workspace...",
+        )}
         value={query}
         onValueChange={setQuery}
       />
       <CommandList>
         {query.trim() === "" && (
           <div className="py-6 text-center text-sm text-muted-foreground">
-            Type to search workspace symbols.
+            {t(
+              "workspace.editor.workspaceSymbols.typeToSearchWorkspaceSymbols",
+              "Type to search workspace symbols.",
+            )}
           </div>
         )}
         {loading && results.length === 0 && query.trim() !== "" && (
-          <div className="py-6 text-center text-sm text-muted-foreground">Searching…</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            {t("workspace.editor.workspaceSymbols.searching", "Searching…")}
+          </div>
         )}
         {!loading && query.trim() !== "" && results.length === 0 && (
-          <CommandEmpty>No symbols found.</CommandEmpty>
+          <CommandEmpty>
+            {t("workspace.editor.workspaceSymbols.noSymbolsFound", "No symbols found.")}
+          </CommandEmpty>
         )}
         {results.map((symbol, index) => (
           <CommandItem
             key={`${symbol.name}-${symbol.location.uri}-${index}`}
             value={`${symbol.name} ${index}`}
-            onSelect={() => void handleSelect(symbol)}
+            onSelect={() => void selectWorkspaceSymbol(view, symbol, onOpenChange)}
           >
             <span className="truncate">{symbol.name}</span>
             {symbol.containerName && (
               <span className="text-xs text-muted-foreground truncate">{symbol.containerName}</span>
             )}
             <span className="ml-auto text-xs text-muted-foreground shrink-0">
-              {symbolKindLabel(symbol.kind)}
+              {symbolKindLabel(symbol.kind, t)}
             </span>
           </CommandItem>
         ))}
       </CommandList>
     </CommandDialog>
   );
+}
+
+async function selectWorkspaceSymbol(
+  view: EditorView,
+  symbol: WorkspaceSymbolResult,
+  onOpenChange: (open: boolean) => void,
+): Promise<void> {
+  try {
+    const target = await openLspLocation(view, symbol.location);
+    if (!target) {
+      toast.error(
+        translateUi(
+          "workspace.editor.workspaceSymbols.invalidLocation",
+          "Could not open the symbol location.",
+        ),
+      );
+      return;
+    }
+    onOpenChange(false);
+  } catch (err) {
+    toast.error(
+      translateUi(
+        "workspace.editor.workspaceSymbols.openFailed",
+        "Failed to open symbol: {{error}}",
+        { error: apiErrorMessage(err, String(err)) },
+      ),
+    );
+  }
 }

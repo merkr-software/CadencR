@@ -1,16 +1,12 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef, type CSSProperties, type ReactElement } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Play, Undo2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import { type GitOperationKind } from "@/api/generated";
 import { Button } from "@/components/ui/button";
-import { capitalize } from "@/lib/utils";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
-import {
-  gitOperationNoun,
-  gitUpdateActionLabel,
-  gitUpdateContinueDisabledReason,
-} from "./gitUpdateMessages";
+import { gitUpdateActionLabel, gitUpdateContinueDisabledReason } from "./gitUpdateMessages";
 import { useGitUpdateRecoveryActions } from "./useGitUpdateRecoveryActions";
 
 interface GitUpdateRecoveryRegionProps {
@@ -78,16 +74,18 @@ export const GitUpdateRecoveryBanner = memo(function GitUpdateRecoveryBanner({
   operation,
   conflictCount,
 }: GitUpdateRecoveryBannerProps): ReactElement {
+  const { t } = useUiTranslation();
   const actions = useGitUpdateRecoveryActions({ featureId, operation, conflictCount });
-  const noun = gitOperationNoun(operation);
-  const operationLabel = capitalize(noun);
-  const continueReason = gitUpdateContinueDisabledReason(conflictCount);
+  const continueReason = gitUpdateContinueDisabledReason(conflictCount, t);
   const resolved = continueReason === null;
   const accent = resolved ? "var(--acc-green)" : "var(--acc-orange)";
 
   return (
     <section
-      aria-label="Git update recovery"
+      aria-label={t(
+        "workspace.git.gitUpdateRecoveryBanner.gitUpdateRecovery",
+        "Git update recovery",
+      )}
       style={{ "--recovery-accent": accent } as CSSProperties}
       className="shrink-0 border-b border-[color-mix(in_oklab,var(--recovery-accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--recovery-accent)_8%,var(--card))] px-4 py-3"
     >
@@ -100,12 +98,30 @@ export const GitUpdateRecoveryBanner = memo(function GitUpdateRecoveryBanner({
               <AlertTriangle className="size-4 shrink-0" aria-hidden />
             )}
             {resolved
-              ? `${operationLabel} ready to continue`
-              : `${operationLabel} paused on conflicts`}
+              ? operation === "rebase"
+                ? t("workspace.git.gitUpdateRecoveryBanner.rebaseReady", "Rebase ready to continue")
+                : t("workspace.git.gitUpdateRecoveryBanner.mergeReady", "Merge ready to continue")
+              : operation === "rebase"
+                ? t(
+                    "workspace.git.gitUpdateRecoveryBanner.rebasePaused",
+                    "Rebase paused on conflicts",
+                  )
+                : t(
+                    "workspace.git.gitUpdateRecoveryBanner.mergePaused",
+                    "Merge paused on conflicts",
+                  )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {continueReason ??
-              `All conflicts staged. Continue to finish the ${noun}, or abort to undo it.`}
+              (operation === "rebase"
+                ? t(
+                    "workspace.git.gitUpdateRecoveryBanner.finishRebase",
+                    "All conflicts staged. Continue to finish the rebase, or abort to undo it.",
+                  )
+                : t(
+                    "workspace.git.gitUpdateRecoveryBanner.finishMerge",
+                    "All conflicts staged. Continue to finish the merge, or abort to undo it.",
+                  ))}
           </p>
           {actions.error && (
             <p role="alert" className="mt-2 whitespace-pre-wrap text-xs text-destructive">
@@ -125,21 +141,21 @@ export const GitUpdateRecoveryBanner = memo(function GitUpdateRecoveryBanner({
             ) : (
               <Undo2 className="mr-2 size-3.5" />
             )}
-            {gitUpdateActionLabel("abort", operation)}
+            {gitUpdateActionLabel("abort", operation, t)}
           </Button>
           <Button
             size="sm"
             variant={resolved ? "default" : "secondary"}
             onClick={() => void actions.continueUpdate()}
             disabled={actions.pending || continueReason !== null}
-            title={continueReason ?? `Continue ${noun}`}
+            title={continueReason ?? gitUpdateActionLabel("continue", operation, t)}
           >
             {actions.pendingAction === "continue" ? (
               <Loader2 className="mr-2 size-3.5 animate-spin" />
             ) : (
               <Play className="mr-2 size-3.5" />
             )}
-            {gitUpdateActionLabel("continue", operation)}
+            {gitUpdateActionLabel("continue", operation, t)}
           </Button>
         </div>
       </div>

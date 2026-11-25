@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { BookmarkCheck } from "lucide-react";
 import { memo, useCallback, useMemo, type CSSProperties, type ReactElement } from "react";
 import { Virtuoso } from "react-virtuoso";
@@ -22,8 +23,12 @@ type StashListItem =
     }
   | { kind: "file"; key: string; file: UncommittedFile; excluded: boolean };
 
-function buildStashListItems(files: UncommittedFile[], includeUntracked: boolean): StashListItem[] {
-  return groupStashFiles(files).flatMap((group): StashListItem[] => {
+function buildStashListItems(
+  files: UncommittedFile[],
+  includeUntracked: boolean,
+  t: UiTranslator,
+): StashListItem[] {
+  return groupStashFiles(files, t).flatMap((group): StashListItem[] => {
     const excluded = group.key === "untracked" && !includeUntracked;
     return [
       {
@@ -48,9 +53,10 @@ export const StashFileList = memo(function StashFileList({
   files,
   includeUntracked,
 }: StashFileListProps): ReactElement {
+  const { t } = useUiTranslation();
   const items = useMemo(
-    () => buildStashListItems(files, includeUntracked),
-    [files, includeUntracked],
+    () => buildStashListItems(files, includeUntracked, t),
+    [files, includeUntracked, t],
   );
   const style = useMemo<CSSProperties>(
     () => ({ height: `min(40vh, ${Math.max(72, items.length * 28)}px)` }),
@@ -77,11 +83,15 @@ export const StashFileList = memo(function StashFileList({
   );
 
   if (items.length === 0) {
-    return <p className="py-4 text-center text-sm text-muted-foreground">No changes to stash.</p>;
+    return (
+      <p className="py-4 text-center text-sm text-muted-foreground">
+        {t("workspace.git.stashFileList.noChangesToStash", "No changes to stash.")}
+      </p>
+    );
   }
   return (
     <Virtuoso
-      aria-label="Files to stash"
+      aria-label={t("workspace.git.stashFileList.filesToStash", "Files to stash")}
       role="list"
       style={style}
       totalCount={items.length}
@@ -97,6 +107,7 @@ function StashGroupHeading({
 }: {
   item: Extract<StashListItem, { kind: "group" }>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-1.5 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       {item.bucket === "staged" || item.bucket === "both" ? (
@@ -106,7 +117,12 @@ function StashGroupHeading({
         {item.label} ({item.count})
       </span>
       {item.bucket === "untracked" ? (
-        <span className="font-normal normal-case">· {item.excluded ? "excluded" : "included"}</span>
+        <span className="font-normal normal-case">
+          ·{" "}
+          {item.excluded
+            ? t("workspace.git.stashFileList.excluded", "excluded")
+            : t("workspace.git.stashFileList.included", "included")}
+        </span>
       ) : null}
     </div>
   );

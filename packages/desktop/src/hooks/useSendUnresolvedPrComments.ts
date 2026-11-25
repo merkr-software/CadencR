@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import type { CommentThread, PrSummary } from "@/api/generated";
@@ -45,12 +46,24 @@ export function useSendUnresolvedPrComments(
       if (!onSend || !toAgentPath || threads.length === 0) return;
       const message = formatPrThreadsForAgent(threads, pr, toAgentPath);
       if (!message) {
-        toast.error("Those review threads could not be formatted for the agent.");
+        toast.error(
+          translateUi(
+            "workspace.git.useSendUnresolvedPrComments.thoseReviewThreadsCouldNotBeFormatted",
+            "Those review threads could not be formatted for the agent.",
+          ),
+        );
         return;
       }
       onSend(message);
       toast.success(
-        `Sent ${threads.length} review ${threads.length === 1 ? "thread" : "threads"} to the agent.`,
+        translateUi(
+          "workspace.git.useSendUnresolvedPrComments.sentReviewThreads",
+          "Sent {{count, number}} review threads to the agent.",
+          {
+            count: threads.length,
+            defaultValue_one: "Sent {{count, number}} review thread to the agent.",
+          },
+        ),
       );
     },
     [onSend, pr, toAgentPath, unresolved],

@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import { documentErrorMessage } from "../DocumentChrome";
@@ -14,7 +15,7 @@ export interface OfficeViewer {
 
 export type OfficeViewerState<V> =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; error: unknown }
   | { status: "ready"; viewer: V };
 
 /**
@@ -22,24 +23,49 @@ export type OfficeViewerState<V> =
  * rather than `instanceof` so this shared module doesn't import (and bundle)
  * any one format's engine.
  */
-const OOXML_ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  encrypted: "This file is password-protected",
-  "invalid-password": "This file is password-protected",
-  "unsupported-encryption": "This file uses an encryption Cadencr can't open",
-  "legacy-binary-format": "Legacy .doc / .xls / .ppt files can't be previewed",
-  "not-ooxml": "This file isn't a valid Office document — it may be corrupt",
-  "ooxml-resource-limit": "This file is too large to preview",
-  "ooxml-decoded-image-limit": "This file's images are too large to preview",
-};
+function knownErrorMessage(code: string | null, t: UiTranslator): string | undefined {
+  switch (code) {
+    case "encrypted":
+    case "invalid-password":
+      return t(
+        "workspace.editor.useOfficeViewer.passwordProtected",
+        "This file is password-protected",
+      );
+    case "unsupported-encryption":
+      return t(
+        "workspace.editor.useOfficeViewer.unsupportedEncryption",
+        "This file uses an encryption Cadencr can't open",
+      );
+    case "legacy-binary-format":
+      return t(
+        "workspace.editor.useOfficeViewer.legacyFormat",
+        "Legacy .doc / .xls / .ppt files can't be previewed",
+      );
+    case "not-ooxml":
+      return t(
+        "workspace.editor.useOfficeViewer.invalidDocument",
+        "This file isn't a valid Office document — it may be corrupt",
+      );
+    case "ooxml-resource-limit":
+      return t("workspace.editor.useOfficeViewer.tooLarge", "This file is too large to preview");
+    case "ooxml-decoded-image-limit":
+      return t(
+        "workspace.editor.useOfficeViewer.imagesTooLarge",
+        "This file's images are too large to preview",
+      );
+    default:
+      return undefined;
+  }
+}
 
 function errorCode(error: unknown): string | null {
   if (!(error instanceof Error) || !("code" in error)) return null;
   return typeof error.code === "string" ? error.code : null;
 }
 
-export function officeErrorMessage(error: unknown, fallback: string): string {
+export function officeErrorMessage(error: unknown, fallback: string, t: UiTranslator): string {
   const code = errorCode(error);
-  const known = code === null ? undefined : OOXML_ERROR_MESSAGES[code];
+  const known = knownErrorMessage(code, t);
   return known ?? documentErrorMessage(error, fallback);
 }
 
@@ -56,7 +82,6 @@ export function officeErrorMessage(error: unknown, fallback: string): string {
 export function useOfficeViewer<V extends OfficeViewer>(
   data: ArrayBuffer,
   create: (container: HTMLElement, onScaleChange: (scale: number) => void) => V,
-  failure: string,
 ): {
   containerRef: RefObject<HTMLDivElement | null>;
   state: OfficeViewerState<V>;
@@ -79,13 +104,13 @@ export function useOfficeViewer<V extends OfficeViewer>(
         if (!cancelled) setState({ status: "ready", viewer });
       })
       .catch((error: unknown) => {
-        if (!cancelled) setState({ status: "error", message: officeErrorMessage(error, failure) });
+        if (!cancelled) setState({ status: "error", error });
       });
     return () => {
       cancelled = true;
       viewer.destroy();
     };
-  }, [create, data, failure]);
+  }, [create, data]);
 
   const viewer = state.status === "ready" ? state.viewer : null;
   useFitScaleSync(viewer, containerRef, setScale);
@@ -97,9 +122,9 @@ export function useOfficeViewer<V extends OfficeViewer>(
  * fails while scrolling): the rest of the document stays usable, so it's a
  * toast rather than replacing the view. One toast per document.
  */
-export function reportLateRenderError(toastId: string, failure: string) {
+export function reportLateRenderError(toastId: string, failure: () => string) {
   return (error: Error): void => {
-    toast.error(officeErrorMessage(error, failure), { id: toastId });
+    toast.error(officeErrorMessage(error, failure(), translateUi), { id: toastId });
   };
 }
 

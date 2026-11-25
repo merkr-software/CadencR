@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, UiTrans } from "@/lib/i18n/ui";
 import { memo, useEffect, useId, useState, type Dispatch, type SetStateAction } from "react";
 import { AlertCircleIcon, Loader2Icon } from "lucide-react";
 import { useShortcut } from "@/hooks/useShortcut";
@@ -28,6 +29,7 @@ export interface EditorLanguageSelectorProps {
 export const EditorLanguageSelector = memo(function EditorLanguageSelector(
   props: EditorLanguageSelectorProps,
 ) {
+  const { t } = useUiTranslation();
   const { language } = props;
   const [open, setOpen] = useState(false);
   const [preference, setPreference] = useState<EditorLanguagePreference>(language.preference);
@@ -36,7 +38,7 @@ export const EditorLanguageSelector = memo(function EditorLanguageSelector(
   const [isRetrying, setIsRetrying] = useState(false);
   const checkboxId = useId();
   const selectId = useId();
-  const label = getEditorLanguageLabel(language.languageId);
+  const label = getEditorLanguageLabel(language.languageId, t);
 
   useEffect(() => {
     if (!open) return;
@@ -51,7 +53,15 @@ export const EditorLanguageSelector = memo(function EditorLanguageSelector(
       await language.save({ preference, applyToExtension });
       setOpen(false);
     } catch (error) {
-      setActionError(apiErrorMessage(error, "Could not save language override"));
+      setActionError(
+        apiErrorMessage(
+          error,
+          translateUi(
+            "workspace.editor.languageMode.saveFailed",
+            "Could not save language override",
+          ),
+        ),
+      );
     }
   }
 
@@ -61,7 +71,15 @@ export const EditorLanguageSelector = memo(function EditorLanguageSelector(
     try {
       await language.retry();
     } catch (error) {
-      setActionError(apiErrorMessage(error, "Could not reload language overrides"));
+      setActionError(
+        apiErrorMessage(
+          error,
+          translateUi(
+            "workspace.editor.languageMode.reloadFailed",
+            "Could not reload language overrides",
+          ),
+        ),
+      );
     } finally {
       setIsRetrying(false);
     }
@@ -77,14 +95,7 @@ export const EditorLanguageSelector = memo(function EditorLanguageSelector(
         hasError={language.loadError !== null}
       />
       <DialogContent className="sm:max-w-md" showCloseButton={!language.isSaving}>
-        <DialogHeader>
-          <DialogTitle>Select Language Mode</DialogTitle>
-          <DialogDescription>
-            Choose the syntax and language tooling used for{" "}
-            <code>{getFileName(props.filePath)}</code>.
-          </DialogDescription>
-        </DialogHeader>
-
+        <LanguageDialogHeader filePath={props.filePath} />
         <div className="space-y-4">
           <LanguageFields
             selectId={selectId}
@@ -128,14 +139,19 @@ function LanguageDialogFooter({
   onCancel: () => void;
   onApply: () => void;
 }) {
+  const { t } = useUiTranslation();
   return (
     <DialogFooter>
       <Button type="button" variant="outline" disabled={isSaving} onClick={onCancel}>
-        Cancel
+        {t("workspace.editor.languageMode.cancel", "Cancel")}
       </Button>
       <Button type="button" disabled={!canSave || isSaving} onClick={onApply}>
         {isSaving && <Loader2Icon className="size-4 animate-spin" />}
-        <span>{isSaving ? "Applying…" : "Apply"}</span>
+        <span>
+          {isSaving
+            ? t("workspace.editor.languageMode.applying", "Applying…")
+            : t("workspace.editor.languageMode.apply", "Apply")}
+        </span>
         {!isSaving && <ResolvedShortcutHint shortcutId="editor-language-confirm" />}
       </Button>
     </DialogFooter>
@@ -175,6 +191,7 @@ function LanguageSelectorTrigger({
   isLoading: boolean;
   hasError: boolean;
 }) {
+  const { t } = useUiTranslation();
   return (
     <DialogTrigger asChild>
       <Button
@@ -183,7 +200,9 @@ function LanguageSelectorTrigger({
         size="xs"
         disabled={isLoading}
         className="h-auto px-1 py-0 font-normal text-muted-foreground"
-        aria-label={`Language mode: ${label}`}
+        aria-label={t("workspace.editor.languageMode.languageMode", "Language mode: {{language}}", {
+          language: label,
+        })}
       >
         {isLoading && <Loader2Icon className="size-3 animate-spin" />}
         {hasError && !isLoading && <AlertCircleIcon className="size-3 text-destructive" />}
@@ -207,11 +226,12 @@ interface LanguageFieldsProps {
 }
 
 function LanguageFields(props: LanguageFieldsProps) {
+  const { t } = useUiTranslation();
   return (
     <>
       <div className="space-y-2">
         <label htmlFor={props.selectId} className="text-sm font-medium">
-          Language
+          {t("workspace.editor.languageMode.language", "Language")}
         </label>
         <EditorLanguageCombobox
           id={props.selectId}
@@ -234,12 +254,19 @@ function LanguageFields(props: LanguageFieldsProps) {
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor={props.checkboxId} className="cursor-pointer text-sm font-medium">
-                Apply to all *.{props.extension} files
+                {t(
+                  "workspace.editor.languageMode.matchingFiles",
+                  "Apply to all *.{{extension}} files",
+                  { extension: props.extension },
+                )}
               </label>
               <ResolvedShortcutHint shortcutId="editor-language-toggle-extension" />
             </div>
             <p className="text-xs text-muted-foreground">
-              Use this language for matching files in this project, including files opened later.
+              {t(
+                "workspace.editor.languageMode.useThisLanguageForMatchingFilesIn",
+                "Use this language for matching files in this project, including files opened later.",
+              )}
             </p>
           </div>
         </div>
@@ -259,6 +286,7 @@ function LanguageAlert({
   isRetrying: boolean;
   onRetry: () => Promise<void>;
 }) {
+  const { t } = useUiTranslation();
   if (!message) return null;
   return (
     <div
@@ -276,9 +304,28 @@ function LanguageAlert({
           onClick={() => void onRetry()}
         >
           {isRetrying && <Loader2Icon className="size-3.5 animate-spin" />}
-          Retry
+          {t("workspace.editor.languageMode.retry", "Retry")}
         </Button>
       )}
     </div>
+  );
+}
+
+function LanguageDialogHeader({ filePath }: { filePath: string }) {
+  const { t } = useUiTranslation();
+  return (
+    <DialogHeader>
+      <DialogTitle>
+        {t("workspace.editor.languageMode.selectLanguageMode", "Select Language Mode")}
+      </DialogTitle>
+      <DialogDescription>
+        <UiTrans
+          i18nKey="workspace.editor.languageMode.description"
+          defaults="Choose the syntax and language tooling used for <file>{{name}}</file>."
+          values={{ name: getFileName(filePath) }}
+          components={{ file: <code /> }}
+        />
+      </DialogDescription>
+    </DialogHeader>
   );
 }

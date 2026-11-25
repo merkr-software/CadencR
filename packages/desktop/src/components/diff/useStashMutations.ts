@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import {
@@ -38,11 +39,50 @@ export interface StashMutationController {
   drop: () => Promise<boolean>;
 }
 
-const OPERATION_PAST_TENSE: Record<StashMutationOperation, string> = {
-  apply: "Applied",
-  pop: "Popped",
-  drop: "Dropped",
-};
+const stashOperationCopy = {
+  apply: {
+    success: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.applySucceeded", "Applied {{ref}}", { ref }),
+    failure: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.applyFailed", "Could not apply {{ref}}.", {
+        ref,
+      }),
+    stale: () =>
+      translateUi(
+        "workspace.git.useStashMutations.applyStale",
+        "Applied stash, but could not refresh the list",
+      ),
+  },
+  pop: {
+    success: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.popSucceeded", "Popped {{ref}}", { ref }),
+    failure: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.popFailed", "Could not pop {{ref}}.", { ref }),
+    stale: () =>
+      translateUi(
+        "workspace.git.useStashMutations.popStale",
+        "Popped stash, but could not refresh the list",
+      ),
+  },
+  drop: {
+    success: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.dropSucceeded", "Dropped {{ref}}", { ref }),
+    failure: (ref: string) =>
+      translateUi("workspace.git.useStashMutations.dropFailed", "Could not drop {{ref}}.", { ref }),
+    stale: () =>
+      translateUi(
+        "workspace.git.useStashMutations.dropStale",
+        "Dropped stash, but could not refresh the list",
+      ),
+  },
+} satisfies Record<
+  StashMutationOperation,
+  {
+    success: (ref: string) => string;
+    failure: (ref: string) => string;
+    stale: () => string;
+  }
+>;
 
 function conflictOutcome(
   operation: ConflictableStashOperation,
@@ -59,19 +99,44 @@ function showConflictToast(
   const firstConflict = outcome.conflictFiles[0];
   const action =
     firstConflict && onOpenConflict
-      ? { label: "Open first conflict", onClick: () => onOpenConflict(firstConflict) }
+      ? {
+          label: translateUi(
+            "workspace.git.useStashMutations.openFirstConflict",
+            "Open first conflict",
+          ),
+          onClick: () => onOpenConflict(firstConflict),
+        }
       : undefined;
   const retention =
     outcome.operation === "pop"
-      ? `${outcome.stash.ref_name} was kept because the pop conflicted.`
-      : `${outcome.stash.ref_name} remains available after the conflicted apply.`;
+      ? translateUi(
+          "workspace.git.useStashMutations.retainedAfterPop",
+          "{{ref}} was kept because the pop conflicted.",
+          { ref: outcome.stash.ref_name },
+        )
+      : translateUi(
+          "workspace.git.useStashMutations.retainedAfterApply",
+          "{{ref}} remains available after the conflicted apply.",
+          { ref: outcome.stash.ref_name },
+        );
   const fileList = outcome.conflictFiles.join(", ");
 
-  toast.warning(`Stash ${outcome.operation} has conflicts`, {
-    description: fileList ? `${retention} Conflicts: ${fileList}` : retention,
-    action,
-    duration: 12_000,
-  });
+  toast.warning(
+    outcome.operation === "pop"
+      ? translateUi("workspace.git.useStashMutations.popConflicts", "Stash pop has conflicts")
+      : translateUi("workspace.git.useStashMutations.applyConflicts", "Stash apply has conflicts"),
+    {
+      description: fileList
+        ? translateUi(
+            "workspace.git.useStashMutations.conflictFiles",
+            "{{retention}} Conflicts: {{files}}",
+            { retention, files: fileList },
+          )
+        : retention,
+      action,
+      duration: 12_000,
+    },
+  );
 }
 
 export function useStashMutations({
@@ -96,8 +161,14 @@ export function useStashMutations({
       try {
         await onRefresh();
       } catch (error) {
-        toast.error(`${OPERATION_PAST_TENSE[operation]} stash, but could not refresh the list`, {
-          description: apiErrorMessage(error, "The stash list may be stale."),
+        toast.error(stashOperationCopy[operation].stale(), {
+          description: apiErrorMessage(
+            error,
+            translateUi(
+              "workspace.git.useStashMutations.theStashListMayBeStale",
+              "The stash list may be stale.",
+            ),
+          ),
         });
       }
     },
@@ -116,21 +187,27 @@ export function useStashMutations({
         const result = await mutate({ data: selector });
         if (result.outcome === "conflicts") {
           if (operation === "drop") {
-            toast.error("Drop stash returned an unexpected conflict outcome", {
-              description: result.conflict_files.join(", "),
-            });
+            toast.error(
+              translateUi(
+                "workspace.git.useStashMutations.dropStashReturnedAnUnexpectedConflictOutcome",
+                "Drop stash returned an unexpected conflict outcome",
+              ),
+              {
+                description: result.conflict_files.join(", "),
+              },
+            );
             return false;
           }
           const outcome = conflictOutcome(operation, stash, result.conflict_files);
           onConflicts?.(outcome);
           showConflictToast(outcome, onOpenConflict);
         } else {
-          toast.success(`${OPERATION_PAST_TENSE[operation]} ${stash.ref_name}`);
+          toast.success(stashOperationCopy[operation].success(stash.ref_name));
         }
         await refreshAfterMutation(operation);
         return true;
       } catch (error) {
-        toastError(error, `Could not ${operation} ${stash.ref_name}.`);
+        toastError(error, stashOperationCopy[operation].failure(stash.ref_name));
         return false;
       } finally {
         coordinator.release(lease);

@@ -36,7 +36,7 @@ export function SkippedLargeFilesNotice({
       <FileWarning aria-hidden className="size-3 shrink-0 text-[var(--acc-yellow)]" />
       {t("search.content.skipped", {
         count,
-        size: formatBytes(maxFileBytes),
+        size: formatBytes(maxFileBytes, t),
         defaultValue_one: "{{count, number}} file larger than {{size}} not searched.",
         defaultValue_other: "{{count, number}} files larger than {{size}} not searched.",
       })}

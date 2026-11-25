@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { autocompletion, type CompletionContext, type Completion } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 
@@ -11,19 +12,42 @@ interface TemplateVariable {
   detail: string;
 }
 
-const BUILTIN_VARIABLES: TemplateVariable[] = [
-  { label: "feature_title", detail: "The user-provided feature name" },
-  { label: "feature_description", detail: "Feature description (PRD or user input)" },
-  { label: "project_name", detail: "Project name" },
-  { label: "project_path", detail: "Project filesystem path" },
-  { label: "phase_name", detail: "Name of the current phase" },
-  { label: "prior_artifacts", detail: "Concatenated artifacts from input phases" },
-  { label: "date", detail: "Current date (YYYY-MM-DD)" },
-];
+function builtinVariables(t: UiTranslator): TemplateVariable[] {
+  return [
+    {
+      label: "feature_title",
+      detail: t("workspace.editor.template.feature_title", "The user-provided feature name"),
+    },
+    {
+      label: "feature_description",
+      detail: t(
+        "workspace.editor.template.feature_description",
+        "Feature description (PRD or user input)",
+      ),
+    },
+    { label: "project_name", detail: t("workspace.editor.template.project_name", "Project name") },
+    {
+      label: "project_path",
+      detail: t("workspace.editor.template.project_path", "Project filesystem path"),
+    },
+    {
+      label: "phase_name",
+      detail: t("workspace.editor.template.phase_name", "Name of the current phase"),
+    },
+    {
+      label: "prior_artifacts",
+      detail: t(
+        "workspace.editor.template.prior_artifacts",
+        "Concatenated artifacts from input phases",
+      ),
+    },
+    { label: "date", detail: t("workspace.editor.template.date", "Current date (YYYY-MM-DD)") },
+  ];
+}
 
 /** @internal Exported for testing */
 export function buildCompletions(precedingPhases: PhaseInfo[]): Completion[] {
-  const builtins: Completion[] = BUILTIN_VARIABLES.map((v) => ({
+  const builtins: Completion[] = builtinVariables(translateUi).map((v) => ({
     label: `{{${v.label}}}`,
     detail: v.detail,
     type: "variable",
@@ -31,7 +55,11 @@ export function buildCompletions(precedingPhases: PhaseInfo[]): Completion[] {
 
   const artifacts: Completion[] = precedingPhases.map((p) => ({
     label: `{{artifact:${p.slug}}}`,
-    detail: `Artifact from '${p.name}' phase`,
+    detail: translateUi(
+      "workspace.editor.template.phaseArtifact",
+      "Artifact from '{{phase}}' phase",
+      { phase: p.name },
+    ),
     type: "variable",
   }));
 
@@ -40,8 +68,6 @@ export function buildCompletions(precedingPhases: PhaseInfo[]): Completion[] {
 
 /** @internal Exported for testing */
 export function templateCompletionSource(precedingPhases: PhaseInfo[]) {
-  const completions = buildCompletions(precedingPhases);
-
   return (context: CompletionContext) => {
     // Find the nearest `{{` before the cursor
     const line = context.state.doc.lineAt(context.pos);
@@ -58,7 +84,7 @@ export function templateCompletionSource(precedingPhases: PhaseInfo[]) {
 
     return {
       from,
-      options: completions,
+      options: buildCompletions(precedingPhases),
       filter: true,
     };
   };

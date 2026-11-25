@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Local-image renderer for the editor's Markdown preview. Repo-relative image
  * paths in a README (`<img src="docs/logo.png">` or `![](./logo.png)`) can't be
@@ -85,6 +86,7 @@ function LocalPreviewImage({
   width,
   height,
 }: LocalPreviewImageProps): ReactElement {
+  const { t } = useUiTranslation();
   const query = useQuery({
     queryKey: readImageBlobQueryKey(projectId, featureId, filePath),
     queryFn: ({ signal }) => readImageBlob(projectId, featureId, filePath, signal),
@@ -94,7 +96,10 @@ function LocalPreviewImage({
   const objectUrl = useObjectUrl(query.data);
 
   if (query.error) {
-    const message = apiErrorMessage(query.error, "Failed to load image");
+    const message = apiErrorMessage(
+      query.error,
+      t("workspace.editor.previewMarkdownImage.loadFailed", "Failed to load image"),
+    );
     return (
       <span
         title={message}

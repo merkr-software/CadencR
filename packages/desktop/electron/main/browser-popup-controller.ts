@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { shell, type BrowserWindow, type HandlerDetails, type WebContents } from "electron";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
@@ -86,7 +87,12 @@ export class BrowserPopupController {
     const currentOrigin = currentUrl ? origin(currentUrl) : null;
     if (currentOrigin !== request.topOrigin) {
       this.removeRequest(request);
-      throw new Error("The page changed. Retry the sign-in action before allowing its popup.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.popup.pageChanged",
+          "The page changed. Retry the sign-in action before allowing its popup.",
+        ),
+      );
     }
     const expiresAt = Date.now() + ALLOW_ONCE_MS;
     this.clearGrant(request.public.tabId);
@@ -232,7 +238,13 @@ export class BrowserPopupController {
 
   private requireRequest(requestId: string): InternalPopupRequest {
     const request = this.blocked.get(requestId);
-    if (!request) throw new Error("This blocked popup request is no longer available.");
+    if (!request)
+      throw new Error(
+        translateUi(
+          "workspace.browser.popup.gone",
+          "This blocked popup request is no longer available.",
+        ),
+      );
     return request;
   }
 
@@ -295,14 +307,24 @@ function popupIsTemporary(details: HandlerDetails): boolean {
 function assertNativePopupUrl(parentUrl: string, targetUrl: string): void {
   const target = new URL(targetUrl);
   if (target.username || target.password) {
-    throw new Error("Browser popup URLs with embedded credentials are blocked.");
+    throw new Error(
+      translateUi(
+        "workspace.browser.popup.credentialsBlocked",
+        "Browser popup URLs with embedded credentials are blocked.",
+      ),
+    );
   }
   const parent = new URL(parentUrl);
   if (
     target.protocol === "file:" &&
     (parent.protocol === "http:" || parent.protocol === "https:")
   ) {
-    throw new Error("Web pages cannot open local files in a Browser popup.");
+    throw new Error(
+      translateUi(
+        "workspace.browser.popup.fileBlocked",
+        "Web pages cannot open local files in a Browser popup.",
+      ),
+    );
   }
   normalizeBrowserOpenUrl(targetUrl);
 }
@@ -331,6 +353,11 @@ function assertSafePopupExternalUrl(rawUrl: string): void {
     throw new Error("Popup URLs with credentials are blocked.");
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
-    throw new Error("Only HTTPS or local HTTP popup addresses can be opened externally.");
+    throw new Error(
+      translateUi(
+        "workspace.browser.popup.externalAddress",
+        "Only HTTPS or local HTTP popup addresses can be opened externally.",
+      ),
+    );
   }
 }

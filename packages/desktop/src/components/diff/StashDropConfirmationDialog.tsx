@@ -1,3 +1,4 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
 import type { StashEntry } from "@/api/generated";
@@ -28,6 +29,7 @@ export const StashDropConfirmationDialog = memo(function StashDropConfirmationDi
   onOpenChange,
   onConfirm,
 }: StashDropConfirmationDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const handleOpenChange = (nextOpen: boolean): void => {
     if (!pending) onOpenChange(nextOpen);
   };
@@ -36,24 +38,44 @@ export const StashDropConfirmationDialog = memo(function StashDropConfirmationDi
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent showCloseButton={false} className="sm:max-w-sm" aria-busy={pending}>
         <DialogHeader>
-          <DialogTitle>Drop {stash.ref_name}?</DialogTitle>
+          <DialogTitle>
+            {t("workspace.git.stashDropConfirmationDialog.dropQuestion", "Drop {{ref}}?", {
+              ref: stash.ref_name,
+            })}
+          </DialogTitle>
           <DialogDescription>
-            Permanently drop <span className="font-mono text-foreground">{stash.ref_name}</span>: “
-            <span className="text-foreground">{stash.message}</span>”. This cannot be undone.
+            <UiTrans
+              i18nKey="workspace.git.stashDropConfirmationDialog.dropDescription"
+              defaults="Permanently drop <ref>{{ref}}</ref>: “<message>{{message}}</message>”. This cannot be undone."
+              values={{ ref: stash.ref_name, message: stash.message }}
+              components={{
+                ref: <span className="font-mono text-foreground" />,
+                message: <span className="text-foreground" />,
+              }}
+            />
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("workspace.git.stashDropConfirmationDialog.cancel", "Cancel")}
           </Button>
           <Button
             variant="destructive"
             onClick={onConfirm}
             disabled={pending || blocked}
-            title={blocked ? "Another stash operation is in progress" : undefined}
+            title={
+              blocked
+                ? t(
+                    "workspace.git.stashDropConfirmationDialog.anotherStashOperationIsInProgress",
+                    "Another stash operation is in progress",
+                  )
+                : undefined
+            }
           >
             {pending ? <Loader2Icon className="animate-spin" /> : null}
-            {pending ? "Dropping…" : "Drop stash"}
+            {pending
+              ? t("workspace.git.stashDropConfirmationDialog.dropping", "Dropping…")
+              : t("workspace.git.stashDropConfirmationDialog.dropStash", "Drop stash")}
           </Button>
         </DialogFooter>
       </DialogContent>

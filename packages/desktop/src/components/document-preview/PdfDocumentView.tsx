@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * PDF renderer: pdf.js pages stacked in a scroll container, each painted to a
  * canvas (plus a selectable text layer) only while near the viewport. Fits the
@@ -32,7 +33,7 @@ interface PageSize {
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; error: unknown }
   | { status: "ready"; doc: PDFDocumentProxy; pages: PageSize[] };
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] as const;
@@ -58,11 +59,7 @@ function usePdfDocument(data: ArrayBuffer): LoadState {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        const message =
-          error instanceof PasswordException
-            ? "This PDF is password-protected and can't be previewed"
-            : documentErrorMessage(error, "Could not open PDF");
-        setState({ status: "error", message });
+        setState({ status: "error", error });
       });
     return () => {
       cancelled = true;
@@ -78,6 +75,7 @@ function nextZoom(current: number, direction: 1 | -1): number {
 }
 
 export default function PdfDocumentView({ data, fileName }: DocumentRendererProps): ReactElement {
+  const { t } = useUiTranslation();
   const state = usePdfDocument(data);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const width = useElementWidth(scrollRef);
@@ -99,8 +97,26 @@ export default function PdfDocumentView({ data, fileName }: DocumentRendererProp
   return (
     <>
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto">
-        {state.status === "loading" && <DocumentLoading label="Opening PDF…" />}
-        {state.status === "error" && <DocumentError message={state.message} />}
+        {state.status === "loading" && (
+          <DocumentLoading
+            label={t("workspace.editor.pdfDocumentView.openingPdf", "Opening PDF…")}
+          />
+        )}
+        {state.status === "error" && (
+          <DocumentError
+            message={
+              state.error instanceof PasswordException
+                ? t(
+                    "workspace.editor.pdfDocumentView.passwordProtected",
+                    "This PDF is password-protected and can't be previewed",
+                  )
+                : documentErrorMessage(
+                    state.error,
+                    t("workspace.editor.pdfDocumentView.openFailed", "Could not open PDF"),
+                  )
+            }
+          />
+        )}
         {state.status === "ready" && width !== null && (
           <div className="flex w-max min-w-full flex-col items-center gap-4 py-6">
             {state.pages.map((size, index) => (
@@ -119,7 +135,12 @@ export default function PdfDocumentView({ data, fileName }: DocumentRendererProp
       <DocumentStatusBar
         status={
           state.status === "ready"
-            ? `${fileName} · ${state.doc.numPages} ${state.doc.numPages === 1 ? "page" : "pages"}`
+            ? t("workspace.editor.pdfDocumentView.pageSummary", {
+                count: state.doc.numPages,
+                file: fileName,
+                defaultValue_one: "{{file}} · {{count, number}} page",
+                defaultValue_other: "{{file}} · {{count, number}} pages",
+              })
             : fileName
         }
       >
@@ -144,6 +165,7 @@ const PdfPage = memo(function PdfPage({
   scale,
   scrollRoot,
 }: PdfPageProps): ReactElement {
+  const { t } = useUiTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   // Pages only hold a canvas near the viewport, which bounds a long PDF's memory.
@@ -163,7 +185,9 @@ const PdfPage = memo(function PdfPage({
     <div
       ref={setRef}
       style={style}
-      aria-label={`Page ${pageNumber}`}
+      aria-label={t("workspace.editor.pdfDocumentView.pageNumber", "Page {{page, number}}", {
+        page: pageNumber,
+      })}
       className="cadencr-pdf-page relative shrink-0 bg-white shadow-md ring-1 ring-black/5"
     >
       {near && <canvas ref={canvasRef} className="absolute inset-0 size-full" />}
@@ -192,7 +216,8 @@ function usePageRender({
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   textRef: React.RefObject<HTMLDivElement | null>;
 }): string | null {
-  const [error, setError] = useState<string | null>(null);
+  const { t } = useUiTranslation();
+  const [failure, setFailure] = useState<{ reason: unknown } | null>(null);
   useEffect(() => {
     if (!near) return undefined;
     let cancelled = false;
@@ -221,13 +246,13 @@ function usePageRender({
       });
       await Promise.all([renderTask.promise, textLayer.render()]);
     };
-    setError(null);
+    setFailure(null);
     paint().catch((reason: unknown) => {
       // A cancelled render (scrolled away, zoomed) rejects by design.
       if (cancelled || (reason instanceof Error && reason.name === "RenderingCancelledException")) {
         return;
       }
-      setError(documentErrorMessage(reason, `Could not render page ${pageNumber}`));
+      setFailure({ reason });
     });
     return () => {
       cancelled = true;
@@ -237,5 +262,14 @@ function usePageRender({
       page?.cleanup();
     };
   }, [canvasRef, doc, near, pageNumber, scale, textRef]);
-  return error;
+  return failure
+    ? documentErrorMessage(
+        failure.reason,
+        t(
+          "workspace.editor.pdfDocumentView.renderFailed",
+          "Could not render page {{page, number}}",
+          { page: pageNumber },
+        ),
+      )
+    : null;
 }

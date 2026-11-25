@@ -1,7 +1,8 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { ExternalLinkIcon, GitCompareArrowsIcon, Loader2Icon, SendIcon } from "lucide-react";
 import { memo, useCallback, useId, useState, type ReactElement } from "react";
 import type { CommentThread } from "@/api/generated";
-import { relativeTime } from "@/components/FeaturePrViewParts";
+import { PrRelativeTime } from "@/components/FeaturePrViewParts";
 import { ForgeAvatar } from "@/components/ForgeImage";
 import { Markdown } from "@/components/Markdown";
 import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
@@ -91,7 +92,9 @@ export const PrCommentThread = memo(function PrCommentThread({
               <span className="truncate text-[12px] font-semibold text-foreground">
                 {comment.author.display_name ?? comment.author.username}
               </span>
-              <span className="shrink-0 tabular-nums">{relativeTime(comment.created_at)}</span>
+              <span className="shrink-0 tabular-nums">
+                <PrRelativeTime value={comment.created_at} />
+              </span>
             </div>
             <Markdown
               content={comment.body_markdown}
@@ -125,6 +128,7 @@ function ThreadHeader({
   selected: boolean;
   onSelectedChange?: (selected: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const selectionId = useId();
   const location = threadLocation(thread);
   const context = location && thread.side === "old" ? `${location} (removed side)` : location;
@@ -135,7 +139,7 @@ function ThreadHeader({
         className={cn("min-w-0 truncate", context && "font-mono")}
         title={context ?? undefined}
       >
-        {context ?? "General comment"}
+        {context ?? t("workspace.git.featurePrComments.generalComment", "General comment")}
       </span>
       <ThreadStatusPills thread={thread} />
     </>
@@ -148,14 +152,29 @@ function ThreadHeader({
     <label
       htmlFor={selectionId}
       className={cn(rowClass, "-my-1 cursor-pointer py-1")}
-      title="Pick this thread for the agent"
+      title={t(
+        "workspace.git.featurePrComments.pickThisThreadForTheAgent",
+        "Pick this thread for the agent",
+      )}
     >
       {facts}
       <Checkbox
         id={selectionId}
         checked={selected}
         onCheckedChange={(checked) => onSelectedChange(checked === true)}
-        aria-label={`Pick ${context ?? "this general comment"} for the agent`}
+        aria-label={
+          context
+            ? t(
+                "workspace.git.featurePrComments.pickCommentLocal",
+                "Pick {{location}} for the agent",
+                { location: context },
+              )
+            : t(
+                "workspace.git.featurePrComments.pickCommentRemote",
+                "Pick this general comment for the agent",
+                { location: context },
+              )
+        }
         className="ml-auto shrink-0"
       />
     </label>
@@ -164,6 +183,7 @@ function ThreadHeader({
 
 /** Outdated / open / resolved markers, beside the location in the thread header. */
 function ThreadStatusPills({ thread }: { thread: CommentThread }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!thread.outdated && thread.resolved == null) return null;
   return (
     <span className="flex shrink-0 items-center gap-1 text-[10.5px] font-medium">
@@ -179,9 +199,12 @@ function ThreadStatusPills({ thread }: { thread: CommentThread }): ReactElement 
       {thread.outdated && (
         <span
           className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
-          title="The diff moved since this comment was written, so its line no longer points at the current code"
+          title={t(
+            "workspace.git.featurePrComments.theDiffMovedSinceThisCommentWas",
+            "The diff moved since this comment was written, so its line no longer points at the current code",
+          )}
         >
-          outdated
+          {t("workspace.git.featurePrComments.outdated", "outdated")}
         </span>
       )}
       {thread.resolved != null && (
@@ -193,7 +216,9 @@ function ThreadStatusPills({ thread }: { thread: CommentThread }): ReactElement 
             )}
             aria-hidden
           />
-          {thread.resolved ? "resolved" : "open"}
+          {thread.resolved
+            ? t("workspace.git.featurePrComments.resolved", "resolved")
+            : t("workspace.git.featurePrComments.open", "open")}
         </span>
       )}
     </span>
@@ -209,13 +234,20 @@ function ThreadActions({
   onViewThread?: (thread: CommentThread) => void;
   onSendThread?: (thread: CommentThread) => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const url = thread.comments.find((comment) => comment.url)?.url ?? null;
   const host = threadExternalHost(thread);
   const [opening, setOpening] = useState(false);
   const open = useCallback(async (): Promise<void> => {
     if (!url) return;
     setOpening(true);
-    await openExternalUrl(url, "Could not open this review thread.");
+    await openExternalUrl(
+      url,
+      translateUi(
+        "workspace.git.featurePrComments.couldNotOpenThisReviewThread",
+        "Could not open this review thread.",
+      ),
+    );
     setOpening(false);
   }, [url]);
   const canView = !!onViewThread && isThreadAnchored(thread) && thread.resolved !== true;
@@ -236,7 +268,7 @@ function ThreadActions({
             onClick={() => onSendThread(thread)}
           >
             <SendIcon className="size-3" aria-hidden />
-            Send to agent
+            {t("workspace.git.featurePrComments.sendToAgent", "Send to agent")}
           </Button>
         )}
         {canView && (
@@ -247,7 +279,7 @@ function ThreadActions({
             onClick={() => onViewThread(thread)}
           >
             <GitCompareArrowsIcon className="size-3" aria-hidden />
-            View in diff
+            {t("workspace.git.featurePrComments.viewInDiff", "View in diff")}
           </Button>
         )}
         {url && (
@@ -263,7 +295,9 @@ function ThreadActions({
             ) : (
               <ExternalLinkIcon className="size-3" aria-hidden />
             )}
-            Reply on {host ?? "remote"}
+            {t("workspace.git.featurePrComments.replyOnHost", "Reply on {{host}}", {
+              host: host ?? t("workspace.git.featurePrComments.remote", "remote"),
+            })}
           </Button>
         )}
       </div>

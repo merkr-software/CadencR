@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Save-As flow for "untitled" scratch buffers (the CMD+N → type → CMD+S
  * path). Opens the native save dialog via the desktop bridge, computes a
@@ -48,24 +49,40 @@ export function useSaveAsDialog({
   const saveAs = useCallback(
     async (untitledPath: string, suggestedName: string, content: string): Promise<void> => {
       if (!projectRoot) {
-        toast.error("Project working directory not loaded yet — try again.");
+        toast.error(
+          translateUi(
+            "workspace.editor.useSaveAsDialog.directoryLoading",
+            "Project working directory not loaded yet — try again.",
+          ),
+        );
         return;
       }
       let chosenPath: string | null;
       try {
         chosenPath = await desktopBridge.showSaveDialog({
           defaultPath: `${projectRoot.replace(/[\\/]+$/, "")}/${suggestedName}`,
-          title: "Save File As",
+          title: translateUi("workspace.editor.useSaveAsDialog.title", "Save File As"),
         });
       } catch (err) {
-        toastError(err, "Failed to open save dialog");
+        toastError(
+          err,
+          translateUi(
+            "workspace.editor.useSaveAsDialog.dialogFailed",
+            "Failed to open save dialog",
+          ),
+        );
         return;
       }
       if (!chosenPath) return; // user canceled
 
       const relative = relativeToProject(chosenPath, projectRoot);
       if (relative === null || relative.length === 0) {
-        toast.error("File must be saved inside the project folder.");
+        toast.error(
+          translateUi(
+            "workspace.editor.useSaveAsDialog.outsideProject",
+            "File must be saved inside the project folder.",
+          ),
+        );
         return;
       }
 
@@ -79,7 +96,10 @@ export function useSaveAsDialog({
           },
         });
       } catch (err) {
-        toastError(err, "Failed to save file");
+        toastError(
+          err,
+          translateUi("workspace.editor.useSaveAsDialog.saveFailed", "Failed to save file"),
+        );
         return;
       }
 

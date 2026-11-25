@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   desktopBridge,
@@ -49,10 +50,14 @@ interface BrowserWorkspaceTabProps {
 export const BrowserWorkspaceTab = memo(function BrowserWorkspaceTab(
   props: BrowserWorkspaceTabProps,
 ): ReactElement {
+  const { t } = useUiTranslation();
   if (!isDesktopShell()) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        The embedded browser is only available in the desktop app.
+        {t(
+          "workspace.tools.browserWorkspaceTab.theEmbeddedBrowserIsOnlyAvailableIn",
+          "The embedded browser is only available in the desktop app.",
+        )}
       </div>
     );
   }
@@ -373,7 +378,13 @@ function useSuppressedBrowserSnapshot(
         // capture. Its rejection belongs to the obsolete snapshot request,
         // not the now-visible page, so it must not surface as a user error.
         if (!alive) return;
-        showBrowserError(error, "Could not preview Browser page");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.browserWorkspaceTab.couldNotPreviewBrowserPage",
+            "Could not preview Browser page",
+          ),
+        );
         setSuppressNativeView(true);
       });
     return () => {

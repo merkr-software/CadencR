@@ -1,3 +1,4 @@
+import { contextItemDetail, contextItemLabel } from "@/lib/composer-context-presentation";
 import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import {
@@ -16,7 +17,9 @@ export function addToPrompt(featureId: number, item: Omit<ComposerContextItem, "
   toast.success(
     translateUi("conversation.composer.add-to-prompt.added", "Added to the agent prompt"),
     {
-      description: `${item.label} · ${item.detail ?? ""}`,
+      description: [contextItemLabel(translateUi, item), contextItemDetail(translateUi, item)]
+        .filter(Boolean)
+        .join(" · "),
     },
   );
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Excel renderer: `@silurus/ooxml`'s XLSX engine (Rust/WASM parser, canvas
  * paint) — cell styles, number formats, merges, frozen panes, charts and
@@ -13,13 +14,15 @@ import { OfficeViewerFrame } from "./office/OfficeViewerFrame";
 import { reportLateRenderError, useOfficeViewer } from "./office/useOfficeViewer";
 import type { DocumentRendererProps } from "./types";
 
-const FAILURE = "Could not render Excel workbook";
+const renderFailure = () =>
+  translateUi("workspace.editor.xlsxDocumentView.renderFailed", "Could not render Excel workbook");
 
 export default function XlsxDocumentView({
   data,
   formulas,
   fileName,
 }: DocumentRendererProps): ReactElement {
+  const { t } = useUiTranslation();
   const [sheetName, setSheetName] = useState<string | null>(null);
   const create = useCallback(
     (container: HTMLElement, onScaleChange: (scale: number) => void) => {
@@ -28,13 +31,13 @@ export default function XlsxDocumentView({
         showZoomSlider: false,
         onScaleChange,
         onSheetChange: (index) => setSheetName(viewer.sheetNames[index] ?? null),
-        onError: reportLateRenderError(`xlsx-render:${fileName}`, FAILURE),
+        onError: reportLateRenderError(`xlsx-render:${fileName}`, renderFailure),
       });
       return viewer;
     },
     [fileName],
   );
-  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create, FAILURE);
+  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create);
   useEffect(() => {
     if (!viewer) return;
     setSheetName(viewer.sheetNames[viewer.sheetIndex] ?? null);
@@ -45,7 +48,11 @@ export default function XlsxDocumentView({
       <OfficeViewerFrame
         containerRef={containerRef}
         state={state}
-        loadingLabel="Opening workbook…"
+        failureLabel={t(
+          "workspace.editor.xlsxDocumentView.renderFailed",
+          "Could not render Excel workbook",
+        )}
+        loadingLabel={t("workspace.editor.xlsxDocumentView.loading", "Opening workbook…")}
       />
       <DocumentStatusBar status={sheetName ? `${fileName} · ${sheetName}` : fileName}>
         {formulas && <FormulaRecalcNotice formulas={formulas} />}

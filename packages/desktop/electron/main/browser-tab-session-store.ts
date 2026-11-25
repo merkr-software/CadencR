@@ -7,6 +7,7 @@ import { isPersistentProfileId } from "./browser-profiles";
 
 export interface RestorableBrowserTab {
   title: string;
+  defaultTitle?: true;
   url: string;
   sessionProfileId: string;
   pinned: boolean;
@@ -32,6 +33,7 @@ const MAX_URL_LENGTH = 4096;
 const persistedTabSchema = z
   .object({
     title: z.string(),
+    defaultTitle: z.literal(true).optional(),
     url: z.string(),
     sessionProfileId: z.string(),
     pinned: z.boolean(),
@@ -53,6 +55,7 @@ const persistedTabSchema = z
     }
     return {
       title: safeTitle(tab.title),
+      ...(tab.defaultTitle ? { defaultTitle: true as const } : {}),
       url,
       sessionProfileId: tab.sessionProfileId,
       pinned: tab.pinned,

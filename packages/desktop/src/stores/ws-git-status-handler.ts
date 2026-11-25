@@ -164,7 +164,12 @@ function handleStatusEnvelope(
 function handlePrStatusEnvelope(payload: Record<string, unknown>): void {
   const snapshot = parsePrStatusSnapshot(payload);
   if (!snapshot) {
-    toast.error("Invalid pull request status update received.");
+    toast.error(
+      translateUi(
+        "workspace.git.wsGitStatusHandler.invalidPullRequestStatusUpdateReceived",
+        "Invalid pull request status update received.",
+      ),
+    );
     return;
   }
   const existing = usePrStatusStore.getState().byFeature[snapshot.feature_id];

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -72,7 +73,12 @@ export function useSendPendingComments(
       await queryClient.invalidateQueries({ queryKey: getListDiffCommentsQueryKey(featureId) });
     } catch (err) {
       console.error("Failed to send pending comments", err);
-      toast.error("Failed to send comments");
+      toast.error(
+        translateUi(
+          "workspace.git.useSendPendingComments.failedToSendComments",
+          "Failed to send comments",
+        ),
+      );
     } finally {
       setSending(false);
     }

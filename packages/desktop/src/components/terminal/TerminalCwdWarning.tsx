@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { AlertTriangle, RotateCw, X } from "lucide-react";
 
@@ -24,6 +25,7 @@ export const TerminalCwdWarning = memo(function TerminalCwdWarning({
   onRestart,
   onDismiss,
 }: TerminalCwdWarningProps) {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
@@ -33,16 +35,28 @@ export const TerminalCwdWarning = memo(function TerminalCwdWarning({
       <div className="min-w-0 flex-1 leading-tight">
         <div>
           <span className="font-medium text-[var(--terminal-warning-accent)]">
-            Wrong working directory.
+            {t(
+              "workspace.tools.terminalCwdWarning.wrongWorkingDirectory",
+              "Wrong working directory.",
+            )}
           </span>{" "}
-          This terminal is still running in the project root, not the active worktree.
+          {t(
+            "workspace.tools.terminalCwdWarning.thisTerminalIsStillRunningInThe",
+            "This terminal is still running in the project root, not the active worktree.",
+          )}
         </div>
         <div
           className="mt-0.5 truncate text-[var(--terminal-warning-fg-secondary)]"
           title={`${paneCwd} → ${expectedCwd}`}
         >
-          <span className="text-[var(--terminal-warning-link)]">now:</span> {paneCwd}{" "}
-          <span className="text-[var(--terminal-warning-link)]">expected:</span> {expectedCwd}
+          <span className="text-[var(--terminal-warning-link)]">
+            {t("workspace.tools.terminalCwdWarning.now", "now:")}
+          </span>{" "}
+          {paneCwd}{" "}
+          <span className="text-[var(--terminal-warning-link)]">
+            {t("workspace.tools.terminalCwdWarning.expected", "expected:")}
+          </span>{" "}
+          {expectedCwd}
         </div>
       </div>
       <button
@@ -51,12 +65,12 @@ export const TerminalCwdWarning = memo(function TerminalCwdWarning({
         className="flex shrink-0 items-center gap-1 rounded bg-[var(--terminal-warning-button-bg)] px-2 py-0.5 text-[var(--terminal-warning-fg)] transition-colors hover:bg-[var(--terminal-warning-button-bg-hover)]"
       >
         <RotateCw className="size-3" />
-        Restart here
+        {t("workspace.tools.terminalCwdWarning.restartHere", "Restart here")}
       </button>
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Dismiss warning"
+        aria-label={t("workspace.tools.terminalCwdWarning.dismissWarning", "Dismiss warning")}
         className="flex size-5 shrink-0 items-center justify-center rounded text-[var(--terminal-panel-icon)] transition-colors hover:bg-[var(--terminal-panel-icon-bg-hover)] hover:text-[var(--terminal-panel-icon-hover)]"
       >
         <X className="size-3" />

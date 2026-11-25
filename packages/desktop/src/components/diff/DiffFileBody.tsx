@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactNode } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import { type FileDiffSection, hasTextHunks, isBinaryPatch } from "@/lib/parse-unified-diff";
@@ -82,6 +83,7 @@ function DiffFileBodyImpl({
   themeId,
   isFocused,
 }: DiffFileBodyProps) {
+  const { t } = useUiTranslation();
   const hasHunks = hasTextHunks(section);
   const isBinary = !hasHunks && isBinaryPatch(patch);
   const isLarge =
@@ -113,7 +115,14 @@ function DiffFileBodyImpl({
     );
   }
   if (!hasHunks) {
-    return <DiffFileNotice>No text hunks in this file diff.</DiffFileNotice>;
+    return (
+      <DiffFileNotice>
+        {t(
+          "workspace.git.diffFileBody.noTextHunksInThisFileDiff",
+          "No text hunks in this file diff.",
+        )}
+      </DiffFileNotice>
+    );
   }
   // Large opted-in files render chunk-by-chunk so even a multi-MB single-hunk
   // patch never blocks the main thread.

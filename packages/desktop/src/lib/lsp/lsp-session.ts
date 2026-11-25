@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * LSP session construction and reconnect-timing helpers, split out of
  * `client-manager.ts` to keep that file focused on the refcounted entry
@@ -69,7 +70,13 @@ export async function buildSession(
     // A connected WebSocket is not a ready language server. Await the LSP
     // handshake before mounting plugins, whose didOpen assumes it succeeded.
     await client.initializing;
-    if (!workspaceRef) throw new Error("LSP workspace was not initialised by the client");
+    if (!workspaceRef)
+      throw new Error(
+        translateUi(
+          "workspace.editor.lsp-session.workspaceNotInitialized",
+          "LSP workspace was not initialised by the client",
+        ),
+      );
   } catch (error: unknown) {
     client.disconnect();
     transport.close();
@@ -77,7 +84,13 @@ export async function buildSession(
     throw new Error(
       response.success
         ? response.data.message
-        : apiErrorMessage(error, "Language server initialization failed"),
+        : apiErrorMessage(
+            error,
+            translateUi(
+              "workspace.editor.lsp-session.initializeFailed",
+              "Language server initialization failed",
+            ),
+          ),
     );
   }
   return { client, workspace: workspaceRef, transport };
@@ -94,7 +107,10 @@ export function backoffDelayMs(failCount: number, err: unknown): number {
 function extractSessionError(err: unknown): string {
   // Surfaces the backend's install hint (Axios `response.data.error`) verbatim
   // rather than a bare HTTP status.
-  return apiErrorMessage(err, "Failed to open LSP session");
+  return apiErrorMessage(
+    err,
+    translateUi("workspace.editor.lsp-session.openFailed", "Failed to open LSP session"),
+  );
 }
 
 /**

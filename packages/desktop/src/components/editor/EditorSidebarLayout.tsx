@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import { PanelLeft } from "lucide-react";
 import { ResizableSidebarLayout } from "@/components/ResizableSidebarLayout";
@@ -25,6 +26,7 @@ function EditorSidebarLayoutImpl({
   onToggleSidebar,
   activeFilePath = null,
 }: EditorSidebarLayoutProps): ReactElement {
+  const { t } = useUiTranslation();
   const isMobile = useIsMobile();
   const toggleSidebarKeys = useShortcutKeys("editor-toggle-sidebar");
   const collapsed = !sidebarVisible;
@@ -60,10 +62,10 @@ function EditorSidebarLayoutImpl({
       defaultWidth={DEFAULT_WIDTH}
       minWidth={MIN_WIDTH}
       maxWidth={MAX_WIDTH}
-      expandButtonLabel="Show file tree sidebar"
-      expandButtonTitle="Show sidebar"
+      expandButtonLabel={t("workspace.editor.sidebar.showTree", "Show file tree sidebar")}
+      expandButtonTitle={t("workspace.editor.sidebar.showSidebar", "Show sidebar")}
       expandShortcutKeys={toggleSidebarKeys}
-      separatorLabel="Resize file tree sidebar"
+      separatorLabel={t("workspace.editor.sidebar.resizeTree", "Resize file tree sidebar")}
     />
   );
 }
@@ -81,6 +83,7 @@ function MobileEditorLayout({
   onToggleSidebar: () => void;
   activeFilePath: string | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   // Once the user opens a file from the tree, slide the drawer shut so the
   // editor is visible — only when the active file actually changes, so toggling
   // the drawer open over an already-open file doesn't immediately re-close it.
@@ -99,7 +102,7 @@ function MobileEditorLayout({
       <div className="flex w-9 shrink-0 justify-center border-r border-border bg-card pt-2">
         <button
           type="button"
-          aria-label="Show file tree"
+          aria-label={t("workspace.editor.editorSidebarLayout.showFileTree", "Show file tree")}
           onClick={onToggleSidebar}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
@@ -107,7 +110,11 @@ function MobileEditorLayout({
         </button>
       </div>
       <div className="min-w-0 flex-1 overflow-hidden">{editor}</div>
-      <MobileDrawer collapsed={collapsed} onClose={onToggleSidebar} closeLabel="Close file tree">
+      <MobileDrawer
+        collapsed={collapsed}
+        onClose={onToggleSidebar}
+        closeLabel={t("workspace.editor.editorSidebarLayout.closeFileTree", "Close file tree")}
+      >
         {sidebar}
       </MobileDrawer>
     </div>
