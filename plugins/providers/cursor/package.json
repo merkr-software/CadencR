@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/cursor-provider",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "External Cadencr provider connector for the Cursor Agent CLI (ACP proxy)",
   "license": "Apache-2.0",

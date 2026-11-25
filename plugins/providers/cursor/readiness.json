@@ -3,7 +3,7 @@
   "plugin": {
     "kind": "provider",
     "id": "cursor",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "source_license": {
     "declared_spdx": "Apache-2.0",
@@ -48,10 +48,7 @@
       "managed_installation": "not-qualified"
     }
   },
-  "not_prepared_targets": [
-    "windows-aarch64",
-    "windows-x86_64"
-  ],
+  "not_prepared_targets": ["windows-aarch64", "windows-x86_64"],
   "working_tree_protocol_evidence": {
     "date": "2026-11-01",
     "target": "darwin-aarch64",
@@ -59,11 +56,7 @@
     "method": "cargo-test-fake-agent-end-to-end-plus-real-cli-models-version-updates-smoke",
     "real_cli": {
       "cursor_agent_cli": "2026.10.22-27dcf5f",
-      "commands": [
-        "models",
-        "version",
-        "updates"
-      ],
+      "commands": ["models", "version", "updates"],
       "prompts_sent": false
     },
     "managed_installation": "not-qualified",

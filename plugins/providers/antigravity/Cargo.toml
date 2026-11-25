@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 agent-client-protocol = "3.4.0"
 bon.workspace = true
-cadencr-provider-sdk = { path = "../../../packages/provider-plugin-sdk-rs", version = "0.3" }
+cadencr-provider-sdk = { path = "../../../packages/provider-plugin-sdk-rs", version = "0.4" }
 cli-discovery = { path = "../../../packages/cli-discovery" }
 semver = "1"
 serde = { version = "1", features = ["derive"] }

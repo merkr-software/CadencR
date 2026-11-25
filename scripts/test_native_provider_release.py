@@ -148,6 +148,7 @@ class RequestTests:
         self.root = pathlib.Path(tempfile.mkdtemp(prefix="native-provider-request-test-"))
         self.template = (pathlib.Path(__file__).parent.parent /
                          f"plugins/providers/{self.provider.id}/package-template.json").read_bytes()
+        self.version = json.loads(self.template)["package"]["agent"]["version"]
         self.inputs = self.root / "inputs"
         self.inputs.mkdir()
         for target in prepare.TARGETS:
@@ -157,7 +158,7 @@ class RequestTests:
             (directory / "bin/provider").write_bytes(binary)
             for name in ("LICENSE", "README.md", "icon.svg"):
                 (directory / name).write_bytes(name.encode())
-            evidence = self.provider.evidence(target, SOURCE, "0.1.0", prepare.digest(binary))
+            evidence = self.provider.evidence(target, SOURCE, self.version, prepare.digest(binary))
             (directory / "qualification.json").write_text(json.dumps(evidence))
 
     def tracked(self, repo, commit, provider, name):
@@ -165,7 +166,7 @@ class RequestTests:
         if name == "package-template.json":
             return self.template
         if name == "package.json":
-            return b'{"version":"0.1.0"}'
+            return json.dumps({"version": self.version}).encode()
         return name.encode()
 
     def pack(self, args, **kwargs):
@@ -200,7 +201,7 @@ class RequestTests:
         self.assertEqual((one / "request.json").read_bytes(), (two / "request.json").read_bytes())
         request = json.loads((one / "request.json").read_bytes())
         self.assertEqual(request["source_commit"], SOURCE)
-        self.assertEqual(request["tag"], f"plugins/provider-{self.provider.id}/v0.1.0")
+        self.assertEqual(request["tag"], f"plugins/provider-{self.provider.id}/v{self.version}")
         self.assertEqual(len(request["additional_archives"]), 3)
         for item in [request["metadata"], request["archive"], *request["additional_archives"]]:
             self.assertEqual(prepare.digest((one / item["name"]).read_bytes()), item["sha256"])

@@ -4,7 +4,7 @@
     "agent": {
       "id": "cursor",
       "name": "Cursor",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "External Cadencr provider connector for the Cursor Agent CLI (ACP proxy)",
       "repository": "https://github.com/merkr-software/CadencR",
       "license": "Apache-2.0",

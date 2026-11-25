@@ -284,7 +284,8 @@ resolved only in those generated outputs. No compiled binary is committed.
 After reviewing a successful build:
 
 1. Land the reviewed source on `main`, retaining the exact build commit.
-2. Create `plugins/provider-cursor/v0.1.0` at that exact commit.
+2. Create `plugins/provider-cursor/v<version>` at that exact commit, using the
+   package's declared version.
 3. Dispatch [the author workflow](../../../.github/workflows/cursor-provider-author.yml)
    from `main` with `provider: cursor`, `source_commit`, `build_run` and 64 zeroes for
    `request_sha256`. Inspect its public candidate and request digest.

@@ -17,16 +17,16 @@ executable's command contract — `models`, `run`, `version`, and the optional
 
 ```toml
 [dependencies]
-cadencr-provider-sdk = "0.3"
+cadencr-provider-sdk = "0.4"
 agent-client-protocol = "3.4"
 serde_json = "1"
 ```
 
-The `0.3` series uses the ACP Rust SDK `3.4`, like `0.2`; connectors
-migrating from `cadencr-provider-sdk 0.1` should align their
-`agent-client-protocol` dependency with that version. The wire protocol
-remains ACP v1. `0.3` adds the optional `host-integration` and `slash-commands`
-commands and the `meta` helpers; `0.2` connectors compile unchanged.
+The `0.4` series uses the ACP Rust SDK `3.4` and speaks ACP v1 on the wire.
+When upgrading, add `exclude_launcher_ports` to explicit `HostIntegration`
+struct literals or use `HostIntegration::builder()`, where the field defaults
+to `false`. Connectors upgrading from `0.1` also need to align their
+`agent-client-protocol` dependency with `3.4`.
 
 ## Implement the harness
 
