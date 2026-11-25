@@ -38,6 +38,7 @@ import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
 
 export interface RuntimeConfig {
   baseUrl: string;
+  preferredLanguages?: readonly string[];
 }
 
 export type RouteType = "session";

@@ -1,3 +1,4 @@
+import { LanguageSetting } from "@/components/settings/LanguageSetting";
 import { Button } from "@/components/ui/button";
 import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import { useZoom } from "@/hooks/useZoom";
@@ -17,6 +18,7 @@ export function GeneralPage(): React.JSX.Element {
   return (
     <SettingsPageSection pageId="general">
       <SettingsGroup id={SETTINGS_ANCHORS.interface} title="Interface">
+        {import.meta.env.DEV && <LanguageSetting />}
         <ZoomRow />
       </SettingsGroup>
       <SettingsGroup id={SETTINGS_ANCHORS.keyboard} title="Keyboard">

@@ -4,6 +4,7 @@ import Axios, {
   type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from "axios";
+import type { RuntimeConfig } from "@/lib/desktop-bridge-types";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
@@ -29,10 +30,6 @@ export {
   strictModeStableReadRequestKey,
 } from "./stable-read-requests";
 
-export interface RuntimeConfig {
-  baseUrl: string;
-}
-
 let runtimeConfig: RuntimeConfig | null = null;
 let runtimeConfigPromise: Promise<RuntimeConfig> | null = null;
 
@@ -54,7 +51,7 @@ async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   try {
     const result = await desktopBridge.runtimeConfig();
     if (result && typeof result.baseUrl === "string") {
-      return { baseUrl: result.baseUrl };
+      return { baseUrl: result.baseUrl, preferredLanguages: result.preferredLanguages };
     }
   } catch (err) {
     console.warn("[runtime-config] desktop runtime config unavailable:", err);

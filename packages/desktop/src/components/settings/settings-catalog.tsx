@@ -100,6 +100,9 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
           "Interface scale, keyboard shortcuts, restarts, the cadencr command and the file every setting is saved in.",
         aliases: ["interface"],
         entries: [
+          ...(import.meta.env.DEV
+            ? [{ label: "Language", anchor: A.interface, keywords: ["langue", "locale"] }]
+            : []),
           { label: "UI zoom", anchor: A.interface, keywords: ["scale", "zoom", "font size"] },
           { label: "Keyboard shortcuts", anchor: A.keyboard, keywords: ["hotkeys", "keybindings"] },
           {

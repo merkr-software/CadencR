@@ -27,16 +27,13 @@ import type { RendererErrorReportPayload } from "../../src/shared/renderer-error
 import type { AppCloseRequest } from "../../src/shared/app-close";
 import type { ServiceStatus } from "../../src/shared/service-status";
 import { UPDATE_STATE_CHANNEL, type UpdateSnapshot } from "../../src/shared/update-state";
+import type { RuntimeConfig } from "../../src/lib/desktop-bridge-types";
 import { cliHostBridge } from "./cli-host-bridge";
 import { notchHostBridge } from "./notch-host-bridge";
 import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
 
 type RouteType = "workflow" | "session";
 type DesktopTheme = "light" | "dark";
-
-interface RuntimeConfig {
-  baseUrl: string;
-}
 
 interface NotificationClickPayload {
   feature_id: number;

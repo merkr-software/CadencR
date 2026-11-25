@@ -190,6 +190,7 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // Master switch for fluid UI animations. When unset the frontend falls back
     // to the OS `prefers-reduced-motion` media query. Stored as "true" / "false".
     "animations_enabled",
+    "ui_language",
     // Workspace default for the feature page's auto layout mode (panes follow
     // the agent and opened links). "true" / "false"; unset means on. Each
     // feature can override it via `layout_auto_mode`.

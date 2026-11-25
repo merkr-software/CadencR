@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  app,
   dialog,
   ipcMain,
   nativeTheme,
@@ -41,7 +42,10 @@ export interface IpcOptions {
 export function registerIpc({ getMainWindow }: IpcOptions): void {
   ipcMain.handle("runtime-config", (event) => {
     assertTrustedSender(event, getMainWindow);
-    return getRendererRuntimeConfig();
+    const config = getRendererRuntimeConfig();
+    return !app.isPackaged && process.env.ELECTRON_RENDERER_URL
+      ? { ...config, preferredLanguages: app.getPreferredSystemLanguages() }
+      : config;
   });
   ipcMain.handle("fs:register-file-paths", (event, rawPaths: unknown) => {
     assertTrustedSender(event, getMainWindow);

@@ -140,6 +140,7 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "browser_mcp_enabled"
         | "project_mcp_enabled"
         | "agent_restart_resume_enabled" => SettingSpec::new(BOOL, Some("true")),
+        "ui_language" => SettingSpec::new(ValueKind::Enum(&["system", "en", "fr"]), Some("system")),
         "workspace_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
         "workspace_mcp_max_result_chars" => SettingSpec::new(NUMBER, Some("100000")),
         // Storage retention is the only lossy maintenance pass, so users must
@@ -212,6 +213,16 @@ pub fn project_spec(key: &str) -> Option<SettingSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_language_accepts_a_catalog_or_the_system_preference() {
+        let spec = workspace_spec("ui_language").unwrap();
+        assert_eq!(spec.default, Some("system"));
+        for value in ["system", "en", "fr"] {
+            assert!(spec.is_valid(value));
+        }
+        assert!(!spec.is_valid("unavailable"));
+    }
 
     #[test]
     fn bool_spec_validates() {

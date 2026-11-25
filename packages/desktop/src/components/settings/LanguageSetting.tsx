@@ -1,0 +1,65 @@
+import { useId } from "react";
+import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useSettingWriter } from "@/hooks/useSetting";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { languageNames, LANGUAGE_SETTING } from "@/lib/i18n/languages";
+import { useLanguageSettingState } from "@/lib/i18n/LanguageProvider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SettingsRow } from "./SettingsRow";
+
+export function LanguageSetting() {
+  const id = useId();
+  const { t, i18n } = useTranslation("language");
+  const { preference, system, loading, error } = useLanguageSettingState();
+  const { setValue, isSaving } = useSettingWriter(LANGUAGE_SETTING);
+  if (loading) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 px-5 py-4 text-sm text-muted-foreground"
+      >
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading language preference…
+      </div>
+    );
+  }
+  return (
+    <div lang={i18n.resolvedLanguage}>
+      <SettingsRow
+        htmlFor={id}
+        label={t("label")}
+        description={
+          error ? (
+            <span lang="en">{apiErrorMessage(error, "Could not read the language setting.")}</span>
+          ) : (
+            t("preview")
+          )
+        }
+        control={
+          <Select value={preference} onValueChange={setValue} disabled={isSaving || Boolean(error)}>
+            <SelectTrigger id={id} size="sm" aria-busy={isSaving}>
+              {isSaving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent lang={i18n.resolvedLanguage}>
+              <SelectItem value="system">
+                {t("system", { language: languageNames[system] })}
+              </SelectItem>
+              {Object.entries(languageNames).map(([value, name]) => (
+                <SelectItem key={value} value={value}>
+                  <span lang={value}>{name}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
+    </div>
+  );
+}

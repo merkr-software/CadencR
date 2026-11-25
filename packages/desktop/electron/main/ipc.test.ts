@@ -14,6 +14,7 @@ import {
 const electronState = vi.hoisted(() => ({
   isPackaged: false,
   logsPath: "",
+  preferredLanguages: vi.fn(() => ["fr-CA", "en-US"]),
   readClipboardText: vi.fn(() => "terminal paste"),
   openExternal: vi.fn<(_url: string) => Promise<void>>(() => Promise.resolve()),
   openPath: vi.fn<(_path: string) => Promise<string>>(() => Promise.resolve("")),
@@ -34,6 +35,7 @@ vi.mock("electron", () => ({
       return electronState.isPackaged;
     },
     getPath: vi.fn(() => electronState.logsPath),
+    getPreferredSystemLanguages: electronState.preferredLanguages,
     getVersion: vi.fn(() => "0.6.1"),
   },
   dialog: { showOpenDialog: vi.fn() },
@@ -106,6 +108,28 @@ describe("ipc validators", () => {
     vi.mocked(ipcMain.on).mockClear();
     clearRegisteredFilePaths();
   });
+
+  it.each([false, true])(
+    "exposes native languages only to the development renderer (packaged=%s)",
+    (packaged) => {
+      electronState.isPackaged = packaged;
+      electronState.preferredLanguages.mockClear();
+      vi.stubEnv("ELECTRON_RENDERER_URL", "http://127.0.0.1:1420");
+      try {
+        registerIpc({ getMainWindow: mainWindow });
+        const config = ipcHandler("runtime-config")(trustedEvent());
+        expect(config).not.toHaveProperty("authToken");
+        if (packaged) {
+          expect(config).not.toHaveProperty("preferredLanguages");
+          expect(electronState.preferredLanguages).not.toHaveBeenCalled();
+        } else {
+          expect(config).toHaveProperty("preferredLanguages", ["fr-CA", "en-US"]);
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it("bounds zoom factors", () => {
     expect(parseZoomFactor(1.25)).toBe(1.25);

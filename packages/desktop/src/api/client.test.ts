@@ -133,11 +133,18 @@ describe("runtime config client", () => {
   it("never reads a sidecar bearer even if runtime data or env contains it", async () => {
     vi.stubEnv("VITE_API_TOKEN", "dev-token");
     const runtimeConfig = vi.fn(() =>
-      Promise.resolve({ baseUrl: "http://127.0.0.1:5005", authToken: null }),
+      Promise.resolve({
+        baseUrl: "http://127.0.0.1:5005",
+        preferredLanguages: ["fr", "en"],
+        authToken: "main-only",
+      }),
     );
     setDesktopBridgeOverrideForTests(bridgeWithRuntime(runtimeConfig));
 
-    expect(await preloadRuntimeConfig()).toEqual({ baseUrl: "http://127.0.0.1:5005" });
+    expect(await preloadRuntimeConfig()).toStrictEqual({
+      baseUrl: "http://127.0.0.1:5005",
+      preferredLanguages: ["fr", "en"],
+    });
 
     expect(resolveApiBaseUrlSync()).toBe("http://127.0.0.1:5005");
     expect(getAuthTokenSync()).toBeNull();
