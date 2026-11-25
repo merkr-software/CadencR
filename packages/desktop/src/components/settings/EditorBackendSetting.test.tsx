@@ -10,10 +10,21 @@ const mocks = vi.hoisted(() => ({
   backend: "codemirror" as string | null,
   vim: "0",
   persist: vi.fn(),
+  migrate: vi.fn(),
 }));
+const { showError } = vi.hoisted(() => ({ showError: vi.fn() }));
 const editor = pluginTabSummary({
   id: "example-editor",
   editor: { label: "Plugin editor", open_method: "files.open" },
+  backend: {
+    protocol: 2,
+    binary: { "darwin-aarch64": "bin/editor", "linux-x86_64": "bin/editor" },
+    reasoning: "Edit files.",
+  },
+});
+const neovimPlugin = pluginTabSummary({
+  id: "neovim",
+  editor: { label: "Neovim plugin", open_method: "files.open" },
   backend: {
     protocol: 2,
     binary: { "darwin-aarch64": "bin/editor", "linux-x86_64": "bin/editor" },
@@ -32,15 +43,17 @@ vi.mock("@/api/generated", async (original) => {
         initialData: { value: key === "editor_backend" ? mocks.backend : mocks.vim },
         staleTime: Infinity,
       }),
-    usePluginTabList: () => ({ data: [editor], isLoading: false, isError: false }),
+    usePluginTabList: () => ({ data: [editor, neovimPlugin], isLoading: false, isError: false }),
     useMigrationStatusRoute: () => ({
       data: { plugin: "ready", sessions_running: [] },
       isLoading: false,
       isError: false,
     }),
     setWorkspaceSetting: mocks.persist,
+    useMigrateToPluginRoute: () => ({ mutateAsync: mocks.migrate, isPending: false }),
   };
 });
+vi.mock("sonner", () => ({ toast: { error: showError } }));
 vi.mock("@/lib/plugin-tabs/availability", () => ({
   pluginTabsAvailable: () => mocks.desktop,
 }));
@@ -53,6 +66,7 @@ beforeEach(() => {
   mocks.backend = "codemirror";
   mocks.vim = "0";
   mocks.persist.mockImplementation(async (_key: string, data: { value: string }) => data);
+  mocks.migrate.mockResolvedValue({ migrated: true, editor_backend: "plugin:neovim" });
 });
 
 describe("editor backend choices", () => {
@@ -89,6 +103,25 @@ describe("editor backend choices", () => {
     const neovim = screen.getByRole("radio", { name: /Full Neovim/ });
     expect(neovim).toHaveAttribute("aria-checked", "true");
     expect(neovim).toBeEnabled();
+  });
+
+  it("routes the plugin:neovim choice through the guarded migration", async () => {
+    mocks.desktop = true;
+    const { user } = render(<EditorBackendSetting />);
+    await user.click(screen.getByRole("radio", { name: /Neovim plugin/ }));
+    await waitFor(() => expect(mocks.migrate).toHaveBeenCalledTimes(1));
+    expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a refused migration instead of switching the editor", async () => {
+    mocks.desktop = true;
+    mocks.migrate.mockRejectedValue(new Error("built-in Neovim sessions are still running"));
+    const { user } = render(<EditorBackendSetting />);
+    await user.click(screen.getByRole("radio", { name: /Neovim plugin/ }));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith("built-in Neovim sessions are still running"),
+    );
+    expect(mocks.persist).not.toHaveBeenCalled();
   });
 
   it.each([

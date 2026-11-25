@@ -1,8 +1,18 @@
-import { useGetWorkspaceSetting, usePluginTabList, useMigrationStatusRoute } from "@/api/generated";
-import { useSetting } from "@/hooks/useSetting";
+import { useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  getGetWorkspaceSettingQueryKey,
+  getMigrationStatusRouteQueryKey,
+  useGetWorkspaceSetting,
+  useMigrateToPluginRoute,
+  usePluginTabList,
+  useMigrationStatusRoute,
+} from "@/api/generated";
+import { useSetting, type SettingWriter } from "@/hooks/useSetting";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useVimModeLevel } from "@/hooks/useVimModeLevel";
 import { pluginTabsAvailable } from "@/lib/plugin-tabs/availability";
+import { toastError } from "@/lib/api-errors";
 import {
   EDITOR_BACKEND_KEY,
   pluginEditorUnavailable,
@@ -10,6 +20,40 @@ import {
 } from "@/lib/editors/editor-registry";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
+
+/** The `editor_backend` value the guarded migration route writes. */
+const NEOVIM_PLUGIN_EDITOR_ID = "plugin:neovim";
+
+/**
+ * Writes the editor choice. `plugin:neovim` goes through the migration route,
+ * the guarded path: it refuses while a built-in Neovim session is still alive,
+ * so the switch cannot hide live buffers.
+ */
+function useEditorBackendWriter(setValue: SettingWriter["setValue"]) {
+  const queryClient = useQueryClient();
+  const migrate = useMigrateToPluginRoute();
+  const select = useCallback(
+    async (next: string): Promise<void> => {
+      if (next !== NEOVIM_PLUGIN_EDITOR_ID) {
+        await setValue(next);
+        return;
+      }
+      try {
+        await migrate.mutateAsync();
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: getGetWorkspaceSettingQueryKey(EDITOR_BACKEND_KEY),
+          }),
+          queryClient.invalidateQueries({ queryKey: getMigrationStatusRouteQueryKey() }),
+        ]);
+      } catch (error) {
+        toastError(error, "The editor could not be switched");
+      }
+    },
+    [migrate, queryClient, setValue],
+  );
+  return { select, switching: migrate.isPending };
+}
 
 export function EditorBackendSetting() {
   const setting = useSetting(EDITOR_BACKEND_KEY);
@@ -25,6 +69,7 @@ export function EditorBackendSetting() {
   const migration = useMigrationStatusRoute({
     query: { enabled: value === "neovim" && desktop },
   });
+  const { select, switching } = useEditorBackendWriter(setting.setValue);
   const sessionsRunning = migration.data?.sessions_running.length ?? 0;
   const options: RadioCardOption<string>[] = [
     { value: "codemirror", label: "CodeMirror", description: "The built-in code editor." },
@@ -98,8 +143,8 @@ export function EditorBackendSetting() {
         ariaLabel="Editor backend"
         value={value}
         options={options}
-        onChange={(value) => void setting.setValue(value)}
-        disabled={setting.isSaving}
+        onChange={(next) => void select(next)}
+        disabled={setting.isSaving || switching}
       />
     </div>
   );
