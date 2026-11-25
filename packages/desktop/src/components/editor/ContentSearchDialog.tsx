@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Virtuoso } from "react-virtuoso";
 import {
@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import SearchToggleButton from "./SearchToggleButton";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useContentSearch, type ContentMatch, type ContentSearchParams } from "@/api/generated";
+import { useContentSearch, type ContentSearchParams } from "@/api/generated";
+import { SkippedLargeFilesNotice, TruncatedFooter } from "./ContentSearchNotices";
+import { groupByFile, type FileGroupData } from "./contentSearchGroups";
 import { useOpenEditorFile } from "@/hooks/useOpenEditorFile";
 import { SearchIcon } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -22,6 +24,7 @@ import SearchResultEditor from "./SearchResultEditor";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { copyToClipboard } from "@/lib/clipboard";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
+import { displayGitTreePath } from "@/lib/git-display-path";
 
 interface ContentSearchDialogProps {
   projectId: number;
@@ -177,9 +180,31 @@ function useContentSearchResults({
     () => (data?.truncated ? { Footer: TruncatedFooter } : {}),
     [data?.truncated],
   );
+  const skippedLargeFiles = data?.skipped_large_files ?? 0;
+  const maxFileBytes = data?.max_file_bytes ?? 0;
   return useMemo(
-    () => ({ components, computeItemKey, grouped, hasQuery, isLoading, itemContent, searching }),
-    [components, computeItemKey, grouped, hasQuery, isLoading, itemContent, searching],
+    () => ({
+      components,
+      computeItemKey,
+      grouped,
+      hasQuery,
+      isLoading,
+      itemContent,
+      maxFileBytes,
+      searching,
+      skippedLargeFiles,
+    }),
+    [
+      components,
+      computeItemKey,
+      grouped,
+      hasQuery,
+      isLoading,
+      itemContent,
+      maxFileBytes,
+      searching,
+      skippedLargeFiles,
+    ],
   );
 }
 
@@ -285,7 +310,13 @@ function ContentSearchResults({
 }) {
   const empty = results.grouped.length === 0;
   return (
-    <div className="flex-1 min-h-0">
+    <div className="flex-1 min-h-0 flex flex-col">
+      {results.hasQuery && (
+        <SkippedLargeFilesNotice
+          count={results.skippedLargeFiles}
+          maxFileBytes={results.maxFileBytes}
+        />
+      )}
       {results.isLoading && results.hasQuery && empty && (
         <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -298,7 +329,7 @@ function ContentSearchResults({
       {!empty && (
         <Virtuoso
           data={results.grouped}
-          className="h-full"
+          className="flex-1 min-h-0"
           computeItemKey={results.computeItemKey}
           itemContent={results.itemContent}
           components={results.components}
@@ -306,32 +337,6 @@ function ContentSearchResults({
       )}
     </div>
   );
-}
-
-function TruncatedFooter(): ReactElement {
-  return (
-    <div className="py-2 text-center text-xs text-muted-foreground">
-      Results capped at 500. Refine your search for more specific results.
-    </div>
-  );
-}
-
-interface FileGroupData {
-  path: string;
-  matches: ContentMatch[];
-}
-
-function groupByFile(matches: ContentMatch[]): FileGroupData[] {
-  const map = new Map<string, ContentMatch[]>();
-  for (const m of matches) {
-    const existing = map.get(m.path);
-    if (existing) {
-      existing.push(m);
-    } else {
-      map.set(m.path, [m]);
-    }
-  }
-  return Array.from(map.entries()).map(([path, ms]) => ({ path, matches: ms }));
 }
 
 const FileGroup = memo(function FileGroup({
@@ -354,7 +359,7 @@ const FileGroup = memo(function FileGroup({
             className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-xs font-medium text-foreground hover:bg-accent rounded transition-colors"
           >
             <FileSymbolIcon fileName={fileName} className="shrink-0 flex items-center" />
-            <span className="truncate">{group.path}</span>
+            <span className="truncate">{displayGitTreePath(group.path)}</span>
             <span className="ml-auto text-muted-foreground shrink-0">{group.matches.length}</span>
           </button>
         </ContextMenuTrigger>
