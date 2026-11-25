@@ -27,14 +27,17 @@ pub(crate) async fn override_candidate(
     // silently dropping it is safer than honoring an override that will only
     // fail downstream.
     let probe = probe_version(path, &spec.version_args).await;
-    let accept = match (&probe, spec.version_must_contain.as_deref()) {
-        // Filter set: the substring alone is too lax — the rustup shim's
+    let accept = match spec.version_must_contain.as_deref() {
+        // Filter set: the substring alone is too lax, since the rustup shim's
         // "Unknown binary 'rust-analyzer'" error mentions the name and would
-        // pass a contains-only check.
-        (Some(probe), Some(needle)) => probe.passes_filter(needle),
-        // No filter, or subprocess failed entirely: keep behavior unchanged
-        // (returns a possibly versionless candidate).
-        _ => true,
+        // pass a contains-only check. A probe that never completed cannot be
+        // validated either, so it is rejected, as in `discover_all`.
+        Some(needle) => probe
+            .as_ref()
+            .is_some_and(|probe| probe.passes_filter(needle)),
+        // No filter: keep behavior unchanged (returns a possibly versionless
+        // candidate).
+        None => true,
     };
     if !accept {
         return Ok(None);
@@ -46,4 +49,27 @@ pub(crate) async fn override_candidate(
         version_text: probe.and_then(|probe| probe.version_text),
         source: CandidateSource::Override,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests_support::{dummy_spec, make_executable_with_body};
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn a_probe_that_never_ran_rejects_the_override() {
+        // A missing interpreter makes the probe fail outright. The filter
+        // cannot validate such a binary, so the override must be dropped
+        // instead of honoured unvalidated.
+        let dir = TempDir::new().unwrap();
+        let broken = make_executable_with_body(
+            dir.path(),
+            "thing",
+            "#!/nonexistent/interpreter\necho 1.2.3\n",
+        );
+        let mut spec = dummy_spec();
+        spec.version_must_contain = Some("thing".to_string());
+        assert!(override_candidate(&spec, &broken).await.unwrap().is_none());
+    }
 }
