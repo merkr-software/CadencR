@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clipboard,
+  dialog,
   ipcMain,
   type BrowserWindow,
   type IpcMainEvent,
@@ -49,6 +50,7 @@ vi.mock("electron", () => ({
   },
 }));
 
+import { uiI18n } from "../../src/shared/ui-i18n";
 import {
   assertTrustedSender,
   canonicalFilePath,
@@ -130,6 +132,61 @@ describe("ipc validators", () => {
       }
     },
   );
+
+  describe("interface language", () => {
+    afterEach(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+
+    it("changes language only for a trusted renderer and supported locale", async () => {
+      registerIpc({ getMainWindow: mainWindow });
+      const setLanguage = ipcHandler("app:set-interface-language");
+      await expect(setLanguage(ipcEvent(8, "http://127.0.0.1:1420/"), "fr")).rejects.toThrow();
+      await expect(setLanguage(trustedEvent(), "de")).rejects.toThrow(
+        "Unsupported interface language",
+      );
+      expect(uiI18n.language).toBe("en");
+
+      await expect(setLanguage(trustedEvent(), "fr")).resolves.toBeUndefined();
+      expect(uiI18n.language).toBe("fr");
+    });
+  });
+
+  it("looks up the project icon dialog labels using the active native language", async () => {
+    registerIpc({ getMainWindow: mainWindow });
+    const pickImageFile = ipcHandler("dialog:pick-image-file");
+    const setLanguage = ipcHandler("app:set-interface-language");
+    uiI18n.addResourceBundle("fr", "ui", {
+      "project.iconField.chooseProjectIcon": "Choisir une icône de projet",
+      "project.iconField.images": "Fichiers image",
+    });
+    vi.mocked(dialog.showOpenDialog)
+      .mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ["/project/icon.svg"],
+      })
+      .mockResolvedValueOnce({ canceled: true, filePaths: [] });
+    try {
+      await setLanguage(trustedEvent(), "fr");
+      await expect(pickImageFile(trustedEvent())).resolves.toBe("/project/icon.svg");
+      expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({
+        title: "Choisir une icône de projet",
+        properties: ["openFile"],
+        filters: [{ name: "Fichiers image", extensions: expect.arrayContaining(["svg", "png"]) }],
+      });
+
+      await setLanguage(trustedEvent(), "en");
+      await expect(pickImageFile(trustedEvent())).resolves.toBeNull();
+      expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({
+        title: "Choose a project icon",
+        properties: ["openFile"],
+        filters: [{ name: "Images", extensions: expect.arrayContaining(["svg", "png"]) }],
+      });
+    } finally {
+      await uiI18n.changeLanguage("en");
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
 
   it("bounds zoom factors", () => {
     expect(parseZoomFactor(1.25)).toBe(1.25);

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2, GitBranch, Loader2, AlertTriangle } from "lucide-react";
@@ -24,7 +25,12 @@ function createMutationCallbacks(queryClient: QueryClient, projectId: number) {
       });
     },
     onError: (error: unknown) => {
-      toast.error(apiErrorMessage(error, "Failed to remove worktree"));
+      toast.error(
+        apiErrorMessage(
+          error,
+          translateUi("project.worktreeList.failedToRemoveWorktree", "Failed to remove worktree"),
+        ),
+      );
     },
   };
 }
@@ -48,6 +54,7 @@ function WorktreeRow({
   onForceDelete,
   onBlockedChange,
 }: WorktreeRowProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-2 rounded-md border px-2.5 py-1.5">
       <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -68,11 +75,15 @@ function WorktreeRow({
                     : "border-amber-500/45 bg-amber-500/10 text-amber-700 dark:text-amber-300"
                 }`}
               >
-                {worktree.feature_status === "active" ? "Active feature" : "Archived feature"}
+                {worktree.feature_status === "active"
+                  ? t("project.worktreeList.activeFeature", "Active feature")
+                  : t("project.worktreeList.archivedFeature", "Archived feature")}
               </Badge>
             </span>
           ) : (
-            <span className="italic">No linked feature</span>
+            <span className="italic">
+              {t("project.worktreeList.noLinkedFeature", "No linked feature")}
+            </span>
           )}
         </div>
       </div>
@@ -88,19 +99,27 @@ function WorktreeRow({
               size="icon"
               className="h-6 w-6 shrink-0"
               onClick={() => onDelete(worktree)}
-              title={confirming ? "Click again to confirm" : "Remove worktree"}
+              title={
+                confirming
+                  ? t("project.worktreeList.clickAgainToConfirm", "Click again to confirm")
+                  : t("project.worktreeList.removeWorktree", "Remove worktree")
+              }
             >
               {blocked ? <AlertTriangle className="size-3" /> : <Trash2 className="size-3" />}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-80 space-y-3 text-xs">
-            <div className="font-medium text-foreground">Worktree has local changes</div>
+            <div className="font-medium text-foreground">
+              {t("project.worktreeList.worktreeHasLocalChanges", "Worktree has local changes")}
+            </div>
             <p className="text-muted-foreground">
-              Git refused to remove this worktree because it has uncommitted or untracked files. You
-              can force removal if you are sure those files can be discarded.
+              {t(
+                "project.worktreeList.dirtyWorktreeDescription",
+                "Git refused to remove this worktree because it has uncommitted or untracked files. You can force removal if you are sure those files can be discarded.",
+              )}
             </p>
             <Button variant="destructive" size="sm" onClick={() => onForceDelete(worktree)}>
-              Force remove worktree
+              {t("project.worktreeList.forceRemoveWorktree", "Force remove worktree")}
             </Button>
           </PopoverContent>
         </Popover>
@@ -110,6 +129,7 @@ function WorktreeRow({
 }
 
 export function WorktreeList({ projectId }: { projectId: number }) {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const { data: worktrees, isLoading } = useListProjectWorktrees({ project_id: projectId });
   const mutationCallbacks = createMutationCallbacks(queryClient, projectId);
@@ -124,13 +144,17 @@ export function WorktreeList({ projectId }: { projectId: number }) {
     return (
       <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
         <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-        Loading worktrees…
+        {t("project.worktreeList.loadingWorktrees", "Loading worktrees…")}
       </div>
     );
   }
 
   if (!worktrees?.length) {
-    return <p className="py-3 text-center text-xs text-muted-foreground">No worktrees</p>;
+    return (
+      <p className="py-3 text-center text-xs text-muted-foreground">
+        {t("project.worktreeList.noWorktrees", "No worktrees")}
+      </p>
+    );
   }
 
   function removeWorktree(wt: NonNullable<typeof worktrees>[number], force: boolean): void {
@@ -150,7 +174,10 @@ export function WorktreeList({ projectId }: { projectId: number }) {
       if (result.blocked_reason === "dirty_worktree") {
         setBlockedPath(wt.path);
       } else {
-        toast.error(result.error ?? "Failed to remove worktree");
+        toast.error(
+          result.error ??
+            translateUi("project.worktreeList.failedToRemoveWorktree", "Failed to remove worktree"),
+        );
       }
     };
     if (wt.feature_id) {

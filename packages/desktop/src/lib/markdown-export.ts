@@ -1,3 +1,4 @@
+import { translateUi } from "./i18n/ui";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 
@@ -130,12 +131,19 @@ export async function copyAs(
   } catch (error: unknown) {
     const message = apiErrorMessage(error, String(error));
     console.error("[markdown-export] copy failed", error);
-    toast.error(`Failed to copy to clipboard: ${message}`);
+    toast.error(
+      translateUi("clipboard.exportFailed", "Failed to copy to clipboard: {{message}}", {
+        message,
+      }),
+    );
   }
 }
 
 async function writeEmailClipboard(source: string, html: string | undefined): Promise<void> {
-  if (!html) throw new Error("No rich HTML was available for the selection");
+  if (!html)
+    throw new Error(
+      translateUi("clipboard.noHtml", "No rich HTML was available for the selection"),
+    );
   const item = new ClipboardItem({
     "text/html": new Blob([html], { type: "text/html" }),
     "text/plain": new Blob([toPlainText(source)], { type: "text/plain" }),
@@ -146,12 +154,12 @@ async function writeEmailClipboard(source: string, html: string | undefined): Pr
 function formatLabel(format: ExportFormat): string {
   switch (format) {
     case "email":
-      return "Copied for email";
+      return translateUi("clipboard.copiedEmail", "Copied for email");
     case "markdown":
-      return "Copied as Markdown";
+      return translateUi("clipboard.copiedMarkdown", "Copied as Markdown");
     case "slack":
-      return "Copied as Slack mrkdwn";
+      return translateUi("clipboard.copiedSlack", "Copied as Slack mrkdwn");
     case "plain":
-      return "Copied as plain text";
+      return translateUi("clipboard.copiedPlain", "Copied as plain text");
   }
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement, type ReactNode } from "react";
 import { HistoryIcon, InboxIcon, LoaderIcon, PinIcon, type LucideIcon } from "lucide-react";
 import { SidebarBlock } from "@/components/SidebarBlock";
@@ -17,6 +18,7 @@ import { SidebarSurfaceContext, type SidebarBlockId } from "@/stores/sidebar-sur
  * with samples; hidden like the live block when its option is off.
  */
 export function SidebarSampleBlock({ id }: { id: SidebarBlockId }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { views } = useSamplePreview();
   const forMeOn = useSidebarOption("forMe");
   const workingOn = useSidebarOption("workingBlock");
@@ -25,34 +27,37 @@ export function SidebarSampleBlock({ id }: { id: SidebarBlockId }): ReactElement
   if (id === "working") {
     return workingOn ? (
       <SampleBlock
-        label="In progress"
+        label={t("sidebar.workingSection.inProgress", "In progress")}
         icon={LoaderIcon}
         block="working"
         rows={views.working}
         count={views.working.length}
-        empty="No agent at work"
+        empty={t("sidebar.workingSection.noAgentAtWork", "No agent at work")}
       />
     ) : null;
   }
   if (id === "recent") {
     return recentOn ? (
       <SampleBlock
-        label="Recent"
+        label={t("sidebar.recentSection.recent", "Recent")}
         icon={HistoryIcon}
         block="recent"
         rows={views.recent}
-        empty="No conversation yet"
+        empty={t("sidebar.recentSection.noConversationYet", "No conversation yet")}
       />
     ) : null;
   }
   return (
     <SampleBlock
-      label="Pinned"
+      label={t("sidebar.pinnedConversations.pinned", "Pinned")}
       icon={PinIcon}
       block="pinned"
       rows={views.pinned}
       count={views.pinned.length}
-      empty="Pin a conversation to keep it here"
+      empty={t(
+        "sidebar.pinnedConversations.pinAConversationToKeepIt",
+        "Pin a conversation to keep it here",
+      )}
       strongCount={views.pinned.filter((row) => isStrongAttention(row.state)).length}
     />
   );
@@ -74,6 +79,7 @@ interface SampleBlockProps {
 
 /** For me's next actions, limited like the live block: the same action lines and "Show more". */
 function SampleForMeBlock({ actions }: { actions: readonly SampleAction[] }): ReactElement {
+  const { t } = useUiTranslation();
   const more = useForMeShowMore(actions.length);
   const { rows, kinds } = useMemo(() => {
     const shown = actions.slice(0, more.visibleCount);
@@ -84,14 +90,14 @@ function SampleForMeBlock({ actions }: { actions: readonly SampleAction[] }): Re
   }, [actions, more.visibleCount]);
   return (
     <SampleBlock
-      label="For me"
+      label={t("sidebar.forMeSection.forMe", "For me")}
       icon={InboxIcon}
       block="for-me"
       rows={rows}
       count={actions.length}
       nextActions={kinds}
       footer={<SidebarShowMoreButton more={more} />}
-      empty="Nothing waiting on you"
+      empty={t("sidebar.forMeSection.nothingWaitingOnYou", "Nothing waiting on you")}
       strongCount={actions.filter(isStrongAction).length}
     />
   );

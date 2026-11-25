@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useRef, type ReactElement } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PaletteSurface } from "@/components/command-palette/PaletteSurface";
@@ -26,6 +27,7 @@ export function CommandPalette({
   activeProjectId,
   activeFeatureId,
 }: CommandPaletteProps): ReactElement {
+  const { t } = useUiTranslation();
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const pendingActionRef = useRef<(() => void) | null>(null);
   const backRef = useRef<(() => boolean) | null>(null);
@@ -61,7 +63,7 @@ export function CommandPalette({
           if (backRef.current?.()) event.preventDefault();
         }}
       >
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogTitle className="sr-only">{t("palette.title", "Command palette")}</DialogTitle>
         <PaletteSurface
           activeProjectId={activeProjectId}
           activeFeatureId={activeFeatureId}

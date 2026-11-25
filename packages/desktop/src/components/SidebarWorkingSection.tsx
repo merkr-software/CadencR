@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import { LoaderIcon } from "lucide-react";
 import { SidebarConversationBlock } from "@/components/SidebarConversationBlock";
@@ -19,6 +20,7 @@ export function SidebarWorkingSection(props: SectionProps): ReactElement | null 
 }
 
 function WorkingBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const { items, loadingStates } = useSidebarAttention();
   const features = useMemo(
     () => items.filter((item) => item.state === "working").map((item) => item.feature),
@@ -26,13 +28,13 @@ function WorkingBlock({ activeFeatureId, onSelectFeature }: SectionProps): React
   );
   return (
     <SidebarConversationBlock
-      label="In progress"
+      label={t("sidebar.workingSection.inProgress", "In progress")}
       icon={LoaderIcon}
       surface="working"
       features={features}
       count={features.length}
       loading={loadingStates.includes("working")}
-      empty="No agent at work"
+      empty={t("sidebar.workingSection.noAgentAtWork", "No agent at work")}
       activeFeatureId={activeFeatureId}
       onSelectFeature={onSelectFeature}
     />

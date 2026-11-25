@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -27,6 +28,7 @@ function MobileAppShell({
   onSearch,
   children,
 }: Pick<AppShellProps, "collapsed" | "setCollapsed" | "onSearch" | "children">): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <div className="relative flex h-[var(--app-vh)] w-full overflow-hidden">
       <main
@@ -40,7 +42,7 @@ function MobileAppShell({
         collapsed={collapsed}
         onClose={() => setCollapsed(true)}
         onOpen={() => setCollapsed(false)}
-        closeLabel="Close menu"
+        closeLabel={t("shell.navigation.closeMenu", "Close menu")}
       >
         <Sidebar onSearch={onSearch} />
       </MobileDrawer>

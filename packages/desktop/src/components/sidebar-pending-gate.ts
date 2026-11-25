@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import type { AgentQuestion } from "@/types/agent-question";
 import { getPermissionPreview } from "@/components/permission-preview";
@@ -24,9 +25,15 @@ export interface PermissionOptionView {
 }
 
 const PERMISSION_FALLBACK_LABEL: Record<PermissionActionValue, string> = {
-  allow_once: "Allow once",
-  allow_always: "Always allow",
-  deny: "Deny",
+  get allow_once() {
+    return translateUi("sidebar.permission.allowOnce", "Allow once");
+  },
+  get allow_always() {
+    return translateUi("sidebar.permission.alwaysAllow", "Always allow");
+  },
+  get deny() {
+    return translateUi("sidebar.permission.deny", "Deny");
+  },
 };
 
 /** What a permission gate shows above its actions. */
@@ -67,7 +74,9 @@ export function effectiveGateKind(gate: FeaturePendingGateResponse): SessionGate
 }
 
 /** What a plan's row says: it is read in the conversation, not answered from the sidebar. */
-export const PLAN_READY_LABEL = "Plan ready for review";
+export function planReadyLabel(): string {
+  return translateUi("sidebar.gate.planReady", "Plan ready for review");
+}
 
 /** The questions an `AskUserQuestion` request carries; empty for any other request. */
 export function gateQuestions(gate: FeaturePendingGateResponse): AgentQuestion[] {
@@ -93,7 +102,7 @@ export function gatePrompt(gate: FeaturePendingGateResponse): string | null {
 
 /** `gatePrompt`, with a plan named by its label. */
 export function sidebarGatePrompt(gate: FeaturePendingGateResponse): string | null {
-  return effectiveGateKind(gate) === "plan" ? PLAN_READY_LABEL : gatePrompt(gate);
+  return effectiveGateKind(gate) === "plan" ? planReadyLabel() : gatePrompt(gate);
 }
 
 export function buildOptions(gate: FeaturePendingGateResponse): PermissionOptionView[] {

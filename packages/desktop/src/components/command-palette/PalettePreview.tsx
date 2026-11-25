@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { UserIcon } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -20,16 +21,20 @@ import type {
   ProjectEntry,
 } from "@/lib/command-palette/palette-types";
 import { ATTENTION_LABEL } from "@/lib/sidebar-attention";
+import { paletteCommandGroupLabel } from "@/lib/command-palette/palette-shortcut-commands";
 import { formatSidebarFullTime, formatSidebarRelativeTime } from "@/lib/sidebar-time";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
 import { ConversationStatus } from "./PaletteRows";
 import { PaletteKeys, SnippetText } from "./PaletteText";
 import { PaletteProviderMark } from "./PaletteProviderMark";
 
-function when(value: string, now: number): string {
+function when(value: string, now: number, t: UiTranslator): string {
   const date = parseUTCDateTime(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${formatSidebarFullTime(date)} · ${formatSidebarRelativeTime(date, now)}`;
+  return t("palette.preview.timestamp", "{{absolute}} · {{relative}}", {
+    absolute: formatSidebarFullTime(date),
+    relative: formatSidebarRelativeTime(date, now),
+  });
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }): ReactElement {
@@ -61,6 +66,7 @@ function useSettled<T>(value: T): boolean {
 }
 
 function LastReply({ featureId }: { featureId: number }): ReactElement {
+  const { t } = useUiTranslation();
   const settled = useSettled(featureId);
   const summary = useGetFeatureRowSummary(featureId, {
     query: { enabled: settled, staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false },
@@ -77,7 +83,10 @@ function LastReply({ featureId }: { featureId: number }): ReactElement {
   if (summary.error) {
     return (
       <p className="text-(--acc-red) text-xs">
-        {apiErrorMessage(summary.error, "Couldn't load the last reply")}
+        {apiErrorMessage(
+          summary.error,
+          t("palette.preview.errors.reply", "Couldn't load the last reply"),
+        )}
       </p>
     );
   }
@@ -85,7 +94,7 @@ function LastReply({ featureId }: { featureId: number }): ReactElement {
   return preview ? (
     <p className="cp-preview-text">{preview}</p>
   ) : (
-    <p className="cp-preview-sub">No reply yet.</p>
+    <p className="cp-preview-sub">{t("palette.preview.noReply", "No reply yet.")}</p>
   );
 }
 
@@ -98,11 +107,14 @@ function ConversationPreview({
   projectName: string | undefined;
   now: number;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { conversation } = entry;
   const archived = conversation.status === "archived";
   const prStatus = usePrStatusStore((state) => state.byFeature[conversation.id]);
   const state =
-    archived && entry.attention === "idle" ? "Archived" : ATTENTION_LABEL[entry.attention];
+    archived && entry.attention === "idle"
+      ? t("palette.status.archived", "Archived")
+      : ATTENTION_LABEL[entry.attention];
   return (
     <div className="cp-preview-inner">
       <header className="cp-preview-head">
@@ -129,35 +141,35 @@ function ConversationPreview({
         attention={{ state: entry.attention, sourceFeatureId: conversation.id }}
       />
       <dl className="cp-facts">
-        <Fact label="Project">
+        <Fact label={t("palette.preview.project", "Project")}>
           <ProjectBadge projectId={conversation.project_id} size="xs" />
-          <span>{projectName ?? "Unknown project"}</span>
+          <span>{projectName ?? t("palette.preview.unknownProject", "Unknown project")}</span>
         </Fact>
         {conversation.worktree_branch && (
-          <Fact label="Branch">
+          <Fact label={t("palette.preview.branch", "Branch")}>
             <span className="cp-path">{conversation.worktree_branch}</span>
           </Fact>
         )}
         {conversation.runtime_provider && (
-          <Fact label="Agent">
+          <Fact label={t("palette.preview.agent", "Agent")}>
             <PaletteProviderMark providerId={conversation.runtime_provider} />
           </Fact>
         )}
         {conversation.label && (
-          <Fact label="Label">
+          <Fact label={t("palette.preview.label", "Label")}>
             <span className="cp-label">{conversation.label}</span>
           </Fact>
         )}
-        <Fact label="Active">
-          <span>{when(conversation.last_activity_at, now)}</span>
+        <Fact label={t("palette.preview.active", "Active")}>
+          <span>{when(conversation.last_activity_at, now, t)}</span>
         </Fact>
         {conversation.archived_at && (
-          <Fact label="Archived">
-            <span>{when(conversation.archived_at, now)}</span>
+          <Fact label={t("palette.status.archived", "Archived")}>
+            <span>{when(conversation.archived_at, now, t)}</span>
           </Fact>
         )}
       </dl>
-      <Block label="Last reply">
+      <Block label={t("palette.preview.lastReply", "Last reply")}>
         <LastReply featureId={conversation.id} />
       </Block>
     </div>
@@ -165,6 +177,7 @@ function ConversationPreview({
 }
 
 function CommandPreview({ entry }: { entry: CommandEntry }): ReactElement {
+  const { t } = useUiTranslation();
   const { command } = entry;
   return (
     <div className="cp-preview-inner">
@@ -172,13 +185,13 @@ function CommandPreview({ entry }: { entry: CommandEntry }): ReactElement {
         <span className="cp-preview-glyph">{command.icon}</span>
         <div className="min-w-0">
           <h2 className="cp-preview-title">{command.title}</h2>
-          <p className="cp-preview-sub">{command.group}</p>
+          <p className="cp-preview-sub">{paletteCommandGroupLabel(command.group, t)}</p>
         </div>
       </header>
       {command.description && <p className="cp-preview-text">{command.description}</p>}
       {command.shortcutId && (
         <dl className="cp-facts">
-          <Fact label="Shortcut">
+          <Fact label={t("palette.preview.shortcut", "Shortcut")}>
             <PaletteKeys id={command.shortcutId} />
           </Fact>
         </dl>
@@ -198,6 +211,7 @@ function FilePreview({
   projectId: number | null;
   featureId: number | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const settled = useSettled(entry.path);
   const file = useReadFile(
     { project_id: projectId ?? 0, feature_id: featureId, file_path: entry.path },
@@ -218,18 +232,29 @@ function FilePreview({
       {file.isPending && <Skeleton className="h-40 w-full" />}
       {file.error && (
         <p className="text-(--acc-red) text-xs">
-          {apiErrorMessage(file.error, "Couldn't read the file")}
+          {apiErrorMessage(file.error, t("palette.preview.errors.file", "Couldn't read the file"))}
         </p>
       )}
       {file.data && (
         <pre className="cp-code">
           {file.data.large
-            ? "Large file: open it to read."
+            ? t("palette.preview.largeFile", "Large file: open it to read.")
             : file.data.content.split("\n").slice(0, FILE_PREVIEW_LINES).join("\n")}
         </pre>
       )}
     </div>
   );
+}
+
+function messageRoleLabel(hit: MessageEntry["hit"], t: UiTranslator): string {
+  if (hit.role === "user") {
+    return hit.feature_status === "archived"
+      ? t("palette.preview.archivedPrompt", "Your prompt · archived conversation")
+      : t("palette.preview.prompt", "Your prompt");
+  }
+  return hit.feature_status === "archived"
+    ? t("palette.preview.archivedReply", "Agent reply · archived conversation")
+    : t("palette.preview.reply", "Agent reply");
 }
 
 function MessagePreview({
@@ -241,6 +266,7 @@ function MessagePreview({
   projectName: string | undefined;
   now: number;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { hit } = entry;
   return (
     <div className="cp-preview-inner">
@@ -250,32 +276,41 @@ function MessagePreview({
         </span>
         <div className="min-w-0">
           <h2 className="cp-preview-title">{hit.feature_title}</h2>
-          <p className="cp-preview-sub">
-            {hit.role === "user" ? "Your prompt" : "Agent reply"}
-            {hit.feature_status === "archived" && " · archived conversation"}
-          </p>
+          <p className="cp-preview-sub">{messageRoleLabel(hit, t)}</p>
         </div>
       </header>
       <p className="cp-preview-text">
         <SnippetText snippet={hit.snippet} />
       </p>
       <dl className="cp-facts">
-        <Fact label="Project">
+        <Fact label={t("palette.preview.project", "Project")}>
           <ProjectBadge projectId={hit.project_id} size="xs" />
-          <span>{projectName ?? "Unknown project"}</span>
+          <span>{projectName ?? t("palette.preview.unknownProject", "Unknown project")}</span>
         </Fact>
-        <Fact label="Sent">
-          <span>{when(hit.created_at, now)}</span>
+        <Fact label={t("palette.preview.sent", "Sent")}>
+          <span>{when(hit.created_at, now, t)}</span>
         </Fact>
       </dl>
       <p className="cp-preview-sub">
-        Opens the conversation with Find in conversation on these words.
+        {t(
+          "palette.preview.openMessage",
+          "Opens the conversation with Find in conversation on these words.",
+        )}
       </p>
     </div>
   );
 }
 
+function conversationCount(count: number, t: UiTranslator): string {
+  return t("palette.preview.conversationCount", {
+    count,
+    defaultValue_one: "{{count, number}} conversation",
+    defaultValue_other: "{{count, number}} conversations",
+  });
+}
+
 function ProjectPreview({ entry }: { entry: ProjectEntry }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="cp-preview-inner">
       <header className="cp-preview-head">
@@ -288,14 +323,16 @@ function ProjectPreview({ entry }: { entry: ProjectEntry }): ReactElement {
         </div>
       </header>
       <dl className="cp-facts">
-        <Fact label="Active">
-          <span>{entry.activeCount} conversations</span>
+        <Fact label={t("palette.preview.active", "Active")}>
+          <span>{conversationCount(entry.activeCount, t)}</span>
         </Fact>
-        <Fact label="Archived">
-          <span>{entry.archivedCount} conversations</span>
+        <Fact label={t("palette.status.archived", "Archived")}>
+          <span>{conversationCount(entry.archivedCount, t)}</span>
         </Fact>
       </dl>
-      <p className="cp-preview-sub">Opens its most recent conversation. Tab for more.</p>
+      <p className="cp-preview-sub">
+        {t("palette.preview.openProject", "Opens its most recent conversation. Tab for more.")}
+      </p>
     </div>
   );
 }
@@ -316,7 +353,9 @@ export const PalettePreview = memo(function PalettePreview({
   activeFeatureId,
   now,
 }: PalettePreviewProps): ReactElement {
-  if (!entry) return <div className="cp-preview-empty">Nothing selected</div>;
+  const { t } = useUiTranslation();
+  if (!entry)
+    return <div className="cp-preview-empty">{t("palette.preview.empty", "Nothing selected")}</div>;
   switch (entry.kind) {
     case "conversation":
       return (

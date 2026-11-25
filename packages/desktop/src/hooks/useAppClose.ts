@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useEditorStore } from "@/stores/editor-store";
@@ -15,7 +16,7 @@ const CLOSE_LOADING_TOAST_ID = "app-close:loading";
 const CLOSE_CONFIRM_TOAST_ID = "app-close:confirm";
 
 function reportCloseFailure(error: unknown): void {
-  toast.error("Could not close Cadencr", {
+  toast.error(translateUi("shell.close.failure", "Could not close Cadencr"), {
     id: CLOSE_ERROR_TOAST_ID,
     description: error instanceof Error ? error.message : String(error),
   });

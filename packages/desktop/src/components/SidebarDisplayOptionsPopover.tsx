@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   createContext,
   useContext,
@@ -87,6 +88,7 @@ export function SidebarDisplayOptionsButton({
   section: SidebarSectionId;
   className?: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const hasOptions = useContext(HasOptionsContext);
   // Only the section the options opened from reads as their trigger.
   const expanded = useSidebarPreviewStore(
@@ -98,8 +100,8 @@ export function SidebarDisplayOptionsButton({
       variant="ghost"
       size="icon-xs"
       {...{ [TRIGGER_ATTRIBUTE]: section }}
-      title="Display options"
-      aria-label="Display options"
+      title={t("sidebar.displayOptions.displayOptions", "Display options")}
+      aria-label={t("sidebar.displayOptions.displayOptions", "Display options")}
       aria-haspopup="dialog"
       aria-expanded={expanded}
       data-state={expanded ? "open" : "closed"}

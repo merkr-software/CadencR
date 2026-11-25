@@ -1,10 +1,12 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import { CalendarClock } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useScheduleList } from "@/hooks/useSchedules";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
-import { formatRelative } from "@/lib/schedules/format";
+import { formatDistanceToNowStrict } from "date-fns";
+import { fr } from "date-fns/locale";
 import { isActive, nextRunAcross } from "@/lib/schedules/status";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +19,7 @@ import { cn } from "@/lib/utils";
  * inflate a count the user reads as a promise.
  */
 export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactElement {
+  const { t } = useUiTranslation();
   // A boolean, so navigating between other pages doesn't re-render the link.
   const active = useRouterState({ select: (state) => state.location.pathname === "/schedules" });
   // Shares the schedules query cache with the page, so opening Schedules costs
@@ -33,7 +36,11 @@ export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactE
   );
 
   return (
-    <ShortcutTooltip label="Open schedules" keys={openKeys} className="w-full">
+    <ShortcutTooltip
+      label={t("sidebar.schedulesSidebarLink.openSchedules", "Open schedules")}
+      keys={openKeys}
+      className="w-full"
+    >
       <Link
         to="/schedules"
         data-nav-item
@@ -47,7 +54,9 @@ export const SchedulesSidebarLink = memo(function SchedulesSidebarLink(): ReactE
         )}
       >
         <CalendarClock className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">Schedules</span>
+        <span className="min-w-0 flex-1 truncate">
+          {t("sidebar.schedulesSidebarLink.schedules", "Schedules")}
+        </span>
         <ScheduledCountIndicator count={count} nextRun={nextRun} />
       </Link>
     </ShortcutTooltip>
@@ -61,14 +70,34 @@ function ScheduledCountIndicator({
   count: number;
   nextRun: Date | null;
 }): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const armed = count > 0;
+  const next =
+    nextRun &&
+    formatDistanceToNowStrict(nextRun, {
+      addSuffix: true,
+      locale: i18n.language.split("-")[0] === "fr" ? fr : undefined,
+    });
   return (
     <span
       className="ml-auto inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
       title={
         armed
-          ? `${count} schedule${count === 1 ? "" : "s"} armed${nextRun ? ` · next ${formatRelative(nextRun)}` : ""}`
-          : "No schedules armed"
+          ? next
+            ? t(
+                "sidebar.schedulesSidebarLink.armedWithNextRun",
+                "{{count}} schedules armed · next {{next}}",
+                {
+                  count,
+                  next,
+                  defaultValue_one: "{{count}} schedule armed · next {{next}}",
+                },
+              )
+            : t("sidebar.schedulesSidebarLink.armed", "{{count}} schedules armed", {
+                count,
+                defaultValue_one: "{{count}} schedule armed",
+              })
+          : t("sidebar.schedulesSidebarLink.noSchedulesArmed", "No schedules armed")
       }
     >
       <span

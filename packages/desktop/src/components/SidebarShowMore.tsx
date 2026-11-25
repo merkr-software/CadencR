@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import type { ShowMore } from "@/hooks/useForMeShowMore";
@@ -7,6 +8,7 @@ import type { ShowMore } from "@/hooks/useForMeShowMore";
  * less". A sidebar nav item, so ↑/↓ reach it and Enter toggles it.
  */
 export function SidebarShowMoreButton({ more }: { more: ShowMore }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (more.hiddenCount === 0) return null;
   return (
     <Button
@@ -19,7 +21,9 @@ export function SidebarShowMoreButton({ more }: { more: ShowMore }): ReactElemen
       onClick={more.toggle}
       className="self-start px-2 text-[11px] font-normal text-muted-foreground hover:bg-sidebar-accent hover:text-foreground focus-visible:text-foreground"
     >
-      {more.expanded ? "Show less" : `Show ${more.hiddenCount} more`}
+      {more.expanded
+        ? t("sidebar.showMore.showLess", "Show less")
+        : t("sidebar.showMore.hiddenRows", "Show {{count}} more", { count: more.hiddenCount })}
     </Button>
   );
 }

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState, type DragEvent } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -22,7 +23,12 @@ export function useSidebarSectionExpanded(id: SidebarSectionId): boolean {
 function listLoaded(queryClient: QueryClient, id: "foldedSections" | "sectionOrder"): boolean {
   const key = getGetWorkspaceSettingQueryKey(SIDEBAR_OPTIONS[id].key);
   if (queryClient.getQueryState(key)?.status === "success") return true;
-  toast.error("The sidebar settings are still loading. Try again in a moment.");
+  toast.error(
+    translateUi(
+      "sidebar.useSidebarSections.theSidebarSettingsAreStillLoading",
+      "The sidebar settings are still loading. Try again in a moment.",
+    ),
+  );
   return false;
 }
 

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Check, CircleAlert } from "lucide-react";
 import type { Attention } from "@/lib/sidebar-attention";
@@ -5,10 +6,30 @@ import type { Attention } from "@/lib/sidebar-attention";
 export type QuietState = Exclude<Attention["state"], "waiting">;
 
 export const STATUS_LABELS: Record<QuietState, { label: string; title?: string }> = {
-  failed: { label: "Agent turn failed", title: "Agent stopped on an error · Not seen yet" },
-  working: { label: "Agent working", title: "Agent working" },
-  unread: { label: "Unread agent messages", title: "Agent finished · Unread messages" },
-  idle: { label: "Agent idle" },
+  get failed() {
+    return {
+      label: translateUi("sidebar.status.failed", "Agent turn failed"),
+      title: translateUi(
+        "sidebar.status.failedTooltip",
+        "Agent stopped on an error · Not seen yet",
+      ),
+    };
+  },
+  get working() {
+    return {
+      label: translateUi("sidebar.status.working", "Agent working"),
+      title: translateUi("sidebar.status.workingTooltip", "Agent working"),
+    };
+  },
+  get unread() {
+    return {
+      label: translateUi("sidebar.status.unread", "Unread agent messages"),
+      title: translateUi("sidebar.status.unreadTooltip", "Agent finished · Unread messages"),
+    };
+  },
+  get idle() {
+    return { label: translateUi("sidebar.status.idle", "Agent idle") };
+  },
 };
 
 /**
@@ -17,6 +38,7 @@ export const STATUS_LABELS: Record<QuietState, { label: string; title?: string }
  * conversation reads the same in both places.
  */
 export function StatusShape({ state }: { state: QuietState }): ReactElement {
+  useUiTranslation();
   const { label, title } = STATUS_LABELS[state];
   if (state === "working") {
     return <span role="img" aria-label={label} title={title} className="sidebar-status-working" />;

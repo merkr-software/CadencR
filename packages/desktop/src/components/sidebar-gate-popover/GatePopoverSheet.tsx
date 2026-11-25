@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactElement } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { GatePopoverFrame } from "@/components/sidebar-gate-popover/GatePopoverFrame";
@@ -50,6 +51,7 @@ function OpenSheet({
   open: OpenGatePopover;
   onOpenConversation: (featureId: number) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { featureId, origin } = open;
   const { kind: liveKind } = useFeatureStatus(featureId);
   const requestKey = gateRequestKey(featureId, useFeaturePendingRequestId(featureId));
@@ -67,7 +69,9 @@ function OpenSheet({
         onEscapeKeyDown={keepEscapeInDenyField}
         onKeyDown={keepTypingInQuickReply}
       >
-        <DialogTitle className="sr-only">Pending request</DialogTitle>
+        <DialogTitle className="sr-only">
+          {t("sidebar.gatePopoverSheet.pendingRequest", "Pending request")}
+        </DialogTitle>
         <GatePopoverFrame
           featureId={featureId}
           kind={triggerPendingKind(liveKind, null)}

@@ -1,10 +1,15 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { MessageCircleQuestion, ShieldAlert } from "lucide-react";
 import { StatusShape } from "@/components/StatusShape";
 import { useMinuteClock } from "@/hooks/useMinuteClock";
 import { parseUTCDateTime } from "@/lib/date-utils";
 import { ATTENTION_LABEL, type AttentionState } from "@/lib/sidebar-attention";
-import { formatSidebarFullTime, formatSidebarRelativeTime } from "@/lib/sidebar-time";
+import {
+  formatSidebarFullTime,
+  formatSidebarRelativeTime,
+  isSidebarTimeNow,
+} from "@/lib/sidebar-time";
 import { cn } from "@/lib/utils";
 import type { PendingKind } from "@/types/agent";
 
@@ -43,8 +48,8 @@ const STATE_TEXT_CLASS: Record<Exclude<AttentionState, "idle">, string> = {
 };
 
 export function waitingLabel(kind: PendingKind | null): string {
-  if (kind === "permission") return "Needs approval";
-  if (kind === "question") return "Has a question";
+  if (kind === "permission") return translateUi("sidebar.status.needsApproval", "Needs approval");
+  if (kind === "question") return translateUi("sidebar.status.hasQuestion", "Has a question");
   return ATTENTION_LABEL.waiting;
 }
 
@@ -62,6 +67,7 @@ export const AgentCardStatusText = memo(function AgentCardStatusText({
   kind: PendingKind | null;
   lastActivityAt?: string | null;
 }): ReactElement | null {
+  useUiTranslation();
   if (state === "idle") return <AgentCardActivityTime lastActivityAt={lastActivityAt} />;
   const label = state === "waiting" ? waitingLabel(kind) : ATTENTION_LABEL[state];
   return (
@@ -81,18 +87,22 @@ function AgentCardActivityTime({
 }: {
   lastActivityAt?: string | null;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const now = useMinuteClock();
   if (!lastActivityAt) return null;
   const date = parseUTCDateTime(lastActivityAt);
   if (!Number.isFinite(date.getTime())) return null;
-  const relative = formatSidebarRelativeTime(date, now);
   return (
     <time
       dateTime={date.toISOString()}
-      title={`Last activity ${formatSidebarFullTime(date)}`}
+      title={t("sidebar.time.lastActivity", "Last activity {{time}}", {
+        time: formatSidebarFullTime(date),
+      })}
       className="shrink-0 whitespace-nowrap font-mono text-[10.5px] leading-none text-muted-foreground tabular-nums"
     >
-      {relative === "now" ? "just now" : `${relative} ago`}
+      {isSidebarTimeNow(date, now)
+        ? t("sidebar.time.justNow", "just now")
+        : t("sidebar.time.elapsed", "{{time}} ago", { time: formatSidebarRelativeTime(date, now) })}
     </time>
   );
 }

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueries, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -111,7 +112,18 @@ export function useSidebarConfigWrites(): SidebarConfigWrites {
     mutation: {
       onSuccess: (settings) => seedSettingsFromBatch(queryClient, SIDEBAR_SETTING_KEYS, settings),
       onError: (error) =>
-        toast.error(`Could not update the sidebar: ${apiErrorMessage(error, "Unknown error")}`),
+        toast.error(
+          translateUi(
+            "sidebar.useSidebarSettings.writeFailed",
+            "Could not update the sidebar: {{error}}",
+            {
+              error: apiErrorMessage(
+                error,
+                translateUi("sidebar.useSidebarSettings.unknownError", "Unknown error"),
+              ),
+            },
+          ),
+        ),
     },
   });
   const applyPreset = useCallback(

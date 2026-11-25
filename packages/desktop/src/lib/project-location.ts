@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { UpdateProjectRequest } from "@/api/generated";
 
 /** What the project dialog changes: its name (and maybe its folder's), its
@@ -39,16 +40,24 @@ export function folderNameFor(projectName: string): string {
 
 export function folderNameError(name: string): string | null {
   const trimmed = name.trim();
-  if (trimmed.length === 0) return "Enter a folder name.";
-  if (trimmed.includes("/")) return "A folder name cannot contain /.";
-  if (trimmed === "." || trimmed === "..") return "Choose another folder name.";
+  if (trimmed.length === 0)
+    return translateUi("project.location.folderNameRequired", "Enter a folder name.");
+  if (trimmed.includes("/"))
+    return translateUi("project.location.folderNameSlash", "A folder name cannot contain /.");
+  if (trimmed === "." || trimmed === "..")
+    return translateUi("project.location.folderNameInvalid", "Choose another folder name.");
   return null;
 }
 
 export function absolutePathError(path: string): string | null {
   const trimmed = path.trim();
-  if (trimmed.length === 0) return "Choose a folder.";
-  if (!trimmed.startsWith("/")) return "Enter an absolute path, starting with /.";
+  if (trimmed.length === 0)
+    return translateUi("project.location.folderRequired", "Choose a folder.");
+  if (!trimmed.startsWith("/"))
+    return translateUi(
+      "project.location.absolutePathRequired",
+      "Enter an absolute path, starting with /.",
+    );
   return null;
 }
 
@@ -56,7 +65,8 @@ export function absolutePathError(path: string): string | null {
 export function draftError(draft: ProjectLocationDraft): string | null {
   switch (draft.mode) {
     case "rename":
-      if (draft.name.trim().length === 0) return "Enter a project name.";
+      if (draft.name.trim().length === 0)
+        return translateUi("project.location.projectNameRequired", "Enter a project name.");
       return draft.renameFolder ? folderNameError(draft.folderName) : null;
     case "move":
       return absolutePathError(draft.parent) ?? folderNameError(draft.folderName);

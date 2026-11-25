@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Per-project editor tooling pickers (Phase 4): TypeScript server, linter,
  * formatter, and format-on-save. Each falls back to the workspace-scoped global
@@ -40,28 +41,48 @@ const FORMAT_DOCUMENT_COMBO = formatCompactCombo(
   getRegistryShortcut("editor-format-document").keys,
 );
 
-const FORMATTER_OPTIONS: readonly ToolingOption[] = [
-  {
-    value: "off",
-    label: "Off",
-    description: `No formatter — “Format document” (${FORMAT_DOCUMENT_COMBO}) does nothing.`,
-  },
-  {
-    value: "biome",
-    label: "Biome",
-    description: `biome format, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
-  },
-  {
-    value: "oxfmt",
-    label: "oxfmt",
-    description: `oxc formatter, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
-  },
-  {
-    value: "prettier",
-    label: "Prettier",
-    description: `prettier --stdin-filepath, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
-  },
-];
+function useFormatterOptions(): readonly ToolingOption[] {
+  const { t } = useUiTranslation();
+  const combo = FORMAT_DOCUMENT_COMBO;
+  return [
+    {
+      value: "off",
+      label: t("project.editorToolingSettings.off", "Off"),
+      description: t(
+        "project.editorToolingSettings.noFormatterDescription",
+        "No formatter — “Format document” ({{combo}}) does nothing.",
+        { combo },
+      ),
+    },
+    {
+      value: "biome",
+      label: "Biome",
+      description: t(
+        "project.editorToolingSettings.biomeDescription",
+        "biome format, via “Format document” ({{combo}}).",
+        { combo },
+      ),
+    },
+    {
+      value: "oxfmt",
+      label: "oxfmt",
+      description: t(
+        "project.editorToolingSettings.oxfmtDescription",
+        "oxc formatter, via “Format document” ({{combo}}).",
+        { combo },
+      ),
+    },
+    {
+      value: "prettier",
+      label: "Prettier",
+      description: t(
+        "project.editorToolingSettings.prettierDescription",
+        "prettier --stdin-filepath, via “Format document” ({{combo}}).",
+        { combo },
+      ),
+    },
+  ];
+}
 
 export function ProjectEditorToolingSettings({
   projectId,
@@ -70,6 +91,8 @@ export function ProjectEditorToolingSettings({
   projectId: number;
   enabled: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
+  const options = useFormatterOptions();
   const queryClient = useQueryClient();
   const tooling = useProjectEditorTooling(enabled ? projectId : undefined);
 
@@ -95,17 +118,20 @@ export function ProjectEditorToolingSettings({
       {enabled && <LanguageServerSettings projectId={projectId} />}
       <div className="grid gap-4">
         <ToolingSelect
-          label="Formatter"
+          label={t("project.editorToolingSettings.formatter", "Formatter")}
           value={tooling.formatter}
-          options={FORMATTER_OPTIONS}
+          options={options}
           disabled={setSetting.isPending}
           onChange={(next) => update("editor_formatter", next)}
         />
       </div>
 
       <SettingsSwitchRow
-        label="Format on save"
-        description="Run the configured formatter every time the buffer is saved."
+        label={t("project.editorToolingSettings.formatOnSave", "Format on save")}
+        description={t(
+          "project.editorToolingSettings.formatOnSaveDescription",
+          "Run the configured formatter every time the buffer is saved.",
+        )}
         checked={tooling.formatOnSave}
         onCheckedChange={(next) => update("editor_format_on_save", next ? "true" : "false")}
         disabled={setSetting.isPending || tooling.formatter === "off"}
@@ -128,13 +154,24 @@ function ToolingSelect({
   disabled: boolean;
   onChange: (next: string) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const selected = options.find((option) => option.value === value);
   // Settings are hand-editable JSON, so the persisted value can be something we
   // don't ship an option for. Surface it as its own entry instead of rendering
   // an empty trigger the user can only fix by overwriting it blind.
   const items = selected
     ? options
-    : [...options, { value, label: value, description: "Not a value Cadencr recognizes." }];
+    : [
+        ...options,
+        {
+          value,
+          label: value,
+          description: t(
+            "project.editorToolingSettings.unknownValue",
+            "Not a value Cadencr recognizes.",
+          ),
+        },
+      ];
   return (
     <LabeledControl label={label} hint={selected?.description ?? items.at(-1)?.description}>
       <Select value={value} onValueChange={onChange} disabled={disabled}>

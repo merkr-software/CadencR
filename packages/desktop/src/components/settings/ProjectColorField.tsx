@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { ProjectColorPicker } from "@/components/settings/ProjectColorPicker";
 import { useSyncedSettingInput } from "@/hooks/useSyncedSettingInput";
@@ -22,6 +23,7 @@ export function ProjectColorField({
   color: string | undefined;
   onSave: (key: typeof PROJECT_COLOR_SETTING_KEY, value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const colorInput = useSyncedSettingInput(color, `${resetKeyPrefix}:color`);
 
   const commitColor = useCallback(
@@ -34,9 +36,11 @@ export function ProjectColorField({
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium">Project color</div>
+      <div className="text-sm font-medium">
+        {t("project.colorField.projectColor", "Project color")}
+      </div>
       <p className="text-xs text-muted-foreground">
-        Accent dot used for this project in the sidebar.
+        {t("project.colorField.description", "Accent dot used for this project in the sidebar.")}
       </p>
       <ProjectColorPicker value={colorInput.value} onChange={commitColor} />
     </div>

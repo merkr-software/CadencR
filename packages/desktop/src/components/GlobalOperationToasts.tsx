@@ -1,3 +1,4 @@
+import { useUiTranslation, type translateUi } from "@/lib/i18n/ui";
 import { useEffect, useRef } from "react";
 import { useIsFetching, useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -33,11 +34,11 @@ const OPERATION_LABELS: Record<string, string> = {};
 const EXCLUDED_PREFIXES = ["agents.", "sessions.", "features."];
 
 /** Converts a query key like "diffComments.getByFeature" into "Loading diff comments" */
-function humanizeKey(key: string): string {
+function humanizeKey(t: typeof translateUi, key: string): string {
   // Take the router name (first segment), split camelCase, and title-case it
   const router = key.split(".")[0];
   const words = router.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-  return `Loading ${words}`;
+  return t("shell.operations.loading", "Loading {{name}}", { name: words });
 }
 
 function extractOperationKey(queryKey: readonly unknown[]): string | null {
@@ -58,6 +59,7 @@ function extractOperationKey(queryKey: readonly unknown[]): string | null {
 }
 
 function useOperationToasts(): void {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const fetchCount = useIsFetching();
   const mutateCount = useIsMutating();
@@ -81,7 +83,7 @@ function useOperationToasts(): void {
     for (const query of queries) {
       const key = extractOperationKey(query.queryKey);
       if (key) {
-        activeOps.push(OPERATION_LABELS[key] ?? humanizeKey(key));
+        activeOps.push(OPERATION_LABELS[key] ?? humanizeKey(t, key));
       }
     }
 
@@ -89,7 +91,7 @@ function useOperationToasts(): void {
     for (const mutation of mutations) {
       const key = extractOperationKey(mutation.options.mutationKey ?? []);
       if (key) {
-        activeOps.push(OPERATION_LABELS[key] ?? humanizeKey(key));
+        activeOps.push(OPERATION_LABELS[key] ?? humanizeKey(t, key));
       }
     }
 
@@ -107,7 +109,8 @@ function useOperationToasts(): void {
     const display = unique.slice(0, 5);
     const extra = unique.length - display.length;
     const lines = [...display];
-    if (extra > 0) lines.push(`and ${extra} more...`);
+    if (extra > 0)
+      lines.push(t("shell.operations.more", "and {{count}} more...", { count: extra }));
 
     toast.loading(
       <div className="flex flex-col gap-0.5">
@@ -121,5 +124,5 @@ function useOperationToasts(): void {
       },
     );
     prevActiveRef.current = true;
-  }, [fetchCount, mutateCount, queryClient]);
+  }, [fetchCount, mutateCount, queryClient, t]);
 }

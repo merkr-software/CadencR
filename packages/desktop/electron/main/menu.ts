@@ -1,3 +1,5 @@
+import { editMenuLabels } from "./edit-menu-labels";
+import { translateUi, uiI18n } from "../../src/shared/ui-i18n";
 import {
   app,
   BrowserWindow,
@@ -10,18 +12,40 @@ import {
 } from "electron";
 
 interface EditCommand {
-  label: string;
+  label: () => string;
   run: (webContents: WebContents) => void;
 }
 
 const NON_MAC_EDIT_COMMANDS: readonly EditCommand[] = [
-  { label: "Undo", run: (webContents) => webContents.undo() },
-  { label: "Redo", run: (webContents) => webContents.redo() },
-  { label: "Cut", run: (webContents) => webContents.cut() },
-  { label: "Copy", run: (webContents) => webContents.copy() },
-  { label: "Paste", run: (webContents) => webContents.paste() },
-  { label: "Select All", run: (webContents) => webContents.selectAll() },
+  {
+    label: editMenuLabels.undo,
+    run: (webContents) => webContents.undo(),
+  },
+  {
+    label: editMenuLabels.redo,
+    run: (webContents) => webContents.redo(),
+  },
+  { label: editMenuLabels.cut, run: (webContents) => webContents.cut() },
+  {
+    label: editMenuLabels.copy,
+    run: (webContents) => webContents.copy(),
+  },
+  {
+    label: editMenuLabels.paste,
+    run: (webContents) => webContents.paste(),
+  },
+  {
+    label: editMenuLabels.selectAll,
+    run: (webContents) => webContents.selectAll(),
+  },
 ];
+
+export function startApplicationMenu(onQuit: () => void): () => void {
+  const refresh = () => installApplicationMenu(onQuit);
+  refresh();
+  uiI18n.on("languageChanged", refresh);
+  return () => uiI18n.off("languageChanged", refresh);
+}
 
 export function installApplicationMenu(onQuit: () => void): void {
   const appMenu: MenuItemConstructorOptions =
@@ -35,10 +59,23 @@ export function installApplicationMenu(onQuit: () => void): void {
             { role: "hideOthers" },
             { role: "unhide" },
             { type: "separator" },
-            { label: `Quit ${app.name}`, accelerator: "CmdOrCtrl+Q", click: onQuit },
+            {
+              label: translateUi("native.menu.quitApp", "Quit {{appName}}", { appName: app.name }),
+              accelerator: "CmdOrCtrl+Q",
+              click: onQuit,
+            },
           ],
         }
-      : { label: "File", submenu: [{ label: "Quit", accelerator: "CmdOrCtrl+Q", click: onQuit }] };
+      : {
+          label: translateUi("native.menu.file", "File"),
+          submenu: [
+            {
+              label: translateUi("native.menu.quit", "Quit"),
+              accelerator: "CmdOrCtrl+Q",
+              click: onQuit,
+            },
+          ],
+        };
 
   const devViewSubmenu = app.isPackaged
     ? []
@@ -51,9 +88,11 @@ export function installApplicationMenu(onQuit: () => void): void {
   const template: MenuItemConstructorOptions[] = [
     appMenu,
     buildEditMenu(),
-    ...(devViewSubmenu.length > 0 ? [{ label: "View", submenu: devViewSubmenu }] : []),
+    ...(devViewSubmenu.length > 0
+      ? [{ label: translateUi("native.menu.view", "View"), submenu: devViewSubmenu }]
+      : []),
     {
-      label: "Window",
+      label: translateUi("native.menu.window", "Window"),
       // `zoom` is the macOS title-bar zoom; it does nothing elsewhere.
       submenu:
         process.platform === "darwin"
@@ -67,21 +106,21 @@ export function installApplicationMenu(onQuit: () => void): void {
 function buildEditMenu(): MenuItemConstructorOptions {
   if (process.platform === "darwin") {
     return {
-      label: "Edit",
+      label: translateUi("native.menu.edit", "Edit"),
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        { role: "undo", label: editMenuLabels.undo() },
+        { role: "redo", label: editMenuLabels.redo() },
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
+        { role: "cut", label: editMenuLabels.cut() },
+        { role: "copy", label: editMenuLabels.copy() },
+        { role: "paste", label: editMenuLabels.paste() },
+        { role: "selectAll", label: editMenuLabels.selectAll() },
       ],
     };
   }
 
   return {
-    label: "Edit",
+    label: translateUi("native.menu.edit", "Edit"),
     submenu: [
       editMenuItem(NON_MAC_EDIT_COMMANDS[0]),
       editMenuItem(NON_MAC_EDIT_COMMANDS[1]),
@@ -93,7 +132,7 @@ function buildEditMenu(): MenuItemConstructorOptions {
 
 function editMenuItem(command: EditCommand): MenuItemConstructorOptions {
   return {
-    label: command.label,
+    label: command.label(),
     click: (_item: MenuItem, focusedWindow: BaseWindow | undefined): void => {
       const target = editTarget(focusedWindow);
       if (target) command.run(target);

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -32,11 +33,22 @@ import { useSidebarOption } from "@/stores/sidebar-config-store";
 
 /** The name the Projects header takes: the shown view's, else the lens's. */
 function headerName(lens: SidebarLens, viewName: string | undefined): string {
-  if (viewName !== undefined) return viewName || "Untitled view";
-  if (lens === "project") return "Projects";
-  if (lens === "flat") return "Conversations";
-  const label = LENS_OPTIONS.find((option) => option.value === lens)?.label ?? lens;
-  return `By ${label.toLowerCase()}`;
+  if (viewName !== undefined)
+    return viewName || translateUi("sidebar.lensMenu.untitledView", "Untitled view");
+  if (lens === "project") return translateUi("sidebar.lensMenu.projects", "Projects");
+  if (lens === "flat") return translateUi("sidebar.lensMenu.conversations", "Conversations");
+  switch (lens) {
+    case "status":
+      return translateUi("sidebar.lensMenu.byStatus", "By status");
+    case "worktree":
+      return translateUi("sidebar.lensMenu.byWorktree", "By worktree");
+    case "provider":
+      return translateUi("sidebar.lensMenu.byProvider", "By provider");
+    case "label":
+      return translateUi("sidebar.lensMenu.byLabel", "By label");
+    case "date":
+      return translateUi("sidebar.lensMenu.byDate", "By date");
+  }
 }
 
 /** The header's icon, like the blocks above it: says how the list is grouped. */
@@ -65,6 +77,7 @@ function LensLabel({ icon: Icon, name }: { icon: LucideIcon; name: string }): Re
  * the sidebar's header menu shows for the current lens.
  */
 export function SidebarLensHeading(): ReactElement {
+  useUiTranslation();
   const lens = useSidebarOption("lens");
   return (
     <div className={cn(EYEBROW_TEXT_CLASS, "flex min-w-0 items-center gap-1.5")}>
@@ -84,6 +97,7 @@ function MenuCheck({ on }: { on: boolean }): ReactElement {
  * whole project list by its header, which a menu opened on press would stop.
  */
 export function SidebarLensMenu(): ReactElement {
+  const { t } = useUiTranslation();
   const lens = useSidebarOption("lens");
   const setOption = useSetSidebarOption();
   const { views, activeView, showView } = useSidebarViews();
@@ -112,7 +126,9 @@ export function SidebarLensMenu(): ReactElement {
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">Group by</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t("sidebar.lensMenu.groupBy", "Group by")}
+        </DropdownMenuLabel>
         {LENS_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
@@ -126,11 +142,15 @@ export function SidebarLensMenu(): ReactElement {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">Views</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {t("sidebar.lensMenu.views", "Views")}
+        </DropdownMenuLabel>
         {views.map((view) => (
           <DropdownMenuItem key={view.id} onSelect={() => showView(view.id)}>
             <MenuCheck on={view.id === activeView?.id} />
-            <span className="truncate">{view.name || "Untitled view"}</span>
+            <span className="truncate">
+              {view.name || t("sidebar.lensMenu.untitledView", "Untitled view")}
+            </span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuItem
@@ -139,7 +159,9 @@ export function SidebarLensMenu(): ReactElement {
           }
         >
           <MenuCheck on={false} />
-          {views.length === 0 ? "Create a view…" : "Manage views…"}
+          {views.length === 0
+            ? t("sidebar.lensMenu.createAView", "Create a view…")
+            : t("sidebar.lensMenu.manageViews", "Manage views…")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import {
   ArchiveRestoreIcon,
   ArrowRightIcon,
@@ -18,9 +19,8 @@ import { useUnreadStore } from "@/stores/unread-store";
 import { snippetPlainText } from "./PaletteText";
 import type { PaletteOperations } from "./usePaletteOperations";
 
-const copy = (text: string, what: string) => copyToClipboard(text, `${what} copied`);
-
 export interface ItemActionContext {
+  t: UiTranslator;
   ops: PaletteOperations;
   activeFeatureId: number | null;
   conversations: readonly ConversationIndexEntry[];
@@ -45,46 +45,82 @@ function conversationActions(
   conversation: ConversationIndexEntry,
   context: ItemActionContext,
 ): PaletteCommand[] {
+  const { t } = context;
   const archived = conversation.status === "archived";
-  const actions = [primaryAction("Open conversation", <ArrowRightIcon />, context)];
+  const actions = [
+    primaryAction(
+      t("palette.actions.openConversation", "Open conversation"),
+      <ArrowRightIcon />,
+      context,
+    ),
+  ];
   if (archived) {
     actions.push(
       action(
         "restore",
-        "Restore conversation",
+        t("palette.actions.restore", "Restore conversation"),
         <ArchiveRestoreIcon />,
         () => {
           context.ops.restore(conversation.id);
           context.ops.openConversation(conversation.project_id, conversation.id);
         },
-        { description: "Moves it back to the active conversations and opens it." },
+        {
+          description: t(
+            "palette.actions.restoreDescription",
+            "Moves it back to the active conversations and opens it.",
+          ),
+        },
       ),
     );
   } else {
     actions.push(
       conversation.is_pinned
-        ? action("unpin", "Unpin", <PinOffIcon />, () =>
+        ? action("unpin", t("sidebar.row.unpin", "Unpin"), <PinOffIcon />, () =>
             context.ops.setPinned(conversation.id, false),
           )
-        : action("pin", "Pin", <PinIcon />, () => context.ops.setPinned(conversation.id, true), {
-            description: "Keeps it in the sidebar's Pinned block.",
-          }),
-      action("unread", "Mark as unread", <MailIcon />, () =>
+        : action(
+            "pin",
+            t("sidebar.row.pin", "Pin"),
+            <PinIcon />,
+            () => context.ops.setPinned(conversation.id, true),
+            {
+              description: t(
+                "palette.actions.pinDescription",
+                "Keeps it in the sidebar's Pinned block.",
+              ),
+            },
+          ),
+      action("unread", t("palette.actions.unread", "Mark as unread"), <MailIcon />, () =>
         useUnreadStore.getState().markUnread(conversation.id),
       ),
     );
   }
   actions.push(
-    action("new-here", "New conversation in this project", <SquarePenIcon />, () =>
-      context.ops.createConversation({ projectId: conversation.project_id }),
+    action(
+      "new-here",
+      t("palette.actions.newInThisProject", "New conversation in this project"),
+      <SquarePenIcon />,
+      () => context.ops.createConversation({ projectId: conversation.project_id }),
     ),
-    action("copy-title", "Copy title", <ClipboardIcon />, () => copy(conversation.title, "Title")),
+    action("copy-title", t("palette.actions.copyTitle", "Copy title"), <ClipboardIcon />, () =>
+      copyToClipboard(
+        conversation.title,
+        translateUi("palette.actions.titleCopied", "Title copied"),
+      ),
+    ),
   );
   if (conversation.worktree_branch) {
     const branch = conversation.worktree_branch;
     actions.push(
-      action("copy-branch", "Copy branch name", <GitBranchIcon />, () =>
-        copy(branch, "Branch name"),
+      action(
+        "copy-branch",
+        t("palette.actions.copyBranch", "Copy branch name"),
+        <GitBranchIcon />,
+        () =>
+          copyToClipboard(
+            branch,
+            translateUi("palette.actions.branchCopied", "Branch name copied"),
+          ),
       ),
     );
   }
@@ -93,37 +129,74 @@ function conversationActions(
 
 /** What Tab offers for a result, its Enter action first. */
 export function itemActions(entry: PaletteEntry, context: ItemActionContext): PaletteCommand[] {
+  const { t } = context;
   switch (entry.kind) {
     case "conversation":
       return conversationActions(entry.conversation, context);
     case "project": {
       const { project } = entry;
       return [
-        primaryAction("Open latest conversation", <ArrowRightIcon />, context),
-        action("new-here", `New conversation in ${project.name}`, <SquarePenIcon />, () =>
-          context.ops.createConversation({ projectId: project.id }),
+        primaryAction(
+          t("palette.actions.openLatest", "Open latest conversation"),
+          <ArrowRightIcon />,
+          context,
         ),
-        action("new-choose", "New conversation…", <MessageSquarePlusIcon />, undefined, {
-          step: { kind: "worktree", projectId: project.id },
-          description: "Choose a new worktree, the project directory or an existing branch.",
-        }),
-        action("copy-path", "Copy path", <ClipboardIcon />, () => copy(project.path, "Path")),
+        action(
+          "new-here",
+          t("palette.commands.new-conversation-here.title", "New conversation in {{project}}", {
+            project: project.name,
+          }),
+          <SquarePenIcon />,
+          () => context.ops.createConversation({ projectId: project.id }),
+        ),
+        action(
+          "new-choose",
+          t("palette.commands.new-conversation.title", "New conversation…"),
+          <MessageSquarePlusIcon />,
+          undefined,
+          {
+            step: { kind: "worktree", projectId: project.id },
+            description: t(
+              "palette.actions.newDescription",
+              "Choose a new worktree, the project directory or an existing branch.",
+            ),
+          },
+        ),
+        action("copy-path", t("palette.actions.copyPath", "Copy path"), <ClipboardIcon />, () =>
+          copyToClipboard(project.path, translateUi("palette.actions.pathCopied", "Path copied")),
+        ),
       ];
     }
     case "file":
       return [
-        primaryAction("Open in Editor", <CodeIcon />, context),
-        action("copy-path", "Copy path", <ClipboardIcon />, () => copy(entry.path, "Path")),
+        primaryAction(t("palette.actions.openEditor", "Open in Editor"), <CodeIcon />, context),
+        action("copy-path", t("palette.actions.copyPath", "Copy path"), <ClipboardIcon />, () =>
+          copyToClipboard(entry.path, translateUi("palette.actions.pathCopied", "Path copied")),
+        ),
       ];
     case "message": {
       const { hit } = entry;
       return [
-        primaryAction("Open and find these words", <ScanSearchIcon />, context),
-        action("open-plain", "Open conversation", <ArrowRightIcon />, () =>
-          context.ops.openConversation(hit.project_id, hit.feature_id),
+        primaryAction(
+          t("palette.actions.openMessage", "Open and find these words"),
+          <ScanSearchIcon />,
+          context,
         ),
-        action("copy", "Copy message excerpt", <ClipboardIcon />, () =>
-          copy(snippetPlainText(hit.snippet), "Excerpt"),
+        action(
+          "open-plain",
+          t("palette.actions.openConversation", "Open conversation"),
+          <ArrowRightIcon />,
+          () => context.ops.openConversation(hit.project_id, hit.feature_id),
+        ),
+        action(
+          "copy",
+          t("palette.actions.copyExcerpt", "Copy message excerpt"),
+          <ClipboardIcon />,
+          () =>
+            copyToClipboard(
+              snippetPlainText(hit.snippet),
+              translateUi("palette.actions.excerptCopied", "Excerpt copied"),
+            ),
         ),
       ];
     }

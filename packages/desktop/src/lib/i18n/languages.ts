@@ -2,8 +2,8 @@ export const LANGUAGE_SETTING = "ui_language";
 export const languageNames = { en: "English", fr: "Français" } as const;
 export type Language = keyof typeof languageNames;
 
-function isLanguage(value: string): value is Language {
-  return Object.hasOwn(languageNames, value);
+export function isLanguage(value: unknown): value is Language {
+  return typeof value === "string" && Object.hasOwn(languageNames, value);
 }
 
 export function languagePreference(value: string | null | undefined): Language | "system" {
@@ -11,12 +11,17 @@ export function languagePreference(value: string | null | undefined): Language |
 }
 
 /** Electron on Linux may supply POSIX locale names alongside BCP 47 tags. */
-export function matchSystemLanguage(preferences: readonly string[]): Language {
+export function matchSystemLocale(preferences: readonly string[]): string {
   for (const preference of preferences) {
     const tag = preference.split(/[.@]/, 1)[0].replaceAll("_", "-").toLowerCase();
-    if (isLanguage(tag)) return tag;
     const [base] = tag.split("-");
-    if (isLanguage(base)) return base;
+    if (!isLanguage(base)) continue;
+    try {
+      return Intl.getCanonicalLocales(tag)[0] ?? base;
+    } catch (error) {
+      if (error instanceof RangeError) return base;
+      throw error;
+    }
   }
   return "en";
 }

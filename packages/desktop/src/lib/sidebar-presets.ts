@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   DEFAULT_SIDEBAR_CONFIG,
   LEGACY_PROVIDER_LOGOS_KEY,
@@ -36,18 +37,34 @@ export interface SidebarPreset extends SidebarPresetDefinition {
 const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
   {
     id: "classic",
-    label: "Classic",
-    tagline: "Balanced defaults",
-    description:
-      "Status shapes, relative times, and each worktree's diff, PR and ports in its row.",
+    get label() {
+      return translateUi("sidebar.preset.classic.label", "Classic");
+    },
+    get tagline() {
+      return translateUi("sidebar.preset.classic.tagline", "Balanced defaults");
+    },
+    get description() {
+      return translateUi(
+        "sidebar.preset.classic.description",
+        "Status shapes, relative times, and each worktree's diff, PR and ports in its row.",
+      );
+    },
     overrides: {},
   },
   {
     id: "focus",
-    label: "Focus",
-    tagline: "Only what needs you",
-    description:
-      "Titles and a status dot. A row grows back only when it waits on you; idle ones fold after 3 days.",
+    get label() {
+      return translateUi("sidebar.preset.focus.label", "Focus");
+    },
+    get tagline() {
+      return translateUi("sidebar.preset.focus.tagline", "Only what needs you");
+    },
+    get description() {
+      return translateUi(
+        "sidebar.preset.focus.description",
+        "Titles and a status dot. A row grows back only when it waits on you; idle ones fold after 3 days.",
+      );
+    },
     overrides: {
       status: "dot",
       time: "none",
@@ -64,10 +81,18 @@ const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
   },
   {
     id: "supervise",
-    label: "Supervise",
-    tagline: "Many agents at once",
-    description:
-      "Each agent's model, last reply and todo progress, an In progress block on top, every next action in For me. Git details step aside.",
+    get label() {
+      return translateUi("sidebar.preset.supervise.label", "Supervise");
+    },
+    get tagline() {
+      return translateUi("sidebar.preset.supervise.tagline", "Many agents at once");
+    },
+    get description() {
+      return translateUi(
+        "sidebar.preset.supervise.description",
+        "Each agent's model, last reply and todo progress, an In progress block on top, every next action in For me. Git details step aside.",
+      );
+    },
     overrides: {
       preview: "last_message",
       todos: true,
@@ -84,10 +109,18 @@ const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
   },
   {
     id: "detailed",
-    label: "Detailed",
-    tagline: "Every detail, fixed rows",
-    description:
-      "Every row four lines high and every line filled: the title, the request, the agent's last reply over the lines the details leave, the code (branch, diff, PR), then the activity (label, todos, shells, ports), each detail in a color of its own. Absolute times, a Recent block.",
+    get label() {
+      return translateUi("sidebar.preset.detailed.label", "Detailed");
+    },
+    get tagline() {
+      return translateUi("sidebar.preset.detailed.tagline", "Every detail, fixed rows");
+    },
+    get description() {
+      return translateUi(
+        "sidebar.preset.detailed.description",
+        "Every row four lines high and every line filled: the title, the request, the agent's last reply over the lines the details leave, the code (branch, diff, PR), then the activity (label, todos, shells, ports), each detail in a color of its own. Absolute times, a Recent block.",
+      );
+    },
     overrides: {
       fontSize: "12",
       rowHeight: "fixed",
@@ -104,7 +137,17 @@ const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
 ];
 
 export const SIDEBAR_PRESETS: readonly SidebarPreset[] = PRESET_DEFINITIONS.map((preset) => ({
-  ...preset,
+  id: preset.id,
+  overrides: preset.overrides,
+  get label() {
+    return preset.label;
+  },
+  get tagline() {
+    return preset.tagline;
+  },
+  get description() {
+    return preset.description;
+  },
   config: { ...DEFAULT_SIDEBAR_CONFIG, ...preset.overrides },
 }));
 

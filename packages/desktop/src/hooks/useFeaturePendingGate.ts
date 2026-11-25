@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
@@ -57,15 +58,26 @@ export function useFeaturePendingGate({
     mutationFn: (decision: FeatureGateDecision) => {
       const requestId = query.data?.request_id;
       if (!requestId) {
-        return Promise.reject(new Error("No pending gate to answer"));
+        return Promise.reject(
+          new Error(translateUi("sidebar.gate.noGate", "No pending gate to answer")),
+        );
       }
       if (liveRequestId && requestId !== liveRequestId) {
-        return Promise.reject(new Error("Pending gate changed — refresh and try again"));
+        return Promise.reject(
+          new Error(
+            translateUi("sidebar.gate.changedGate", "Pending gate changed — refresh and try again"),
+          ),
+        );
       }
       return respondGate(featureId, { request_id: requestId, decision });
     },
     onError: (error: unknown) => {
-      toast.error(apiErrorMessage(error, "Could not answer pending request"));
+      toast.error(
+        apiErrorMessage(
+          error,
+          translateUi("sidebar.gate.answerFailed", "Could not answer pending request"),
+        ),
+      );
     },
     onSuccess: async (response) => {
       for (const [index, warning] of (response.warnings ?? []).entries()) {
@@ -79,6 +91,7 @@ export function useFeaturePendingGate({
     },
   });
 
+  const { t } = useUiTranslation();
   const respond = mutation.mutate;
   const isSubmitting = mutation.isPending;
   const data = query.data ?? undefined;
@@ -92,12 +105,15 @@ export function useFeaturePendingGate({
       isError: query.isError && gate == null,
       errorMessage:
         query.isError && gate == null
-          ? apiErrorMessage(query.error, "Could not load pending request")
+          ? apiErrorMessage(
+              query.error,
+              t("sidebar.gate.loadFailed", "Could not load pending request"),
+            )
           : null,
       isSubmitting,
       respond,
     }),
-    [gate, isSubmitting, query.error, query.isError, query.isLoading, respond],
+    [gate, isSubmitting, query.error, query.isError, query.isLoading, respond, t],
   );
   const sampled = useMemo(() => sample && sampleGate(sample, featureId), [sample, featureId]);
   return sampled ?? live;

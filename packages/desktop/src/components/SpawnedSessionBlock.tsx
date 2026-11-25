@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon } from "lucide-react";
@@ -105,12 +106,15 @@ function PendingSpawnCard({
   kind?: PendingKind | null;
   error?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const label = pendingLabel(state, kind);
   const provider = useProviderMetadata(request.provider, null, "mono");
   return (
     <section
       data-tool-family="task"
-      aria-label={`Spawned conversation: ${label}`}
+      aria-label={t("sidebar.spawn.pendingStatus", "Spawned conversation: {{status}}", {
+        status: label,
+      })}
       className={agentCardClassName(state === "failed")}
     >
       <div className="flex h-8 min-w-0 items-center gap-2 px-3 text-xs">
@@ -151,6 +155,7 @@ function SpawnedConversationCard({
   spawned: SpawnResult;
   basePath?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const { featureId } = spawned;
   const featureQuery = useGetFeature(featureId);
@@ -173,7 +178,11 @@ function SpawnedConversationCard({
     <section
       data-tool-family="task"
       data-spawned-feature-id={featureId}
-      aria-label={`Spawned conversation ${title ?? featureId}: ${statusLabel}`}
+      aria-label={t(
+        "sidebar.spawn.conversationStatus",
+        "Spawned conversation {{title}}: {{status}}",
+        { title: title ?? featureId, status: statusLabel },
+      )}
       className={agentCardClassName(attention.state === "failed")}
     >
       <button
@@ -181,8 +190,14 @@ function SpawnedConversationCard({
         onClick={open}
         disabled={!canOpen}
         {...point}
-        title={canOpen ? "Open this conversation" : undefined}
-        aria-label={`Open conversation ${title ?? featureId} · ${statusLabel}`}
+        title={
+          canOpen ? t("sidebar.spawn.openConversationTooltip", "Open this conversation") : undefined
+        }
+        aria-label={t(
+          "sidebar.spawn.openConversationStatus",
+          "Open conversation {{title}} · {{status}}",
+          { title: title ?? featureId, status: statusLabel },
+        )}
         className="group flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-3 text-left text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
       >
         <span title={statusLabel} className="inline-flex shrink-0">

@@ -64,6 +64,7 @@ function bridgeWithRuntime(
   return {
     isElectron: true,
     runtimeConfig,
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(),
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(),

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import { RadioTowerIcon, SquareArrowOutUpRightIcon } from "lucide-react";
 import type { AllocatedPort } from "@/api/generated";
@@ -13,11 +14,6 @@ interface FeaturePortsBadgeProps {
   onOpenPort: (port: number) => void;
 }
 
-function summaryLabel(ports: readonly AllocatedPort[]): string {
-  const list = ports.map((port) => port.port).join(", ");
-  return ports.length === 1 ? `Port ${list} in use` : `Ports ${list} in use`;
-}
-
 /**
  * A conversation's live listening ports. Servers started by an agent or typed
  * into a terminal are otherwise invisible from the sidebar, so this is the one
@@ -27,9 +23,14 @@ export function FeaturePortsBadge({
   ports,
   onOpenPort,
 }: FeaturePortsBadgeProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   if (ports.length === 0) return null;
-  const label = summaryLabel(ports);
+  const label = t("sidebar.featurePortsBadge.portsInUse", "Ports {{ports}} in use", {
+    count: ports.length,
+    ports: ports.map((port) => port.port).join(", "),
+    defaultValue_one: "Port {{ports}} in use",
+  });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -62,7 +63,10 @@ export function FeaturePortsBadge({
         onClick={(event) => event.stopPropagation()}
       >
         <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
-          Listening ports for this conversation
+          {t(
+            "sidebar.featurePortsBadge.listeningPortsForThisConversation",
+            "Listening ports for this conversation",
+          )}
         </p>
         {ports.map((port) => (
           <PortRow
@@ -80,6 +84,7 @@ export function FeaturePortsBadge({
 }
 
 function PortRow({ port, onOpen }: { port: AllocatedPort; onOpen: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   const url = portUrl(port.port);
   return (
     <div className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent">
@@ -91,13 +96,18 @@ function PortRow({ port, onOpen }: { port: AllocatedPort; onOpen: () => void }):
         size="sm"
         variant="ghost"
         className="size-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-        aria-label={`Open ${url}`}
-        title={`Open ${url}`}
+        aria-label={t("sidebar.featurePortsBadge.openUrl", "Open {{url}}", { url })}
+        title={t("sidebar.featurePortsBadge.openUrl", "Open {{url}}", { url })}
         onClick={onOpen}
       >
         <SquareArrowOutUpRightIcon className="size-3.5" />
       </Button>
-      <CopyButton text={url} label={`Copy ${url}`} iconClassName="size-3.5" className="size-6" />
+      <CopyButton
+        text={url}
+        label={t("sidebar.featurePortsBadge.copyUrl", "Copy {{url}}", { url })}
+        iconClassName="size-3.5"
+        className="size-6"
+      />
     </div>
   );
 }

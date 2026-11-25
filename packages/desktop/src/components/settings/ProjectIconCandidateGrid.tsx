@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ImageOff } from "lucide-react";
@@ -91,6 +92,7 @@ export function ProjectIconCandidateGrid({
   selectedPath: string;
   onSelect: (path: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? candidates : candidates.slice(0, INITIAL_VISIBLE);
   const hidden = candidates.length - visible.length;
@@ -110,7 +112,7 @@ export function ProjectIconCandidateGrid({
       </div>
       {hidden > 0 ? (
         <Button variant="ghost" size="sm" onClick={() => setShowAll(true)}>
-          Show {hidden} more
+          {t("project.iconCandidateGrid.showMore", "Show {{count}} more", { count: hidden })}
         </Button>
       ) : null}
     </div>

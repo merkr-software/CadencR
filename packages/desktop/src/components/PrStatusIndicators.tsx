@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ComponentProps } from "react";
 import { GitPullRequestIcon } from "lucide-react";
 import type { CiRollup, PrStatusSnapshot, PrSummary } from "@/api/generated";
@@ -105,28 +106,50 @@ export function prIndicatorTone(snapshot: PrHealth | undefined): PrIndicatorTone
 export function prStatusDetails(snapshot: KnownPrHealth): string[] {
   const { pr } = snapshot;
   const details: string[] = [];
-  if (pr.state === "merged") details.push("merged");
-  else if (pr.state === "draft") details.push("draft");
-  else if (pr.state === "closed") details.push("closed");
+  if (pr.state === "merged") details.push(translateUi("sidebar.pr.merged", "merged"));
+  else if (pr.state === "draft") details.push(translateUi("sidebar.pr.draft", "draft"));
+  else if (pr.state === "closed") details.push(translateUi("sidebar.pr.closed", "closed"));
 
-  if (pr.review_state === "approved") details.push("approved");
-  else if (pr.review_state === "changes_requested") details.push("changes requested");
-  else if (pr.review_state === "pending") details.push("review pending");
+  if (pr.review_state === "approved") details.push(translateUi("sidebar.pr.approved", "approved"));
+  else if (pr.review_state === "changes_requested")
+    details.push(translateUi("sidebar.pr.changesRequested", "changes requested"));
+  else if (pr.review_state === "pending")
+    details.push(translateUi("sidebar.pr.pendingReview", "review pending"));
 
   if (snapshot.ci && snapshot.ci.state !== "none") {
-    details.push(`checks ${snapshot.ci.state}`);
+    switch (snapshot.ci.state) {
+      case "passing":
+        details.push(translateUi("sidebar.pr.checksPassing", "checks passing"));
+        break;
+      case "failing":
+        details.push(translateUi("sidebar.pr.checksFailing", "checks failing"));
+        break;
+      case "running":
+        details.push(translateUi("sidebar.pr.checksRunning", "checks running"));
+        break;
+    }
   }
   const unresolved = snapshot.unresolved_threads ?? 0;
   if (unresolved > 0) {
-    details.push(`${unresolved} unresolved ${unresolved === 1 ? "thread" : "threads"}`);
+    details.push(
+      translateUi("sidebar.pr.unresolvedThreads", "{{count}} unresolved threads", {
+        count: unresolved,
+        defaultValue_one: "{{count}} unresolved thread",
+      }),
+    );
   }
-  if (details.length === 0) details.push("no blockers reported");
+  if (details.length === 0)
+    details.push(translateUi("sidebar.pr.noBlockers", "no blockers reported"));
   return details;
 }
 
 export function prStatusLabel(snapshot: KnownPrHealth): string {
   const { pr } = snapshot;
-  return `${pr.pr_label} #${pr.number} · ${prStatusDetails(snapshot).join(" · ")}`;
+  return translateUi("sidebar.pr.statusLabel", "{{kind}} #{{number}} · {{details}}", {
+    kind: pr.pr_label,
+    number: pr.number,
+    details: prStatusDetails(snapshot).join(" · "),
+  });
 }
 
 /** A proposal's health as a solid dot, where there is no room for words. */
@@ -171,6 +194,7 @@ export function FeaturePrIndicator({
 }): React.JSX.Element | null {
   // The current branch's proposal leads; a conversation whose current branch
   // has none still shows the one another of its branches has.
+  const { t } = useUiTranslation();
   const prs = threadPrs(snapshot);
   const [primary] = prs;
   if (!primary) {
@@ -179,7 +203,9 @@ export function FeaturePrIndicator({
       <span
         data-feature-pr
         className="size-1.5 shrink-0 rounded-full bg-[var(--acc-red)] ring-1 ring-background"
-        aria-label={`Forge status error: ${snapshot.error}`}
+        aria-label={t("sidebar.pr.forgeStatusError", "Forge status error: {{error}}", {
+          error: snapshot.error,
+        })}
         title={snapshot.error}
       />
     );
@@ -212,10 +238,16 @@ function FeaturePrChip({
   others: readonly ThreadPr[];
   onOpen?: (prNumber: number | null) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const entries = [primary, ...others];
   const label = entries
     .map((entry) =>
-      entry.isCurrent ? prStatusLabel(entry) : `${entry.branch}: ${prStatusLabel(entry)}`,
+      entry.isCurrent
+        ? prStatusLabel(entry)
+        : t("sidebar.pr.branchStatusLabel", "{{branch}}: {{status}}", {
+            branch: entry.branch,
+            status: prStatusLabel(entry),
+          }),
     )
     .join("; ");
   const tone = prIndicatorTone(primary);
@@ -253,7 +285,11 @@ function FeaturePrChip({
         <button
           type="button"
           data-feature-pr-open
-          aria-label={`Open ${primary.pr.pr_label} #${primary.pr.number} in the Git tab. ${label}`}
+          aria-label={t(
+            "sidebar.pr.openInGit",
+            "Open {{kind}} #{{number}} in the Git tab. {{status}}",
+            { kind: primary.pr.pr_label, number: primary.pr.number, status: label },
+          )}
           className="inline-flex shrink-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
           // The row navigates on pointer-down, before click would ever fire.
           onPointerDown={(event) => event.stopPropagation()}

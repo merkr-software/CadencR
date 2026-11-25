@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { DiagnosticContext } from "@/shared/renderer-diagnostics";
 import { formatDiagnosticError } from "@/lib/renderer-diagnostics";
 import {
@@ -83,6 +84,7 @@ function RootErrorFallback({
   diagnostics,
   onReset,
 }: RootErrorFallbackProps): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const lastFeature: SavedFeature | null = readSavedFeature();
 
@@ -117,21 +119,27 @@ function RootErrorFallback({
     <div className="flex h-full flex-col items-center justify-center gap-4 p-6">
       <div className="flex items-center gap-2 text-amber-500">
         <AlertTriangleIcon className="size-5" />
-        <h2 className="text-base font-semibold text-foreground">Something went wrong</h2>
+        <h2 className="text-base font-semibold text-foreground">
+          {t("shell.errors.title", "Something went wrong")}
+        </h2>
       </div>
       <p className="max-w-md text-center text-sm text-muted-foreground">
-        Your agents are still running in the background. Pick a destination below to recover without
-        restarting Cadencr.
+        {t(
+          "shell.errors.recoveryHint",
+          "Your agents are still running in the background. Pick a destination below to recover without restarting Cadencr.",
+        )}
       </p>
       <ErrorDetailsPanel details={details} />
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button onClick={goToAgents}>
           <LayoutGridIcon className="size-4" />
-          Open unified agents view
+          {t("shell.errors.openAgents", "Open unified agents view")}
         </Button>
         <Button variant="outline" onClick={goToLastConversation} disabled={lastFeature == null}>
           <MessageSquareIcon className="size-4" />
-          {lastFeature == null ? "No recent conversation" : "Open most recent conversation"}
+          {lastFeature == null
+            ? t("shell.errors.noRecent", "No recent conversation")
+            : t("shell.errors.openRecent", "Open most recent conversation")}
         </Button>
       </div>
     </div>

@@ -1,15 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Virtuoso } from "react-virtuoso";
-import {
-  CaseSensitive,
-  ClipboardCopyIcon,
-  FileTextIcon,
-  FolderOpenIcon,
-  WholeWord,
-  Regex,
-  Loader2,
-} from "lucide-react";
+import { CaseSensitive, WholeWord, Regex, Loader2 } from "lucide-react";
+import { ContentSearchFileGroup } from "./ContentSearchFileGroup";
 import SearchToggleButton from "./SearchToggleButton";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useSetting } from "@/hooks/useSetting";
@@ -18,14 +11,10 @@ import { SkippedLargeFilesNotice, TruncatedFooter } from "./ContentSearchNotices
 import { groupByFile, type FileGroupData } from "./contentSearchGroups";
 import { useEditorState } from "@/hooks/useEditorState";
 import { SearchIcon } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { FileSymbolIcon } from "./file-icons";
-import SearchResultEditor from "./SearchResultEditor";
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { copyToClipboard } from "@/lib/clipboard";
-import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
-import { displayGitTreePath } from "@/lib/git-display-path";
 
 interface ContentSearchDialogProps {
   projectId: number;
@@ -157,7 +146,7 @@ function useContentSearchResults({
     }),
     [featureId, filters, projectId],
   );
-  const { data, isLoading, isFetching } = useContentSearch(searchParams, {
+  const { data, error, isLoading, isFetching } = useContentSearch(searchParams, {
     query: {
       enabled: open && filters.debouncedQuery.length > 0,
       placeholderData: keepPreviousData,
@@ -176,7 +165,9 @@ function useContentSearchResults({
   const grouped = useMemo(() => groupByFile(data?.matches ?? []), [data?.matches]);
   const computeItemKey = useCallback((_: number, group: FileGroupData) => group.path, []);
   const itemContent = useCallback(
-    (_: number, group: FileGroupData) => <FileGroup group={group} onSelect={handleSelect} />,
+    (_: number, group: FileGroupData) => (
+      <ContentSearchFileGroup group={group} onSelect={handleSelect} />
+    ),
     [handleSelect],
   );
   const components = useMemo(
@@ -189,6 +180,7 @@ function useContentSearchResults({
     () => ({
       components,
       computeItemKey,
+      error,
       grouped,
       hasQuery,
       isLoading,
@@ -200,6 +192,7 @@ function useContentSearchResults({
     [
       components,
       computeItemKey,
+      error,
       grouped,
       hasQuery,
       isLoading,
@@ -212,6 +205,7 @@ function useContentSearchResults({
 }
 
 export default function ContentSearchDialog(props: ContentSearchDialogProps) {
+  const { t } = useUiTranslation();
   const filters = useContentSearchFilters(props.featureId, props.open);
   const results = useContentSearchResults({ ...props, filters });
   return (
@@ -220,6 +214,9 @@ export default function ContentSearchDialog(props: ContentSearchDialogProps) {
         showCloseButton={false}
         className="sm:max-w-[900px] h-[80vh] !flex !flex-col gap-2 p-0 pt-3 overflow-hidden"
       >
+        <DialogTitle className="sr-only">
+          {t("search.content.title", "Search in files")}
+        </DialogTitle>
         <ContentSearchHeader filters={filters} searching={results.searching} />
         <ContentSearchPatterns filters={filters} />
         <ContentSearchResults results={results} />
@@ -235,6 +232,7 @@ function ContentSearchHeader({
   filters: ReturnType<typeof useContentSearchFilters>;
   searching: boolean;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center border-b border-border px-3 pb-2 gap-2">
       {searching ? (
@@ -245,7 +243,7 @@ function ContentSearchHeader({
       <Input
         autoFocus
         variant="ghost"
-        placeholder="Search in files..."
+        placeholder={t("search.content.placeholder", "Search in files...")}
         value={filters.query}
         onChange={(event) => filters.setQuery(event.target.value)}
         className="flex-1"
@@ -254,26 +252,26 @@ function ContentSearchHeader({
         <SearchToggleButton
           active={filters.caseSensitive}
           onToggle={filters.setCaseSensitive}
-          title="Case Sensitive"
+          title={t("search.content.caseSensitive", "Case Sensitive")}
           icon={<CaseSensitive className="w-4 h-4" />}
         />
         <SearchToggleButton
           active={filters.wholeWord}
           onToggle={filters.setWholeWord}
-          title="Whole Word"
+          title={t("search.content.wholeWord", "Whole Word")}
           icon={<WholeWord className="w-4 h-4" />}
         />
         <SearchToggleButton
           active={filters.isRegex}
           onToggle={filters.setIsRegex}
-          title="Regex"
+          title={t("search.content.regex", "Regex")}
           icon={<Regex className="w-4 h-4" />}
         />
         <SearchToggleButton
           active={filters.respectGitignore}
           onToggle={filters.setRespectGitignore}
-          title="Only search git-tracked files"
-          label="Git only"
+          title={t("search.content.gitOnlyHint", "Only search git-tracked files")}
+          label={t("search.content.gitOnly", "Git only")}
         />
       </div>
     </div>
@@ -285,11 +283,14 @@ function ContentSearchPatterns({
 }: {
   filters: ReturnType<typeof useContentSearchFilters>;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-2 px-3 border-b border-border pb-2">
       <Input
         variant="ghost"
-        placeholder="Include (e.g. *.ts, src/**)"
+        placeholder={t("search.content.include", "Include (e.g. {{patterns}})", {
+          patterns: "*.ts, src/**",
+        })}
         value={filters.includePattern}
         onChange={(event) => filters.setIncludePattern(event.target.value)}
         className="flex-1 text-xs"
@@ -297,7 +298,9 @@ function ContentSearchPatterns({
       <div className="w-px h-5 bg-border shrink-0" />
       <Input
         variant="ghost"
-        placeholder="Exclude (e.g. *.test.ts, dist/**)"
+        placeholder={t("search.content.exclude", "Exclude (e.g. {{patterns}})", {
+          patterns: "*.test.ts, dist/**",
+        })}
         value={filters.excludePattern}
         onChange={(event) => filters.setExcludePattern(event.target.value)}
         className="flex-1 text-xs"
@@ -311,6 +314,7 @@ function ContentSearchResults({
 }: {
   results: ReturnType<typeof useContentSearchResults>;
 }) {
+  const { t } = useUiTranslation();
   const empty = results.grouped.length === 0;
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -323,11 +327,18 @@ function ContentSearchResults({
       {results.isLoading && results.hasQuery && empty && (
         <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          Searching...
+          {t("search.content.searching", "Searching...")}
         </div>
       )}
-      {!results.searching && results.hasQuery && empty && (
-        <div className="py-8 text-center text-sm text-muted-foreground">No results found.</div>
+      {results.error && results.hasQuery && (
+        <div role="alert" className="py-8 text-center text-sm text-destructive">
+          {apiErrorMessage(results.error, t("search.content.error", "Search in files failed"))}
+        </div>
+      )}
+      {!results.error && !results.searching && results.hasQuery && empty && (
+        <div className="py-8 text-center text-sm text-muted-foreground">
+          {t("search.content.empty", "No results found.")}
+        </div>
       )}
       {!empty && (
         <Virtuoso
@@ -341,61 +352,3 @@ function ContentSearchResults({
     </div>
   );
 }
-
-const FileGroup = memo(function FileGroup({
-  group,
-  onSelect,
-}: {
-  group: FileGroupData;
-  onSelect: (filePath: string, lineNumber?: number) => void;
-}) {
-  const fileName = group.path.split("/").pop() ?? group.path;
-  const firstMatchLine = group.matches[0]?.line_number ?? 1;
-
-  return (
-    <div className="pb-3">
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <button
-            type="button"
-            onClick={() => onSelect(group.path, firstMatchLine)}
-            className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-xs font-medium text-foreground hover:bg-accent rounded transition-colors"
-          >
-            <FileSymbolIcon fileName={fileName} className="shrink-0 flex items-center" />
-            <span className="truncate">{displayGitTreePath(group.path)}</span>
-            <span className="ml-auto text-muted-foreground shrink-0">{group.matches.length}</span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuActionItem
-            icon={FolderOpenIcon}
-            onSelect={() => onSelect(group.path, firstMatchLine)}
-          >
-            Open
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={ClipboardCopyIcon}
-            onSelect={() => void copyToClipboard(group.path, "Path copied")}
-          >
-            Copy Path
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={FileTextIcon}
-            onSelect={() =>
-              void copyToClipboard(group.matches[0]?.line_content ?? "", "Match copied")
-            }
-          >
-            Copy Match
-          </ContextMenuActionItem>
-        </ContextMenuContent>
-      </ContextMenu>
-      <div className="mt-1">
-        <SearchResultEditor
-          filePath={group.path}
-          matches={group.matches}
-          onClick={(lineNumber) => onSelect(group.path, lineNumber)}
-        />
-      </div>
-    </div>
-  );
-});

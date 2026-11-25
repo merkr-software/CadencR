@@ -1,8 +1,9 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import {
   effectiveGateKind,
   gateQuestions,
-  PLAN_READY_LABEL,
+  planReadyLabel,
 } from "@/components/sidebar-pending-gate";
 import { useFeaturePendingGate } from "@/hooks/useFeaturePendingGate";
 import { GateMessage, GateSkeleton } from "./GateStates";
@@ -35,6 +36,7 @@ export function PendingGateBody({
     () => (gate && gateKind === "question" ? gateQuestions(gate) : []),
     [gate, gateKind],
   );
+  const { t } = useUiTranslation();
   const message = (text: string, tone: "muted" | "plain"): ReactElement => (
     <GateMessage
       message={text}
@@ -47,12 +49,21 @@ export function PendingGateBody({
 
   if (isLoading || (isSubmitting && !gate)) return <GateSkeleton touch={touch} />;
   if (isError || !gate || !gateKind) {
-    return message(errorMessage ?? "No pending request found.", "muted");
+    return message(
+      errorMessage ?? t("sidebar.gate.noPendingRequest", "No pending request found."),
+      "muted",
+    );
   }
-  if (gateKind === "plan") return message(PLAN_READY_LABEL, "plain");
+  if (gateKind === "plan") return message(planReadyLabel(), "plain");
   if (gateKind === "question") {
     if (questions.length === 0) {
-      return message("This question can only be answered in the conversation.", "muted");
+      return message(
+        t(
+          "sidebar.gate.answerInConversation",
+          "This question can only be answered in the conversation.",
+        ),
+        "muted",
+      );
     }
     return (
       // The request id names one question: a next one starts from a blank form.

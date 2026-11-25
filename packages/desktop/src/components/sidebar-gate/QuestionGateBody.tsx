@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { Loader2Icon, SendIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ function QuestionFields({
   isSubmitting,
   touch,
 }: QuestionFieldsProps): ReactElement {
+  const { t } = useUiTranslation();
   // A single-select option answers on click; the rest need the button.
   const setsOwnAnswer = !!question.multiSelect || typing;
   return (
@@ -102,8 +104,8 @@ function QuestionFields({
         <Input
           ref={inputRef}
           value={form.freeText}
-          aria-label="Your answer"
-          placeholder="Type your answer..."
+          aria-label={t("sidebar.questionGateBody.yourAnswer", "Your answer")}
+          placeholder={t("sidebar.questionGateBody.typeYourAnswer", "Type your answer...")}
           className={gateButtonSize(touch)}
           onChange={(event) => form.setFreeText(event.target.value)}
           onFocus={() => form.setFreeTextFocused(true)}
@@ -129,7 +131,11 @@ function QuestionFields({
             ) : (
               <SendIcon aria-hidden />
             )}
-            {isSubmitting ? "Sending…" : form.isLastQuestion ? "Submit" : "Next"}
+            {isSubmitting
+              ? t("sidebar.questionGateBody.sending", "Sending…")
+              : form.isLastQuestion
+                ? t("sidebar.questionGateBody.submit", "Submit")
+                : t("sidebar.questionGateBody.next", "Next")}
           </Button>
         </div>
       ) : null}

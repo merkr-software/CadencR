@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useId,
   useMemo,
@@ -21,13 +22,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { HintTooltip } from "@/components/HintTooltip";
 import { UsageSegmentedControl } from "@/components/usage/UsageSegmentedControl";
 import { SidebarConfiguratorSteps } from "@/components/SidebarConfiguratorSteps";
-import {
-  SECTION_ORDER_DESCRIPTION,
-  SidebarSectionOrderList,
-} from "@/components/SidebarSectionOrder";
+import { sectionOrderDescription, SidebarSectionOrderList } from "@/components/SidebarSectionOrder";
 import {
   ROW_ELEMENTS,
-  ROW_ELEMENTS_DESCRIPTION,
+  rowElementsDescription,
   type ChoiceId,
   type ChoiceRow,
 } from "@/components/sidebar-display-rows";
@@ -145,17 +143,22 @@ export function ResetDisplayOptionsButton({
   ComponentProps<typeof Button>,
   "variant" | "size" | "className" | "title"
 >): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button {...buttonProps} onClick={form.reset}>
       {form.disabled ? (
         <LoaderCircle
           className="animate-spin"
-          aria-label={form.isApplying ? "Applying" : "Loading options"}
+          aria-label={
+            form.isApplying
+              ? t("sidebar.displayOptions.applying", "Applying")
+              : t("sidebar.displayOptions.loadingOptions", "Loading options")
+          }
         />
       ) : (
         <RotateCcw />
       )}
-      Reset
+      {t("sidebar.displayOptions.reset", "Reset")}
     </Button>
   );
 }
@@ -165,6 +168,7 @@ export function ResetDisplayOptionsButton({
  * The Settings page lays the same options out as settings rows.
  */
 export function SidebarDisplayOptionsForm({ className }: { className?: string }): ReactElement {
+  const { t } = useUiTranslation();
   const form = useSidebarDisplayForm();
   const highlight = useSidebarOptionHighlight();
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
@@ -183,13 +187,18 @@ export function SidebarDisplayOptionsForm({ className }: { className?: string })
       {...highlight}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold tracking-tight">Display options</span>
+        <span className="text-sm font-semibold tracking-tight">
+          {t("sidebar.displayOptions.displayOptions", "Display options")}
+        </span>
         <ResetDisplayOptionsButton
           form={form}
           variant="ghost"
           size="xs"
           className="text-muted-foreground"
-          title="Restore every display option to its default"
+          title={t(
+            "sidebar.displayOptions.restoreEveryDisplayOptionToIts",
+            "Restore every display option to its default",
+          )}
         />
       </div>
       <SidebarConfiguratorSteps form={form}>
@@ -247,12 +256,13 @@ function DisplayItemRow({
   item: DisplayItem;
   switchId: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const resolved = resolveDisplayItem(item);
   if (resolved.kind === "sectionOrder") {
     return (
       <div data-sidebar-option="sectionOrder" className="flex flex-col gap-1.5">
-        <HintLabel hint={SECTION_ORDER_DESCRIPTION} className="self-start">
-          Block order
+        <HintLabel hint={sectionOrderDescription()} className="self-start">
+          {t("sidebar.displayOptions.blockOrder", "Block order")}
         </HintLabel>
         <SidebarSectionOrderList form={form} />
       </div>
@@ -261,8 +271,8 @@ function DisplayItemRow({
   if (resolved.kind === "rowElements") {
     return (
       <div className="flex flex-col gap-1.5">
-        <HintLabel hint={ROW_ELEMENTS_DESCRIPTION} className="self-start">
-          Show in rows
+        <HintLabel hint={rowElementsDescription()} className="self-start">
+          {t("sidebar.displayOptions.showInRows", "Show in rows")}
         </HintLabel>
         <RowElementGrid form={form} className="gap-x-3 gap-y-1.5" />
       </div>

@@ -88,6 +88,7 @@ const browserBridge: CadencrBrowserBridge = {
   isElectron: false,
   usesCustomWindowControls: false,
   runtimeConfig: () => unavailable("runtimeConfig"),
+  setInterfaceLanguage: () => Promise.resolve(),
   readFileBase64: () => unavailable("readFileBase64"),
   suppressNextNativeContextMenu: () => undefined,
   onFileDrop: () => () => undefined,

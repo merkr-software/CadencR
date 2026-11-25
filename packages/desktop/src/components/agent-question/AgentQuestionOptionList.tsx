@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { KbdShortcut, KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
@@ -56,6 +57,7 @@ function OtherOptionButton({
   otherKey,
   onToggle,
 }: OtherOptionButtonProps) {
+  const { t } = useUiTranslation();
   const otherKeys = useShortcutKeys("q-other");
   const inDrawer = layout === "drawer";
   return (
@@ -87,7 +89,7 @@ function OtherOptionButton({
         ) : otherKey ? (
           <KeyboardOnlyShortcutHint keys={[otherKey]} />
         ) : null}
-        Other…
+        {t("question.other", "Other…")}
       </span>
     </button>
   );

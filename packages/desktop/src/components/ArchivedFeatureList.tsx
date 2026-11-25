@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ChevronRightIcon } from "lucide-react";
 import { FeatureHierarchyGutter } from "@/components/FeatureHierarchyGutter";
 import type { Feature } from "@/api/generated";
@@ -9,8 +10,8 @@ interface ArchivedFeatureSectionProps {
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
-  /** The fold's name; "Dormant" reuses this section for idle conversations. */
-  label?: string;
+  /** Idle conversations use the dormant fold instead of the archived fold. */
+  dormant?: boolean;
 }
 
 /** A folded group of a project's conversations behind a quiet "Label · N" row. */
@@ -19,16 +20,23 @@ export function ArchivedFeatureSection({
   expanded,
   onToggle,
   children,
-  label = "Archived",
+  dormant = false,
 }: ArchivedFeatureSectionProps) {
+  const { t } = useUiTranslation();
+  const label = dormant
+    ? t("sidebar.fold.dormant", "Dormant")
+    : t("sidebar.fold.archived", "Archived");
   if (features.length === 0) return null;
   return (
     <>
       <button
         type="button"
-        data-feature-fold={label.toLowerCase()}
+        data-feature-fold={dormant ? "dormant" : "archived"}
         aria-expanded={expanded}
-        aria-label={`${label} (${features.length})`}
+        aria-label={t("sidebar.fold.count", "{{label}} ({{count}})", {
+          label,
+          count: features.length,
+        })}
         className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:bg-accent/40 focus-visible:text-foreground"
         onClick={onToggle}
       >

@@ -220,7 +220,11 @@ const RECENT_LIMIT = 7;
  * at work, then the conversations they were last in (the open one left out, so
  * the first Recent row is the one they came from), then a few commands.
  */
-export function emptyStateSections(input: EmptyStateInput, context: RankContext): PaletteSection[] {
+export function emptyStateSections(
+  input: EmptyStateInput,
+  context: RankContext,
+  t: (key: string, defaultValue: string) => string = (_key, defaultValue) => defaultValue,
+): PaletteSection[] {
   const byId = new Map(input.conversations.map((conversation) => [conversation.id, conversation]));
   const shown = new Set<number>([context.activeFeatureId ?? -1]);
   const needsYou: ConversationEntry[] = [];
@@ -255,9 +259,13 @@ export function emptyStateSections(input: EmptyStateInput, context: RankContext)
     .map((conversation) => toConversationEntry(conversation, context, null));
   const suggestions = input.suggestions.map((command) => commandEntry(command));
   return [
-    { id: "needs-you", title: "Needs you", entries: needsYou },
-    { id: "in-progress", title: "In progress", entries: working },
-    { id: "recent", title: "Recent", entries: recent },
-    { id: "suggestions", title: "Suggestions", entries: suggestions },
+    { id: "needs-you", title: t("palette.sections.needsYou", "Needs you"), entries: needsYou },
+    { id: "in-progress", title: t("palette.sections.inProgress", "In progress"), entries: working },
+    { id: "recent", title: t("palette.sections.recent", "Recent"), entries: recent },
+    {
+      id: "suggestions",
+      title: t("palette.sections.suggestions", "Suggestions"),
+      entries: suggestions,
+    },
   ].filter((section) => section.entries.length > 0);
 }

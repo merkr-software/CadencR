@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -14,7 +15,7 @@ import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeo
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useSetting } from "@/hooks/useSetting";
 import { SETTINGS_ANCHORS } from "@/components/settings/settings-anchor-ids";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, toastError } from "@/lib/api-errors";
 import { navigateToConversation } from "@/lib/conversation-route";
 import { installCliCommand } from "@/lib/cli/cli-install";
 import { DEFAULT_WORKTREE_MODE_KEY, type DefaultWorktreeMode } from "@/lib/default-worktree-mode";
@@ -72,23 +73,48 @@ function useOpenFile(activeFeatureId: number | null): PaletteOperations["openFil
   );
 }
 
-function onWriteError(fallback: string) {
-  return (error: unknown) => toast.error(apiErrorMessage(error, fallback));
-}
-
 function usePaletteFeatureMutations(refresh: (projectId?: number) => void) {
   const refreshFeature = (_data: unknown, variables: { id: number }) =>
     refresh(lookupFeature(variables.id)?.project_id);
   const { mutate: updatePinned } = useUpdateFeaturePinned({
-    mutation: { onSuccess: refreshFeature, onError: onWriteError("Couldn't update the pin") },
+    mutation: {
+      onSuccess: refreshFeature,
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi("palette.operations.pinError", "Couldn't update the pin"),
+          ),
+        ),
+    },
   });
   const { mutate: updateStatus } = useUpdateFeatureStatus({
     mutation: {
       onSuccess: refreshFeature,
-      onError: onWriteError("Couldn't restore the conversation"),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi("palette.operations.restoreError", "Couldn't restore the conversation"),
+          ),
+        ),
     },
   });
   return { updatePinned, updateStatus };
+}
+
+function useAddProject(): PaletteOperations["addProject"] {
+  const addProjectAtPath = useAddProjectAtPath();
+  return useCallback(async () => {
+    try {
+      const folder = await desktopBridge.pickDirectory();
+      if (!folder) return;
+      await addProjectAtPath(folder);
+      toast.success(translateUi("palette.operations.projectAdded", "Project added"));
+    } catch (error) {
+      toastError(error, translateUi("project.tree.addFailed", "Couldn't add the project"));
+    }
+  }, [addProjectAtPath]);
 }
 
 /** What the palette does to the app; every failure ends in a toast. */
@@ -103,7 +129,7 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
     [queryClient],
   );
   const { mutateAsync: createFeature } = useCreateFeature();
-  const addProjectAtPath = useAddProjectAtPath();
+  const addProject = useAddProject();
   const { mutateAsync: setProjectSetting } = useSetProjectSetting();
   const { updatePinned, updateStatus } = usePaletteFeatureMutations(refresh);
   const openFile = useOpenFile(activeFeatureId);
@@ -119,7 +145,9 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
       const data: CreateFeatureRequest = { project_id: projectId, type: "ws-session" };
       if (worktree) data.worktree_mode = worktree.mode;
       if (worktree?.mode === "reuse") data.reuse_branch = worktree.branch;
-      const toastId = toast.loading("Creating conversation…");
+      const toastId = toast.loading(
+        translateUi("palette.operations.creating", "Creating conversation…"),
+      );
       try {
         if (worktree && worktree.mode !== "reuse" && worktree.mode !== projectDefault) {
           await setProjectSetting({
@@ -132,22 +160,17 @@ export function usePaletteOperations(activeFeatureId: number | null): PaletteOpe
         navigateToConversation(navigate, projectId, created.id, { featureKnown: true });
         toast.dismiss(toastId);
       } catch (error) {
-        toast.error(apiErrorMessage(error, "Couldn't create the conversation"), { id: toastId });
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi("palette.operations.createError", "Couldn't create the conversation"),
+          ),
+          { id: toastId },
+        );
       }
     },
     [createFeature, navigate, refresh, setProjectSetting],
   );
-
-  const addProject = useCallback(async () => {
-    try {
-      const folder = await desktopBridge.pickDirectory();
-      if (!folder) return;
-      await addProjectAtPath(folder);
-      toast.success("Project added");
-    } catch (error) {
-      toast.error(apiErrorMessage(error, "Couldn't add the project"));
-    }
-  }, [addProjectAtPath]);
 
   const installCli = useCallback(
     () =>

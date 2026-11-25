@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import type { Project } from "@/api/generated";
 import { SidebarLensGroupHeader, STICKY_HEADER_CLASS } from "@/components/SidebarLensGroupHeader";
@@ -30,6 +31,7 @@ export function SidebarSampleLens({
 }: {
   mode: Exclude<SidebarListMode, { kind: "tree" }>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const preview = useSamplePreview();
   const sort = useSidebarOption("conversationSort");
   const sticky = useSidebarOption("stickyHeaders");
@@ -60,7 +62,10 @@ export function SidebarSampleLens({
     <div data-sidebar-tree data-sidebar-lens-list className="flex min-w-0 flex-col gap-0.5">
       {mode.kind === "view" && groups[0]?.features.length === 0 && (
         <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-          No sample conversation matches this view
+          {t(
+            "sidebar.sampleLens.noSampleConversationMatchesThisView",
+            "No sample conversation matches this view",
+          )}
         </p>
       )}
       {groups.map((group) => (

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { PrSummary } from "@/api/generated";
 import { openExternalUrl } from "@/lib/open-external";
 
@@ -16,7 +17,16 @@ export function prNoun(pr: PrSummary): string {
  * toast reads identically wherever the action lives.
  */
 export async function openPullRequestExternally(pr: PrSummary): Promise<void> {
-  await openExternalUrl(pr.url, `Could not open this ${prNoun(pr)}.`);
+  const request = prNoun(pr);
+  const error =
+    request === "pull request"
+      ? translateUi("project.pullRequest.openFailed", "Could not open this pull request.")
+      : request === "merge request"
+        ? translateUi("project.mergeRequest.openFailed", "Could not open this merge request.")
+        : translateUi("project.request.openFailed", "Could not open this {{request}}.", {
+            request,
+          });
+  await openExternalUrl(pr.url, error);
 }
 
 /** "Open pull request" / "Open merge request" — the host's own vocabulary. */

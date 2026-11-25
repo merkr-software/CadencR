@@ -149,6 +149,8 @@ contextBridge.exposeInMainWorld("cadencr", {
   isElectron: true,
   usesCustomWindowControls: process.platform === "linux",
   runtimeConfig: (): Promise<RuntimeConfig> => ipcRenderer.invoke("runtime-config"),
+  setInterfaceLanguage: (language: string): Promise<void> =>
+    ipcRenderer.invoke("app:set-interface-language", language),
   readFileBase64: (handle: string): Promise<string> =>
     ipcRenderer.invoke("fs:read-file-base64", handle),
   suppressNextNativeContextMenu: (): void => {

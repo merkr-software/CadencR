@@ -137,13 +137,18 @@ export async function installCliCommand(
   queryClient: QueryClient,
   openSettings: () => void,
 ): Promise<void> {
-  const toastId = toast.loading("Installing the cadencr command…");
+  const toastId = toast.loading(
+    translateUi("palette.operations.installingCli", "Installing the cadencr command…"),
+  );
   try {
     const current = await desktopBridge.cliInstallStatus();
     if (current.state === "conflict" || current.state === "unavailable") {
       toast.error(describeCliInstall(current), {
         id: toastId,
-        action: { label: "Settings", onClick: openSettings },
+        action: {
+          label: translateUi("palette.commands.go-settings.title", "Settings"),
+          onClick: openSettings,
+        },
       });
       return;
     }
@@ -153,6 +158,12 @@ export async function installCliCommand(
     }
     reportCliInstalled(queryClient, await desktopBridge.installCli({ replace: false }), toastId);
   } catch (error) {
-    toast.error(apiErrorMessage(error, "Couldn't install the cadencr command"), { id: toastId });
+    toast.error(
+      apiErrorMessage(
+        error,
+        translateUi("palette.operations.installCliError", "Couldn't install the cadencr command"),
+      ),
+      { id: toastId },
+    );
   }
 }

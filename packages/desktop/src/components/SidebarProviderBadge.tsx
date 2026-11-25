@@ -1,4 +1,5 @@
 import { memo, type CSSProperties, type ReactElement } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { AgentIcon } from "@/components/AgentIcon";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useProviderMetadata } from "@/lib/provider-icons";
@@ -43,6 +44,7 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
   modelId,
   thinkingEffort,
 }: SidebarProviderBadgeProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const meta = useProviderMetadata(providerId, null, "mono");
   const providerDisplay = useSidebarOption("provider");
   if (!meta || providerDisplay === "hidden") return null;
@@ -50,8 +52,8 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
   const effort = parseThinkingEffort(thinkingEffort ?? undefined);
   const detail = [
     meta.label,
-    modelId?.trim() || "Default",
-    effort ? thinkingEffortLabel(effort) : "Default",
+    modelId?.trim() || t("sidebar.provider.defaultModel", "Default"),
+    effort ? thinkingEffortLabel(effort) : t("sidebar.provider.defaultEffort", "Default"),
   ].join(" · ");
 
   return (

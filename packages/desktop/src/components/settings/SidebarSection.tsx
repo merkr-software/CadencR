@@ -6,12 +6,9 @@ import {
   useSidebarDisplayForm,
   type SidebarDisplayForm,
 } from "@/components/SidebarDisplayOptions";
-import { ROW_ELEMENTS_DESCRIPTION } from "@/components/sidebar-display-rows";
+import { rowElementsDescription } from "@/components/sidebar-display-rows";
 import { SidebarConfiguratorSteps } from "@/components/SidebarConfiguratorSteps";
-import {
-  SECTION_ORDER_DESCRIPTION,
-  SidebarSectionOrderList,
-} from "@/components/SidebarSectionOrder";
+import { sectionOrderDescription, SidebarSectionOrderList } from "@/components/SidebarSectionOrder";
 import {
   DISPLAY_GROUPS,
   resolveDisplayItem,
@@ -100,7 +97,7 @@ function SettingsItem({
           align="start"
           className={DENSE_ROW}
           label="Block order"
-          description={SECTION_ORDER_DESCRIPTION}
+          description={sectionOrderDescription()}
           control={
             <div className="w-56">
               <SidebarSectionOrderList form={form} />
@@ -117,7 +114,7 @@ function SettingsItem({
         align="start"
         className={DENSE_ROW}
         label="Show in rows"
-        description={ROW_ELEMENTS_DESCRIPTION}
+        description={rowElementsDescription()}
         control={<RowElementGrid form={form} className="gap-x-6 gap-y-2" />}
       />
     );

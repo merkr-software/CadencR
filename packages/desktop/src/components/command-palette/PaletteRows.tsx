@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import {
   ArchiveIcon,
@@ -50,20 +51,33 @@ export function ConversationStatus({
   state: AttentionState;
   archived: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (archived && state === "idle") {
-    return <ArchiveIcon aria-label="Archived" className="size-3 text-muted-foreground" />;
+    return (
+      <ArchiveIcon
+        aria-label={t("palette.status.archived", "Archived")}
+        className="size-3 text-muted-foreground"
+      />
+    );
   }
   if (state === "waiting") return <WaitingGlyph featureId={featureId} />;
   return <StatusShape state={state} />;
 }
 
 function WaitingGlyph({ featureId }: { featureId: number }): ReactElement {
+  const { t } = useUiTranslation();
   const kind = usePendingKind(featureId);
   const className = cn("size-3.5", PENDING_KIND_TEXT_CLASS[kind]);
   return kind === "question" ? (
-    <MessageCircleQuestionIcon aria-label="Asks a question" className={className} />
+    <MessageCircleQuestionIcon
+      aria-label={t("palette.status.question", "Asks a question")}
+      className={className}
+    />
   ) : (
-    <ShieldAlertIcon aria-label="Asks for permission" className={className} />
+    <ShieldAlertIcon
+      aria-label={t("palette.status.permission", "Asks for permission")}
+      className={className}
+    />
   );
 }
 
@@ -74,6 +88,7 @@ function NextActionVerb({
   featureId: number;
   kind: NextActionKind;
 }): ReactElement {
+  useUiTranslation();
   const verb = nextActionVerb(kind, usePendingKind(featureId));
   return <span className={cn("cp-verb", verb.className)}>{verb.label}</span>;
 }
@@ -87,6 +102,7 @@ function ConversationRow({
   projectName: string | undefined;
   now: number;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { conversation } = entry;
   const archived = conversation.status === "archived";
   return (
@@ -102,7 +118,10 @@ function ConversationRow({
         <HighlightedText text={conversation.title} ranges={entry.ranges} />
       </span>
       {conversation.is_pinned && !archived && (
-        <PinIcon aria-label="Pinned" className="!size-3 text-muted-foreground" />
+        <PinIcon
+          aria-label={t("palette.status.pinned", "Pinned")}
+          className="!size-3 text-muted-foreground"
+        />
       )}
       {conversation.label && <span className="cp-label">{conversation.label}</span>}
       <span className="cp-row-meta">
@@ -153,11 +172,16 @@ function FileRow({ entry }: { entry: FileEntry }): ReactElement {
 }
 
 function MessageRow({ entry, now }: { entry: MessageEntry; now: number }): ReactElement {
+  const { t } = useUiTranslation();
   const { hit } = entry;
   return (
     <>
       <span className="cp-row-icon">
-        {hit.role === "user" ? <UserIcon aria-label="You" /> : <AgentIcon aria-label="Agent" />}
+        {hit.role === "user" ? (
+          <UserIcon aria-label={t("palette.role.you", "You")} />
+        ) : (
+          <AgentIcon aria-label={t("palette.role.agent", "Agent")} />
+        )}
       </span>
       <span className="cp-row-title">
         <SnippetText snippet={hit.snippet} />
@@ -172,6 +196,7 @@ function MessageRow({ entry, now }: { entry: MessageEntry; now: number }): React
 }
 
 function ProjectRow({ entry }: { entry: ProjectEntry }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <span className="cp-row-icon">
@@ -182,8 +207,15 @@ function ProjectRow({ entry }: { entry: ProjectEntry }): ReactElement {
       </span>
       <span className="cp-row-meta">
         <span className="cp-row-meta-text">
-          {entry.activeCount} active
-          {entry.archivedCount > 0 && ` · ${entry.archivedCount} archived`}
+          {entry.archivedCount > 0
+            ? t(
+                "palette.rows.projectCounts",
+                "{{activeCount, number}} active · {{archivedCount, number}} archived",
+                { activeCount: entry.activeCount, archivedCount: entry.archivedCount },
+              )
+            : t("palette.rows.projectActiveCount", "{{count, number}} active", {
+                count: entry.activeCount,
+              })}
         </span>
       </span>
     </>

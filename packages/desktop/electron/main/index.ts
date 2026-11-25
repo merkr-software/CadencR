@@ -4,7 +4,7 @@ import { closeAllWindowsForQuit } from "./window-shutdown";
 import { app, BrowserWindow, dialog, protocol } from "electron";
 import { loadDevEnv } from "./env";
 import { clearRegisteredFilePaths, registerIpc, registerThemeEvents } from "./ipc";
-import { installApplicationMenu } from "./menu";
+import { startApplicationMenu } from "./menu";
 import { registerPower, shutdownPower } from "./power";
 import { refreshBrowserOriginPolicy, setRuntimeConfig } from "./runtime-config";
 import { installServiceTransport } from "./service-transport";
@@ -261,7 +261,7 @@ async function bootstrap(): Promise<void> {
     () => mainWindow,
   );
   if (voluntaryQuit.inProgress || shutdownReady) return;
-  installApplicationMenu(requestQuit);
+  startApplicationMenu(requestQuit);
   splash = createSplashWindow(app.getVersion());
   splash.setPhase("starting");
   // Cmd+W (or any user-driven close on the splash) means "I want out" — the

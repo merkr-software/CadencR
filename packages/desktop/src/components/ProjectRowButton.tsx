@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { forwardRef, type MouseEventHandler, type ReactElement, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, FolderX } from "lucide-react";
 import { ProjectBadge } from "@/components/ProjectBadge";
@@ -53,6 +54,7 @@ export function ProjectRowLabel({
   /** The folder is not where the project records it; the menu offers to locate it. */
   folderMissing?: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       {expanded ? (
@@ -68,8 +70,17 @@ export function ProjectRowLabel({
       </span>
       <span className="min-w-0 truncate">{name}</span>
       {folderMissing ? (
-        <span title="Folder not found. Locate it from the project menu." className="shrink-0">
-          <FolderX aria-label="Folder not found" className="size-3.5 text-[var(--acc-yellow)]" />
+        <span
+          title={t(
+            "project.rowButton.folderNotFoundHint",
+            "Folder not found. Locate it from the project menu.",
+          )}
+          className="shrink-0"
+        >
+          <FolderX
+            aria-label={t("project.rowButton.folderNotFound", "Folder not found")}
+            className="size-3.5 text-[var(--acc-yellow)]"
+          />
         </span>
       ) : null}
     </>

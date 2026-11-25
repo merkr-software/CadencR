@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Feature } from "@/api/generated";
@@ -24,6 +25,7 @@ export function VirtualizedArchivedFeatureList({
   renderFeature,
   activeFeatureId,
 }: VirtualizedArchivedFeatureListProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const activeIndex = features.findIndex((feature) => feature.id === activeFeatureId);
@@ -75,7 +77,15 @@ export function VirtualizedArchivedFeatureList({
   if (features.length === 0) return null;
   return (
     <ArchivedFeatureSection features={features} expanded={expanded} onToggle={onToggle}>
-      <div ref={rootRef} data-virtual-nav-list role="list" aria-label="Archived conversations">
+      <div
+        ref={rootRef}
+        data-virtual-nav-list
+        role="list"
+        aria-label={t(
+          "sidebar.virtualizedArchivedFeatureList.archivedConversations",
+          "Archived conversations",
+        )}
+      >
         <Virtuoso
           ref={virtuosoRef}
           data={features as Feature[]}

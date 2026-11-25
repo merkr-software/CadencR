@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import {
   ArrowUpRightIcon,
@@ -41,10 +42,8 @@ export function GatePopoverHeader({
   onOpenConversation,
   onClose,
 }: GatePopoverHeaderProps): ReactElement {
-  // The queue's arrows switch the quick reply to another waiting conversation.
-  const onSelectFeature = useOpenGateQuickReply();
+  const { t } = useUiTranslation();
   const { title, projectName, waitingSinceMs } = useGatePopoverSubject(featureId);
-  const queue = gateQueuePosition(useGateQueueIds(), featureId);
   const isPermission = kind === "permission";
   const Icon = isPermission ? ShieldAlertIcon : MessageCircleQuestionIcon;
   const buttonSize = touch ? "icon" : "icon-xs";
@@ -58,7 +57,11 @@ export function GatePopoverHeader({
     >
       <Icon
         role="img"
-        aria-label={isPermission ? "Permission needed" : "Question"}
+        aria-label={
+          isPermission
+            ? t("sidebar.gatePopoverHeader.permissionNeeded", "Permission needed")
+            : t("sidebar.gatePopoverHeader.question", "Question")
+        }
         className={cn("mt-0.5 size-4 shrink-0", PENDING_KIND_TEXT_CLASS[kind])}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -67,7 +70,7 @@ export function GatePopoverHeader({
           className="truncate text-xs font-medium text-foreground"
           title={title ?? undefined}
         >
-          {title ?? "Conversation"}
+          {title ?? t("sidebar.gatePopoverHeader.conversation", "Conversation")}
         </span>
         <span className="flex min-w-0 gap-1 text-[11px] leading-4 text-muted-foreground">
           {/* The icon names the kind: the line keeps its width for where and since when. */}
@@ -77,42 +80,14 @@ export function GatePopoverHeader({
           ) : null}
         </span>
       </div>
-      {queue.total > 1 && queue.position > 0 ? (
-        <div className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground">
-          <Button
-            type="button"
-            variant="ghost"
-            size={buttonSize}
-            aria-label="Previous request"
-            title="Previous request"
-            disabled={queue.previousId == null}
-            onClick={() => queue.previousId != null && onSelectFeature(queue.previousId)}
-          >
-            <ChevronLeftIcon />
-          </Button>
-          <span aria-live="polite">
-            {queue.position} of {queue.total}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size={buttonSize}
-            aria-label="Next request"
-            title="Next request"
-            disabled={queue.nextId == null}
-            onClick={() => queue.nextId != null && onSelectFeature(queue.nextId)}
-          >
-            <ChevronRightIcon />
-          </Button>
-        </div>
-      ) : null}
+      <GateQueueNavigation featureId={featureId} buttonSize={buttonSize} />
       <div className="flex shrink-0 items-center gap-0.5">
         <Button
           type="button"
           variant="ghost"
           size={buttonSize}
-          aria-label="Open conversation"
-          title="Open conversation"
+          aria-label={t("sidebar.gatePopoverHeader.openConversation", "Open conversation")}
+          title={t("sidebar.gatePopoverHeader.openConversation", "Open conversation")}
           onClick={onOpenConversation}
         >
           <ArrowUpRightIcon />
@@ -121,8 +96,8 @@ export function GatePopoverHeader({
           type="button"
           variant="ghost"
           size={buttonSize}
-          aria-label="Close"
-          title="Close"
+          aria-label={t("sidebar.gatePopoverHeader.close", "Close")}
+          title={t("sidebar.gatePopoverHeader.close", "Close")}
           onClick={onClose}
         >
           <XIcon />
@@ -132,13 +107,63 @@ export function GatePopoverHeader({
   );
 }
 
+/** The arrows switch the quick reply to another waiting conversation. */
+function GateQueueNavigation({
+  featureId,
+  buttonSize,
+}: {
+  featureId: number;
+  buttonSize: "icon" | "icon-xs";
+}): ReactElement | null {
+  const { t } = useUiTranslation();
+  const onSelectFeature = useOpenGateQuickReply();
+  const queue = gateQueuePosition(useGateQueueIds(), featureId);
+  if (queue.total <= 1 || queue.position <= 0) return null;
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground">
+      <Button
+        type="button"
+        variant="ghost"
+        size={buttonSize}
+        aria-label={t("sidebar.gatePopoverHeader.previousRequest", "Previous request")}
+        title={t("sidebar.gatePopoverHeader.previousRequest", "Previous request")}
+        disabled={queue.previousId == null}
+        onClick={() => queue.previousId != null && onSelectFeature(queue.previousId)}
+      >
+        <ChevronLeftIcon />
+      </Button>
+      <span aria-live="polite">
+        {t("sidebar.gatePopoverHeader.queuePosition", "{{position}} of {{total}}", {
+          position: queue.position,
+          total: queue.total,
+        })}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size={buttonSize}
+        aria-label={t("sidebar.gatePopoverHeader.nextRequest", "Next request")}
+        title={t("sidebar.gatePopoverHeader.nextRequest", "Next request")}
+        disabled={queue.nextId == null}
+        onClick={() => queue.nextId != null && onSelectFeature(queue.nextId)}
+      >
+        <ChevronRightIcon />
+      </Button>
+    </div>
+  );
+}
+
 function WaitingAge({ sinceMs, separated }: { sinceMs: number; separated: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   const now = useMinuteClock();
   return (
     <time
       dateTime={new Date(sinceMs).toISOString()}
       className="shrink-0"
-      title="How long the agent has waited for you"
+      title={t(
+        "sidebar.gatePopoverHeader.howLongTheAgentHasWaited",
+        "How long the agent has waited for you",
+      )}
     >
       {separated ? "· " : ""}
       {formatSidebarRelativeTime(new Date(sinceMs), now)}

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { useLayoutEffect, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -9,14 +10,14 @@ type WindowControlKind = "minimize" | "maximize" | "close";
 
 interface WindowControl {
   kind: WindowControlKind;
-  label: string;
+  label: (t: typeof translateUi) => string;
 }
 
 const WINDOW_CONTROLS_DATA_KEY = "windowControls";
 const CONTROLS: WindowControl[] = [
-  { kind: "minimize", label: "Minimize window" },
-  { kind: "maximize", label: "Toggle maximize window" },
-  { kind: "close", label: "Close window" },
+  { kind: "minimize", label: (t) => t("shell.window.minimize", "Minimize window") },
+  { kind: "maximize", label: (t) => t("shell.window.maximize", "Toggle maximize window") },
+  { kind: "close", label: (t) => t("shell.window.close", "Close window") },
 ];
 
 export function AppWindowControls(): ReactElement | null {
@@ -46,14 +47,16 @@ export function AppWindowControls(): ReactElement | null {
 }
 
 function WindowControlButton({ control }: { control: WindowControl }): ReactElement {
+  const { t } = useUiTranslation();
+  const label = control.label(t);
   const isClose = control.kind === "close";
 
   return (
     <Button
       type="button"
       variant="ghost"
-      aria-label={control.label}
-      title={control.label}
+      aria-label={label}
+      title={label}
       data-app-window-control-button
       data-window-control={control.kind}
       className={cn(
@@ -64,7 +67,11 @@ function WindowControlButton({ control }: { control: WindowControl }): ReactElem
       )}
       onClick={() => {
         void runWindowAction(control.kind).catch((error: unknown) => {
-          toast.error(error instanceof Error ? error.message : `${control.label} failed`);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("shell.window.failed", "{{action}} failed", { action: label }),
+          );
         });
       }}
     >
@@ -104,5 +111,11 @@ function runWindowAction(kind: WindowControlKind): Promise<void> {
 }
 
 function unavailable(kind: WindowControlKind): Promise<never> {
-  return Promise.reject(new Error(`Window ${kind} is unavailable.`));
+  return Promise.reject(
+    new Error(
+      kind === "minimize"
+        ? translateUi("shell.window.minimizeUnavailable", "Window minimize is unavailable.")
+        : translateUi("shell.window.maximizeUnavailable", "Window maximize is unavailable."),
+    ),
+  );
 }

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useState, type ReactElement } from "react";
 import { ArrowUpCircle, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
  * update has finished downloading, and a link to the public changelog.
  */
 export function SidebarUpdateButton(): ReactElement | null {
+  const { t } = useUiTranslation();
   const status = useUpdateStore((s) => s.status);
   const version = useUpdateStore((s) => s.version);
   const progress = useUpdateStore((s) => s.progress);
@@ -34,7 +36,9 @@ export function SidebarUpdateButton(): ReactElement | null {
   const [open, setOpen] = useState(false);
 
   if (!isPendingStatus(status)) return null;
-  const label = waitingForAgents ? "Updating after agents finish" : triggerLabel(status, version);
+  const label = waitingForAgents
+    ? t("sidebar.updateButton.updatingAfterAgentsFinish", "Updating after agents finish")
+    : triggerLabel(status, version);
 
   return (
     <>
@@ -54,7 +58,11 @@ export function SidebarUpdateButton(): ReactElement | null {
             {Math.round(progress)}%
           </span>
         ) : status === "downloaded" ? (
-          <span aria-hidden className="size-1.5 rounded-full bg-primary" title="Update ready" />
+          <span
+            aria-hidden
+            className="size-1.5 rounded-full bg-primary"
+            title={t("sidebar.updateButton.updateReady", "Update ready")}
+          />
         ) : null}
       </button>
 
@@ -70,6 +78,7 @@ export function SidebarUpdateButton(): ReactElement | null {
  * selectors) only mount when the user actually opens the panel.
  */
 function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void }): ReactElement {
+  const { t } = useUiTranslation();
   const status = useUpdateStore((s) => s.status);
   const version = useUpdateStore((s) => s.version);
   const changelogMarkdown = useUpdateStore((s) => s.changelogMarkdown);
@@ -87,15 +96,27 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         <DialogHeader>
           <DialogTitle>
             {status === "downloaded"
-              ? `Update v${version ?? ""} ready to install`
-              : `Update v${version ?? ""} available`}
+              ? t("sidebar.updateButton.readyToInstall", "Update v{{version}} ready to install", {
+                  version: version ?? "",
+                })
+              : t("sidebar.updateButton.versionAvailable", "Update v{{version}} available", {
+                  version: version ?? "",
+                })}
           </DialogTitle>
           <DialogDescription>
             {status === "downloaded"
-              ? "Restart Cadencr to finish installing."
+              ? t(
+                  "sidebar.updateButton.restartCadencrToFinishInstalling",
+                  "Restart Cadencr to finish installing.",
+                )
               : status === "downloading"
-                ? `Downloading… ${Math.round(progress)}%`
-                : "Cadencr is preparing the new version."}
+                ? t("sidebar.updateButton.downloadingProgress", "Downloading… {{progress}}%", {
+                    progress: Math.round(progress),
+                  })
+                : t(
+                    "sidebar.updateButton.cadencrIsPreparingTheNewVersion",
+                    "Cadencr is preparing the new version.",
+                  )}
           </DialogDescription>
         </DialogHeader>
 
@@ -105,14 +126,14 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => void desktopBridge.openExternal(CHANGELOG_URL)}>
             <ExternalLink className="size-4" aria-hidden />
-            View full changelog
+            {t("sidebar.updateButton.viewFullChangelog", "View full changelog")}
           </Button>
           {status === "downloaded" ? (
             <UpdateInstallActions />
           ) : (
             <Button disabled>
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Downloading…
+              {t("sidebar.updateButton.downloading", "Downloading…")}
             </Button>
           )}
         </DialogFooter>
@@ -126,15 +147,29 @@ function isPendingStatus(status: UpdateStatus): boolean {
 }
 
 function triggerLabel(status: UpdateStatus, version: string | null): string {
-  const tag = version ? `v${version}` : "update";
-  return status === "downloaded" ? `Update to ${tag}` : `Downloading ${tag}`;
+  if (status === "downloaded") {
+    return version
+      ? translateUi("sidebar.updateButton.updateToVersion", "Update to v{{version}}", { version })
+      : translateUi("sidebar.updateButton.updateToUpdate", "Update to update");
+  }
+  return version
+    ? translateUi("sidebar.updateButton.downloadingVersion", "Downloading v{{version}}", {
+        version,
+      })
+    : translateUi("sidebar.updateButton.downloadingUpdate", "Downloading update");
 }
 
 function triggerTitle(status: UpdateStatus, version: string | null): string {
   if (status === "downloaded") {
-    return version ? `Restart to install v${version}` : "Restart to install update";
+    return version
+      ? translateUi(
+          "sidebar.updateButton.restartToInstallVersion",
+          "Restart to install v{{version}}",
+          { version },
+        )
+      : translateUi("sidebar.updateButton.restartToInstallUpdate", "Restart to install update");
   }
-  return "Update downloading";
+  return translateUi("sidebar.updateButton.updateDownloading", "Update downloading");
 }
 
 function deriveBodyState(markdown: string | null, loading: boolean): ChangelogBodyState {

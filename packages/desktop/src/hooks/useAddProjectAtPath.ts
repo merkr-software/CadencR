@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -40,7 +41,13 @@ export function useAddProjectAtPath(): (folder: string) => Promise<Project> {
           queryKey: getGetProjectSettingsQueryKey(project.id),
         });
       } catch (error) {
-        toast.error(`Could not save project setting: ${apiErrorMessage(error, "Unknown error")}`);
+        toast.error(
+          translateUi(
+            "project.addAtPath.settingFailed",
+            "Could not save project setting: {{error}}",
+            { error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")) },
+          ),
+        );
       }
       return project;
     },

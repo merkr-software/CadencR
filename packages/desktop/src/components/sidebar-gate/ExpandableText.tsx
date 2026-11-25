@@ -1,8 +1,10 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { cn } from "@/lib/utils";
 
 /** Muted text clamped to 3 lines, with a "Show more" toggle only when it is cut. */
 export function ExpandableText({ text, touch }: { text: string; touch: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   const ref = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
@@ -35,7 +37,9 @@ export function ExpandableText({ text, touch }: { text: string; touch: boolean }
           )}
           onClick={() => setExpanded((previous) => !previous)}
         >
-          {expanded ? "Show less" : "Show more"}
+          {expanded
+            ? t("sidebar.expandableText.showLess", "Show less")
+            : t("sidebar.expandableText.showMore", "Show more")}
         </button>
       ) : null}
     </div>

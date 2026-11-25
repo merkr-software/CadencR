@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Menu, type BrowserWindow, type WebContents } from "electron";
+import { uiI18n } from "../../src/shared/ui-i18n";
 import { installContextMenu, suppressNextNativeContextMenu } from "./context-menu";
 
 const menuPopup = vi.hoisted(() => vi.fn());
@@ -88,6 +89,28 @@ describe("installContextMenu", () => {
 
     expect(Menu.buildFromTemplate).toHaveBeenCalledTimes(1);
     expect(menuPopup).toHaveBeenCalledTimes(1);
+  });
+
+  it("localizes edit actions while retaining their roles and availability", async () => {
+    uiI18n.addResourceBundle("fr", "ui", {
+      "native.menu.cut": "Couper",
+      "native.menu.copy": "Copier",
+      "native.menu.paste": "Coller",
+      "native.menu.selectAll": "Tout sélectionner",
+    });
+    try {
+      await uiI18n.changeLanguage("fr");
+      install()({ preventDefault: vi.fn() }, contextParams());
+      expect(Menu.buildFromTemplate).toHaveBeenCalledWith([
+        { role: "cut", label: "Couper", enabled: false },
+        { role: "copy", label: "Copier", enabled: false },
+        { role: "paste", label: "Coller", enabled: true },
+        { role: "selectAll", label: "Tout sélectionner", enabled: false },
+      ]);
+    } finally {
+      await uiI18n.changeLanguage("en");
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("does not let one renderer suppress another renderer native popup", () => {

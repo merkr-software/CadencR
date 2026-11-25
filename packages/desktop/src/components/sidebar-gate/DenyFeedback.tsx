@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type KeyboardEvent, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ export function DenyFeedback({
   onSubmit,
   onCancel,
 }: DenyFeedbackProps): ReactElement {
+  const { t } = useUiTranslation();
   const [message, setMessage] = useState("");
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.key === "Escape") {
@@ -42,8 +44,14 @@ export function DenyFeedback({
         rows={2}
         value={message}
         disabled={isSubmitting}
-        aria-label="Tell the agent what to do instead"
-        placeholder="Tell the agent what to do instead (optional)"
+        aria-label={t(
+          "sidebar.denyFeedback.tellTheAgentWhatToDo",
+          "Tell the agent what to do instead",
+        )}
+        placeholder={t(
+          "sidebar.denyFeedback.feedbackPlaceholder",
+          "Tell the agent what to do instead (optional)",
+        )}
         className={cn(
           "max-h-40 resize-none bg-muted/30 text-xs md:text-xs",
           touch && "text-sm md:text-sm",
@@ -60,7 +68,7 @@ export function DenyFeedback({
           className={gateButtonSize(touch)}
           onClick={onCancel}
         >
-          Cancel
+          {t("sidebar.denyFeedback.cancel", "Cancel")}
         </Button>
         <Button
           type="button"
@@ -70,8 +78,13 @@ export function DenyFeedback({
           className={gateButtonSize(touch)}
           onClick={() => onSubmit(message.trim())}
         >
-          {isSubmitting ? <Loader2Icon className="animate-spin" aria-label="Sending" /> : null}
-          Deny
+          {isSubmitting ? (
+            <Loader2Icon
+              className="animate-spin"
+              aria-label={t("sidebar.denyFeedback.sending", "Sending")}
+            />
+          ) : null}
+          {t("sidebar.denyFeedback.deny", "Deny")}
         </Button>
       </div>
     </div>

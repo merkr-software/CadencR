@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   createContext,
   useCallback,
@@ -14,13 +15,12 @@ import { SidebarAttentionContext } from "@/components/SidebarAttentionProvider";
 import {
   buildSampleConversations,
   SAMPLE_ACTIVE_FEATURE_ID,
-  SAMPLE_GATES,
   SAMPLE_NEWEST_REQUEST_FEATURE_ID,
   SAMPLE_PROJECT_COLORS,
   SAMPLE_PROJECT_ICONS,
-  SAMPLE_SUMMARIES,
   SAMPLE_PROJECTS,
 } from "@/lib/sidebar-sample-data";
+import { buildSampleGates, buildSampleSummaries } from "@/lib/sidebar-sample-content";
 import { sampleViews, type SampleRow, type SampleViews } from "@/lib/sidebar-sample-views";
 import { SidebarSampleContext, type SidebarSampleData } from "@/lib/sidebar-sample-context";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
@@ -77,7 +77,7 @@ export function SidebarSampleProvider({
 }): ReactElement {
   const preview = useSampleState(enabled);
   return (
-    <SidebarSamplePreviewContext.Provider value={enabled ? preview : null}>
+    <SidebarSamplePreviewContext.Provider value={preview}>
       {children}
     </SidebarSamplePreviewContext.Provider>
   );
@@ -99,9 +99,20 @@ export function SampleScope({ children }: { children: ReactNode }): ReactElement
   );
 }
 
-function useSampleState(enabled: boolean): SidebarSamplePreview {
+function useSampleState(enabled: boolean): SidebarSamplePreview | null {
   const [now, setNow] = useState(Date.now);
-  const conversations = useMemo(() => buildSampleConversations(now), [now]);
+  const { t } = useUiTranslation();
+  const copy = useMemo(
+    () =>
+      enabled
+        ? {
+            conversations: buildSampleConversations(now),
+            gates: buildSampleGates(),
+            summaries: buildSampleSummaries(),
+          }
+        : null,
+    [enabled, now, t],
+  );
   const [activeFeatureId, setActiveFeatureId] = useState<number | null>(SAMPLE_ACTIVE_FEATURE_ID);
   const [answered, setAnswered] = useState<ReadonlySet<number>>(NONE);
   const resetAnswered = useCallback(() => setAnswered(NONE), []);
@@ -123,7 +134,7 @@ function useSampleState(enabled: boolean): SidebarSamplePreview {
 
   const rows = useMemo(
     () =>
-      conversations.map((conversation): SampleRow => ({
+      copy?.conversations.map((conversation): SampleRow => ({
         conversation,
         state: answered.has(conversation.feature.id)
           ? "working"
@@ -131,42 +142,46 @@ function useSampleState(enabled: boolean): SidebarSamplePreview {
             ? conversation.before
             : conversation.state,
       })),
-    [answered, conversations, replaying],
+    [answered, copy, replaying],
   );
-  const views = useMemo(() => sampleViews(rows, recentCount), [recentCount, rows]);
+  const views = useMemo(() => (rows ? sampleViews(rows, recentCount) : null), [recentCount, rows]);
   const respond = useCallback(
     (featureId: number) => setAnswered((prior) => new Set(prior).add(featureId)),
     [],
   );
   const gateOwner = openSidebarGateOwner(forMe && forMeExpanded, false);
-  const data = useMemo<SidebarSampleData>(
-    () => ({
-      projectColors: SAMPLE_PROJECT_COLORS,
-      projectIcons: SAMPLE_PROJECT_ICONS,
-      gates: SAMPLE_GATES,
-      summaries: SAMPLE_SUMMARIES,
-      mostRecentPendingFeatureId: replays > 0 ? SAMPLE_NEWEST_REQUEST_FEATURE_ID : null,
-      pendingRequestId: replays > 0 ? `sample-replay-${replays}` : null,
-      gateOwner,
-      respond,
-    }),
-    [gateOwner, replays, respond],
+  const data = useMemo<SidebarSampleData | null>(
+    () =>
+      copy && {
+        projectColors: SAMPLE_PROJECT_COLORS,
+        projectIcons: SAMPLE_PROJECT_ICONS,
+        gates: copy.gates,
+        summaries: copy.summaries,
+        mostRecentPendingFeatureId: replays > 0 ? SAMPLE_NEWEST_REQUEST_FEATURE_ID : null,
+        pendingRequestId: replays > 0 ? `sample-replay-${replays}` : null,
+        gateOwner,
+        respond,
+      },
+    [copy, gateOwner, replays, respond],
   );
 
   return useMemo(
-    () => ({
-      now,
-      rows,
-      views,
-      data,
-      activeFeatureId,
-      select: setActiveFeatureId,
-      replay,
-      expandedProjects: expanded.ids,
-      setProjectExpanded: expanded.set,
-      collapsedParents: collapsedParents.ids,
-      setParentCollapsed: collapsedParents.set,
-    }),
+    () =>
+      rows && views && data
+        ? {
+            now,
+            rows,
+            views,
+            data,
+            activeFeatureId,
+            select: setActiveFeatureId,
+            replay,
+            expandedProjects: expanded.ids,
+            setProjectExpanded: expanded.set,
+            collapsedParents: collapsedParents.ids,
+            setParentCollapsed: collapsedParents.set,
+          }
+        : null,
     [activeFeatureId, collapsedParents, data, expanded, now, replay, rows, views],
   );
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode, RefObject } from "react";
 import { GitBranchIcon } from "lucide-react";
 import type { Feature, FeatureWorktreeInfo } from "@/api/generated";
@@ -69,6 +70,7 @@ export function FeatureRowTitleLine({
   details?: ReactNode;
   children?: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const showWorktreeIcon = useSidebarOption("worktreeIcon");
   const titleSource = useSidebarOption("titleSource");
   const conversationTitle = liveTitle ?? feature.title;
@@ -91,7 +93,7 @@ export function FeatureRowTitleLine({
         <GitBranchIcon
           data-feature-worktree-icon
           className="size-3 shrink-0 text-muted-foreground"
-          aria-label="Has worktree"
+          aria-label={t("sidebar.featureRowTitleLine.hasWorktree", "Has worktree")}
         />
       )}
       {details ? (
@@ -190,6 +192,7 @@ function FeatureRowTimeLabel({
   iso: string;
   mode: "relative" | "absolute";
 }): ReactElement | null {
+  useUiTranslation();
   const now = useMinuteClock();
   const date = parseUTCDateTime(iso);
   if (Number.isNaN(date.getTime())) return null;

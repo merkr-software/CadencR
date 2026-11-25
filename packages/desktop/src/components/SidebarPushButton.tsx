@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import { BellRing, BellOff } from "lucide-react";
 import { SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
  * dead control.
  */
 export function SidebarPushButton(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { state, busy, toggle } = usePushNotifications();
 
   if (!isBrowserRemote()) return null;
@@ -21,8 +23,14 @@ export function SidebarPushButton(): ReactElement | null {
 
   const on = state === "on";
   const title = on
-    ? "Background notifications on — tap to disable on this device"
-    : "Background notifications off — tap to enable on this device";
+    ? t(
+        "sidebar.pushButton.backgroundNotificationsOnTapToDisable",
+        "Background notifications on — tap to disable on this device",
+      )
+    : t(
+        "sidebar.pushButton.backgroundNotificationsOffTapToEnable",
+        "Background notifications off — tap to enable on this device",
+      );
 
   return (
     <button
@@ -40,7 +48,11 @@ export function SidebarPushButton(): ReactElement | null {
     >
       <span className="flex items-center gap-2">
         {on ? <BellRing className="size-4 shrink-0" /> : <BellOff className="size-4 shrink-0" />}
-        <span>{on ? "Notifications on" : "Notifications off"}</span>
+        <span>
+          {on
+            ? t("sidebar.pushButton.notificationsOn", "Notifications on")
+            : t("sidebar.pushButton.notificationsOff", "Notifications off")}
+        </span>
       </span>
     </button>
   );

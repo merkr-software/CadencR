@@ -1,3 +1,4 @@
+import { translateUi, UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { FolderOpen, Loader2, RefreshCw, X } from "lucide-react";
@@ -24,11 +25,12 @@ function ProjectIconScanResult({
   selectedPath: string;
   onSelect: (path: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (isFetching) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        Scanning repository for logos…
+        {t("project.iconField.scanningRepositoryForLogos", "Scanning repository for logos…")}
       </div>
     );
   }
@@ -45,8 +47,14 @@ function ProjectIconScanResult({
   return (
     <p className="text-xs text-muted-foreground">
       {error
-        ? "The scan failed — check that this project is a git repository."
-        : "No logo files found in this repository. Pick one manually instead."}
+        ? t(
+            "project.iconField.scanErrorHint",
+            "The scan failed — check that this project is a git repository.",
+          )
+        : t(
+            "project.iconField.noCandidates",
+            "No logo files found in this repository. Pick one manually instead.",
+          )}
     </p>
   );
 }
@@ -54,10 +62,34 @@ function ProjectIconScanResult({
 function useProjectIconScanError(error: unknown, projectId: number): void {
   useEffect(() => {
     if (!error) return;
-    toast.error(apiErrorMessage(error, "Could not scan this project for logos"), {
-      id: `project-icon-scan:${projectId}`,
-    });
+    toast.error(
+      apiErrorMessage(
+        error,
+        translateUi("project.iconField.scanFailed", "Could not scan this project for logos"),
+      ),
+      {
+        id: `project-icon-scan:${projectId}`,
+      },
+    );
   }, [error, projectId]);
+}
+
+function usePickProjectIcon(
+  onSave: (key: typeof PROJECT_ICON_SETTING_KEY, value: string) => void,
+): () => Promise<void> {
+  return useCallback(async (): Promise<void> => {
+    try {
+      const picked = await desktopBridge.pickImageFile();
+      if (picked) onSave(PROJECT_ICON_SETTING_KEY, picked);
+    } catch (err) {
+      toast.error(
+        apiErrorMessage(
+          err,
+          translateUi("project.iconField.pickerFailed", "Could not open the file picker"),
+        ),
+      );
+    }
+  }, [onSave]);
 }
 
 /**
@@ -78,6 +110,7 @@ export function ProjectIconField({
   iconPath: string | undefined;
   onSave: (key: typeof PROJECT_ICON_SETTING_KEY, value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const selectedPath = iconPath ?? "";
 
   const {
@@ -91,14 +124,7 @@ export function ProjectIconField({
 
   useProjectIconScanError(error, projectId);
 
-  const handlePickFile = useCallback(async (): Promise<void> => {
-    try {
-      const picked = await desktopBridge.pickImageFile();
-      if (picked) onSave(PROJECT_ICON_SETTING_KEY, picked);
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "Could not open the file picker"));
-    }
-  }, [onSave]);
+  const handlePickFile = usePickProjectIcon(onSave);
 
   const handleSelect = useCallback(
     (path: string): void => {
@@ -112,9 +138,14 @@ export function ProjectIconField({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <div className="text-sm font-medium">Project icon</div>
+          <div className="text-sm font-medium">
+            {t("project.iconField.projectIcon", "Project icon")}
+          </div>
           <p className="text-xs text-muted-foreground">
-            Show a logo from this repository instead of the color dot.
+            {t(
+              "project.iconField.description",
+              "Show a logo from this repository instead of the color dot.",
+            )}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -123,8 +154,8 @@ export function ProjectIconField({
             <Button
               variant="ghost"
               size="icon-xs"
-              title="Remove icon and use the color dot"
-              aria-label="Remove icon"
+              title={t("project.iconField.removeIconHint", "Remove icon and use the color dot")}
+              aria-label={t("project.iconField.removeIcon", "Remove icon")}
               onClick={() => onSave(PROJECT_ICON_SETTING_KEY, "")}
             >
               <X className="size-3.5" />
@@ -135,7 +166,12 @@ export function ProjectIconField({
 
       {selectedPath ? (
         <p className="truncate text-xs text-muted-foreground" title={selectedPath}>
-          Using <span className="font-mono">{selectedPath}</span>
+          <UiTrans
+            i18nKey="project.iconField.usingPath"
+            defaults="Using <path>{{path}}</path>"
+            components={{ path: <span className="font-mono" /> }}
+            values={{ path: selectedPath }}
+          />
         </p>
       ) : null}
 
@@ -151,12 +187,14 @@ export function ProjectIconField({
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={isFetching ? "size-3.5 animate-spin" : "size-3.5"} aria-hidden />
-          {candidates ? "Rescan" : "Scan for logos"}
+          {candidates
+            ? t("project.iconField.rescan", "Rescan")
+            : t("project.iconField.scanForLogos", "Scan for logos")}
         </Button>
         {isDesktopShell() ? (
           <Button variant="ghost" size="sm" onClick={() => void handlePickFile()}>
             <FolderOpen className="size-3.5" aria-hidden />
-            Choose file…
+            {t("project.iconField.chooseFile", "Choose file…")}
           </Button>
         ) : null}
       </div>

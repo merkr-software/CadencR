@@ -9,11 +9,14 @@ import {
 import { I18nextProvider } from "react-i18next";
 import { getRuntimeConfigSync } from "@/api/client";
 import { useGetWorkspaceSetting } from "@/api/generated";
-import { uiI18n } from "./ui";
+import { translateUi, uiI18n } from "./ui";
+import { toastError } from "@/lib/api-errors";
+import { desktopBridge } from "@/lib/desktop-bridge";
 import {
   languagePreference,
   LANGUAGE_SETTING,
-  matchSystemLanguage,
+  isLanguage,
+  matchSystemLocale,
   type Language,
 } from "./languages";
 
@@ -39,21 +42,32 @@ function subscribeToLanguageChange(notify: () => void) {
   return () => window.removeEventListener("languagechange", notify);
 }
 
-function readSystemLanguage() {
-  return matchSystemLanguage(getRuntimeConfigSync().preferredLanguages ?? navigator.languages);
+function readSystemLocale() {
+  return matchSystemLocale(getRuntimeConfigSync().preferredLanguages ?? navigator.languages);
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const system = useSyncExternalStore(subscribeToLanguageChange, readSystemLanguage);
+  const systemLocale = useSyncExternalStore(subscribeToLanguageChange, readSystemLocale);
+  const [base] = systemLocale.split("-");
+  const system = isLanguage(base) ? base : "en";
   const { data, isPending, error } = useGetWorkspaceSetting(LANGUAGE_SETTING);
   const preference = languagePreference(data?.value);
   const language = preference === "system" ? system : preference;
+  const locale = preference === "system" ? systemLocale : preference;
   const state = useMemo(
     () => ({ preference, system, loading: isPending, error }),
     [preference, system, isPending, error],
   );
   useLayoutEffect(() => {
-    if (uiI18n.language !== language) void uiI18n.changeLanguage(language);
+    if (uiI18n.language !== locale) void uiI18n.changeLanguage(locale);
+  }, [locale]);
+  useLayoutEffect(() => {
+    void desktopBridge.setInterfaceLanguage(language).catch((error: unknown) => {
+      toastError(
+        error,
+        translateUi("shell.language.nativeError", "Could not update the native menu language"),
+      );
+    });
   }, [language]);
 
   return (

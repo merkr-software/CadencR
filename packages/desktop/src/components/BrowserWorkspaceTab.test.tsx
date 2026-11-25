@@ -57,6 +57,7 @@ function bridge(): CadencrBrowserBridge {
     runtimeConfig: vi.fn(() =>
       Promise.resolve({ baseUrl: "http://localhost:5005", authToken: null }),
     ),
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(),
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(),

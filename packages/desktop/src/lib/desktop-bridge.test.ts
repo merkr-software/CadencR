@@ -13,6 +13,7 @@ function makeElectronBridge(): CadencrDesktopBridge {
     runtimeConfig: vi.fn(() =>
       Promise.resolve({ baseUrl: "http://127.0.0.1:5004", authToken: "electron-token" }),
     ),
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(() => Promise.resolve("Zm9v")),
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(() => Promise.resolve()),

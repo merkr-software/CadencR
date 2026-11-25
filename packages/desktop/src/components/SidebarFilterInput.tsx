@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useLayoutEffect, useRef, type KeyboardEvent, type ReactElement } from "react";
 import { ListFilter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ function restoreFocus(origin: FilterOrigin | null): void {
 }
 
 function OpenSidebarFilterInput(): ReactElement {
+  const { t } = useUiTranslation();
   const query = useSidebarFilterStore((state) => state.query);
   const focusRequest = useSidebarFilterStore((state) => state.focusRequest);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,8 +92,8 @@ function OpenSidebarFilterInput(): ReactElement {
         ref={inputRef}
         variant="ghost"
         value={query}
-        aria-label="Filter conversations"
-        placeholder="Filter conversations"
+        aria-label={t("sidebar.filterInput.filterConversations", "Filter conversations")}
+        placeholder={t("sidebar.filterInput.filterConversations", "Filter conversations")}
         className="h-7 text-xs"
         onChange={(event) => useSidebarFilterStore.getState().setQuery(event.target.value)}
         onKeyDown={handleKeyDown}
@@ -103,8 +105,8 @@ function OpenSidebarFilterInput(): ReactElement {
         variant="ghost"
         size="icon-xs"
         onClick={close}
-        aria-label="Clear filter"
-        title="Clear filter (Esc)"
+        aria-label={t("sidebar.filterInput.clearFilter", "Clear filter")}
+        title={t("sidebar.filterInput.clearFilterEsc", "Clear filter (Esc)")}
         className="text-muted-foreground"
       >
         <X />

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,10 +11,11 @@ export function gateButtonSize(touch: boolean): string {
 }
 
 export function GateSkeleton({ touch }: { touch: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
-      aria-label="Loading request"
+      aria-label={t("sidebar.gateStates.loadingRequest", "Loading request")}
       className={cn("flex flex-col gap-2.5", GATE_BODY_PADDING)}
     >
       <Skeleton className="h-3 w-3/4" />
@@ -41,6 +43,7 @@ export function GateMessage({
   onOpenConversation,
   tone,
 }: GateMessageProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className={cn("flex flex-col gap-2.5", GATE_BODY_PADDING, touch ? "text-sm" : "text-xs")}>
       <p className={tone === "muted" ? "text-muted-foreground" : "font-medium text-foreground"}>
@@ -53,7 +56,7 @@ export function GateMessage({
         autoFocus={autoFocus}
         onClick={onOpenConversation}
       >
-        Open conversation
+        {t("sidebar.gateStates.openConversation", "Open conversation")}
       </Button>
     </div>
   );

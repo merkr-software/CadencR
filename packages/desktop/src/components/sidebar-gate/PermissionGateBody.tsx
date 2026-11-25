@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,8 @@ export function PermissionGateBody({
   autoFocus,
   touch,
 }: PermissionGateBodyProps): ReactElement {
-  const options = useMemo(() => buildOptions(gate), [gate]);
+  const { t } = useUiTranslation();
+  const options = useMemo(() => buildOptions(gate), [gate, t]);
   const context = useMemo(() => permissionContext(gate), [gate]);
   const [denying, setDenying] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -102,7 +104,10 @@ export function PermissionGateBody({
       <CommandBlock context={context} />
       {options.length === 0 ? (
         <GateMessage
-          message="This request can only be answered in the conversation."
+          message={t(
+            "sidebar.permissionGateBody.thisRequestCanOnlyBeAnswered",
+            "This request can only be answered in the conversation.",
+          )}
           touch={touch}
           autoFocus={autoFocus}
           tone="muted"
@@ -116,29 +121,57 @@ export function PermissionGateBody({
           onCancel={() => setDenying(false)}
         />
       ) : (
-        <div className={cn("flex gap-1.5", touch ? "flex-col" : "flex-wrap")}>
-          {options.map((option, index) => (
-            <Button
-              key={option.key}
-              type="button"
-              size="sm"
-              variant={ACTION_VARIANT[option.action ?? "allow_once"]}
-              data-gate-action=""
-              aria-keyshortcuts={String(index + 1)}
-              title={option.description || undefined}
-              disabled={isSubmitting}
-              className={actionClass(option, touch)}
-              onClick={() => activate(option)}
-            >
-              {isSubmitting && activeKey === option.key ? (
-                <Loader2Icon className="animate-spin" aria-label="Sending" />
-              ) : null}
-              <span className="truncate">{option.label}</span>
-              {index < 9 ? <KeyboardOnlyShortcutHint keys={[String(index + 1)]} /> : null}
-            </Button>
-          ))}
-        </div>
+        <PermissionActions
+          options={options}
+          isSubmitting={isSubmitting}
+          activeKey={activeKey}
+          touch={touch}
+          onActivate={activate}
+        />
       )}
+    </div>
+  );
+}
+
+function PermissionActions({
+  options,
+  isSubmitting,
+  activeKey,
+  touch,
+  onActivate,
+}: {
+  options: readonly PermissionOptionView[];
+  isSubmitting: boolean;
+  activeKey: string | null;
+  touch: boolean;
+  onActivate: (option: PermissionOptionView) => void;
+}): ReactElement {
+  const { t } = useUiTranslation();
+  return (
+    <div className={cn("flex gap-1.5", touch ? "flex-col" : "flex-wrap")}>
+      {options.map((option, index) => (
+        <Button
+          key={option.key}
+          type="button"
+          size="sm"
+          variant={ACTION_VARIANT[option.action ?? "allow_once"]}
+          data-gate-action=""
+          aria-keyshortcuts={String(index + 1)}
+          title={option.description || undefined}
+          disabled={isSubmitting}
+          className={actionClass(option, touch)}
+          onClick={() => onActivate(option)}
+        >
+          {isSubmitting && activeKey === option.key ? (
+            <Loader2Icon
+              className="animate-spin"
+              aria-label={t("sidebar.permissionGateBody.sending", "Sending")}
+            />
+          ) : null}
+          <span className="truncate">{option.label}</span>
+          {index < 9 ? <KeyboardOnlyShortcutHint keys={[String(index + 1)]} /> : null}
+        </Button>
+      ))}
     </div>
   );
 }

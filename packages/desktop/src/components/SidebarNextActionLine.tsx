@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import type { PrStatusSnapshot } from "@/api/generated";
 import {
@@ -24,32 +25,99 @@ interface Verb {
 }
 
 const VERBS: Record<Exclude<NextActionKind, "waiting">, Verb> = {
-  failed: { label: "Check error", detail: "The agent stopped on an error", tone: "failed" },
+  failed: {
+    get label() {
+      return translateUi("sidebar.nextAction.checkError", "Check error");
+    },
+    get detail() {
+      return translateUi(
+        "sidebar.nextAction.checkErrorDescription",
+        "The agent stopped on an error",
+      );
+    },
+    tone: "failed",
+  },
   fix_ci: {
-    label: "Fix CI",
-    detail: "The pull request's checks are failing",
+    get label() {
+      return translateUi("sidebar.nextAction.fixCi", "Fix CI");
+    },
+    get detail() {
+      return translateUi(
+        "sidebar.nextAction.fixCiDescription",
+        "The pull request's checks are failing",
+      );
+    },
     tone: "quiet",
     aboutPr: true,
   },
   address_review: {
-    label: "Address review",
-    detail: "Changes were requested on the pull request",
+    get label() {
+      return translateUi("sidebar.nextAction.addressReview", "Address review");
+    },
+    get detail() {
+      return translateUi(
+        "sidebar.nextAction.addressReviewDescription",
+        "Changes were requested on the pull request",
+      );
+    },
     tone: "quiet",
     aboutPr: true,
   },
-  review: { label: "Review", detail: "The agent finished: its reply is unread", tone: "quiet" },
+  review: {
+    get label() {
+      return translateUi("sidebar.nextAction.review", "Review");
+    },
+    get detail() {
+      return translateUi(
+        "sidebar.nextAction.reviewDescription",
+        "The agent finished: its reply is unread",
+      );
+    },
+    tone: "quiet",
+  },
   merge: {
-    label: "Merge",
-    detail: "The pull request is approved and its checks pass",
+    get label() {
+      return translateUi("sidebar.nextAction.merge", "Merge");
+    },
+    get detail() {
+      return translateUi(
+        "sidebar.nextAction.mergeDescription",
+        "The pull request is approved and its checks pass",
+      );
+    },
     tone: "quiet",
     aboutPr: true,
   },
 };
 
 const WAITING_VERBS: Record<"permission" | "question" | "unknown", Verb> = {
-  permission: { label: "Approve", detail: "The agent asks for permission", tone: "permission" },
-  question: { label: "Answer", detail: "The agent asks a question", tone: "question" },
-  unknown: { label: "Respond", detail: "The agent waits on you", tone: "permission" },
+  permission: {
+    get label() {
+      return translateUi("sidebar.nextAction.approve", "Approve");
+    },
+    get detail() {
+      return translateUi("sidebar.nextAction.approveDescription", "The agent asks for permission");
+    },
+    tone: "permission",
+  },
+  question: {
+    get label() {
+      return translateUi("sidebar.nextAction.answer", "Answer");
+    },
+    get detail() {
+      return translateUi("sidebar.nextAction.answerDescription", "The agent asks a question");
+    },
+    tone: "question",
+  },
+  unknown: {
+    get label() {
+      return translateUi("sidebar.nextAction.respond", "Respond");
+    },
+    get detail() {
+      return translateUi("sidebar.nextAction.respondDescription", "The agent waits on you");
+    },
+    tone: "permission",
+  },
 };
 
 /** Strong verbs take the status indicator's colors; the others stay quiet. */
@@ -103,6 +171,7 @@ export const SidebarNextActionLine = memo(function SidebarNextActionLine({
  * says which.
  */
 function WaitingLine({ featureId }: { featureId: number }): ReactElement {
+  const { t } = useUiTranslation();
   const { kind: liveKind } = useFeatureStatus(featureId);
   const { gate, errorMessage } = useFeaturePendingGate({ featureId, enabled: true });
   const verb =
@@ -117,7 +186,12 @@ function WaitingLine({ featureId }: { featureId: number }): ReactElement {
     <ActionLine
       verb={verb}
       kind="waiting"
-      object={prompt ?? (errorMessage ? "Request details unavailable" : null)}
+      object={
+        prompt ??
+        (errorMessage
+          ? t("sidebar.nextActionLine.requestDetailsUnavailable", "Request details unavailable")
+          : null)
+      }
     />
   );
 }
@@ -139,10 +213,18 @@ function ActionLine({
   kind: NextActionKind;
   object: string | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       data-feature-next-action-line
-      title={object ? `${verb.label}: ${object}` : verb.detail}
+      title={
+        object
+          ? t("sidebar.nextAction.withObject", "{{action}}: {{object}}", {
+              action: verb.label,
+              object,
+            })
+          : verb.detail
+      }
       className="flex min-w-0 items-baseline gap-1 text-[11px] leading-4"
     >
       <span

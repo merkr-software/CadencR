@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { useGetFeature, useListProjects } from "@/api/generated";
@@ -59,19 +60,25 @@ function FeaturePage() {
 }
 
 function FeatureNotFound({ featureId }: { featureId: number }) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <p className="text-sm font-medium">Feature #{featureId} not found</p>
-      <p className="text-sm text-muted-foreground">It may have been deleted from another window.</p>
+      <p className="text-sm font-medium">
+        {t("home.feature.missing", "Feature #{{featureId}} not found", { featureId })}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {t("home.feature.deleted", "It may have been deleted from another window.")}
+      </p>
       <Link to="/" className="text-sm text-primary underline-offset-4 hover:underline">
-        Back to home
+        {t("home.feature.back", "Back to home")}
       </Link>
     </div>
   );
 }
 
 function FeatureLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = apiErrorMessage(error, "Failed to load feature");
+  const { t } = useUiTranslation();
+  const message = apiErrorMessage(error, t("home.feature.loadError", "Failed to load feature"));
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
       <p className="text-sm font-medium text-destructive">{message}</p>
@@ -80,7 +87,7 @@ function FeatureLoadError({ error, onRetry }: { error: unknown; onRetry: () => v
         onClick={onRetry}
         className="text-sm text-primary underline-offset-4 hover:underline"
       >
-        Retry
+        {t("common.retry", "Retry")}
       </button>
     </div>
   );

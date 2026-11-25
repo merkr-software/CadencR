@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useProviderMetadata } from "@/lib/provider-icons";
@@ -19,26 +20,41 @@ export const PROJECT_ROW_CLASS =
   "sidebar-project-row relative flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-sm font-medium text-foreground/85 outline-none transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:bg-accent/50";
 
 const DATE_NAMES: Record<DateGroup, string> = {
-  today: "Today",
-  yesterday: "Yesterday",
-  week: "This week",
-  older: "Older",
+  get today() {
+    return translateUi("sidebar.dateGroup.today", "Today");
+  },
+  get yesterday() {
+    return translateUi("sidebar.dateGroup.yesterday", "Yesterday");
+  },
+  get week() {
+    return translateUi("sidebar.dateGroup.week", "This week");
+  },
+  get older() {
+    return translateUi("sidebar.dateGroup.older", "Older");
+  },
 };
 
 function ProviderName({ providerId }: { providerId: string | null }): string {
+  const { t } = useUiTranslation();
   const metadata = useProviderMetadata(providerId);
-  return (providerId && metadata?.label) || providerId || "Unknown provider";
+  return (
+    (providerId && metadata?.label) ||
+    providerId ||
+    t("sidebar.lensGroup.unknownProvider", "Unknown provider")
+  );
 }
 
 function GroupName({ group }: { group: LensGroup }): ReactElement | string {
+  const { t } = useUiTranslation();
   const { lens, value } = group;
   // The status and date lenses only make groups of their own fixed values.
   if (lens === "status") return ATTENTION_LABEL[value as AttentionState];
   if (lens === "date") return DATE_NAMES[value as DateGroup];
   if (lens === "provider") return <ProviderName providerId={value} />;
-  if (lens === "worktree") return value ?? "Project checkout";
-  if (lens === "label") return value ?? "No label";
-  return "Conversations";
+  if (lens === "worktree")
+    return value ?? t("sidebar.lensGroup.projectCheckout", "Project checkout");
+  if (lens === "label") return value ?? t("sidebar.lensGroup.noLabel", "No label");
+  return t("sidebar.lensGroup.conversations", "Conversations");
 }
 
 /**

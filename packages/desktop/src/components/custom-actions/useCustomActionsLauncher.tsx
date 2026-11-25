@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 
 import type { CustomAction } from "@/api/generated";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import {
   launchCustomAction,
@@ -46,6 +47,7 @@ export function useCustomActionsLauncher({
   openMenu,
   bindKeys,
 }: LauncherArgs) {
+  const { t } = useUiTranslation();
   const selectedId = useCustomActionsUiStore((state) => state.selectedByProject[projectId]);
   const selected = actions.find((action) => action.id === selectedId) ?? actions[0] ?? null;
   const aggregate = aggregateRunState(actions);
@@ -74,7 +76,7 @@ export function useCustomActionsLauncher({
     () =>
       actions.map((action) => ({
         id: `custom-action-${action.id}`,
-        title: `Run: ${action.name}`,
+        title: t("palette.commands.runCustomAction", "Run: {{action}}", { action: action.name }),
         group: "Conversation" as const,
         icon: (
           <CustomActionIcon iconData={action.icon_data} name={action.name} className="size-4" />
@@ -83,7 +85,7 @@ export function useCustomActionsLauncher({
         description: action.command,
         run: () => activateAction(action, featureId, projectId),
       })),
-    [actions, featureId, projectId],
+    [actions, featureId, projectId, t],
   );
   useEffect(
     () => (bindKeys ? publishCustomActionCommands(commands) : undefined),

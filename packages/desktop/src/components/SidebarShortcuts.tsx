@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useRef, type ReactElement, type ReactNode, type RefObject } from "react";
 import { toast } from "sonner";
 import { useGetFeature, type Feature } from "@/api/generated";
@@ -40,7 +41,12 @@ export function useSidebarRowShortcuts(): void {
     if (!row) return;
     event.preventDefault();
     if (!dispatchSidebarRowAction(row, action)) {
-      toast.message("This conversation can't do that from here");
+      toast.message(
+        translateUi(
+          "sidebar.shortcuts.thisConversationCanTDoThat",
+          "This conversation can't do that from here",
+        ),
+      );
     }
   };
   useShortcut("sidebar-row-pin", rowAction("pin"), ROW_SHORTCUT_OPTIONS);
@@ -103,12 +109,16 @@ export function SidebarAttentionShortcuts({
   const lastUnread = useRef<QueueStop | null>(null);
   const markDone = useMarkDoneAndAdvance(openFeatureId, actions, open, lastAction);
   const jump =
-    (queueOf: () => readonly Feature[], emptyMessage: string, last: RefObject<QueueStop | null>) =>
+    (
+      queueOf: () => readonly Feature[],
+      emptyMessage: () => string,
+      last: RefObject<QueueStop | null>,
+    ) =>
     (event: KeyboardEvent) => {
       event.preventDefault();
       const queue = queueOf();
       if (queue.length === 0) {
-        toast.message(emptyMessage);
+        toast.message(emptyMessage());
         return;
       }
       const index = nextQueueIndex(queue, activeFeatureId, last.current);
@@ -119,13 +129,17 @@ export function SidebarAttentionShortcuts({
     };
   useShortcut(
     "attention-next-needs-you",
-    jump(() => actions.map((action) => action.feature), "Nothing is waiting on you", lastAction),
+    jump(
+      () => actions.map((action) => action.feature),
+      () => translateUi("sidebar.shortcuts.nothingWaiting", "Nothing is waiting on you"),
+      lastAction,
+    ),
   );
   useShortcut(
     "attention-next-unread",
     jump(
       () => items.filter((item) => item.state === "unread").map((item) => item.feature),
-      "No unread conversations",
+      () => translateUi("sidebar.shortcuts.noUnreadConversations", "No unread conversations"),
       lastUnread,
     ),
   );
@@ -137,8 +151,15 @@ export function SidebarAttentionShortcuts({
     event.preventDefault();
     event.stopPropagation();
     const kind = actions.find((action) => action.feature.id === featureId)?.kind;
-    if (kind === undefined) toast.message("Nothing for you here");
-    else if (kind === "waiting") toast.message("The agent waits on your answer");
+    if (kind === undefined)
+      toast.message(translateUi("sidebar.shortcuts.nothingForYouHere", "Nothing for you here"));
+    else if (kind === "waiting")
+      toast.message(
+        translateUi(
+          "sidebar.shortcuts.theAgentWaitsOnYourAnswer",
+          "The agent waits on your answer",
+        ),
+      );
     else markDone(featureId);
   });
   return <ForMeDoneContext.Provider value={markDone}>{children}</ForMeDoneContext.Provider>;
@@ -173,7 +194,7 @@ function useMarkDoneAndAdvance(
         rest.length > 0 ? nextQueueIndex(rest, featureId, { featureId, index: at }) : -1;
       const next = rest[index];
       if (!next) {
-        toast.message("All caught up");
+        toast.message(translateUi("sidebar.shortcuts.allCaughtUp", "All caught up"));
         return;
       }
       lastAction.current = { featureId: next.id, index };
@@ -208,14 +229,20 @@ export function nextQueueIndex(
 
 /** The sidebar's one rename dialog, opened from a row's menu or with F2. */
 export function SidebarRenameDialog(): ReactElement {
+  const { t } = useUiTranslation();
   const featureId = useSidebarRenameStore((state) => state.featureId);
   const close = useSidebarRenameStore((state) => state.close);
   return (
     <Dialog open={featureId != null} onOpenChange={(open) => !open && close()}>
       <DialogContent className="sm:max-w-sm">
-        <DialogTitle className="sr-only">Rename conversation</DialogTitle>
+        <DialogTitle className="sr-only">
+          {t("sidebar.shortcuts.renameConversation", "Rename conversation")}
+        </DialogTitle>
         <DialogDescription className="sr-only">
-          Give this conversation a new title.
+          {t(
+            "sidebar.shortcuts.giveThisConversationANewTitle",
+            "Give this conversation a new title.",
+          )}
         </DialogDescription>
         {featureId != null && <RenameBody featureId={featureId} onClose={close} />}
       </DialogContent>
@@ -230,13 +257,26 @@ function RenameBody({
   featureId: number;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { data: feature, isLoading, error } = useGetFeature(featureId);
   const { title: liveTitle } = useFeatureTitle(featureId);
-  if (isLoading) return <Skeleton aria-label="Loading conversation" className="h-24" />;
+  if (isLoading)
+    return (
+      <Skeleton
+        aria-label={t("sidebar.shortcuts.loadingConversation", "Loading conversation")}
+        className="h-24"
+      />
+    );
   if (error || !feature) {
     return (
       <p role="alert" className="text-sm text-destructive">
-        {apiErrorMessage(error, "Could not load this conversation")}
+        {apiErrorMessage(
+          error,
+          translateUi(
+            "sidebar.shortcuts.couldNotLoadThisConversation",
+            "Could not load this conversation",
+          ),
+        )}
       </p>
     );
   }

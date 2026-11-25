@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type CSSProperties, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import { PanelLeft, Settings } from "lucide-react";
@@ -34,6 +35,7 @@ export const SidebarRail = memo(function SidebarRail({
 }: {
   onExpand: () => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const content = useSidebarOption("rail");
   const { featureId: activeFeatureId } = useRouteFeatureIds();
   const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
@@ -42,7 +44,7 @@ export const SidebarRail = memo(function SidebarRail({
   return (
     <TooltipProvider delayDuration={300}>
       <nav
-        aria-label="Collapsed sidebar"
+        aria-label={t("sidebar.rail.collapsedSidebar", "Collapsed sidebar")}
         data-sidebar-rail={content}
         className={cn(
           "glass-surface flex h-full w-12 shrink-0 flex-col items-center gap-1 bg-sidebar pb-2",
@@ -60,8 +62,10 @@ export const SidebarRail = memo(function SidebarRail({
           variant="ghost"
           size="icon"
           className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-          title={`Expand sidebar (${toggleSidebarCombo})`}
-          aria-label="Expand sidebar"
+          title={t("sidebar.expandWithShortcut", "Expand sidebar ({{shortcut}})", {
+            shortcut: toggleSidebarCombo,
+          })}
+          aria-label={t("sidebar.expandSidebar", "Expand sidebar")}
           onClick={onExpand}
         >
           <PanelLeft className="size-4" />
@@ -85,9 +89,11 @@ export const SidebarRail = memo(function SidebarRail({
           variant="ghost"
           size="icon"
           className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-          title={`Settings (${settingsCombo})`}
+          title={t("sidebar.rail.settingsWithShortcut", "Settings ({{shortcut}})", {
+            shortcut: settingsCombo,
+          })}
         >
-          <Link to="/settings" aria-label="Settings">
+          <Link to="/settings" aria-label={t("settings.nav.title", "Settings")}>
             <Settings className="size-4" />
           </Link>
         </Button>
@@ -133,6 +139,7 @@ export const RailProject = memo(function RailProject({
   counts: ProjectAttentionCounts | undefined;
   onOpen: (projectId: number) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const summary = counts ? attentionSummary(counts) : "";
   const ring = counts ? ringClass(counts) : "";
   const tint = useProjectTint(projectId);
@@ -141,7 +148,11 @@ export const RailProject = memo(function RailProject({
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={summary ? `${name}: ${summary}` : name}
+          aria-label={
+            summary
+              ? t("sidebar.rail.projectSummary", "{{name}}: {{summary}}", { name, summary })
+              : name
+          }
           onClick={() => onOpen(projectId)}
           style={tint}
           className={cn(
@@ -195,9 +206,12 @@ function useProjectTint(projectId: number): CSSProperties {
 }
 
 export function RailEmptyLine({ attentionOnly }: { attentionOnly: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span className="px-1 pt-1 text-center text-[10px] leading-tight text-muted-foreground">
-      {attentionOnly ? "Nothing waiting" : "All quiet"}
+      {attentionOnly
+        ? t("sidebar.rail.nothingWaiting", "Nothing waiting")
+        : t("sidebar.rail.allQuiet", "All quiet")}
     </span>
   );
 }
@@ -209,12 +223,16 @@ function RailConversations({
   activeFeatureId: number | null;
   attentionOnly: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { items, queue, loadingStates } = useSidebarAttention();
   const navigate = useCrossProjectNavigate(activeFeatureId, noop);
   const shown = attentionOnly ? queue : items;
   if (shown.length === 0) {
     return (attentionOnly ? loadingStates.some(needsUser) : loadingStates.length > 0) ? (
-      <Skeleton aria-label="Loading conversations" className="size-8 shrink-0 rounded-md" />
+      <Skeleton
+        aria-label={t("sidebar.rail.loadingConversations", "Loading conversations")}
+        className="size-8 shrink-0 rounded-md"
+      />
     ) : (
       <RailEmptyLine attentionOnly={attentionOnly} />
     );
@@ -244,6 +262,7 @@ export const RailConversation = memo(function RailConversation({
   isActive: boolean;
   onOpen: (feature: Feature) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { feature, state } = item;
   const attention = useMemo(() => ({ state, sourceFeatureId: feature.id }), [state, feature.id]);
   const open = useCallback(() => onOpen(feature), [onOpen, feature]);
@@ -254,7 +273,10 @@ export const RailConversation = memo(function RailConversation({
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={`${feature.title}: ${ATTENTION_LABEL[state]}`}
+            aria-label={t("sidebar.rail.conversationSummary", "{{title}}: {{status}}", {
+              title: feature.title,
+              status: ATTENTION_LABEL[state],
+            })}
             data-active={isActive || undefined}
             onClick={open}
             style={tint}

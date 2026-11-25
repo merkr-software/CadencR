@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { AlertTriangleIcon, ListChecksIcon } from "lucide-react";
 import { FeatureMetaBadge } from "@/components/FeatureMetaBadge";
@@ -7,13 +8,14 @@ import type { RowSummary } from "@/lib/sidebar-row-summary";
 
 /** The agent's todo progress on the meta line: "3/7", or a warning when it couldn't load. */
 export function FeatureTodoProgress({ summary }: { summary: RowSummary }): ReactElement {
+  const { t } = useUiTranslation();
   const { todos, error } = summary;
   return (
     <span data-feature-todos className="inline-flex shrink-0">
       {error || !todos ? (
         <FeatureMetaBadge
           icon={<ListChecksIcon className="size-3" />}
-          label={`Todo progress unavailable: ${error}`}
+          label={t("sidebar.todo.unavailable", "Todo progress unavailable: {{error}}", { error })}
           className="text-destructive"
         >
           <AlertTriangleIcon className="size-3" />
@@ -21,7 +23,10 @@ export function FeatureTodoProgress({ summary }: { summary: RowSummary }): React
       ) : (
         <FeatureMetaBadge
           icon={<ListChecksIcon className="size-3" />}
-          label={`${todos.done} of ${todos.total} todos done`}
+          label={t("sidebar.todo.progress", "{{done}} of {{count}} todos done", {
+            done: todos.done,
+            count: todos.total,
+          })}
         >
           <span>
             {todos.done}/{todos.total}
@@ -41,11 +46,12 @@ export function FeatureRowPreviewLine({
 }: {
   summary: RowSummary | undefined;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (!summary) return <Skeleton data-feature-preview className="my-0.5 h-3 w-32" />;
   if (summary.error) {
     return (
       <span data-feature-preview="empty" title={summary.error} className={LINE_CLASS}>
-        Preview unavailable
+        {t("sidebar.featureRowSummaryParts.previewUnavailable", "Preview unavailable")}
       </span>
     );
   }
@@ -73,6 +79,7 @@ export function FeatureRowReply({
   summary: RowSummary | undefined;
   lines: number;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const box = { height: `${lines * 1.25}rem` };
   if (!summary) {
     return (
@@ -96,7 +103,9 @@ export function FeatureRowReply({
         placeholder ? "text-muted-foreground/60 italic" : "text-muted-foreground",
       )}
     >
-      {summary.error ? "Preview unavailable" : summary.preview || "No reply yet"}
+      {summary.error
+        ? t("sidebar.featureRowSummaryParts.previewUnavailable", "Preview unavailable")
+        : summary.preview || t("sidebar.featureRowSummaryParts.noReply", "No reply yet")}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -194,7 +195,16 @@ function useProjectFeatureLabels(data: ProjectFeaturesData) {
         setDraft("");
         invalidateFeatureQueries(variables.id, ["label"]);
       },
-      onError: (error) => toast.error(apiErrorMessage(error, "Failed to update feature label")),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "project.featuresController.labelUpdateFailed",
+              "Failed to update feature label",
+            ),
+          ),
+        ),
     },
   });
   const start = useCallback((feature: Feature): void => {

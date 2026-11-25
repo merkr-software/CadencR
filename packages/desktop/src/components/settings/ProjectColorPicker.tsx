@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ export function ProjectColorPicker({
   value: string;
   onChange: (next: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const normalized = sanitizeHex(value);
   const [customOpen, setCustomOpen] = useState(false);
 
@@ -38,7 +40,11 @@ export function ProjectColorPicker({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Project color">
+      <div
+        className="flex flex-wrap gap-1.5"
+        role="radiogroup"
+        aria-label={t("project.colorPicker.projectColor", "Project color")}
+      >
         {PROJECT_COLORS.map((hex) => {
           const selected = hex === normalized;
           return (
@@ -74,7 +80,7 @@ export function ProjectColorPicker({
             style={{ backgroundColor: `#${activeColor}` }}
           />
           <span className="font-mono">#{activeColor}</span>
-          {!normalized && <span>(default)</span>}
+          {!normalized && <span>{t("project.colorPicker.default", "(default)")}</span>}
         </span>
         <span className="ml-auto flex items-center gap-2">
           {normalized && (
@@ -85,7 +91,7 @@ export function ProjectColorPicker({
               className="h-6 px-2 text-[11px]"
               onClick={() => onChange("")}
             >
-              Reset
+              {t("common.reset", "Reset")}
             </Button>
           )}
           <Button
@@ -95,7 +101,9 @@ export function ProjectColorPicker({
             className="h-6 px-2 text-[11px]"
             onClick={() => setCustomOpen((v) => !v)}
           >
-            {customOpen ? "Hide hex" : "Custom hex"}
+            {customOpen
+              ? t("project.colorPicker.hideHex", "Hide hex")
+              : t("project.colorPicker.customHex", "Custom hex")}
           </Button>
         </span>
       </div>
@@ -110,7 +118,9 @@ export function ProjectColorPicker({
             className="h-7 w-28 font-mono text-sm"
           />
           {normalized && !isPaletteMatch && (
-            <span className="text-[10px] text-muted-foreground">Custom</span>
+            <span className="text-[10px] text-muted-foreground">
+              {t("project.colorPicker.custom", "Custom")}
+            </span>
           )}
         </div>
       )}

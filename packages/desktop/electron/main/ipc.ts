@@ -12,6 +12,8 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
+import { isLanguage } from "../../src/lib/i18n/languages";
+import { translateUi, uiI18n } from "../../src/shared/ui-i18n";
 import { getRendererRuntimeConfig } from "./runtime-config";
 import { isMainRendererFrame, type RendererTarget } from "./renderer-trust";
 import { rendererLoadTarget } from "./renderer-window-security";
@@ -40,6 +42,11 @@ export interface IpcOptions {
 }
 
 export function registerIpc({ getMainWindow }: IpcOptions): void {
+  ipcMain.handle("app:set-interface-language", async (event, language: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    if (!isLanguage(language)) throw new Error("Unsupported interface language");
+    if (uiI18n.language !== language) await uiI18n.changeLanguage(language);
+  });
   ipcMain.handle("runtime-config", (event) => {
     assertTrustedSender(event, getMainWindow);
     const config = getRendererRuntimeConfig();
@@ -295,9 +302,11 @@ const ICON_FILE_EXTENSIONS = ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif"
 
 async function pickImageFile(): Promise<string | null> {
   const result = await dialog.showOpenDialog({
-    title: "Choose a project icon",
+    title: translateUi("project.iconField.chooseProjectIcon", "Choose a project icon"),
     properties: ["openFile"],
-    filters: [{ name: "Images", extensions: ICON_FILE_EXTENSIONS }],
+    filters: [
+      { name: translateUi("project.iconField.images", "Images"), extensions: ICON_FILE_EXTENSIONS },
+    ],
   });
   return result.canceled ? null : (result.filePaths[0] ?? null);
 }

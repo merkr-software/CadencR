@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import { GatePopoverHeader } from "@/components/sidebar-gate-popover/GatePopoverHeader";
 import { PendingGateBody } from "@/components/sidebar-gate/PendingGateBody";
@@ -64,6 +65,7 @@ export function GatePopoverFrame({
 
 /** "Auto" mode's way out, kept inside the card that interrupts. */
 function AutoOpenOptOut({ onClose }: { onClose: () => void }): ReactElement | null {
+  const { t } = useUiTranslation();
   const mode = useSidebarOption("gatePopover");
   const setOption = useSetSidebarOption();
   // The display options preview shows the card, but must not rewrite the user's setting.
@@ -79,7 +81,7 @@ function AutoOpenOptOut({ onClose }: { onClose: () => void }): ReactElement | nu
           onClose();
         }}
       >
-        Don't open automatically
+        {t("sidebar.gatePopoverFrame.donTOpenAutomatically", "Don't open automatically")}
       </button>
     </footer>
   );

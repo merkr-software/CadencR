@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef } from "react";
 import {
   BanIcon,
@@ -28,7 +29,10 @@ import type {
   PaletteSection,
   PaletteStep,
 } from "@/lib/command-palette/palette-types";
-import { defaultWorktreeModeFromSettings } from "@/lib/default-worktree-mode";
+import {
+  defaultWorktreeModeFromSettings,
+  type DefaultWorktreeMode,
+} from "@/lib/default-worktree-mode";
 import { allThemes, applyThemeToDocument, type ThemeDefinition, type ThemeId } from "@/lib/themes";
 import type { PaletteOperations, WorktreePick } from "./usePaletteOperations";
 
@@ -51,6 +55,7 @@ function projectStep(
   projects: readonly Project[],
   conversations: readonly ConversationIndexEntry[],
   activeProjectId: number | null,
+  t: UiTranslator,
 ): StepView {
   const ordered = [
     ...projects.filter((project) => project.id === activeProjectId),
@@ -62,10 +67,52 @@ function projectStep(
       ? rankProjects(tokens, ordered, conversations, 50).entries
       : listProjects(ordered, conversations);
   return {
-    chip: { icon: <MessageSquarePlusIcon />, label: "New conversation" },
-    placeholder: "Which project?",
-    sections: [{ id: "projects", title: "Projects", entries }],
+    chip: {
+      icon: <MessageSquarePlusIcon />,
+      label: t("palette.steps.newConversation", "New conversation"),
+    },
+    placeholder: t("palette.steps.projectPlaceholder", "Which project?"),
+    sections: [{ id: "projects", title: t("palette.sections.projects", "Projects"), entries }],
   };
+}
+
+function worktreeModes(
+  projectDefault: DefaultWorktreeMode,
+  create: (worktree: WorktreePick) => () => Promise<void>,
+  t: UiTranslator,
+): PaletteCommand[] {
+  return [
+    {
+      id: "wt-new",
+      title:
+        projectDefault === "new"
+          ? t("palette.steps.worktree.newUsual", "New worktree (usual)")
+          : t("palette.steps.worktree.new", "New worktree"),
+      group: "Create",
+      icon: <FolderGit2Icon />,
+      keywords: ["branch", "isolated", "fresh"],
+      description: t(
+        "palette.steps.worktree.newDescription",
+        "A fresh branch in its own worktree: the agent's changes stay off your checkout.",
+      ),
+      run: create({ mode: "new" }),
+    },
+    {
+      id: "wt-skip",
+      title:
+        projectDefault === "skip"
+          ? t("palette.steps.worktree.directoryUsual", "Project directory (usual)")
+          : t("palette.steps.worktree.directory", "Project directory"),
+      group: "Create",
+      icon: <BanIcon />,
+      keywords: ["no worktree", "in place", "checkout"],
+      description: t(
+        "palette.steps.worktree.directoryDescription",
+        "Runs in the project's own checkout, on whatever branch it is on.",
+      ),
+      run: create({ mode: "skip" }),
+    },
+  ];
 }
 
 function useWorktreeStep(
@@ -75,6 +122,7 @@ function useWorktreeStep(
   ops: PaletteOperations,
   context: RankContext,
 ): StepView | null {
+  const { t } = useUiTranslation();
   const projectId = step?.kind === "worktree" ? step.projectId : null;
   const settings = useGetProjectSettings(projectId ?? 0, { query: { enabled: projectId != null } });
   const branches = useListBranches(
@@ -87,27 +135,7 @@ function useWorktreeStep(
     const projectDefault = defaultWorktreeModeFromSettings(settings.data);
     const create = (worktree: WorktreePick) => () =>
       ops.createConversation({ projectId, worktree, projectDefault });
-    const modes: PaletteCommand[] = [
-      {
-        id: "wt-new",
-        title: projectDefault === "new" ? "New worktree (usual)" : "New worktree",
-        group: "Create",
-        icon: <FolderGit2Icon />,
-        keywords: ["branch", "isolated", "fresh"],
-        description:
-          "A fresh branch in its own worktree: the agent's changes stay off your checkout.",
-        run: create({ mode: "new" }),
-      },
-      {
-        id: "wt-skip",
-        title: projectDefault === "skip" ? "Project directory (usual)" : "Project directory",
-        group: "Create",
-        icon: <BanIcon />,
-        keywords: ["no worktree", "in place", "checkout"],
-        description: "Runs in the project's own checkout, on whatever branch it is on.",
-        run: create({ mode: "skip" }),
-      },
-    ];
+    const modes = worktreeModes(projectDefault, create, t);
     const local = (branches.data ?? []).filter((branch) => branch.is_local);
     const branchCommands: PaletteCommand[] = local.map((branch) => ({
       id: `wt-branch-${branch.name}`,
@@ -117,22 +145,42 @@ function useWorktreeStep(
       keywords: ["reuse", "existing", "branch"],
       description:
         branch.attached_feature_id != null
-          ? `Attaches a worktree to this branch. Conversation #${branch.attached_feature_id} already uses it.`
-          : "Attaches a worktree to this existing local branch.",
+          ? t(
+              "palette.steps.worktree.attached",
+              "Attaches a worktree to this branch. Conversation #{{id}} already uses it.",
+              { id: branch.attached_feature_id },
+            )
+          : t(
+              "palette.steps.worktree.reuseDescription",
+              "Attaches a worktree to this existing local branch.",
+            ),
       run: create({ mode: "reuse", branch: branch.name }),
     }));
     return {
-      chip: { icon: <MessageSquarePlusIcon />, label: project?.name ?? "New conversation" },
-      placeholder: "Where should it work? Type to find a branch…",
+      chip: {
+        icon: <MessageSquarePlusIcon />,
+        label: project?.name ?? t("palette.steps.newConversation", "New conversation"),
+      },
+      placeholder: t(
+        "palette.steps.worktree.placeholder",
+        "Where should it work? Type to find a branch…",
+      ),
       sections: [
-        { id: "worktree", title: "Working copy", entries: filtered(text, modes, context) },
+        {
+          id: "worktree",
+          title: t("palette.steps.worktree.copy", "Working copy"),
+          entries: filtered(text, modes, context),
+        },
         {
           id: "branches",
-          title: "Reuse a local branch",
+          title: t("palette.steps.worktree.reuse", "Reuse a local branch"),
           entries: filtered(text, branchCommands, context),
           loading: branches.isPending ? "spinner" : undefined,
           error: branches.error
-            ? apiErrorMessage(branches.error, "Couldn't list branches")
+            ? apiErrorMessage(
+                branches.error,
+                t("palette.steps.worktree.error", "Couldn't list branches"),
+              )
             : undefined,
         },
       ],
@@ -146,8 +194,30 @@ function useWorktreeStep(
     projectId,
     projects,
     settings.data,
+    t,
     text,
   ]);
+}
+
+function themeDescription(
+  appearance: ThemeDefinition["appearance"],
+  followsSystem: boolean,
+  t: UiTranslator,
+): string {
+  if (appearance === "dark") {
+    return followsSystem
+      ? t(
+          "palette.steps.theme.darkStopsFollowing",
+          "Dark theme. Picking it stops following the system appearance.",
+        )
+      : t("palette.steps.theme.dark", "Dark theme.");
+  }
+  return followsSystem
+    ? t(
+        "palette.steps.theme.lightStopsFollowing",
+        "Light theme. Picking it stops following the system appearance.",
+      )
+    : t("palette.steps.theme.light", "Light theme.");
 }
 
 /** Icon-sized color stripes; the picker's `ThemeSwatch` is a card. */
@@ -172,6 +242,7 @@ function useThemeStep(
   selectedKey: string,
   context: RankContext,
 ): StepView | null {
+  const { t } = useUiTranslation();
   const theme = useTheme();
   const activeThemeRef = useRef(theme.themeId);
   activeThemeRef.current = theme.themeId;
@@ -180,19 +251,20 @@ function useThemeStep(
     () =>
       themes.map((definition) => ({
         id: `theme-${definition.id}`,
-        title: definition.id === theme.themeId ? `${definition.label} (current)` : definition.label,
+        title:
+          definition.id === theme.themeId
+            ? t("palette.steps.theme.current", "{{theme}} (current)", { theme: definition.label })
+            : definition.label,
         group: "View",
         icon: <ThemeStripes theme={definition} />,
         keywords: [definition.appearance],
-        description: `${definition.appearance === "dark" ? "Dark" : "Light"} theme.${
-          theme.followSystemTheme ? " Picking it stops following the system appearance." : ""
-        }`,
+        description: themeDescription(definition.appearance, theme.followSystemTheme, t),
         run: () => {
           if (theme.followSystemTheme) theme.setFollowSystemTheme(false);
           theme.setTheme(definition.id as ThemeId);
         },
       })),
-    [theme, themes],
+    [t, theme, themes],
   );
   const previewByKey = useMemo(
     () =>
@@ -219,14 +291,18 @@ function useThemeStep(
     () =>
       active
         ? {
-            chip: { icon: <PaletteIcon />, label: "Theme" },
-            placeholder: "Find a theme…",
+            chip: { icon: <PaletteIcon />, label: t("palette.steps.theme.label", "Theme") },
+            placeholder: t("palette.steps.theme.placeholder", "Find a theme…"),
             sections: [
-              { id: "themes", title: "Themes", entries: filtered(text, commands, context) },
+              {
+                id: "themes",
+                title: t("palette.steps.theme.section", "Themes"),
+                entries: filtered(text, commands, context),
+              },
             ],
           }
         : null,
-    [active, commands, context, text],
+    [active, commands, context, t, text],
   );
 }
 
@@ -243,11 +319,12 @@ export interface PaletteStepsInput {
 
 /** The view of the current step, or `null` in the plain search. */
 export function usePaletteSteps(input: PaletteStepsInput): StepView | null {
+  const { t } = useUiTranslation();
   const { step, text, projects, conversations, activeProjectId, ops, context, selectedKey } = input;
   const worktree = useWorktreeStep(step, text, projects, ops, context);
   const theme = useThemeStep(step?.kind === "theme", text, selectedKey, context);
   if (step?.kind === "new-conversation")
-    return projectStep(text, projects, conversations, activeProjectId);
+    return projectStep(text, projects, conversations, activeProjectId, t);
   if (step?.kind === "worktree") return worktree;
   if (step?.kind === "theme") return theme;
   return null;

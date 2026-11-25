@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef, type ReactElement } from "react";
 import { HistoryIcon } from "lucide-react";
 import { useListRecentFeatures, type Feature } from "@/api/generated";
@@ -25,6 +26,7 @@ export function SidebarRecentSection(props: SectionProps): ReactElement | null {
 }
 
 function RecentBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const count = Number(useSidebarOption("recentCount"));
   const filtering = useSidebarFilterQuery() !== "";
   const query = useListRecentFeatures(
@@ -36,17 +38,23 @@ function RecentBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactE
   const features = useMemo(() => recent.slice(0, count), [recent, count]);
   return (
     <SidebarConversationBlock
-      label="Recent"
+      label={t("sidebar.recentSection.recent", "Recent")}
       icon={HistoryIcon}
       surface="recent"
       features={features}
       loading={query.isPending}
       error={
         query.error
-          ? apiErrorMessage(query.error, "Could not load recent conversations")
+          ? apiErrorMessage(
+              query.error,
+              translateUi(
+                "sidebar.recentSection.couldNotLoadRecentConversations",
+                "Could not load recent conversations",
+              ),
+            )
           : undefined
       }
-      empty="No conversation yet"
+      empty={t("sidebar.recentSection.noConversationYet", "No conversation yet")}
       activeFeatureId={activeFeatureId}
       onSelectFeature={onSelectFeature}
     />

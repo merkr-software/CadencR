@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { Loader2Icon } from "lucide-react";
@@ -8,6 +9,7 @@ import { PaletteRow } from "./PaletteRows";
 const SKELETON_ROWS = 4;
 
 function SectionState({ section }: { section: PaletteSection }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (section.error) {
     return (
       <div className="cp-section-note" data-tone="error" role="alert">
@@ -31,7 +33,7 @@ function SectionState({ section }: { section: PaletteSection }): ReactElement | 
   return (
     <div className="cp-section-note">
       <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
-      Searching…
+      {t("palette.results.searching", "Searching…")}
     </div>
   );
 }
@@ -61,11 +63,12 @@ export const PaletteResults = memo(function PaletteResults({
   emptyTitle,
   emptyHint,
 }: PaletteResultsProps): ReactElement {
+  const { t } = useUiTranslation();
   const visible = sections.filter(
     (section) => section.entries.length > 0 || section.loading || section.error,
   );
   return (
-    <CommandPrimitive.List className="cp-list" label="Results">
+    <CommandPrimitive.List className="cp-list" label={t("palette.results.label", "Results")}>
       {visible.length === 0 && (
         <>
           <div className="cp-empty">
@@ -73,7 +76,7 @@ export const PaletteResults = memo(function PaletteResults({
             <span className="cp-empty-hint">{emptyHint}</span>
           </div>
           {fallback.length > 0 && (
-            <CommandPrimitive.Group className="cp-group" heading="Try">
+            <CommandPrimitive.Group className="cp-group" heading={t("palette.results.try", "Try")}>
               {fallback.map((entry) => (
                 <PaletteRow
                   key={entry.key}
