@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useRef, useState, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -35,6 +36,8 @@ interface UnifiedAgentsNewFeatureButtonProps {
 export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatureButton({
   projects,
 }: UnifiedAgentsNewFeatureButtonProps): ReactElement {
+  const { t } = useUiTranslation();
+  const newSessionLabel = t("agents.overview.creation.newSession", "New session");
   const [open, setOpen] = useState(false);
   const newFeatureKeys = useShortcutKeys("agents-new-feature");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +58,10 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
         });
       },
       onError: (error: unknown): void => {
-        toastError(error, "Failed to create feature");
+        toastError(
+          error,
+          translateUi("agents.overview.creation.error", "Failed to create feature"),
+        );
       },
     },
   });
@@ -77,17 +83,17 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <ShortcutTooltip label="New session" keys={newFeatureKeys} alignRight disabled={open}>
+      <ShortcutTooltip label={newSessionLabel} keys={newFeatureKeys} alignRight disabled={open}>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="default"
             size="sm"
             className="titlebar-no-drag h-9 gap-1.5 rounded-lg px-3 text-xs"
-            aria-label="New session"
+            aria-label={newSessionLabel}
           >
             <PlusIcon className="size-3.5" />
-            New
+            {t("agents.unifiedAgentsNewFeatureButton.new", "New")}
           </Button>
         </PopoverTrigger>
       </ShortcutTooltip>
@@ -100,10 +106,14 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
         }}
       >
         <Command>
-          <CommandInput ref={inputRef} placeholder="Select a project…" className="h-9 text-xs" />
+          <CommandInput
+            ref={inputRef}
+            placeholder={t("agents.add.selectProject", "Select a project…")}
+            className="h-9 text-xs"
+          />
           <CommandList className="max-h-[320px]">
             <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
-              No projects found.
+              {t("agents.add.noProjects", "No projects found.")}
             </CommandEmpty>
             <CommandGroup>
               {projects.map((project) => (

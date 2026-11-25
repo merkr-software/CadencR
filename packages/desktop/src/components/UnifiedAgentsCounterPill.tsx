@@ -1,3 +1,4 @@
+import { UiTrans } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import type { AttentionState } from "@/lib/sidebar-attention";
 import { cn } from "@/lib/utils";
@@ -25,8 +26,32 @@ export function UnifiedAgentsCounterPill({
   return (
     <span className="inline-flex items-center gap-1.5">
       <span aria-hidden="true" className={cn("size-1.5 rounded-full", DOT_CLASS[state])} />
-      <span className="font-semibold text-foreground tabular-nums">{count}</span>
-      <span>{state}</span>
+      <span>
+        <UiTrans
+          {...COUNTER_COPY[state]}
+          count={count}
+          components={{ value: <span className="font-semibold text-foreground tabular-nums" /> }}
+        />
+      </span>
     </span>
   );
 }
+
+const COUNTER_COPY = {
+  waiting: {
+    i18nKey: "agents.overview.summary.waiting",
+    defaults: "<value>{{count, number}}</value> waiting",
+  },
+  failed: {
+    i18nKey: "agents.overview.summary.failed",
+    defaults: "<value>{{count, number}}</value> failed",
+  },
+  working: {
+    i18nKey: "agents.overview.summary.working",
+    defaults: "<value>{{count, number}}</value> working",
+  },
+  unread: {
+    i18nKey: "agents.overview.summary.unread",
+    defaults: "<value>{{count, number}}</value> unread",
+  },
+} satisfies Record<CountedState, { i18nKey: string; defaults: string }>;

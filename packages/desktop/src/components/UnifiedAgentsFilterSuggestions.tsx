@@ -41,7 +41,7 @@ export function UnifiedAgentsFilterSuggestionsMenu({
     <div className="glass-surface absolute top-full left-0 z-20 mt-1 w-full overflow-hidden rounded-lg border border-border/80 bg-popover shadow-xl">
       {suggestions.map((suggestion: UnifiedAgentsFilterSuggestion, index: number) => (
         <SuggestionRow
-          key={`${suggestion.label}-${suggestion.detail}`}
+          key={suggestion.projectId ?? suggestion.replacement}
           suggestion={suggestion}
           selected={index === selectedIndex}
           onApply={onApply}

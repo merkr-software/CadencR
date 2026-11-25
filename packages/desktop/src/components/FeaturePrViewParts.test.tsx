@@ -67,7 +67,7 @@ it("updates an already displayed PR timestamp with the UI language", async () =>
   try {
     expect(screen.getByText("2 minutes ago")).toBeVisible();
     await act(async () => {
-      await uiI18n.changeLanguage("fr");
+      await uiI18n.changeLanguage("fr-CA");
     });
     expect(screen.getByText("il y a 2 minutes")).toBeVisible();
   } finally {

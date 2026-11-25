@@ -1,4 +1,4 @@
-import { translateUi } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type RefObject, type ReactElement } from "react";
 import { parseThinkingEffort } from "@/shared/thinking-effort";
 import { contextUsageToShow } from "@/types/agent";
@@ -130,7 +130,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
 }, composerPropsEqual);
 
 /** Why the active mode won't hold with this model, or null when it will. */
-function modeIncompatibleReason(session: AgentSessionProps): string | null {
+function modeIncompatibleReason(session: AgentSessionProps, t: UiTranslator): string | null {
   if (session.modelSupportsAutoMode !== false || !session.permissionMode) return null;
   const mode = findProviderMode(
     session.selection?.providerId,
@@ -138,7 +138,7 @@ function modeIncompatibleReason(session: AgentSessionProps): string | null {
     session.providerModes,
   );
   if (mode?.risk !== "auto") return null;
-  return translateUi(
+  return t(
     "conversation.stream.agentSessionComposer.thisModelCanTRunSoThe",
     "This model can't run {{mode}}, so the session falls back to accepting edits only. Pick a model that supports it, or another mode.",
     { mode: mode.label },
@@ -151,13 +151,14 @@ function AgentSessionMeta(
     section: MetaBarSection;
   },
 ): ReactElement {
+  const { t } = useUiTranslation();
   const session = props.sessionProps;
   return (
     <MetaBar
       ref={props.section === "utilities" ? undefined : props.metaBarRef}
       section={props.section}
       onPermissionModeSet={session.onPermissionModeSet}
-      modeIncompatibleReason={modeIncompatibleReason(session)}
+      modeIncompatibleReason={modeIncompatibleReason(session, t)}
       variant={props.metaVariant}
       showAutoScrollChip={props.showAutoScrollChip}
       autoScrollEnabled={props.autoScrollEnabled}

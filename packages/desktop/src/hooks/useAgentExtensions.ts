@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import {
   keepPreviousData,
@@ -126,7 +127,14 @@ export function useRefreshAgentExtensions() {
         listSkills({ refresh: true, limit: 1 }),
         listInstalledMcpServers({ refresh: true }),
       ]),
-    onError: (error) => toastError(error, "The agent CLIs could not refresh their marketplaces."),
+    onError: (error) =>
+      toastError(
+        error,
+        translateUi(
+          "marketplace.agent.refreshError",
+          "The agent CLIs could not refresh their marketplaces.",
+        ),
+      ),
     onSettled: () => invalidateExtensionInventories(client),
   });
 }

@@ -1,3 +1,4 @@
+import { translateUi } from "./i18n/ui";
 /**
  * Per-provider permission-mode catalog. Single source of truth for what
  * appears in the prompt-bar mode chip & the Shift+Tab cycle.
@@ -28,15 +29,6 @@ import { OPENCODE_AGENT_MODE_PREFIX, type PermissionMode } from "@/types/permiss
  * color stays the provider's own (`tone`).
  */
 export type ModeRisk = "read" | "ask" | "edits" | "auto" | "bypass";
-
-/** Short, provider-neutral gloss shown under the mode label. */
-export const MODE_RISK_LABEL: Record<ModeRisk, string> = {
-  read: "Read-only",
-  ask: "Asks before acting",
-  edits: "Edits without asking",
-  auto: "Acts on its own",
-  bypass: "No guardrails",
-};
 
 export interface ProviderMode {
   /** Wire value sent to the backend. */
@@ -79,49 +71,83 @@ export interface ProviderMode {
 const CLAUDE_CODE_MODES: ProviderMode[] = [
   {
     id: "auto",
-    label: "Auto",
+    get label() {
+      return translateUi("agents.modes.claude.auto.label", "Auto");
+    },
     icon: Sparkles,
     risk: "auto",
     ...MODE_ACCENTS.yellow,
-    description:
-      "Classifier-backed: safe actions auto-run, risky ones blocked. Requires Sonnet 4.6 / Opus 4.6+.",
+    get description() {
+      return translateUi(
+        "agents.modes.claude.auto.description",
+        "Classifier-backed: safe actions auto-run, risky ones blocked. Requires Sonnet 4.6 / Opus 4.6+.",
+      );
+    },
   },
   {
     id: "acceptEdits",
-    label: "Auto-Accept Edits",
+    get label() {
+      return translateUi("agents.modes.claude.acceptEdits.label", "Auto-Accept Edits");
+    },
     icon: FileEditIcon,
     risk: "edits",
     ...MODE_ACCENTS.violet,
-    description: "Auto-approve file edits in the working directory.",
+    get description() {
+      return translateUi(
+        "agents.modes.claude.acceptEdits.description",
+        "Auto-approve file edits in the working directory.",
+      );
+    },
   },
   {
     id: "plan",
-    label: "Plan",
+    get label() {
+      return translateUi("agents.modes.claude.plan.label", "Plan");
+    },
     icon: ClipboardList,
     risk: "read",
     ...MODE_ACCENTS.green,
-    description: "Research and propose changes without editing source.",
+    get description() {
+      return translateUi(
+        "agents.modes.claude.plan.description",
+        "Research and propose changes without editing source.",
+      );
+    },
   },
   {
     id: "bypassPermissions",
-    label: "Bypass",
+    get label() {
+      return translateUi("agents.modes.claude.bypassPermissions.label", "Bypass");
+    },
     icon: ShieldOff,
     risk: "bypass",
     tone: "var(--acc-red)",
     chipClass: "bg-[var(--acc-red)]/15 text-[var(--acc-red)] hover:bg-[var(--acc-red)]/25",
-    description: "Dangerous: skip Claude Code permission prompts and checks.",
+    get description() {
+      return translateUi(
+        "agents.modes.claude.bypassPermissions.description",
+        "Dangerous: skip Claude Code permission prompts and checks.",
+      );
+    },
     optIn: true,
   },
   {
     // The CLI's manual mode. Cadencr never starts a session in it, but the
     // backend accepts it and the CLI runs it, so the chip must be able to say so.
     id: "default",
-    label: "Default",
+    get label() {
+      return translateUi("agents.modes.claude.default.label", "Default");
+    },
     icon: Hammer,
     risk: "ask",
     tone: "var(--muted-foreground)",
     chipClass: MODE_ACCENTS.blue.chipClass,
-    description: "Ask before each edit or command, as Claude Code's default mode.",
+    get description() {
+      return translateUi(
+        "agents.modes.claude.default.description",
+        "Ask before each edit or command, as Claude Code's default mode.",
+      );
+    },
     heldOnly: true,
   },
 ];
@@ -129,45 +155,73 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
 const OPENCODE_MODES: ProviderMode[] = [
   {
     id: "acceptEdits",
-    label: "Build",
+    get label() {
+      return translateUi("agents.modes.opencode.acceptEdits.label", "Build");
+    },
     icon: Hammer,
     risk: "edits",
     tone: "var(--chip-fuchsia-fg)",
     chipClass:
       "bg-[var(--chip-fuchsia-bg)]/15 text-[var(--chip-fuchsia-fg)] hover:bg-[var(--chip-fuchsia-bg)]/25",
-    description: "Default OpenCode agent with all tools enabled.",
+    get description() {
+      return translateUi(
+        "agents.modes.opencode.acceptEdits.description",
+        "Default OpenCode agent with all tools enabled.",
+      );
+    },
   },
   {
     id: "plan",
-    label: "Plan",
+    get label() {
+      return translateUi("agents.modes.opencode.plan.label", "Plan");
+    },
     icon: ClipboardList,
     risk: "read",
     ...MODE_ACCENTS.yellow,
-    description: "Restricted OpenCode agent for analysis without changes.",
+    get description() {
+      return translateUi(
+        "agents.modes.opencode.plan.description",
+        "Restricted OpenCode agent for analysis without changes.",
+      );
+    },
   },
 ];
 
 const CODEX_MODES: ProviderMode[] = [
   {
     id: "default",
-    label: "Default",
+    get label() {
+      return translateUi("agents.modes.codex.default.label", "Default");
+    },
     icon: Hammer,
     risk: "ask",
     // Grey in the composer: on Codex only Plan is a "mode". The compact chip
     // (other surfaces) keeps its historical blue.
     tone: "var(--muted-foreground)",
     chipClass: MODE_ACCENTS.blue.chipClass,
-    description: "Workspace-write sandbox with on-request approvals.",
+    get description() {
+      return translateUi(
+        "agents.modes.codex.default.description",
+        "Workspace-write sandbox with on-request approvals.",
+      );
+    },
   },
   {
     id: "plan",
-    label: "Plan",
+    get label() {
+      return translateUi("agents.modes.codex.plan.label", "Plan");
+    },
     icon: ClipboardList,
     risk: "read",
     tone: "var(--chip-fuchsia-fg)",
     chipClass:
       "bg-[var(--chip-fuchsia-bg)]/15 text-[var(--chip-fuchsia-fg)] hover:bg-[var(--chip-fuchsia-bg)]/25",
-    description: "Plan first; sandbox/approvals match Default.",
+    get description() {
+      return translateUi(
+        "agents.modes.codex.plan.description",
+        "Plan first; sandbox/approvals match Default.",
+      );
+    },
   },
 ];
 
@@ -203,7 +257,16 @@ function opencodeCatalogMode(mode: RuntimeProviderModeOption): ProviderMode {
     ...UNKNOWN_MODE_STYLE,
     id: mode.id,
     label: mode.label,
-    description: mode.description ?? `Use the OpenCode ${mode.label} agent.`,
+    get description() {
+      return (
+        mode.description ??
+        translateUi(
+          "agents.modes.opencode.catalogDescription",
+          "Use the OpenCode {{name}} agent.",
+          { name: mode.label },
+        )
+      );
+    },
   };
 }
 

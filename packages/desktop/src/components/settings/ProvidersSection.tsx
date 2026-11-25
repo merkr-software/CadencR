@@ -1,6 +1,8 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { providerAccessModeConfig } from "@/lib/provider-access-modes";
+import { findProviderMode } from "@/lib/provider-modes";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata, PROVIDER_IDS, type ProviderId } from "@/lib/providers";
 import { CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY } from "@/shared/permission-mode-settings";
@@ -40,17 +42,24 @@ function useConfigurableCatalogProviders(): RuntimeProviderOption[] {
 }
 
 export function ProvidersSection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const catalogProviders = useConfigurableCatalogProviders();
   return (
     <SettingsPageSection pageId="providers">
       <ProviderUpdatesCard />
       <SettingsGroup
         id={SETTINGS_ANCHORS.providerConfig}
-        title="Configuration"
-        description="Each provider's install, profiles and permission options."
+        title={t("settings.providers.providersSection.configuration", "Configuration")}
+        description={t(
+          "settings.providers.providersSection.eachProviderSInstallProfilesAndPermissionOptions",
+          "Each provider's install, profiles and permission options.",
+        )}
       >
         <Tabs defaultValue={PROVIDER_IDS.CLAUDE_CODE}>
-          <TabsList aria-label="Provider" className="px-2">
+          <TabsList
+            aria-label={t("settings.providers.providersSection.provider", "Provider")}
+            className="px-2"
+          >
             {PROVIDER_TABS.map((id) => (
               <TabsTrigger key={id} value={id}>
                 <ProviderIcon providerId={id} alt="" className="size-4 rounded-sm shrink-0" />
@@ -92,16 +101,24 @@ export function ProvidersSection(): React.JSX.Element {
 }
 
 function ClaudeProviderPanel(): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const bypassLabel =
+    findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "bypassPermissions")?.label ?? "Bypass";
+  const bypassPermission = "BypassPermissions";
   return (
     <>
       <SettingsSubsection>
         <BinaryDiscoverySection
           discoveryKey="claude"
           description={
-            <>
-              Every <strong>claude</strong> install Cadencr found on disk. The selected one is what
-              gets spawned. To override, set a path during onboarding.
-            </>
+            <UiTrans
+              i18nKey="settings.providers.providersSection.claudeDiscovery"
+              defaults={
+                "Every <strong>{{binary}}</strong> install Cadencr found on disk. The selected one is what gets spawned. To override, set a path during onboarding."
+              }
+              components={{ strong: <strong /> }}
+              values={{ binary: "claude" }}
+            />
           }
         />
       </SettingsSubsection>
@@ -114,24 +131,40 @@ function ClaudeProviderPanel(): React.JSX.Element {
       <DangerousModeToggle
         variant="subsection"
         settingKey={CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY}
-        title="Allow BypassPermissions"
+        title={t(
+          "settings.providers.providersSection.allowBypassPermissions",
+          "Allow {{permission}}",
+          { permission: bypassPermission },
+        )}
         description={
-          <>
-            Adds <strong>Bypass</strong> to Claude's permission-mode selector and cycle. Enabling
-            this setting makes the mode available; Claude only skips checks when the current mode is
-            Bypass.
-          </>
+          <UiTrans
+            i18nKey="settings.providers.providersSection.bypassDescription"
+            defaults={
+              "Adds <strong>{{mode}}</strong> to Claude's permission-mode selector and cycle. Enabling this setting makes the mode available; Claude only skips checks when the current mode is {{mode}}."
+            }
+            components={{ strong: <strong /> }}
+            values={{ mode: bypassLabel }}
+          />
         }
-        warningTitle="Enable BypassPermissions for Claude?"
+        warningTitle={t(
+          "settings.providers.providersSection.bypassConfirm",
+          "Enable {{permission}} for Claude?",
+          { permission: bypassPermission },
+        )}
         warningBody={
           <>
             <p>
-              BypassPermissions disables every safety check. Claude can edit, delete, and run any
-              command without confirmation, including destructive ones.
+              {t(
+                "settings.providers.providersSection.bypassPermissionsDisablesEverySafetyCheckClaudeCan",
+                "{{permission}} disables every safety check. Claude can edit, delete, and run any command without confirmation, including destructive ones.",
+                { permission: bypassPermission },
+              )}
             </p>
             <p>
-              Only enable this in isolated environments (containers, VMs, dev containers) where
-              Claude cannot damage your host system. You can always toggle it off later.
+              {t(
+                "settings.providers.providersSection.onlyEnableThisInIsolatedEnvironmentsContainers",
+                "Only enable this in isolated environments (containers, VMs, dev containers) where Claude cannot damage your host system. You can always toggle it off later.",
+              )}
             </p>
           </>
         }
@@ -146,11 +179,14 @@ function OpencodeProviderPanel(): React.JSX.Element {
       <BinaryDiscoverySection
         discoveryKey="opencode"
         description={
-          <>
-            Every <strong>opencode</strong> install Cadencr found on disk. The selected one is
-            spawned as <strong>opencode acp</strong>; override via onboarding or the{" "}
-            <strong>opencode_cli_path</strong> workspace setting.
-          </>
+          <UiTrans
+            i18nKey="settings.providers.providersSection.opencodeDiscovery"
+            defaults={
+              "Every <strong>{{binary}}</strong> install Cadencr found on disk. The selected one is spawned as <strong>{{command}}</strong>; override via onboarding or the <strong>{{setting}}</strong> workspace setting."
+            }
+            components={{ strong: <strong /> }}
+            values={{ binary: "opencode", command: "opencode acp", setting: "opencode_cli_path" }}
+          />
         }
       />
     </SettingsSubsection>
@@ -164,11 +200,14 @@ function CodexProviderPanel(): React.JSX.Element {
         <BinaryDiscoverySection
           discoveryKey="codex"
           description={
-            <>
-              Every <strong>codex</strong> install Cadencr found on disk. The selected one is used
-              to start <strong>codex app-server</strong>; override via onboarding or the{" "}
-              <strong>codex_cli_path</strong> workspace setting.
-            </>
+            <UiTrans
+              i18nKey="settings.providers.providersSection.codexDiscovery"
+              defaults={
+                "Every <strong>{{binary}}</strong> install Cadencr found on disk. The selected one is used to start <strong>{{command}}</strong>; override via onboarding or the <strong>{{setting}}</strong> workspace setting."
+              }
+              components={{ strong: <strong /> }}
+              values={{ binary: "codex", command: "codex app-server", setting: "codex_cli_path" }}
+            />
           }
         />
       </SettingsSubsection>

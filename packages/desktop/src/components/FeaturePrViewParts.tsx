@@ -7,8 +7,7 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { useMemo, useState, type ReactElement } from "react";
-import { formatDistanceToNowStrict } from "date-fns";
-import { fr } from "date-fns/locale";
+import { formatRelativeDistance } from "@/lib/date-utils";
 import { type PrStatusSnapshot } from "@/api/generated";
 import { Markdown } from "@/components/Markdown";
 import { PR_MARKDOWN_CLASS } from "@/components/pr-markdown";
@@ -20,10 +19,7 @@ import { cn } from "@/lib/utils";
 function relativeTime(value: string, language: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return formatDistanceToNowStrict(date, {
-    addSuffix: true,
-    locale: language === "fr" ? fr : undefined,
-  });
+  return formatRelativeDistance(date, language);
 }
 
 export function PrViewLoading(): ReactElement {

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -17,6 +18,7 @@ import { SettingsRow } from "./SettingsRow";
 import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 export function ProviderDevelopmentCard(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [dialogOpen, setDialogOpen] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -36,18 +38,17 @@ export function ProviderDevelopmentCard(): React.JSX.Element {
         {
           onSuccess: (workspace) => {
             setDialogOpen(false);
-            toast.success(
-              draft.directory ? "Provider project imported" : "Provider project created",
-              {
-                description: draft.directory
-                  ? "The trusted local connector is registered. Restart Cadencr to test it."
-                  : "Ask your agent to read INSTRUCTION.md, then restart Cadencr to test.",
-              },
-            );
+            notifyWorkspaceCreated(Boolean(draft.directory));
             navigateToFeatureIdOrHome(navigate, workspace.project_id, workspace.feature_id);
             void invalidateByExactUrl(queryClient, ["/api/projects", "/api/features"]).catch(
               (error: unknown) => {
-                toastError(error, "Provider created, but the project list could not be refreshed");
+                toastError(
+                  error,
+                  translateUi(
+                    "settings.providers.providerDevelopmentCard.refreshError",
+                    "Provider created, but the project list could not be refreshed",
+                  ),
+                );
               },
             );
           },
@@ -55,8 +56,14 @@ export function ProviderDevelopmentCard(): React.JSX.Element {
             toastError(
               error,
               draft.directory
-                ? "Failed to import the provider project"
-                : "Failed to create the provider project",
+                ? translateUi(
+                    "settings.providers.providerDevelopmentCard.importError",
+                    "Failed to import the provider project",
+                  )
+                : translateUi(
+                    "settings.providers.providerDevelopmentCard.createError",
+                    "Failed to create the provider project",
+                  ),
             );
           },
         },
@@ -69,17 +76,30 @@ export function ProviderDevelopmentCard(): React.JSX.Element {
     <>
       <SettingsGroup
         id={SETTINGS_ANCHORS.providerConnector}
-        title="Build a provider connector"
-        description="Bring another agent CLI into Cadencr with a code-backed local provider, built in a normal Cadencr workspace."
+        title={t(
+          "settings.providers.providerDevelopmentCard.buildAProviderConnector",
+          "Build a provider connector",
+        )}
+        description={t(
+          "settings.providers.providerDevelopmentCard.bringAnotherAgentCliIntoCadencrWith",
+          "Bring another agent CLI into Cadencr with a code-backed local provider, built in a normal Cadencr workspace.",
+        )}
       >
         <SettingsRow
           align="start"
-          label="New provider project"
-          description="The scaffold tells your agent how to implement model discovery and ACP v1. Providers register when Cadencr starts, so restart it between changes before testing."
+          label={t(
+            "settings.providers.providerDevelopmentCard.newProviderProject",
+            "New provider project",
+          )}
+          description={t(
+            "settings.providers.providerDevelopmentCard.theScaffoldTellsYourAgentHowTo",
+            "The scaffold tells your agent how to implement model discovery and {{protocol}}. Providers register when Cadencr starts, so restart it between changes before testing.",
+            { protocol: "ACP v1" },
+          )}
           control={
             <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
               <Plus aria-hidden />
-              Add provider
+              {t("settings.providers.providerDevelopmentCard.addProvider", "Add provider")}
             </Button>
           }
         />
@@ -92,5 +112,31 @@ export function ProviderDevelopmentCard(): React.JSX.Element {
         />
       ) : null}
     </>
+  );
+}
+
+function notifyWorkspaceCreated(imported: boolean): void {
+  toast.success(
+    imported
+      ? translateUi(
+          "settings.providers.providerDevelopmentCard.imported",
+          "Provider project imported",
+        )
+      : translateUi(
+          "settings.providers.providerDevelopmentCard.created",
+          "Provider project created",
+        ),
+    {
+      description: imported
+        ? translateUi(
+            "settings.providers.providerDevelopmentCard.restartImported",
+            "The trusted local connector is registered. Restart Cadencr to test it.",
+          )
+        : translateUi(
+            "settings.providers.providerDevelopmentCard.restartCreated",
+            "Ask your agent to read {{file}}, then restart Cadencr to test.",
+            { file: "INSTRUCTION.md" },
+          ),
+    },
   );
 }

@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { Project } from "@/api/generated";
 import type { UnifiedAgentsFilterMode } from "@/components/UnifiedAgentsFilters";
 import type { UnifiedAgentsSortOrder } from "@/components/UnifiedAgentsFilterState";
@@ -157,13 +158,14 @@ export function replaceFilterToken(
 export function getUnifiedAgentsFilterSuggestions(
   tokenText: string,
   projects: Project[],
+  t: UiTranslator = translateUi,
 ): UnifiedAgentsFilterSuggestion[] {
   const pair = parseFilterTokenPair(tokenText);
   if (!tokenText.startsWith("/")) return [];
-  if (!pair) return getKeySuggestions(tokenText.slice(1));
-  if (pair.key === "last") return getLastSuggestions(pair.value);
-  if (pair.key === "sort") return getSortSuggestions(pair.value);
-  if (pair.key === "pin") return getPinSuggestions(pair.value);
+  if (!pair) return getKeySuggestions(tokenText.slice(1), t);
+  if (pair.key === "last") return getLastSuggestions(pair.value, t);
+  if (pair.key === "sort") return getSortSuggestions(pair.value, t);
+  if (pair.key === "pin") return getPinSuggestions(pair.value, t);
   if (pair.key === "project") return getProjectSuggestions(pair.value, projects);
   return [];
 }
@@ -297,54 +299,62 @@ function addFreeTextToken(textParts: string[], token: string): void {
   textParts.push(token);
 }
 
-function getKeySuggestions(token: string): UnifiedAgentsFilterSuggestion[] {
+function getKeySuggestions(token: string, t: UiTranslator): UnifiedAgentsFilterSuggestion[] {
   const normalized = token.toLowerCase();
   return UNIFIED_AGENTS_FILTER_KEYS.filter((key: string): boolean =>
     key.startsWith(normalized),
   ).map((key: UnifiedAgentsFilterKey): UnifiedAgentsFilterSuggestion => ({
     label: `/${key}:`,
-    detail: keySuggestionDetail(key),
+    detail: keySuggestionDetail(key, t),
     replacement: `/${key}:`,
     key,
   }));
 }
 
-function getLastSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
+function getLastSuggestions(value: string, t: UiTranslator): UnifiedAgentsFilterSuggestion[] {
   return LAST_PRESETS.filter((preset: string): boolean =>
     preset.startsWith(normalizeFilterValue(value)),
   ).map((preset: string): UnifiedAgentsFilterSuggestion => ({
     label: `/last:${preset}`,
-    detail: preset === "all" ? "Every agent (default)" : `Active in the last ${preset} minutes`,
+    detail:
+      preset === "all"
+        ? t("agents.filter.suggestions.all", "Every agent (default)")
+        : t("agents.filter.suggestions.lastMinutes", "Active in the last {{count}} minutes", {
+            count: Number(preset),
+          }),
     replacement: `/last:${preset}`,
     key: "last",
   }));
 }
 
-function getSortSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
+function getSortSuggestions(value: string, t: UiTranslator): UnifiedAgentsFilterSuggestion[] {
   const normalized = normalizeFilterValue(value).toLowerCase();
   return SORT_VALUES.filter((sortValue: string): boolean => sortValue.startsWith(normalized)).map(
     (sortValue: string): UnifiedAgentsFilterSuggestion => ({
       label: `/sort:${sortValue}`,
-      detail: sortDetail(sortValue),
+      detail: sortDetail(sortValue, t),
       replacement: `/sort:${sortValue}`,
       key: "sort",
     }),
   );
 }
 
-function sortDetail(sortValue: string): string {
-  if (sortValue === "attention") return "Needs you first, then working, then unread";
-  return sortValue.startsWith("-") ? "Ascending order" : "Descending order";
+function sortDetail(sortValue: string, t: UiTranslator): string {
+  if (sortValue === "attention")
+    return t("agents.filter.suggestions.attention", "Needs you first, then working, then unread");
+  return sortValue.startsWith("-")
+    ? t("agents.filter.suggestions.ascending", "Ascending order")
+    : t("agents.filter.suggestions.descending", "Descending order");
 }
 
-function getPinSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
+function getPinSuggestions(value: string, t: UiTranslator): UnifiedAgentsFilterSuggestion[] {
   return ["true"]
     .filter((preset: string): boolean =>
       preset.startsWith(normalizeFilterValue(value).toLowerCase()),
     )
     .map((preset: string): UnifiedAgentsFilterSuggestion => ({
       label: `/pin:${preset}`,
-      detail: "Only pinned agents",
+      detail: t("agents.filter.suggestions.pinned", "Only pinned agents"),
       replacement: `/pin:${preset}`,
       key: "pin",
     }));
@@ -368,12 +378,12 @@ function getProjectSuggestions(
     }));
 }
 
-function keySuggestionDetail(key: UnifiedAgentsFilterKey): string {
-  if (key === "last") return "Activity window";
-  if (key === "project") return "Project";
-  if (key === "exclude") return "Hide agents by name";
-  if (key === "pin") return "Only pinned agents";
-  return "Sort order";
+function keySuggestionDetail(key: UnifiedAgentsFilterKey, t: UiTranslator): string {
+  if (key === "last") return t("agents.filter.suggestions.activityWindow", "Activity window");
+  if (key === "project") return t("agents.filter.suggestions.project", "Project");
+  if (key === "exclude") return t("agents.filter.suggestions.exclude", "Hide agents by name");
+  if (key === "pin") return t("agents.filter.suggestions.pinned", "Only pinned agents");
+  return t("agents.filter.suggestions.sort", "Sort order");
 }
 
 function isFilterKey(key: string): key is UnifiedAgentsFilterKey {

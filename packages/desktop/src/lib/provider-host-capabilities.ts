@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { z } from "zod";
 import type { ProviderPromptCapabilities, ProviderResumeCommand } from "@/api/generated";
 
@@ -49,7 +50,11 @@ export function validateHostCapabilityFields<T extends { id: string }>(
   const parsed = hostCapabilityFieldsSchema.safeParse(entry);
   if (!parsed.success) {
     throw new Error(
-      `Agent catalog entry "${entry.id}" has invalid host capabilities: ${z.prettifyError(parsed.error)}`,
+      translateUi(
+        "settings.providers.catalog.invalidCapabilities",
+        'Agent catalog entry "{{provider}}" has invalid host capabilities: {{reason}}',
+        { provider: entry.id, reason: z.prettifyError(parsed.error) },
+      ),
     );
   }
   const { compact_action, resume_command, prompt_capabilities } = parsed.data;

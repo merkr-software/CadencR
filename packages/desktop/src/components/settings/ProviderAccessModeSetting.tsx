@@ -1,10 +1,11 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { useAgentCatalog } from "@/api/agentRuntime";
 import { RadioCardGroup } from "@/components/settings/RadioCardGroup";
 import { SettingsHeading } from "@/components/settings/SettingsHeading";
 import { ErrorRow, LoadingRow } from "@/components/settings/SettingsStateRows";
 import { useAccessModeSetting } from "@/hooks/useAccessModeSetting";
-import { providerAccessModeConfig } from "@/lib/provider-access-modes";
+import { displayProviderAccessMode, providerAccessModeConfig } from "@/lib/provider-access-modes";
 import type { AccessMode } from "@/types/access-mode";
 
 interface ProviderAccessModeSettingProps {
@@ -14,6 +15,7 @@ interface ProviderAccessModeSettingProps {
 export function ProviderAccessModeSetting({
   providerId,
 }: ProviderAccessModeSettingProps): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const catalog = useAgentCatalog();
   const entry = catalog.data?.providers.find((provider) => provider.id === providerId);
   const config = providerAccessModeConfig(
@@ -25,31 +27,52 @@ export function ProviderAccessModeSetting({
   const accessModes = entry?.access_modes;
   const options = useMemo(
     () =>
-      accessModes?.map((option) => ({
-        value: option.id,
-        label: option.label,
-        description: option.description,
-      })) ?? [],
-    [accessModes],
+      accessModes?.map((option) => {
+        const { id, label, description } = displayProviderAccessMode(providerId, option, t);
+        return { value: id, label, description };
+      }) ?? [],
+    [accessModes, providerId, t],
   );
   if (!config) return null;
 
   return (
     <div className="space-y-3">
       <SettingsHeading
-        title={`${config.providerLabel} access mode`}
-        description={`Applies to new ${config.providerLabel} conversations. Existing conversations keep their stored mode.`}
+        title={t("settings.providers.providerAccessModeSetting.title", "{{provider}} access mode", {
+          provider: config.providerLabel,
+        })}
+        description={t(
+          "settings.providers.providerAccessModeSetting.description",
+          "Applies to new {{provider}} conversations. Existing conversations keep their stored mode.",
+          { provider: config.providerLabel },
+        )}
       />
       {catalog.isLoading ? (
-        <LoadingRow label={`Loading ${config.providerLabel} access modes…`} />
+        <LoadingRow
+          label={t(
+            "settings.providers.providerAccessModeSetting.loading",
+            "Loading {{provider}} access modes…",
+            { provider: config.providerLabel },
+          )}
+        />
       ) : catalog.isError || isError ? (
-        <ErrorRow label={`Failed to load ${config.providerLabel} access modes.`} />
+        <ErrorRow
+          label={t(
+            "settings.providers.providerAccessModeSetting.loadError",
+            "Failed to load {{provider}} access modes.",
+            { provider: config.providerLabel },
+          )}
+        />
       ) : (
         <RadioCardGroup<AccessMode>
           value={globalAccessMode}
           onChange={handleAccessModeChange}
           options={options}
-          ariaLabel={`${config.providerLabel} access mode`}
+          ariaLabel={t(
+            "settings.providers.providerAccessModeSetting.title",
+            "{{provider}} access mode",
+            { provider: config.providerLabel },
+          )}
           layout="grid"
           columns={3}
           disabled={isLoading || isPending}

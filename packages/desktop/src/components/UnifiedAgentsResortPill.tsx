@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { ArrowDownUpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ export const UnifiedAgentsResortPill = memo(function UnifiedAgentsResortPill({
   changes: number;
   onResort: () => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (changes === 0) return null;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center">
@@ -25,9 +27,14 @@ export const UnifiedAgentsResortPill = memo(function UnifiedAgentsResortPill({
         className="unified-agents-resort-pill pointer-events-auto h-7 gap-1.5 rounded-full border border-border px-3 text-xs shadow-md"
       >
         <ArrowDownUpIcon className="size-3.5" />
-        {changes === 1 ? "1 agent changed" : `${changes} agents changed`}
+        {t("agents.overview.sort.changedAgents", "{{count}} agents changed", {
+          count: changes,
+          defaultValue_one: "{{count}} agent changed",
+        })}
         <span className="text-muted-foreground">·</span>
-        <span className="font-semibold">Re-sort</span>
+        <span className="font-semibold">
+          {t("agents.unifiedAgentsResortPill.reSort", "Re-sort")}
+        </span>
       </Button>
     </div>
   );

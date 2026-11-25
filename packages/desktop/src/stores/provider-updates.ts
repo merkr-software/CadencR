@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { RESET_TOAST_STAGE } from "@/lib/staged-toast";
 import { z } from "zod";
@@ -103,9 +104,18 @@ function openProviderSettings(): void {
       document.getElementById(PROVIDER_UPDATES_SETTINGS_ANCHOR)?.scrollIntoView({ block: "start" });
     })
     .catch((error: unknown) => {
-      toast.error("Could not open provider settings", {
-        description: apiErrorMessage(error, "Navigation failed"),
-      });
+      toast.error(
+        translateUi(
+          "settings.providers.updatesToast.settingsError",
+          "Could not open provider settings",
+        ),
+        {
+          description: apiErrorMessage(
+            error,
+            translateUi("settings.providers.updatesToast.navigationError", "Navigation failed"),
+          ),
+        },
+      );
     });
 }
 
@@ -124,31 +134,48 @@ function notifyNewProviderVersions(providers: ProviderUpdateStatus[]): void {
   localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify(notified));
 
   if (fresh.length > 1) {
-    toast("Provider updates available", {
+    toast(translateUi("settings.providers.updatesToast.available", "Provider updates available"), {
       id: "provider-updates-available",
       description: fresh.map((status) => `${status.label} ${status.latest_version}`).join(" · "),
       duration: 15_000,
-      action: { label: "Review", onClick: openProviderSettings },
+      action: {
+        label: translateUi("settings.providers.updatesToast.review", "Review"),
+        onClick: openProviderSettings,
+      },
     });
     return;
   }
   const [status] = fresh;
-  toast(`${status.label} ${status.latest_version} is available`, {
-    id: toastId(status.provider_id),
-    description: status.current_version ? `You have ${status.current_version}.` : undefined,
-    duration: 15_000,
-    action: {
-      label: "Update",
-      onClick: (event) => {
-        // Sonner closes a toast after its action unless the click is
-        // prevented — and that close would remove the "Updating…" toast this
-        // one turns into, since both share the id.
-        event.preventDefault();
-        void startProviderUpdate(status);
+  toast(
+    translateUi(
+      "settings.providers.updatesToast.versionAvailable",
+      "{{provider}} {{version}} is available",
+      { provider: status.label, version: status.latest_version },
+    ),
+    {
+      id: toastId(status.provider_id),
+      description: status.current_version
+        ? translateUi("settings.providers.updatesToast.installedVersion", "You have {{version}}.", {
+            version: status.current_version,
+          })
+        : undefined,
+      duration: 15_000,
+      action: {
+        label: translateUi("settings.providers.updatesToast.update", "Update"),
+        onClick: (event) => {
+          // Sonner closes a toast after its action unless the click is
+          // prevented — and that close would remove the "Updating…" toast this
+          // one turns into, since both share the id.
+          event.preventDefault();
+          void startProviderUpdate(status);
+        },
+      },
+      cancel: {
+        label: translateUi("settings.providers.updatesToast.details", "Details"),
+        onClick: openProviderSettings,
       },
     },
-    cancel: { label: "Details", onClick: openProviderSettings },
-  });
+  );
 }
 
 /** Start an update; its outcome arrives later as a WebSocket event. */
@@ -157,41 +184,81 @@ export async function startProviderUpdate(
   version?: string,
 ): Promise<void> {
   const id = toastId(status.provider_id);
-  toast.loading(`Updating ${status.label}…`, { ...RESET_TOAST_STAGE, id });
+  toast.loading(
+    translateUi("settings.providers.updatesToast.updating", "Updating {{provider}}…", {
+      provider: status.label,
+    }),
+    { ...RESET_TOAST_STAGE, id },
+  );
   openUpdateToasts.add(status.provider_id);
   try {
     await updateProvider(status.provider_id, version ? { version } : {});
   } catch (error) {
     openUpdateToasts.delete(status.provider_id);
-    toast.error(`Could not update ${status.label}`, {
-      ...RESET_TOAST_STAGE,
-      id,
-      description: apiErrorMessage(error, "The update request failed"),
-    });
+    toast.error(
+      translateUi("settings.providers.updatesToast.updateError", "Could not update {{provider}}", {
+        provider: status.label,
+      }),
+      {
+        ...RESET_TOAST_STAGE,
+        id,
+        description: apiErrorMessage(
+          error,
+          translateUi("settings.providers.updatesToast.requestError", "The update request failed"),
+        ),
+      },
+    );
   }
 }
 
 function showOutcomeToast(outcome: ProviderUpdateOutcome): void {
   const id = toastId(outcome.provider_id);
   if (!outcome.success) {
-    toast.error(`${outcome.label} update failed`, {
-      ...RESET_TOAST_STAGE,
-      id,
-      description: outcome.message ?? "The provider's updater reported an error.",
-      duration: 20_000,
-      action: { label: "Details", onClick: openProviderSettings },
-    });
+    toast.error(
+      translateUi("settings.providers.updatesToast.updateFailed", "{{provider}} update failed", {
+        provider: outcome.label,
+      }),
+      {
+        ...RESET_TOAST_STAGE,
+        id,
+        description:
+          outcome.message ??
+          translateUi(
+            "settings.providers.updatesToast.updaterError",
+            "The provider's updater reported an error.",
+          ),
+        duration: 20_000,
+        action: {
+          label: translateUi("settings.providers.updatesToast.details", "Details"),
+          onClick: openProviderSettings,
+        },
+      },
+    );
     return;
   }
   const { previous_version: previous, current_version: current } = outcome;
   const changed = previous && current && previous !== current;
-  toast.success(`${outcome.label} updated`, {
-    ...RESET_TOAST_STAGE,
-    id,
-    description: changed
-      ? `${previous} → ${current}. New sessions use it; running ones keep their version.`
-      : (outcome.message ?? (current ? `Now on ${current}.` : undefined)),
-  });
+  toast.success(
+    translateUi("settings.providers.updatesToast.updated", "{{provider}} updated", {
+      provider: outcome.label,
+    }),
+    {
+      ...RESET_TOAST_STAGE,
+      id,
+      description: changed
+        ? translateUi(
+            "settings.providers.updatesToast.versionChanged",
+            "{{previous}} → {{current}}. New sessions use it; running ones keep their version.",
+            { previous, current },
+          )
+        : (outcome.message ??
+          (current
+            ? translateUi("settings.providers.updatesToast.currentVersion", "Now on {{version}}.", {
+                version: current,
+              })
+            : undefined)),
+    },
+  );
 }
 
 /** `app/provider_updates` envelope handler. */
@@ -199,7 +266,12 @@ export function applyProviderUpdatesEvent(payload: Record<string, unknown>): voi
   eventSchema ??= buildEventSchema();
   const parsed = eventSchema.safeParse(payload);
   if (!parsed.success) {
-    toast.error("Received an invalid provider update event.");
+    toast.error(
+      translateUi(
+        "settings.providers.updatesToast.eventError",
+        "Received an invalid provider update event.",
+      ),
+    );
     return;
   }
   const event = parsed.data;

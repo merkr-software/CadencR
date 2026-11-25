@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { relativeToProject } from "@/lib/relative-path";
 import {
   chooseCheckoutFeature,
@@ -93,7 +94,10 @@ export async function planCliOpen(
     return {
       kind: "project",
       projectId: owner.projectId,
-      notice: "That worktree belongs to an archived conversation. Restore it to open its files.",
+      notice: translateUi(
+        "cli.open.archivedWorktree",
+        "That worktree belongs to an archived conversation. Restore it to open its files.",
+      ),
     };
   }
   if (!file) return { kind: "project", projectId: owner.projectId };
@@ -107,7 +111,16 @@ export async function planCliOpen(
     return {
       kind: "project",
       projectId: owner.projectId,
-      notice: `Start a conversation in ${project?.name ?? "this project"} that works in its folder to open its files.`,
+      notice: project
+        ? translateUi(
+            "cli.open.startConversationInProject",
+            "Start a conversation in {{name}} that works in its folder to open its files.",
+            { name: project.name },
+          )
+        : translateUi(
+            "cli.open.startConversation",
+            "Start a conversation in this project that works in its folder to open its files.",
+          ),
     };
   }
   return { kind: "feature", projectId: owner.projectId, featureId, file };

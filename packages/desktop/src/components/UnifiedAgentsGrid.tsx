@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -192,6 +193,7 @@ function RowResizeHandle({
   rowHeight: number;
   onRowHeightChange: (rowLayoutKey: RowLayoutKey, height: number, persist: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cleanupRef.current?.(), []);
@@ -231,7 +233,9 @@ function RowResizeHandle({
     <div
       role="separator"
       aria-orientation="horizontal"
-      aria-label={`Resize agent row ${rowIndex + 1}`}
+      aria-label={t("agents.overview.rows.resize", "Resize agent row {{row}}", {
+        row: rowIndex + 1,
+      })}
       className={cn(
         "group relative mt-1 flex h-3 cursor-row-resize items-center justify-center",
         "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:opacity-0 before:transition-opacity",

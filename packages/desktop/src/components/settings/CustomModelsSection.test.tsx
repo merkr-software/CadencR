@@ -1,11 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CustomModelsSection,
-  parseEffortLevels,
-  validateEffortFields,
-} from "./CustomModelsSection";
+import { CustomModelsSection } from "./CustomModelsSection";
+import { parseEffortLevels, validateEffortFields } from "./CustomModelEditor";
 
 const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),

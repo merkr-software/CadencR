@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactNode } from "react";
 import { AlertTriangle, ShieldOff } from "lucide-react";
 import { useSetting } from "@/hooks/useSetting";
@@ -40,6 +41,7 @@ export function DangerousModeToggle({
   warningBody: ReactNode;
   variant?: "card" | "subsection";
 }): ReactNode {
+  const { t } = useUiTranslation();
   const { value, setValue, isLoading } = useSetting(settingKey);
   const enabled = value === "true";
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -71,7 +73,10 @@ export function DangerousModeToggle({
             </p>
             <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-[var(--acc-red)]">
               <AlertTriangle className="size-3" aria-hidden />
-              Only enable in containers, VMs, or dev sandboxes.
+              {t(
+                "settings.providers.dangerousModeToggle.sandboxWarning",
+                "Only enable in containers, VMs, or dev sandboxes.",
+              )}
             </div>
           </div>
         </div>
@@ -96,10 +101,13 @@ export function DangerousModeToggle({
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
-              Cancel
+              {t("settings.providers.dangerousModeToggle.cancel", "Cancel")}
             </Button>
             <Button variant="destructive" onClick={handleConfirm}>
-              I understand, enable
+              {t(
+                "settings.providers.dangerousModeToggle.iUnderstandEnable",
+                "I understand, enable",
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

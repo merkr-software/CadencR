@@ -11,7 +11,6 @@ import {
 } from "@/components/unified-agents-order";
 import { useAttentionIndex } from "@/hooks/useAttentionIndex";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
-import { apiErrorMessage } from "@/lib/api-errors";
 import type { AttentionEntry } from "@/lib/attention-index";
 import type { AttentionState } from "@/lib/sidebar-attention";
 import { useLiveActiveSessionIds } from "@/stores/session-status-selectors";
@@ -37,7 +36,7 @@ export interface UnifiedAgentsData {
   isLoading: boolean;
   isFetching: boolean;
   isError: boolean;
-  errorMessage: string;
+  error: unknown;
   refresh: () => void;
   /** Recompute the `/exclude:` titles against the current agents, dropping any
    *  that no longer hide an otherwise-visible agent (e.g. it aged out of the
@@ -136,7 +135,7 @@ export function useUnifiedAgentsData({
       isLoading,
       isFetching: agentsFetching,
       isError,
-      errorMessage: apiErrorMessage(error, "Failed to load agents"),
+      error,
       refresh,
       pruneExcludedTitles,
     }),

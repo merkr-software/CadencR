@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import { act, render, screen } from "@/test-utils";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { ModeControl } from "./ModeControl";
 
@@ -30,6 +31,35 @@ describe("ModeControl", () => {
     await user.click(trigger);
     expect(screen.queryByRole("menuitem", { name: /^Default/ })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Auto Acts on its own/ })).toBeInTheDocument();
+  });
+
+  it("relabels an open built-in mode menu without activating it or changing its wire value", async () => {
+    const onSelect = vi.fn();
+    const { user } = render(
+      <ModeControl
+        providerId={PROVIDER_IDS.CLAUDE_CODE}
+        permissionMode="plan"
+        onSelect={onSelect}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Mode: Plan/ }));
+    const item = screen.getByRole("menuitem", { name: /Auto-Accept Edits/ });
+    try {
+      await act(async () => {
+        await uiI18n.changeLanguage("cimode");
+      });
+      expect(screen.getByRole("menuitem", { name: /agents.modes.claude.acceptEdits.label/ })).toBe(
+        item,
+      );
+      expect(item).toHaveTextContent("agents.modes.claude.acceptEdits.description");
+      expect(onSelect).not.toHaveBeenCalled();
+      await user.click(item);
+      expect(onSelect).toHaveBeenCalledExactlyOnceWith("acceptEdits");
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage("en");
+      });
+    }
   });
 
   it("keeps each provider's own mode color", () => {
@@ -65,7 +95,7 @@ describe("ModeControl", () => {
     expect(onSelect).toHaveBeenCalledWith("plan");
   });
 
-  it("announces a change made elsewhere (Shift+Tab)", () => {
+  it("announces a change made elsewhere (Shift+Tab) only once across locale changes", async () => {
     const { rerender } = render(
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
@@ -82,6 +112,17 @@ describe("ModeControl", () => {
       />,
     );
     expect(screen.getByRole("status")).toHaveTextContent("Mode changed to Plan: Read-only");
+    try {
+      await act(async () => {
+        await uiI18n.changeLanguage("cimode");
+      });
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage("en");
+      });
+    }
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("warns when the model can't hold the mode", () => {

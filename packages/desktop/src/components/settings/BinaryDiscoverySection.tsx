@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { CheckCircle2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useBinaryDiscovery } from "@/api/generated";
@@ -23,19 +24,29 @@ export function BinaryDiscoverySection({
   discoveryKey: string;
   description: ReactNode;
 }) {
+  const { t } = useUiTranslation();
   const query = useBinaryDiscovery();
   const provider = query.data?.providers[discoveryKey];
 
   return (
     <section className="space-y-3">
-      <SettingsHeading title="CLI binary" description={description} />
+      <SettingsHeading
+        title={t("settings.providers.discovery.title", "CLI binary")}
+        description={description}
+      />
 
       {query.isLoading ? (
-        <LoadingRow label="Discovering installs…" />
+        <LoadingRow label={t("onboarding.discovery.loading", "Discovering installs…")} />
       ) : query.isError ? (
-        <ErrorRow label="Failed to discover installs." />
+        <ErrorRow label={t("settings.providers.discovery.error", "Failed to discover installs.")} />
       ) : !provider ? (
-        <ErrorRow label={`No discovery data returned for ${discoveryKey}.`} />
+        <ErrorRow
+          label={t(
+            "settings.providers.discovery.noData",
+            "No discovery data returned for {{provider}}.",
+            { provider: discoveryKey },
+          )}
+        />
       ) : (
         <ProviderCard provider={provider} />
       )}
@@ -58,10 +69,12 @@ function ProviderCard({ provider }: { provider: ProviderDiscovery }) {
       {candidates.length === 0 ? (
         <ErrorRow
           label={
-            <>
-              No <strong>{provider.bin_name}</strong> installations found. Set an override path in
-              onboarding to point Cadencr at the binary.
-            </>
+            <UiTrans
+              i18nKey="settings.providers.discovery.noInstalls"
+              defaults="No <binary>{{binary}}</binary> installations found. Set an override path in onboarding to point Cadencr at the binary."
+              values={{ binary: provider.bin_name }}
+              components={{ binary: <strong /> }}
+            />
           }
         />
       ) : (
@@ -88,29 +101,45 @@ function SummaryRow({
   selected: DiscoveredCandidate | null;
   overridePath: string | null;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="rounded-md border border-border bg-card px-4 py-3 space-y-1 text-sm">
       <div>
-        <span className="text-muted-foreground">Binary:</span>{" "}
+        <span className="text-muted-foreground">
+          {t("settings.providers.discovery.binary", "Binary:")}
+        </span>{" "}
         <code className="font-mono text-xs">{binName}</code>
       </div>
       <div>
-        <span className="text-muted-foreground">Active install:</span>{" "}
+        <span className="text-muted-foreground">
+          {t("settings.providers.discovery.active", "Active install:")}
+        </span>{" "}
         {selected ? (
           <code className="font-mono text-xs">
             {selected.path}
-            {selected.version ? ` (v${selected.version})` : " (version unknown)"}
+            {selected.version
+              ? ` (v${selected.version})`
+              : t("settings.providers.discovery.unknownVersionSuffix", " (version unknown)")}
           </code>
         ) : (
-          <span className="text-destructive">None. Cadencr cannot spawn this provider.</span>
+          <span className="text-destructive">
+            {t(
+              "settings.providers.discovery.noneActive",
+              "None. Cadencr cannot spawn this provider.",
+            )}
+          </span>
         )}
       </div>
       <div>
-        <span className="text-muted-foreground">Override (settings):</span>{" "}
+        <span className="text-muted-foreground">
+          {t("settings.providers.discovery.overrideSetting", "Override (settings):")}
+        </span>{" "}
         {overridePath ? (
           <code className="font-mono text-xs">{overridePath}</code>
         ) : (
-          <span className="text-muted-foreground italic">unset</span>
+          <span className="text-muted-foreground italic">
+            {t("settings.providers.discovery.unset", "unset")}
+          </span>
         )}
       </div>
     </div>
@@ -124,6 +153,7 @@ function CandidateRow({
   candidate: DiscoveredCandidate;
   isSelected: boolean;
 }) {
+  const { t } = useUiTranslation();
   const showsCanonical = candidate.canonical !== candidate.path;
   return (
     <div
@@ -137,36 +167,41 @@ function CandidateRow({
           <code className="font-mono text-xs truncate">{candidate.path}</code>
           {isSelected && (
             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-primary text-primary-foreground inline-flex items-center gap-1">
-              <CheckCircle2 className="size-3" /> Selected
+              <CheckCircle2 className="size-3" />{" "}
+              {t("settings.providers.discovery.selected", "Selected")}
             </span>
           )}
           <SourceBadge source={candidate.source} />
         </div>
         {showsCanonical && (
           <div className="text-[11px] text-muted-foreground">
-            <span className="text-muted-foreground/70">resolves to:</span>{" "}
+            <span className="text-muted-foreground/70">
+              {t("settings.providers.discovery.resolvesTo", "resolves to:")}
+            </span>{" "}
             <code className="font-mono">{candidate.canonical}</code>
           </div>
         )}
       </div>
       <div className="text-xs text-muted-foreground tabular-nums whitespace-nowrap pt-0.5">
-        {candidate.version ? `v${candidate.version}` : "version unknown"}
+        {candidate.version
+          ? `v${candidate.version}`
+          : t("settings.providers.discovery.unknownVersion", "version unknown")}
       </div>
     </div>
   );
 }
 
-const SOURCE_LABELS: Record<DiscoveredSource, string> = {
-  override: "Override",
-  login_shell_path: "Login shell",
-  env_path: "PATH",
-  well_known: "Well-known",
-};
-
 function SourceBadge({ source }: { source: DiscoveredSource }) {
+  const { t } = useUiTranslation();
+  const labels: Record<DiscoveredSource, string> = {
+    override: t("settings.providers.discovery.source.override", "Override"),
+    login_shell_path: t("settings.providers.discovery.source.loginShell", "Login shell"),
+    env_path: "PATH",
+    well_known: t("settings.providers.discovery.source.wellKnown", "Well-known"),
+  };
   return (
     <span className="px-1.5 py-0.5 rounded text-[10px] uppercase bg-secondary text-secondary-foreground">
-      {SOURCE_LABELS[source]}
+      {labels[source]}
     </span>
   );
 }

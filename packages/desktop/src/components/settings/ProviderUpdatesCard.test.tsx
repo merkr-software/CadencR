@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderUpdateStatus, ProviderUpdatesResponse } from "@/api/generated";
 import { ProviderUpdatesCard } from "./ProviderUpdatesCard";
+import { uiI18n } from "@/lib/i18n/ui";
 
 const { checkMutate, startProviderUpdate, query } = vi.hoisted(() => ({
   checkMutate: vi.fn(),
@@ -96,4 +97,43 @@ describe("ProviderUpdatesCard", () => {
     expect(screen.getByText("Updating…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Update to/ })).toBeNull();
   });
+});
+
+it("updates the mounted status, action and timestamp when switching language", async () => {
+  query.data = {
+    checked_at: new Date(Date.now() - 120_000).toISOString(),
+    providers: [
+      status({ label: "Up to date", provider_id: "local-provider" }),
+      status({
+        label: "My Connector",
+        provider_id: "my-connector",
+        origin: "installed_local",
+        state: "update_available",
+        latest_version: "2.1.400-beta",
+      }),
+    ],
+  };
+  render(<ProviderUpdatesCard />);
+  expect(screen.getByText(/Last checked 2 minutes ago/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Update to 2.1.400-beta" })).toBeInTheDocument();
+
+  const prefix = "settings.providers.providerUpdatesCard";
+  uiI18n.addResource("fr", "ui", `${prefix}.lastCheck`, "[{{relative}}]");
+  uiI18n.addResource("fr", "ui", `${prefix}.upToDate`, "[up to date]");
+  uiI18n.addResource("fr", "ui", `${prefix}.updateTo`, "[update {{version}}]");
+  try {
+    await act(async () => {
+      await uiI18n.changeLanguage("fr-CA");
+    });
+    expect(screen.getByText("[il y a 2 minutes]")).toBeInTheDocument();
+    expect(screen.getByText("[up to date]")).toBeInTheDocument();
+    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByText("My Connector")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "[update 2.1.400-beta]" })).toBeInTheDocument();
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  }
 });

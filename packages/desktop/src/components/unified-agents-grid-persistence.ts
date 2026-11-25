@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import type { UnifiedAgentEntry } from "@/api/generated";
 
@@ -17,37 +18,48 @@ export type RowWidthLayouts = Record<RowLayoutKey, PanelLayout>;
 export type PanelLayout = Record<string, number>;
 
 export function loadRowHeights(): RowHeightMap {
-  return loadJson(ROW_HEIGHTS_KEY, parseUnifiedAgentsRowHeights, "heights");
+  return loadJson(ROW_HEIGHTS_KEY, parseUnifiedAgentsRowHeights, () =>
+    translateUi(
+      "agents.overview.rows.loadHeightsError",
+      "Could not load saved agent grid heights.",
+    ),
+  );
 }
 
 export function loadRowWidths(): RowWidthLayouts {
-  return loadJson(ROW_WIDTHS_KEY, parseUnifiedAgentsRowWidths, "widths");
+  return loadJson(ROW_WIDTHS_KEY, parseUnifiedAgentsRowWidths, () =>
+    translateUi("agents.overview.rows.loadWidthsError", "Could not load saved agent grid widths."),
+  );
 }
 
-function loadJson<T>(key: string, parse: (value: unknown) => T, label: string): T {
+function loadJson<T>(key: string, parse: (value: unknown) => T, failureMessage: () => string): T {
   const fallback = parse(undefined);
   try {
     const raw = window.localStorage.getItem(key);
     return raw ? parse(JSON.parse(raw) as unknown) : fallback;
   } catch (error: unknown) {
-    notifyPersistenceError(`Could not load saved agent grid ${label}.`, error);
+    notifyPersistenceError(failureMessage(), error);
     return fallback;
   }
 }
 
 export function saveRowHeights(rowHeights: RowHeightMap): void {
-  saveJson(ROW_HEIGHTS_KEY, rowHeights, "heights");
+  saveJson(ROW_HEIGHTS_KEY, rowHeights, () =>
+    translateUi("agents.overview.rows.saveHeightsError", "Could not save agent grid heights."),
+  );
 }
 
 export function saveRowWidths(rowWidths: RowWidthLayouts): void {
-  saveJson(ROW_WIDTHS_KEY, rowWidths, "widths");
+  saveJson(ROW_WIDTHS_KEY, rowWidths, () =>
+    translateUi("agents.overview.rows.saveWidthsError", "Could not save agent grid widths."),
+  );
 }
 
-function saveJson(key: string, value: unknown, label: string): void {
+function saveJson(key: string, value: unknown, failureMessage: () => string): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch (error: unknown) {
-    notifyPersistenceError(`Could not save agent grid ${label}.`, error);
+    notifyPersistenceError(failureMessage(), error);
   }
 }
 

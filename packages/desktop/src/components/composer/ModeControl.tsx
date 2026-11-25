@@ -49,13 +49,13 @@ export const ModeControl = memo(function ModeControl({
   incompatibleReason,
   showShortcut = true,
 }: ModeControlProps): ReactElement | null {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
   const visible = getVisibleModes(providerId, enabledOptInModes ?? [], providerModes);
   const active =
     permissionMode && visible.length >= 2
       ? (findProviderMode(providerId, permissionMode, providerModes) ?? visible[0])
       : null;
-  const announcement = useModeAnnouncement(active, t);
+  const announcement = useModeAnnouncement(active, providerId, i18n.language, t);
   const cycleKeys = useShortcutKeys("agent-permission-mode");
   if (!active || !onSelect) return null;
 
@@ -134,10 +134,6 @@ export const ModeControl = memo(function ModeControl({
   );
 });
 
-/**
- * Tracks mode changes after mount: a key that restarts the flash animation
- * and a sentence for the live region. The first render announces nothing.
- */
 function modeRiskLabel(t: UiTranslator, risk: ModeRisk): string {
   switch (risk) {
     case "read":
@@ -153,35 +149,37 @@ function modeRiskLabel(t: UiTranslator, risk: ModeRisk): string {
   }
 }
 
+/**
+ * Tracks mode changes after mount: a key that restarts the flash animation
+ * and a sentence for the live region. The first render announces nothing.
+ */
 function useModeAnnouncement(
   active: ProviderMode | null,
+  providerId: string | undefined,
+  language: string,
   t: UiTranslator,
 ): { flashKey: number; text: string } {
-  const previous = useRef<string | null>(null);
-  const [state, setState] = useState<{ flashKey: number; label?: string; risk?: ModeRisk }>({
-    flashKey: 0,
-  });
-  const activeId = active?.id ?? null;
+  const modeId = active?.id;
   const label = active?.label;
   const risk = active?.risk;
+  const previous = useRef({ modeId, providerId, language });
+  const [state, setState] = useState({ flashKey: 0, text: "" });
   useEffect(() => {
-    if (activeId === null) return;
-    if (previous.current !== null && previous.current !== activeId && label && risk) {
-      setState((current) => ({
-        flashKey: current.flashKey + 1,
-        label,
-        risk,
-      }));
+    const last = previous.current;
+    previous.current = { modeId, providerId, language };
+    if (last.providerId !== providerId || last.language !== language || !modeId) {
+      setState((current) => (current.text ? { ...current, text: "" } : current));
+    } else if (last.modeId && last.modeId !== modeId && label && risk) {
+      const text = t(
+        "conversation.composer.modeControl.changed",
+        "Mode changed to {{label}}: {{risk}}",
+        {
+          label,
+          risk: modeRiskLabel(t, risk),
+        },
+      );
+      setState((current) => ({ flashKey: current.flashKey + 1, text }));
     }
-    previous.current = activeId;
-  }, [activeId, label, risk]);
-  return {
-    flashKey: state.flashKey,
-    text: state.risk
-      ? t("conversation.composer.modeControl.changed", "Mode changed to {{label}}: {{risk}}", {
-          label: state.label,
-          risk: modeRiskLabel(t, state.risk),
-        })
-      : "",
-  };
+  }, [modeId, providerId, language, label, risk, t]);
+  return state;
 }

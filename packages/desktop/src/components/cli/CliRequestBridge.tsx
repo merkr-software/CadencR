@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -51,9 +52,14 @@ function openSources(queryClient: QueryClient): CliOpenSources {
 function applyOpenPlan(plan: CliOpenPlan, path: string, navigate: Navigate): void {
   switch (plan.kind) {
     case "not-in-project":
-      toast.error(`${path} is not in a Cadencr project.`, {
-        description: "Add its folder first: cadencr add <folder>",
-      });
+      toast.error(
+        translateUi("cli.open.notInProject", "{{path}} is not in a Cadencr project.", { path }),
+        {
+          description: translateUi("cli.open.addFolder", "Add its folder first: {{command}}", {
+            command: "cadencr add <folder>",
+          }),
+        },
+      );
       return;
     case "project":
       void navigate({ to: "/", search: { projectId: plan.projectId } });
@@ -81,17 +87,24 @@ function useCliRequestHandler(): (item: CliRendererItem) => Promise<void> {
       const projects = await queryClient.fetchQuery(getListProjectsQueryOptions());
       const existing = projects.find((project) => relativeToProject(path, project.path) === "");
       if (existing) {
-        toast.info(`${existing.name} is already a project`);
+        toast.info(
+          translateUi("cli.add.existing", "{{name}} is already a project", { name: existing.name }),
+        );
         void navigate({ to: "/", search: { projectId: existing.id } });
         return;
       }
-      const toastId = toast.loading("Adding project…");
+      const toastId = toast.loading(translateUi("cli.add.loading", "Adding project…"));
       try {
         const project = await addProjectAtPath(path);
-        toast.success(`Added ${project.name}`, { id: toastId });
+        toast.success(translateUi("cli.add.success", "Added {{name}}", { name: project.name }), {
+          id: toastId,
+        });
         void navigate({ to: "/", search: { projectId: project.id } });
       } catch (error) {
-        toast.error(apiErrorMessage(error, "Couldn't add the project"), { id: toastId });
+        toast.error(
+          apiErrorMessage(error, translateUi("cli.add.error", "Couldn't add the project")),
+          { id: toastId },
+        );
       }
     },
     [addProjectAtPath, navigate, queryClient],
@@ -140,14 +153,24 @@ export function CliRequestBridge(): null {
         try {
           items = await desktopBridge.drainCliRequests();
         } catch (error) {
-          toast.error(apiErrorMessage(error, "Couldn't read the cadencr command's request"));
+          toast.error(
+            apiErrorMessage(
+              error,
+              translateUi("cli.request.readError", "Couldn't read the cadencr command's request"),
+            ),
+          );
           return;
         }
         for (const item of items) {
           try {
             await handleRef.current(item);
           } catch (error) {
-            toast.error(apiErrorMessage(error, "The cadencr command's request failed"));
+            toast.error(
+              apiErrorMessage(
+                error,
+                translateUi("cli.request.error", "The cadencr command's request failed"),
+              ),
+            );
           }
         }
       });
