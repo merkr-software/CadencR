@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { CleanupReport, StepOutcome } from "@/api/generated";
 
 export type CleanupStepName = "terminals" | "browser_tabs" | "worktree" | "branch";
@@ -10,11 +11,11 @@ export const CLEANUP_STEPS: readonly CleanupStepName[] = [
   "branch",
 ];
 
-export const CLEANUP_STEP_LABELS: Record<CleanupStepName, string> = {
-  terminals: "Terminals",
-  browser_tabs: "Browser tabs",
-  worktree: "Worktree",
-  branch: "Branch",
+const CLEANUP_STEP_LABELS: Record<CleanupStepName, (t: UiTranslator) => string> = {
+  terminals: (t) => t("conversation.archive-cleanup-report.terminals", "Terminals"),
+  browser_tabs: (t) => t("conversation.archive-cleanup-report.browserTabs", "Browser tabs"),
+  worktree: (t) => t("conversation.archive-cleanup-report.worktree", "Worktree"),
+  branch: (t) => t("conversation.archive-cleanup-report.branch", "Branch"),
 };
 
 export interface ReportedStep {
@@ -44,26 +45,47 @@ export function isSettledReport(report: CleanupReport): boolean {
 }
 
 /** What the user reads for a step: its outcome, then why. */
-export function describeStep({ step }: ReportedStep): string {
+export function describeStep({ step }: ReportedStep, t: UiTranslator = translateUi): string {
   const why = step.message ?? step.reason ?? step.detail;
-  const status = STATUS_LABELS[step.status];
-  return why ? `${status}: ${why}` : status;
+  const status = cleanupStatusLabel(step.status, t);
+  return why
+    ? t("conversation.archive-cleanup-report.statusWithDetail", "{{status}}: {{detail}}", {
+        status,
+        detail: why,
+      })
+    : status;
 }
 
-export const STATUS_LABELS: Record<StepOutcome["status"], string> = {
-  pending: "Pending",
-  running: "In progress",
-  interrupted: "Interrupted",
-  done: "Done",
-  skipped: "Skipped",
-  blocked: "Blocked",
-  failed: "Failed",
+const STATUS_LABELS: Record<StepOutcome["status"], (t: UiTranslator) => string> = {
+  pending: (t) => t("conversation.archive-cleanup-report.pending", "Pending"),
+  running: (t) => t("conversation.archive-cleanup-report.inProgress", "In progress"),
+  interrupted: (t) => t("conversation.archive-cleanup-report.interrupted", "Interrupted"),
+  done: (t) => t("conversation.archive-cleanup-report.done", "Done"),
+  skipped: (t) => t("conversation.archive-cleanup-report.skipped", "Skipped"),
+  blocked: (t) => t("conversation.archive-cleanup-report.blocked", "Blocked"),
+  failed: (t) => t("conversation.archive-cleanup-report.failed", "Failed"),
 };
+
+export function cleanupStepLabel(name: CleanupStepName, t: UiTranslator = translateUi): string {
+  return CLEANUP_STEP_LABELS[name](t);
+}
+
+export function cleanupStatusLabel(
+  status: StepOutcome["status"],
+  t: UiTranslator = translateUi,
+): string {
+  return STATUS_LABELS[status](t);
+}
 
 /** One line per step for a toast description. */
 export function reportDescription(steps: readonly ReportedStep[]): string {
   return steps
-    .map((entry) => `${CLEANUP_STEP_LABELS[entry.name]}: ${describeStep(entry)}`)
+    .map((entry) =>
+      translateUi("conversation.archive-cleanup-report.stepWithStatus", "{{step}}: {{status}}", {
+        step: cleanupStepLabel(entry.name),
+        status: describeStep(entry),
+      }),
+    )
     .join("\n");
 }
 
@@ -71,5 +93,10 @@ export function reportDescription(steps: readonly ReportedStep[]): string {
 export function doneSummary(report: CleanupReport): string | undefined {
   const done = reportedSteps(report).filter(({ step }) => step.status === "done");
   if (done.length === 0) return undefined;
-  return `Cleanup finished: ${done.map(({ name }) => CLEANUP_STEP_LABELS[name].toLowerCase()).join(", ")}.`;
+  const steps = done.map(({ name }) => cleanupStepLabel(name).toLowerCase());
+  return translateUi(
+    "conversation.archiveCleanupReport.cleanupFinished",
+    "Cleanup finished: {{steps}}.",
+    { steps: steps.join(", ") },
+  );
 }

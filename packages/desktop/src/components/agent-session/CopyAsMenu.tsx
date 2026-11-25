@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ComponentType, ReactElement, RefObject } from "react";
 import {
   ChevronDownIcon,
@@ -22,10 +23,34 @@ export const COPY_AS_FORMATS: {
   label: string;
   icon: ComponentType<{ className?: string }>;
 }[] = [
-  { format: "markdown", label: "Markdown", icon: FileTextIcon },
-  { format: "slack", label: "Slack mrkdwn", icon: MessageSquareIcon },
-  { format: "plain", label: "Plain text", icon: ClipboardCopyIcon },
-  { format: "email", label: "Email", icon: MailIcon },
+  {
+    format: "markdown",
+    get label() {
+      return translateUi("conversation.stream.copyAsMenu.markdown", "Markdown");
+    },
+    icon: FileTextIcon,
+  },
+  {
+    format: "slack",
+    get label() {
+      return translateUi("conversation.stream.copyAsMenu.slack", "Slack mrkdwn");
+    },
+    icon: MessageSquareIcon,
+  },
+  {
+    format: "plain",
+    get label() {
+      return translateUi("conversation.stream.copyAsMenu.plain", "Plain text");
+    },
+    icon: ClipboardCopyIcon,
+  },
+  {
+    format: "email",
+    get label() {
+      return translateUi("conversation.stream.copyAsMenu.email", "Email");
+    },
+    icon: MailIcon,
+  },
 ];
 
 interface CopyAsMenuProps {
@@ -41,6 +66,7 @@ interface CopyAsMenuProps {
  * get (see `useTouchSafeTriggerProps`).
  */
 export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const isTouch = useIsTouchDevice();
   if (!isTouch) return null;
 
@@ -61,7 +87,7 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
           type="button"
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
         >
-          <span>Copy as</span>
+          <span>{t("conversation.stream.copyAsMenu.copyAs", "Copy as")}</span>
           <ChevronDownIcon className="size-3" />
         </button>
       </DropdownMenuTrigger>

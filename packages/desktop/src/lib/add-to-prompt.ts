@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import {
   composerKeyFor,
@@ -12,9 +13,12 @@ import {
  */
 export function addToPrompt(featureId: number, item: Omit<ComposerContextItem, "id">): void {
   useComposerContextStore.getState().add(composerKeyFor(featureId), item);
-  toast.success("Added to the agent prompt", {
-    description: `${item.label} · ${item.detail ?? ""}`,
-  });
+  toast.success(
+    translateUi("conversation.composer.add-to-prompt.added", "Added to the agent prompt"),
+    {
+      description: `${item.label} · ${item.detail ?? ""}`,
+    },
+  );
 }
 
 export function lineCountLabel(text: string): string {

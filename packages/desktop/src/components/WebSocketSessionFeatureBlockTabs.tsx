@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from "react";
 import {
   CodeIcon,
@@ -157,9 +158,11 @@ function useAgentFileLinksTab(tab: FeatureTabDef, openFile: OpenDiffInEditor): F
 function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
   const { featureId, projectId, refs } = args;
   const terminalReady = args.tabReady.terminal;
+  const { t } = useUiTranslation();
+  const label = t("conversation.webSocketSessionFeatureBlockTabs.terminalTab", "Terminal");
   return useMemo(
     () => ({
-      label: "Terminal",
+      label,
       Icon: TerminalIcon,
       shortcutId: "pane-terminal",
       content: terminalReady ? (
@@ -168,7 +171,7 @@ function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
         <DeferredTabContent label="Terminal" />
       ),
     }),
-    [featureId, terminalReady, projectId, refs.terminal],
+    [label, featureId, terminalReady, projectId, refs.terminal],
   );
 }
 
@@ -184,9 +187,11 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
     (message: string): void => sendFromGitTabRef.current(message),
     [],
   );
+  const { t } = useUiTranslation();
+  const label = t("conversation.webSocketSessionFeatureBlockTabs.gitTab", "Git");
   return useMemo(
     () => ({
-      label: "Git",
+      label,
       Icon: GitCompareArrowsIcon,
       shortcutId: "pane-git",
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
@@ -201,7 +206,7 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
         <DeferredTabContent label="Git" />
       ),
     }),
-    [data.gitBranch, featureId, gitReady, handleSendComments, projectId],
+    [label, data.gitBranch, featureId, gitReady, handleSendComments, projectId],
   );
 }
 
@@ -224,9 +229,11 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       }),
     [controls],
   );
+  const { t } = useUiTranslation();
+  const label = t("conversation.webSocketSessionFeatureBlockTabs.browserTab", "Browser");
   return useMemo(
     () => ({
-      label: "Browser",
+      label,
       Icon: GlobeIcon,
       shortcutId: "pane-browser",
       badge: <AgentBrowserActivityDot featureId={featureId} />,
@@ -238,16 +245,18 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
         <DeferredTabContent label="Browser" />
       ),
     }),
-    [featureId, browserReady, sendContext],
+    [label, featureId, browserReady, sendContext],
   );
 }
 
 function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
   const { featureId, projectId } = args;
   const previewReady = args.tabReady.preview;
+  const { t } = useUiTranslation();
+  const label = t("conversation.webSocketSessionFeatureBlockTabs.previewTab", "Preview");
   return useMemo(
     () => ({
-      label: "Preview",
+      label,
       Icon: FileTextIcon,
       content: previewReady ? (
         <Suspense fallback={null}>
@@ -257,7 +266,7 @@ function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
         <DeferredTabContent label="Preview" />
       ),
     }),
-    [featureId, previewReady, projectId],
+    [label, featureId, previewReady, projectId],
   );
 }
 
@@ -265,9 +274,11 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
   const { featureId, projectId, data, refs } = args;
   const editorReady = args.tabReady.editor;
   const projectPathOrCwd = data.effectiveCwd ?? data.projectPath;
+  const { t } = useUiTranslation();
+  const label = t("conversation.webSocketSessionFeatureBlockTabs.editorTab", "Editor");
   return useMemo(
     () => ({
-      label: "Editor",
+      label,
       Icon: CodeIcon,
       shortcutId: "pane-editor",
       content: !editorReady ? (
@@ -283,7 +294,7 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
         </Suspense>
       ) : null,
     }),
-    [featureId, editorReady, projectId, projectPathOrCwd, refs.editor],
+    [label, featureId, editorReady, projectId, projectPathOrCwd, refs.editor],
   );
 }
 

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { getProviderMetadata } from "@/lib/providers";
 
@@ -10,30 +11,75 @@ import { getProviderMetadata } from "@/lib/providers";
  */
 export type BranchKind = "rewind" | "fork";
 
-const PAST: Record<BranchKind, string> = { rewind: "rewound", fork: "forked" };
-
 function branchFailureTitle(kind: BranchKind, code: string, providerId?: string): string {
-  const done = PAST[kind];
   switch (code) {
     case "PROVIDER_CONVERSATION_MISSING": {
-      const provider = getProviderMetadata(providerId)?.label ?? "The agent";
-      return `${provider} no longer has this conversation, so it can't be ${done}.`;
+      const provider =
+        getProviderMetadata(providerId)?.label ??
+        translateUi("conversation.branch.agent", "The agent");
+      return kind === "rewind"
+        ? translateUi(
+            "conversation.rewind.missingSource",
+            "{{provider}} no longer has this conversation, so it can't be rewound.",
+            { provider },
+          )
+        : translateUi(
+            "conversation.fork.missingSource",
+            "{{provider}} no longer has this conversation, so it can't be forked.",
+            { provider },
+          );
     }
     case "BRANCH_SURGERY_FAILED":
-      return `The conversation couldn't be ${done}. Nothing was changed.`;
+      return kind === "rewind"
+        ? translateUi(
+            "conversation.rewind.failedSafely",
+            "The conversation couldn't be rewound. Nothing was changed.",
+          )
+        : translateUi(
+            "conversation.fork.failedSafely",
+            "The conversation couldn't be forked. Nothing was changed.",
+          );
     case "UNSUPPORTED_BRANCHING":
-      return `This conversation can't be ${done} from this message.`;
+      return kind === "rewind"
+        ? translateUi(
+            "conversation.rewind.unsupported",
+            "This conversation can't be rewound from this message.",
+          )
+        : translateUi(
+            "conversation.fork.unsupported",
+            "This conversation can't be forked from this message.",
+          );
     case "CODE_RESTORE_FAILED":
-      return "The code couldn't be restored, so nothing was rewound.";
+      return translateUi(
+        "conversation.rewind.couldNotRestore",
+        "The code couldn't be restored, so nothing was rewound.",
+      );
     case "NO_WORKTREE":
-      return `This conversation has no working folder to be ${done} in yet.`;
+      return kind === "rewind"
+        ? translateUi(
+            "conversation.rewind.missingFolder",
+            "This conversation has no working folder to be rewound in yet.",
+          )
+        : translateUi(
+            "conversation.fork.missingFolder",
+            "This conversation has no working folder to be forked in yet.",
+          );
     case "SESSION_NOT_FOUND":
     case "INVALID_MESSAGE":
-      return `This message can't be ${done} anymore.`;
+      return kind === "rewind"
+        ? translateUi(
+            "conversation.rewind.invalidMessage",
+            "This message can't be rewound anymore.",
+          )
+        : translateUi("conversation.fork.invalidMessage", "This message can't be forked anymore.");
     case "DB_ERROR":
-      return `The ${kind} couldn't be saved.`;
+      return kind === "rewind"
+        ? translateUi("conversation.rewind.saveFailed", "The rewind couldn't be saved.")
+        : translateUi("conversation.fork.saveFailed", "The fork couldn't be saved.");
     default:
-      return `The conversation couldn't be ${done}.`;
+      return kind === "rewind"
+        ? translateUi("conversation.rewind.failed", "The conversation couldn't be rewound.")
+        : translateUi("conversation.fork.failed", "The conversation couldn't be forked.");
   }
 }
 

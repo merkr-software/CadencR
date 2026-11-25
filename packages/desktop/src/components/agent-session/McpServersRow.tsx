@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   createContext,
   memo,
@@ -49,6 +50,7 @@ const MCP_SERVER_ROW_HEIGHT = 32;
 const MCP_SERVER_LIST_MAX_HEIGHT = 160;
 
 export function McpServersRow({ servers, error = null }: McpServersRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const [query, setQuery] = useState("");
   const filteredServers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -59,17 +61,23 @@ export function McpServersRow({ servers, error = null }: McpServersRowProps): Re
 
   return (
     <div className="flex min-h-0 flex-col gap-1.5 overflow-hidden">
-      <div className="shrink-0 text-[11px] font-medium text-muted-foreground">MCP servers</div>
+      <div className="shrink-0 text-[11px] font-medium text-muted-foreground">
+        {t("conversation.stream.mcpServersRow.mcpServers", "MCP servers")}
+      </div>
       {error !== null && (
         <p role="alert" className="text-[11px] text-destructive">
           {error}
         </p>
       )}
       {error === null && servers === null && (
-        <p className="text-[11px] text-muted-foreground">MCPs not reported yet</p>
+        <p className="text-[11px] text-muted-foreground">
+          {t("conversation.stream.mcpServersRow.mcPsNotReportedYet", "MCPs not reported yet")}
+        </p>
       )}
       {error === null && servers !== null && servers.length === 0 && (
-        <p className="text-[11px] text-muted-foreground">No MCP servers reported</p>
+        <p className="text-[11px] text-muted-foreground">
+          {t("conversation.stream.mcpServersRow.noMcpServersReported", "No MCP servers reported")}
+        </p>
       )}
       {servers !== null && servers.length > 0 && (
         <>
@@ -78,8 +86,14 @@ export function McpServersRow({ servers, error = null }: McpServersRowProps): Re
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search MCP servers…"
-              aria-label="Search MCP servers"
+              placeholder={t(
+                "conversation.stream.mcpServersRow.searchMcpServersPlaceholder",
+                "Search MCP servers…",
+              )}
+              aria-label={t(
+                "conversation.stream.mcpServersRow.searchMcpServers",
+                "Search MCP servers",
+              )}
               className="h-8 pl-8 text-xs"
             />
           </div>
@@ -87,7 +101,11 @@ export function McpServersRow({ servers, error = null }: McpServersRowProps): Re
             <McpServerList servers={filteredServers} />
           ) : (
             <p className="text-[11px] text-muted-foreground">
-              No MCP servers match “{query.trim()}”.
+              {t(
+                "conversation.stream.mcpServersRow.noMatches",
+                "No MCP servers match “{{query}}”.",
+                { query: query.trim() },
+              )}
             </p>
           )}
         </>
@@ -97,11 +115,12 @@ export function McpServersRow({ servers, error = null }: McpServersRowProps): Re
 }
 
 function McpServerList({ servers }: { servers: McpServerStatus[] }): ReactElement {
+  const { t } = useUiTranslation();
   const height = Math.min(servers.length * MCP_SERVER_ROW_HEIGHT, MCP_SERVER_LIST_MAX_HEIGHT);
   return (
     <div
       role="list"
-      aria-label="MCP servers"
+      aria-label={t("conversation.stream.mcpServersRow.mcpServers", "MCP servers")}
       className="min-h-0 max-h-40 shrink overflow-hidden"
       style={{ height }}
     >

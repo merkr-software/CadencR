@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { CheckIcon, CopyIcon, InfoIcon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -120,16 +121,17 @@ export function SessionInfoPanel(props: SessionInfoPanelProps): ReactElement {
 }
 
 export function SessionInfoChip({ chipClass, ...panelProps }: SessionInfoChipProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="Session info"
+          aria-label={t("conversation.stream.sessionInfoChip.sessionInfo", "Session info")}
           className={cn(chipClass, "bg-muted/60 text-foreground/90 hover:bg-muted")}
         >
           <InfoIcon className="size-3" />
-          Info
+          {t("conversation.stream.sessionInfoChip.info", "Info")}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -239,9 +241,12 @@ function SessionIdRow({
   copied: boolean;
   onCopy: () => Promise<void>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-medium text-muted-foreground">Session ID</div>
+      <div className="text-[11px] font-medium text-muted-foreground">
+        {t("conversation.stream.sessionInfoChip.sessionId", "Session ID")}
+      </div>
       <div className="flex items-center gap-2">
         <code className="flex-1 select-all truncate rounded bg-muted/60 px-2 py-1 font-mono text-[11px]">
           {runtimeSessionId}
@@ -251,8 +256,8 @@ function SessionIdRow({
           variant="raised"
           size="icon-xs"
           onClick={onCopy}
-          title="Copy session ID"
-          aria-label="Copy session ID"
+          title={t("conversation.stream.sessionInfoChip.copySessionId", "Copy session ID")}
+          aria-label={t("conversation.stream.sessionInfoChip.copySessionId", "Copy session ID")}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
         </Button>
@@ -272,6 +277,7 @@ function LaunchCommandRow({
   isRunning: boolean;
   onCopy: () => Promise<void>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-1">
       <Button
@@ -283,13 +289,25 @@ function LaunchCommandRow({
         disabled={!supported}
       >
         {copied ? <CheckIcon /> : <TerminalIcon />}
-        {copied ? "Copied" : "Copy launch command"}
+        {copied
+          ? t("common.copied", "Copied")
+          : t("conversation.stream.sessionInfoChip.copyLaunchCommand", "Copy launch command")}
       </Button>
       {!supported && (
-        <p className="text-[11px] text-muted-foreground">Not supported for this provider.</p>
+        <p className="text-[11px] text-muted-foreground">
+          {t(
+            "conversation.stream.sessionInfoChip.notSupportedForThisProvider",
+            "Not supported for this provider.",
+          )}
+        </p>
       )}
       {supported && isRunning && (
-        <p className="text-[11px] text-muted-foreground">Copying will pause the running agent.</p>
+        <p className="text-[11px] text-muted-foreground">
+          {t(
+            "conversation.stream.sessionInfoChip.copyingWillPauseTheRunningAgent",
+            "Copying will pause the running agent.",
+          )}
+        </p>
       )}
     </div>
   );
@@ -329,6 +347,7 @@ function ProfileRow({
   activeProfile?: string;
   onProfileChange?: (profile: string) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const selectedProfile = profile ?? DEFAULT_CLAUDE_PROFILE_NAME;
   const selectedLabel = resolveProfileLabel(selectedProfile, profiles);
   const activeLabel = activeProfile ? resolveProfileLabel(activeProfile, profiles) : undefined;
@@ -340,7 +359,9 @@ function ProfileRow({
   if (onProfileChange) {
     return (
       <div className="space-y-1.5">
-        <div className="text-[11px] font-medium text-muted-foreground">Profile</div>
+        <div className="text-[11px] font-medium text-muted-foreground">
+          {t("conversation.stream.sessionInfoChip.profile", "Profile")}
+        </div>
         <ClaudeProfileCombobox
           value={selectedProfile}
           profiles={profiles}
@@ -351,8 +372,16 @@ function ProfileRow({
           triggerClassName="w-full justify-between"
         />
         <p className="text-[11px] text-muted-foreground">
-          Applies to the next prompt. Current running turn is not restarted.
-          {overridesActive && ` “${activeLabel}” stays the active profile.`}
+          {t(
+            "conversation.stream.sessionInfoChip.nextPrompt",
+            "Applies to the next prompt. Current running turn is not restarted.",
+          )}
+          {overridesActive &&
+            t(
+              "conversation.stream.sessionInfoChip.currentProfile",
+              " “{{profile}}” stays the active profile.",
+              { profile: activeLabel },
+            )}
         </p>
       </div>
     );
@@ -360,9 +389,15 @@ function ProfileRow({
 
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[11px] font-medium text-muted-foreground">Profile</span>
+      <span className="text-[11px] font-medium text-muted-foreground">
+        {t("conversation.stream.sessionInfoChip.profile", "Profile")}
+      </span>
       {isLoading && <span className="h-3 w-16 animate-pulse rounded bg-muted/60" />}
-      {isError && <span className="text-[11px] text-destructive">Failed to load</span>}
+      {isError && (
+        <span className="text-[11px] text-destructive">
+          {t("conversation.stream.sessionInfoChip.failedToLoad", "Failed to load")}
+        </span>
+      )}
       {!isLoading && !isError && (
         <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
           {selectedLabel}

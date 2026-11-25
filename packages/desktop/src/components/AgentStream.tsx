@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -385,7 +386,7 @@ export const AgentStream = memo(function AgentStream({
   turnActive,
   showStreamingIndicator = true,
   lifecycle,
-  workingLabel = "Working",
+  workingLabel,
   workingClock = null,
   basePath,
   scrollContainerRef,
@@ -403,6 +404,7 @@ export const AgentStream = memo(function AgentStream({
   messageNavigator = null,
   openingPreview = false,
 }: AgentStreamProps) {
+  const { t } = useUiTranslation();
   const rootBlocks = useRootBlocks(blocks, rootBlocksProp);
   const toolResultMap = useToolResultMap(blocks, toolResultMapProp);
   const { displayBlocks, displayItems } = useAgentDisplayItems(
@@ -422,7 +424,7 @@ export const AgentStream = memo(function AgentStream({
     // through Virtuoso context so older memoized rows remain stable.
     streamingBlockId: isStreaming ? (displayBlocks.at(-1)?.id ?? null) : null,
     lifecycle,
-    workingLabel,
+    workingLabel: workingLabel ?? t("conversation.stream.status.working", "Working"),
     workingClock,
     searchBlockId,
     liveItemKey: liveDisplayItemKey(displayItems, turnActive ?? !!isStreaming),

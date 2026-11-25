@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { z } from "zod";
 import { PersistenceStatusState, type SessionPersistenceStatusPayload } from "@/api/generated";
 import { toast } from "sonner";
@@ -20,7 +21,12 @@ export function handlePersistenceStatus(
 ): void {
   const parsed = persistenceStatusSchema.safeParse(payload);
   if (!parsed.success) {
-    toast.error("The service sent an invalid transcript saving update.");
+    toast.error(
+      translateUi(
+        "conversation.history.invalidSave",
+        "The service sent an invalid transcript saving update.",
+      ),
+    );
     return;
   }
   const previous = ctx.getSession(sessionId).persistenceStatus;

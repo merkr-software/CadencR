@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { SubagentCardPeek, SubagentCardPeekFrame } from "@/components/subagents/SubagentCardParts";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +20,7 @@ export const SpawnedSessionPeek = memo(function SpawnedSessionPeek({
   status: LiveAgentStatus;
   basePath?: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const activity = useSpawnedSessionActivity(featureId, status);
   const working = status === "agent";
   const report = working ? null : activity.reply;
@@ -39,9 +41,15 @@ export const SpawnedSessionPeek = memo(function SpawnedSessionPeek({
       <SubagentCardPeekFrame>
         <p
           className="flex h-6 items-center text-xs text-muted-foreground"
-          title={apiErrorMessage(activity.error, "unknown error")}
+          title={apiErrorMessage(
+            activity.error,
+            t("conversation.spawnedSessionPeek.unknownError", "unknown error"),
+          )}
         >
-          Latest activity unavailable
+          {t(
+            "conversation.spawnedSessionPeek.latestActivityUnavailable",
+            "Latest activity unavailable",
+          )}
         </p>
       </SubagentCardPeekFrame>
     );
@@ -49,7 +57,13 @@ export const SpawnedSessionPeek = memo(function SpawnedSessionPeek({
   if (!working || !activity.isLoading) return null;
   return (
     <SubagentCardPeekFrame>
-      <div className="flex h-6 items-center" aria-label="Loading latest activity">
+      <div
+        className="flex h-6 items-center"
+        aria-label={t(
+          "conversation.spawnedSessionPeek.loadingLatestActivity",
+          "Loading latest activity",
+        )}
+      >
         <Skeleton className="h-3 w-40" />
       </div>
     </SubagentCardPeekFrame>

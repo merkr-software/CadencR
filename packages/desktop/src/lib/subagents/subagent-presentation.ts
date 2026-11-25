@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { SubagentRun, SubagentRunStatus } from "@/api/generated";
 import { formatCompactTokens } from "@/components/usage/usage-chart-palette";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
@@ -36,10 +37,18 @@ interface CarrierLike {
   taskComplete?: boolean;
 }
 
-export function subagentView(run: SubagentRun | undefined, carrier?: CarrierLike): SubagentView {
+export function subagentView(
+  run: SubagentRun | undefined,
+  carrier?: CarrierLike,
+  t: UiTranslator = translateUi,
+): SubagentView {
   const args = parseToolArgsObject(carrier?.toolArgs);
   const arg = (key: string): string | null => stringArg(args, key) ?? null;
-  const fallbackTitle = arg("subagent_type") ?? arg("subagentType") ?? carrier?.toolName ?? "Agent";
+  const fallbackTitle =
+    arg("subagent_type") ??
+    arg("subagentType") ??
+    carrier?.toolName ??
+    t("conversation.subagent-presentation.agent", "Agent");
   const title = run?.agentName ?? run?.agentType ?? fallbackTitle;
   const description = run?.description ?? arg("description");
   return {
@@ -93,35 +102,54 @@ export function subagentElapsedMs(view: SubagentView, nowMs: number): number | n
   return view.startedAtMs == null ? null : Math.max(0, nowMs - view.startedAtMs);
 }
 
-export function formatTokens(tokens: number): string {
-  return `${formatCompactTokens(tokens)} tok`;
+export function formatTokens(tokens: number, t: UiTranslator = translateUi): string {
+  return t("conversation.subagent-presentation.tokens", "{{tokens}} tok", {
+    tokens: formatCompactTokens(tokens),
+  });
 }
 
-export const STATUS_LABEL: Record<SubagentRunStatus, string> = {
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
-  stopped: "Stopped",
+const STATUS_LABEL: Record<SubagentRunStatus, (t: UiTranslator) => string> = {
+  running: (t) => t("conversation.subagent-presentation.running", "Running"),
+  completed: (t) => t("conversation.subagent-presentation.completed", "Completed"),
+  failed: (t) => t("conversation.subagent-presentation.failed", "Failed"),
+  stopped: (t) => t("conversation.subagent-presentation.stopped", "Stopped"),
 };
 
-const REASON_LABEL: Record<string, string> = {
-  interrupted: "Interrupted",
-  turn_failed: "Turn failed",
-  runtime_ended: "Agent process ended",
-  service_restarted: "Cadencr restarted",
-  closed: "Closed by its parent",
-  killed: "Killed",
-  not_found: "Not found",
+const REASON_LABEL: Record<string, (t: UiTranslator) => string> = {
+  interrupted: (t) => t("conversation.subagent-presentation.interrupted", "Interrupted"),
+  turn_failed: (t) => t("conversation.subagent-presentation.turnFailed", "Turn failed"),
+  runtime_ended: (t) => t("conversation.subagent-presentation.runtimeEnded", "Agent process ended"),
+  service_restarted: (t) =>
+    t("conversation.subagent-presentation.serviceRestarted", "Cadencr restarted"),
+  closed: (t) => t("conversation.subagent-presentation.closed", "Closed by its parent"),
+  killed: (t) => t("conversation.subagent-presentation.killed", "Killed"),
+  not_found: (t) => t("conversation.subagent-presentation.notFound", "Not found"),
 };
 
 /** Human words for why a sub-agent stopped; provider errors pass through. */
-export function statusReasonLabel(reason: string | null): string | null {
+export function statusReasonLabel(
+  reason: string | null,
+  t: UiTranslator = translateUi,
+): string | null {
   if (!reason) return null;
-  return REASON_LABEL[reason] ?? reason;
+  return Object.hasOwn(REASON_LABEL, reason) ? REASON_LABEL[reason](t) : reason;
+}
+
+export function subagentStatusLabel(
+  status: SubagentRunStatus,
+  t: UiTranslator = translateUi,
+): string {
+  return STATUS_LABEL[status](t);
 }
 
 /** Sentence for screen readers and tooltips. */
-export function subagentStatusSentence(view: SubagentView): string {
-  const reason = statusReasonLabel(view.statusReason);
-  return reason ? `${STATUS_LABEL[view.status]} · ${reason}` : STATUS_LABEL[view.status];
+export function subagentStatusSentence(view: SubagentView, t: UiTranslator = translateUi): string {
+  const reason = statusReasonLabel(view.statusReason, t);
+  const status = subagentStatusLabel(view.status, t);
+  return reason
+    ? t("conversation.subagent-presentation.statusWithReason", "{{status}} · {{reason}}", {
+        status,
+        reason,
+      })
+    : status;
 }

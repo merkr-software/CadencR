@@ -1,3 +1,4 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useId, useMemo, useState, type ReactElement } from "react";
 import { Archive, CornerDownLeft, History, Search, X } from "lucide-react";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
@@ -19,6 +20,7 @@ export function HistoryPanel({
   history: string[];
   onPick: (text: string) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const listId = useId();
@@ -27,7 +29,6 @@ export function HistoryPanel({
     usePromptStashStore.getState().load(projectId);
   }, [projectId]);
 
-  const stashLabel = useShortcutLabel("prompt-stash-draft");
   const rows = useMemo<Row[]>(() => {
     const terms = sidebarFilterTerms(query);
     return [
@@ -78,37 +79,64 @@ export function HistoryPanel({
       <div
         id={listId}
         role="listbox"
-        aria-label="Prompt history"
+        aria-label={t("conversation.composer.historyPanel.promptHistory", "Prompt history")}
         className="min-h-0 flex-1 overflow-y-auto py-1"
       >
         {rows.length === 0 ? (
           <p className="px-3 py-3 text-xs text-muted-foreground" role="status">
-            {query ? "Nothing matches." : "No prompts yet in this project."}
+            {query
+              ? t("conversation.composer.historyPanel.noMatches", "Nothing matches.")
+              : t(
+                  "conversation.composer.historyPanel.noPrompts",
+                  "No prompts yet in this project.",
+                )}
           </p>
         ) : (
           <>
             {stashRows.length > 0 && (
-              <ComposerPopoverGroup label="Stashed drafts">
+              <ComposerPopoverGroup
+                label={t("conversation.composer.historyPanel.stashedDrafts", "Stashed drafts")}
+              >
                 {stashRows.map((row, index) => renderRow(row, index))}
               </ComposerPopoverGroup>
             )}
             {historyRows.length > 0 && (
-              <ComposerPopoverGroup label="Recent prompts">
+              <ComposerPopoverGroup
+                label={t("conversation.composer.historyPanel.recentPrompts", "Recent prompts")}
+              >
                 {historyRows.map((row, index) => renderRow(row, stashRows.length + index))}
               </ComposerPopoverGroup>
             )}
           </>
         )}
       </div>
-      <div
-        aria-hidden
-        className="flex items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
-      >
-        <span className="inline-flex items-center gap-1">
-          <CornerDownLeft className="size-3" /> restore into the composer
-        </span>
-        <span>{stashLabel} stashes the current draft</span>
-      </div>
+      <HistoryShortcuts />
+    </div>
+  );
+}
+
+function HistoryShortcuts(): ReactElement {
+  const { t } = useUiTranslation();
+  const stashLabel = useShortcutLabel("prompt-stash-draft");
+  return (
+    <div
+      aria-hidden
+      className="flex items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
+    >
+      <span className="inline-flex items-center gap-1">
+        <UiTrans
+          i18nKey="conversation.composer.historyPanel.restoreHint"
+          defaults="<enter /> restore into the composer"
+          components={{ enter: <CornerDownLeft className="size-3" /> }}
+        />
+      </span>
+      <span>
+        {t(
+          "conversation.composer.historyPanel.stashHint",
+          "{{shortcut}} stashes the current draft",
+          { shortcut: stashLabel },
+        )}
+      </span>
     </div>
   );
 }
@@ -128,6 +156,7 @@ function HistoryRow({
   onPick: (row: Row) => void;
   onDelete: (draft: StashedDraft) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const Icon = row.kind === "stash" ? Archive : History;
   return (
     <ComposerPopoverOption
@@ -144,7 +173,10 @@ function HistoryRow({
       {row.kind === "stash" && (
         <button
           type="button"
-          aria-label="Delete stashed draft"
+          aria-label={t(
+            "conversation.composer.historyPanel.deleteStashedDraft",
+            "Delete stashed draft",
+          )}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -174,6 +206,7 @@ function HistorySearchInput({
   onMove: (delta: number) => void;
   onPick: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <label className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
       <Search className="size-3.5 shrink-0 text-muted-foreground" />
@@ -191,8 +224,14 @@ function HistorySearchInput({
             onPick();
           }
         }}
-        placeholder="Search your prompts and stashed drafts"
-        aria-label="Search prompt history"
+        placeholder={t(
+          "conversation.composer.historyPanel.searchYourPromptsAndStashedDrafts",
+          "Search your prompts and stashed drafts",
+        )}
+        aria-label={t(
+          "conversation.composer.historyPanel.searchPromptHistory",
+          "Search prompt history",
+        )}
         aria-controls={listId}
         aria-activedescendant={activeOption}
         className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"

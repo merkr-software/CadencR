@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { capturePersistenceRepair } from "./ws-persistence-repair-plan";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { resyncRecoveredPersistence } from "./ws-session-resync";
@@ -14,7 +15,10 @@ export function repairRecoveredPersistence(ctx: StoreAccessors, sessionId: strin
   const pending = resyncRecoveredPersistence(ctx, sessionId)
     .catch(() => {
       toast.error(
-        "Conversation history was saved, but its display could not be refreshed. Reconnect to retry.",
+        translateUi(
+          "conversation.history.couldNotRefresh",
+          "Conversation history was saved, but its display could not be refreshed. Reconnect to retry.",
+        ),
       );
     })
     .finally(() => {

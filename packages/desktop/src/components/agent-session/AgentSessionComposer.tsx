@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type RefObject, type ReactElement } from "react";
 import { parseThinkingEffort } from "@/shared/thinking-effort";
 import { contextUsageToShow } from "@/types/agent";
@@ -137,7 +138,11 @@ function modeIncompatibleReason(session: AgentSessionProps): string | null {
     session.providerModes,
   );
   if (mode?.risk !== "auto") return null;
-  return `This model can't run ${mode.label}, so the session falls back to accepting edits only. Pick a model that supports it, or another mode.`;
+  return translateUi(
+    "conversation.stream.agentSessionComposer.thisModelCanTRunSoThe",
+    "This model can't run {{mode}}, so the session falls back to accepting edits only. Pick a model that supports it, or another mode.",
+    { mode: mode.label },
+  );
 }
 
 function AgentSessionMeta(

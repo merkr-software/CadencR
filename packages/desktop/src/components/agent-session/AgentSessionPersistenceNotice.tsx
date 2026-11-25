@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { TriangleAlert } from "lucide-react";
 import { useWsSessionStore } from "@/stores/ws-session-store";
@@ -8,6 +9,7 @@ export const AgentSessionPersistenceNotice = memo(function AgentSessionPersisten
 }: {
   sessionId: string | undefined;
 }) {
+  const { t } = useUiTranslation();
   const persistence = useWsSessionStore((state) =>
     sessionId ? state.sessions[sessionId]?.persistenceStatus : null,
   );
@@ -22,8 +24,14 @@ export const AgentSessionPersistenceNotice = memo(function AgentSessionPersisten
       <div>
         <span className="font-medium">
           {persistence.status === "failed"
-            ? "Conversation history incomplete"
-            : "Saving interrupted"}
+            ? t(
+                "conversation.stream.agentSessionPersistenceNotice.conversationHistoryIncomplete",
+                "Conversation history incomplete",
+              )
+            : t(
+                "conversation.stream.agentSessionPersistenceNotice.savingInterrupted",
+                "Saving interrupted",
+              )}
         </span>
         <p className="mt-0.5 text-muted-foreground">{persistence.message}</p>
       </div>

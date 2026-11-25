@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { favoriteModelKey } from "@/lib/favorite-models";
 import type {
   RuntimeModelPickerModel,
@@ -108,13 +109,14 @@ function partitionModelEntries(
 export function groupCatalogEntries(
   entries: ModelEntry[],
   favorites: ReadonlySet<string>,
+  t: UiTranslator = translateUi,
 ): ModelGroupSpec[] {
   const { favorite, rest } = partitionModelEntries(entries, favorites);
   const groups: ModelGroupSpec[] = [];
   if (favorite.length > 0) {
     groups.push({
       id: "starred",
-      heading: "Starred",
+      heading: t("conversation.composer.runtimeModelPickerGroups.starred", "Starred"),
       providerId: "",
       kind: "starred",
       entries: favorite,
@@ -232,10 +234,11 @@ export function getCatalogRefreshNotices(
 
 export function getProviderStateEntries(
   providers: RuntimeModelPickerProvider[],
+  t: UiTranslator = translateUi,
 ): ProviderStateEntry[] {
   return providers.flatMap((provider) => {
     if (!provider.disabled && provider.models.length > 0) return [];
-    const statusLabel = getProviderStatusLabel(provider);
+    const statusLabel = getProviderStatusLabel(provider, t);
     return [
       {
         providerId: provider.id,
@@ -343,8 +346,13 @@ function splitVendors(providerId: string, entries: ModelEntry[]): VendorSection[
   });
 }
 
-function getProviderStatusLabel(provider: RuntimeModelPickerProvider): string {
-  if (!provider.disabled) return "No models available";
-  if (provider.status === "unavailable") return provider.statusMessage ?? "Unavailable";
-  return "Coming soon";
+function getProviderStatusLabel(provider: RuntimeModelPickerProvider, t: UiTranslator): string {
+  if (!provider.disabled)
+    return t("conversation.composer.runtimeModelPickerGroups.emptyProvider", "No models available");
+  if (provider.status === "unavailable")
+    return (
+      provider.statusMessage ??
+      t("conversation.composer.runtimeModelPickerGroups.unavailable", "Unavailable")
+    );
+  return t("conversation.composer.runtimeModelPickerGroups.comingSoon", "Coming soon");
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createElement, type RefObject } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ function HeaderActions({
   | "maximized"
   | "onToggleMaximize"
 >): React.ReactNode {
+  const { t } = useUiTranslation();
   return (
     <div className="ml-auto flex items-center gap-1">
       {onMarkDone && (
@@ -68,7 +70,7 @@ function HeaderActions({
           }}
         >
           <CheckCircleIcon className="size-3" />
-          Mark Done
+          {t("conversation.stream.collapsibleHeader.markDone", "Mark Done")}
         </Button>
       )}
       {resumable && onResume && (
@@ -82,7 +84,7 @@ function HeaderActions({
           }}
         >
           <RotateCcwIcon className="size-3" />
-          Resume
+          {t("conversation.stream.collapsibleHeader.resume", "Resume")}
         </Button>
       )}
       {canDelete && onDelete && (
@@ -96,7 +98,7 @@ function HeaderActions({
           }}
         >
           <Trash2Icon className="size-3" />
-          Remove
+          {t("conversation.stream.collapsibleHeader.remove", "Remove")}
         </Button>
       )}
       {isOpen && onToggleMaximize && (
@@ -108,7 +110,11 @@ function HeaderActions({
             event.stopPropagation();
             onToggleMaximize();
           }}
-          title={maximized ? "Minimize" : "Maximize"}
+          title={
+            maximized
+              ? t("conversation.stream.collapsibleHeader.minimize", "Minimize")
+              : t("conversation.stream.collapsibleHeader.maximize", "Maximize")
+          }
         >
           {maximized ? <Minimize2Icon className="size-3" /> : <Maximize2Icon className="size-3" />}
         </Button>

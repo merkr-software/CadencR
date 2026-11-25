@@ -1,7 +1,8 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { useSetting } from "@/hooks/useSetting";
 import {
-  CONTEXT_METER_DISPLAY_LABEL,
+  contextMeterDisplayLabel,
   CONTEXT_METER_DISPLAY_SETTING_KEY,
   nextContextMeterDisplay,
   parseContextMeterDisplay,
@@ -33,11 +34,12 @@ function ContextMeterTrigger({
   usage: ContextUsageState;
   isStreaming: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const hover = useHoverOpen();
   const setting = useSetting(CONTEXT_METER_DISPLAY_SETTING_KEY);
   const display = parseContextMeterDisplay(setting.value);
   const ratio = usageRatio(usage);
-  const label = meterLabel(display, usage, ratio);
+  const label = meterLabel(t, display, usage, ratio);
 
   return (
     <Popover open={hover.open} onOpenChange={hover.setOpen}>
@@ -46,7 +48,14 @@ function ContextMeterTrigger({
           type="button"
           data-context-meter={display}
           aria-busy={setting.isSaving || undefined}
-          aria-label={`${contextUsageAriaLabel(usage, ratio)}. Showing ${CONTEXT_METER_DISPLAY_LABEL[display]}; click to change.`}
+          aria-label={t(
+            "conversation.composer.contextMeter.accessibleDescription",
+            "{{usage}}. Showing {{display}}; click to change.",
+            {
+              usage: contextUsageAriaLabel(t, usage, ratio),
+              display: contextMeterDisplayLabel(t, display),
+            },
+          )}
           className="composer-instrument gap-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           {...hover.triggerProps}
           onClick={(event) => {
@@ -84,6 +93,7 @@ function ContextMeterTrigger({
 
 /** The meter's text for a display, or null when it shows the bar alone. */
 function meterLabel(
+  t: UiTranslator,
   display: ContextMeterDisplay,
   usage: ContextUsageState,
   ratio: number | null,
@@ -97,7 +107,9 @@ function meterLabel(
     case "tokens":
       return `${formatCompactTokens(used)} / ${formatCompactTokens(usage.contextWindow)}`;
     case "left":
-      return `${formatCompactTokens(Math.max(0, usage.contextWindow - used))} left`;
+      return t("conversation.composer.contextMeter.tokensLeft", "{{tokens}} left", {
+        tokens: formatCompactTokens(Math.max(0, usage.contextWindow - used)),
+      });
     default:
       return `${Math.round(ratio * 100)}%`;
   }

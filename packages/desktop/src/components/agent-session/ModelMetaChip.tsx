@@ -1,4 +1,6 @@
-import { ChevronDownIcon, Loader2Icon, ZapIcon } from "lucide-react";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { FastModeSegment } from "./ModelFastMode";
+import { ChevronDownIcon, Loader2Icon } from "lucide-react";
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
@@ -29,7 +31,6 @@ const MODEL_SEGMENT = "inline-flex h-full items-center gap-1.5 px-2.5 transition
 // neutral ink, no border, wash or tint — the provider's icon is the only
 // color, so the row reads as one calm strip (DESIGN.md › Composer).
 const MODEL_INSTRUMENT_GROUP = "inline-flex min-w-0 items-center gap-0.5";
-const LOADING_CATALOG_LABEL = "Loading model catalog";
 
 function modelLabelFor(
   selection: RuntimeSelection,
@@ -41,8 +42,6 @@ function modelLabelFor(
   return models.find((model) => model.id === resolvedId)?.label ?? selection.modelId;
 }
 
-// Rem CQ so the label tracks text scale (same idea as GitTabToggle).
-const COMPACT_LABELS = "@max-[40rem]:hidden";
 // In the composer these answer to the instrument row they sit in (either of
 // the card's two rows, which share its width): labels hold until the card
 // itself gets genuinely tight.
@@ -91,6 +90,7 @@ export function ModelMetaChip({
   onModelSelected,
   variant = "chip",
 }: ModelMetaChipProps): ReactNode {
+  const { t } = useUiTranslation();
   const selectedThinkingEffort =
     currentThinkingEffort && supportedThinkingEfforts.includes(currentThinkingEffort)
       ? currentThinkingEffort
@@ -108,7 +108,11 @@ export function ModelMetaChip({
   return (
     <div className={variant === "instrument" ? MODEL_INSTRUMENT_GROUP : MODEL_GROUP}>
       {onModelChange ? (
-        <ShortcutTooltip label="Open model picker" keys={modelPickerKeys} disabled={open}>
+        <ShortcutTooltip
+          label={t("conversation.stream.modelMetaChip.openModelPicker", "Open model picker")}
+          keys={modelPickerKeys}
+          disabled={open}
+        >
           <RuntimeModelPicker
             open={open}
             onOpenChange={onOpenChange}
@@ -134,16 +138,11 @@ export function ModelMetaChip({
           />
         </ShortcutTooltip>
       ) : (
-        <ShortcutTooltip label={`Model: ${modelLabel}`}>
-          <div
-            className={cn(MODEL_SEGMENT, "min-w-0 rounded-md")}
-            aria-busy={isLoading}
-            aria-label={isLoading ? LOADING_CATALOG_LABEL : undefined}
-          >
-            <ModelIcon providerId={selection?.providerId} label={modelLabel} loading={isLoading} />
-            <SlidingText text={modelLabel} className="max-w-[160px]" />
-          </div>
-        </ShortcutTooltip>
+        <ReadOnlyModelChip
+          providerId={selection?.providerId}
+          label={modelLabel}
+          isLoading={isLoading}
+        />
       )}
 
       {supportedThinkingEfforts.length > 0 && onThinkingEffortChange && displayedThinkingEffort && (
@@ -168,6 +167,38 @@ export function ModelMetaChip({
   );
 }
 
+function ReadOnlyModelChip({
+  providerId,
+  label: modelLabel,
+  isLoading,
+}: {
+  providerId?: string;
+  label: string;
+  isLoading: boolean;
+}) {
+  const { t } = useUiTranslation();
+  return (
+    <ShortcutTooltip
+      label={t("conversation.stream.modelMetaChip.selectedModel", "Model: {{modelLabel}}", {
+        modelLabel,
+      })}
+    >
+      <div
+        className={cn(MODEL_SEGMENT, "min-w-0 rounded-md")}
+        aria-busy={isLoading}
+        aria-label={
+          isLoading
+            ? t("conversation.stream.modelMetaChip.loadingCatalog", "Loading model catalog")
+            : undefined
+        }
+      >
+        <ModelIcon providerId={providerId} label={modelLabel} loading={isLoading} />
+        <SlidingText text={modelLabel} className="max-w-[160px]" />
+      </div>
+    </ShortcutTooltip>
+  );
+}
+
 interface ModelButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   providerId?: string;
   modelLabel: string;
@@ -179,12 +210,17 @@ const ModelButton = forwardRef<HTMLButtonElement, ModelButtonProps>(function Mod
   { providerId, modelLabel, isLoading, instrument = false, className, ...buttonProps },
   ref,
 ): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <button
       {...buttonProps}
       ref={ref}
       type="button"
-      aria-label={isLoading ? LOADING_CATALOG_LABEL : undefined}
+      aria-label={
+        isLoading
+          ? t("conversation.stream.modelMetaChip.loadingCatalog", "Loading model catalog")
+          : undefined
+      }
       disabled={isLoading}
       className={cn(
         instrument
@@ -237,12 +273,17 @@ function ThinkingEffortSegment({
   trailingSegment,
   instrument = false,
 }: ThinkingEffortSegmentProps): ReactNode {
+  const { t } = useUiTranslation();
   const thinkingKeys = useShortcutKeys("agent-thinking");
   return (
     <>
       {!instrument && <div className="w-px bg-[var(--chip-violet-soft)]/15" aria-hidden="true" />}
       <ShortcutTooltip
-        label={`Thinking effort: ${thinkingEffortLabel(displayedThinkingEffort)}`}
+        label={t(
+          "conversation.stream.modelMetaChip.thinkingEffort",
+          "Thinking effort: {{effort}}",
+          { effort: thinkingEffortLabel(displayedThinkingEffort) },
+        )}
         keys={thinkingKeys}
       >
         <button
@@ -257,7 +298,10 @@ function ThinkingEffortSegment({
                   !trailingSegment && "rounded-r-md",
                 )
           }
-          aria-label="Cycle thinking effort"
+          aria-label={t(
+            "conversation.stream.modelMetaChip.cycleThinkingEffort",
+            "Cycle thinking effort",
+          )}
         >
           <ThinkingEffortBars
             levels={supportedThinkingEfforts}
@@ -268,118 +312,13 @@ function ThinkingEffortSegment({
           {instrument && (
             <span aria-hidden="true" className={INSTRUMENT_LABELS}>
               {/* Unset means the provider's own default — never claim a level. */}
-              {selectedThinkingEffort ? thinkingEffortLabel(selectedThinkingEffort) : "Effort"}
+              {selectedThinkingEffort
+                ? thinkingEffortLabel(selectedThinkingEffort)
+                : t("conversation.stream.modelMetaChip.effort", "Effort")}
             </span>
           )}
         </button>
       </ShortcutTooltip>
     </>
-  );
-}
-
-function FastModeSegment({
-  enabled,
-  pending,
-  onToggle,
-  instrument = false,
-}: {
-  enabled: boolean;
-  pending: boolean;
-  onToggle: () => void;
-  instrument?: boolean;
-}): ReactNode {
-  if (instrument) {
-    return <FastModeInstrument enabled={enabled} pending={pending} onToggle={onToggle} />;
-  }
-  const stateLabel = enabled ? "On" : "Off";
-  return (
-    <>
-      <div className="w-px bg-[var(--chip-violet-soft)]/15" aria-hidden="true" />
-      <ShortcutTooltip label={`Fast mode: ${stateLabel}`}>
-        <button
-          type="button"
-          onClick={onToggle}
-          disabled={pending}
-          aria-label={`Turn fast mode ${enabled ? "off" : "on"}`}
-          aria-pressed={enabled}
-          aria-busy={pending}
-          data-state={enabled ? "on" : "off"}
-          className={cn(
-            MODEL_SEGMENT,
-            // Model chip stays on --chip-violet-* (DESIGN.md). Never theme
-            // --primary here — on Frost that paints cyan/blue into a violet
-            // control. ON is a charged violet cell: dense fill, bright soft
-            // ink, inset hairline + outer glow so it reads as lit, not tinted.
-            "rounded-r-md px-2 disabled:cursor-wait",
-            enabled
-              ? "bg-[var(--chip-violet-bg)]/70 font-semibold text-[var(--chip-violet-soft)] shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--chip-violet-soft)_65%,transparent),0_0_22px_-1px_color-mix(in_oklch,var(--chip-violet-bg)_75%,transparent)] hover:bg-[var(--chip-violet-bg)]/80"
-              : "text-[var(--chip-violet-soft)]/35 hover:bg-[var(--chip-violet-bg)]/10 hover:text-[var(--chip-violet-soft)]/70",
-          )}
-        >
-          {pending ? (
-            <Loader2Icon className="size-3 animate-spin" aria-hidden="true" />
-          ) : (
-            <ZapIcon
-              className={cn(
-                "size-3 shrink-0 transition-[filter,color] duration-150",
-                enabled &&
-                  "fill-current text-[var(--chip-violet-soft)] drop-shadow-[0_0_6px_color-mix(in_oklch,var(--chip-violet-soft)_85%,transparent)]",
-              )}
-              aria-hidden="true"
-            />
-          )}
-          <span aria-hidden="true" className={cn(COMPACT_LABELS, enabled && "tracking-wide")}>
-            Fast
-          </span>
-        </button>
-      </ShortcutTooltip>
-    </>
-  );
-}
-
-/**
- * Fast mode in the composer's instrument row: a lit amber bolt when on, a
- * quiet outline when off — no charged chip.
- */
-function FastModeInstrument({
-  enabled,
-  pending,
-  onToggle,
-}: {
-  enabled: boolean;
-  pending: boolean;
-  onToggle: () => void;
-}): ReactNode {
-  return (
-    <ShortcutTooltip label={`Fast mode: ${enabled ? "On" : "Off"}`}>
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={pending}
-        aria-label={`Turn fast mode ${enabled ? "off" : "on"}`}
-        aria-pressed={enabled}
-        aria-busy={pending}
-        data-state={enabled ? "on" : "off"}
-        className={cn(
-          "composer-instrument gap-1 disabled:cursor-wait",
-          enabled ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        {pending ? (
-          <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />
-        ) : (
-          <ZapIcon
-            className={cn(
-              "size-3.5 shrink-0",
-              enabled && "fill-current text-[var(--acc-yellow)] composer-fast-lit",
-            )}
-            aria-hidden="true"
-          />
-        )}
-        <span aria-hidden="true" className={INSTRUMENT_LABELS}>
-          Fast
-        </span>
-      </button>
-    </ShortcutTooltip>
   );
 }

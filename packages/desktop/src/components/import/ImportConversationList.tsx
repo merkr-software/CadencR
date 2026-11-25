@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { Search } from "lucide-react";
 import type { ImportConversationSummary } from "@/api/generated";
@@ -85,13 +86,17 @@ interface SearchBoxProps {
 }
 
 function SearchBox({ query, onQueryChange }: SearchBoxProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="relative shrink-0">
       <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
-        placeholder="Search conversations by title…"
+        placeholder={t(
+          "conversation.importConversationList.searchConversationsByTitle",
+          "Search conversations by title…",
+        )}
         className="h-8 pl-8 text-sm"
       />
     </div>
@@ -111,6 +116,7 @@ function SelectAllRow({
   visibleSelectableIds,
   onToggleAll,
 }: SelectAllRowProps) {
+  const { t } = useUiTranslation();
   const hasSelectable = visibleSelectableIds.length > 0;
   return (
     <label
@@ -122,10 +128,15 @@ function SelectAllRow({
         checked={selectAllState}
         disabled={!hasSelectable}
         onCheckedChange={onToggleAll}
-        aria-label="Select all visible conversations"
+        aria-label={t(
+          "conversation.importConversationList.selectAllVisibleConversations",
+          "Select all visible conversations",
+        )}
       />
       <span>
-        {selectAllState === true ? "Unselect all" : "Select all"}
+        {selectAllState === true
+          ? t("conversation.importConversationList.unselectAll", "Unselect all")
+          : t("conversation.importConversationList.selectAll", "Select all")}
         {query.trim() ? " matching" : ""}
         {hasSelectable ? ` (${visibleSelectableIds.length})` : ""}
       </span>
@@ -156,14 +167,21 @@ function ConversationListPanel({
   providerLabel,
   selectedIds,
 }: ConversationListPanelProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
       {isLoading && <ListSkeleton />}
       {!isLoading && isError && (
         <EmptyState
-          title="Couldn't load conversations"
-          description={apiErrorMessage(error, "Unknown error")}
-          actionLabel="Retry"
+          title={t(
+            "conversation.importConversationList.couldnTLoadConversations",
+            "Couldn't load conversations",
+          )}
+          description={apiErrorMessage(
+            error,
+            t("conversation.importConversationList.unknownError", "Unknown error"),
+          )}
+          actionLabel={t("conversation.importConversationList.retry", "Retry")}
           onAction={() => {
             void onRefetch();
           }}
@@ -173,13 +191,23 @@ function ConversationListPanel({
         <EmptyState
           title={
             conversations.length === 0
-              ? `No ${providerLabel} conversations found`
-              : "No matching conversations"
+              ? t(
+                  "conversation.importConversationList.noProviderConversations",
+                  "No {{provider}} conversations found",
+                  { provider: providerLabel },
+                )
+              : t(
+                  "conversation.importConversationList.noMatchingConversations",
+                  "No matching conversations",
+                )
           }
           description={
             conversations.length === 0
-              ? emptyProviderDescription(providerLabel)
-              : "Try a different search term."
+              ? emptyProviderDescription(providerLabel, t)
+              : t(
+                  "conversation.importConversationList.tryADifferentSearchTerm",
+                  "Try a different search term.",
+                )
           }
         />
       )}
@@ -210,20 +238,29 @@ interface ImportFooterProps {
 }
 
 function ImportFooter({ isImporting, onBack, onImport, selectedCount }: ImportFooterProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex shrink-0 items-center justify-between gap-2">
       <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-        Back
+        {t("conversation.importConversationList.back", "Back")}
       </Button>
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-muted-foreground">{selectedCount} selected</span>
+        <span className="text-[11px] text-muted-foreground">
+          {t("conversation.importConversationList.selected", "{{count}} selected", {
+            count: selectedCount,
+          })}
+        </span>
         <Button
           type="button"
           size="sm"
           onClick={onImport}
           disabled={selectedCount === 0 || isImporting}
         >
-          {isImporting ? "Starting…" : `Import ${selectedCount}`}
+          {isImporting
+            ? t("conversation.importConversationList.starting", "Starting…")
+            : t("conversation.importConversationList.importSelection", "Import {{count}}", {
+                count: selectedCount,
+              })}
         </Button>
       </div>
     </div>
@@ -238,6 +275,7 @@ interface ConversationRowProps {
 }
 
 function ConversationRowInner({ conversation, checked, disabled, onToggle }: ConversationRowProps) {
+  const { t, i18n } = useUiTranslation();
   return (
     <li>
       <label
@@ -251,9 +289,17 @@ function ConversationRowInner({ conversation, checked, disabled, onToggle }: Con
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{conversation.title}</div>
           <div className="text-[11px] text-muted-foreground">
-            {conversation.message_count} messages
-            {conversation.modified_at ? ` · ${formatDate(conversation.modified_at)}` : ""}
-            {conversation.already_imported ? " · already imported" : ""}
+            {t("conversation.importConversationList.messageCount", {
+              count: conversation.message_count,
+              defaultValue_one: "{{count}} message",
+              defaultValue_other: "{{count}} messages",
+            })}
+            {conversation.modified_at
+              ? ` · ${formatDate(conversation.modified_at, i18n.language)}`
+              : ""}
+            {conversation.already_imported
+              ? t("conversation.importConversationList.alreadyImported", " · already imported")
+              : ""}
           </div>
         </div>
       </label>
@@ -292,16 +338,20 @@ function EmptyState({ title, description, actionLabel, onAction }: EmptyStatePro
   );
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string | undefined): string {
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(locale);
   } catch {
     return iso;
   }
 }
 
-function emptyProviderDescription(providerLabel: string): string {
-  return `Looked in ${providerLabel}'s local session storage for this project's path. Run ${providerLabel} in this project's folder first.`;
+function emptyProviderDescription(providerLabel: string, t: UiTranslator): string {
+  return t(
+    "conversation.importConversationList.noLocalProviderSessions",
+    "Looked in {{provider}}'s local session storage for this project's path. Run {{provider}} in this project's folder first.",
+    { provider: providerLabel },
+  );
 }
 
 const ConversationRow = memo(ConversationRowInner);

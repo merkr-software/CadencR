@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useState, useEffect, useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -71,9 +72,16 @@ function useAttachmentAdders(
           const mimeType = normalizeAttachmentMime(file.name, file.type);
           const kind = getAttachmentKindForProvider(providerId, file.name, mimeType);
           if (!kind) {
-            toast.error(`Unsupported file: ${file.name}`, {
-              description: unsupportedAttachmentDescription(providerId),
-            });
+            toast.error(
+              translateUi(
+                "conversation.composer.useImageAttachments.unsupportedFile",
+                "Unsupported file: {{file}}",
+                { file: file.name },
+              ),
+              {
+                description: unsupportedAttachmentDescription(providerId),
+              },
+            );
             return;
           }
           if (file.size > MAX_SIZE_BYTES) return;
@@ -102,9 +110,16 @@ function useAttachmentAdders(
         const mimeType = normalizeAttachmentMime(file.name, "");
         const kind = getAttachmentKindForProvider(providerId, file.name, mimeType);
         if (!kind) {
-          toast.error(`Unsupported file: ${file.name}`, {
-            description: unsupportedAttachmentDescription(providerId),
-          });
+          toast.error(
+            translateUi(
+              "conversation.composer.useImageAttachments.unsupportedFile",
+              "Unsupported file: {{file}}",
+              { file: file.name },
+            ),
+            {
+              description: unsupportedAttachmentDescription(providerId),
+            },
+          );
           continue;
         }
         try {
@@ -119,7 +134,14 @@ function useAttachmentAdders(
           });
         } catch (error) {
           const message = apiErrorMessage(error, String(error));
-          toast.error(`Couldn't attach ${file.name}`, { description: message });
+          toast.error(
+            translateUi(
+              "conversation.composer.useImageAttachments.attachFailed",
+              "Couldn't attach {{file}}",
+              { file: file.name },
+            ),
+            { description: message },
+          );
         }
       }
     },
@@ -140,18 +162,35 @@ function useFileDropSubscription(
         if (event.type === "drop") {
           if (event.files.length === 0) return;
           if (!event.targetPromptId) {
-            toast.error("Drop the image on an agent to attach it.", {
-              id: "image-drop-missing-target",
-            });
+            toast.error(
+              translateUi(
+                "conversation.composer.useImageAttachments.missingTarget",
+                "Drop the image on an agent to attach it.",
+              ),
+              {
+                id: "image-drop-missing-target",
+              },
+            );
             return;
           }
           if (promptId && event.targetPromptId !== promptId) return;
           void addDroppedFilesRef.current(event.files);
         } else if (event.type === "error") {
-          toast.error("Couldn't read dropped files.", {
-            id: "image-drop-read-error",
-            description: event.message ?? "The desktop shell rejected the dropped file paths.",
-          });
+          toast.error(
+            translateUi(
+              "conversation.composer.useImageAttachments.readDropFailed",
+              "Couldn't read dropped files.",
+            ),
+            {
+              id: "image-drop-read-error",
+              description:
+                event.message ??
+                translateUi(
+                  "conversation.composer.useImageAttachments.dropRejected",
+                  "The desktop shell rejected the dropped file paths.",
+                ),
+            },
+          );
         }
       }),
     [promptId],

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { z } from "zod";
 import { cleanupReportSchema } from "@/lib/archive-cleanup-events";
@@ -23,20 +24,46 @@ export function handleAgentArchived(payload: unknown): void {
   const parsed = agentArchivedSchema.safeParse(payload);
   if (!parsed.success) {
     void invalidateByUrlPrefix(queryClient, "/api/features");
-    toast.error("An agent archived a session", {
-      description: "Cadencr could not read the archive details; the session list was refreshed.",
-    });
+    toast.error(
+      translateUi(
+        "conversation.agentArchived.anAgentArchivedASession",
+        "An agent archived a session",
+      ),
+      {
+        description: translateUi(
+          "conversation.agentArchived.cadencrCouldNotReadTheArchiveDetailsTheSessionListWasRefreshed",
+          "Cadencr could not read the archive details; the session list was refreshed.",
+        ),
+      },
+    );
     return;
   }
   const event = parsed.data;
   const relatives = event.archived_feature_ids.length - 1;
-  const title = `${event.archived_by} archived “${event.title}”${
-    relatives > 0 ? ` and ${relatives} related ${relatives === 1 ? "session" : "sessions"}` : ""
-  }`;
+  const data = { agent: event.archived_by, title: event.title };
+  const title =
+    relatives > 0
+      ? translateUi("conversation.agent-archived.archivedWithRelatives", {
+          count: relatives,
+          ...data,
+          defaultValue_one: "{{agent}} archived “{{title}}” and {{count}} related session",
+          defaultValue_other: "{{agent}} archived “{{title}}” and {{count}} related sessions",
+        })
+      : translateUi("conversation.agentArchived.archived", "{{agent}} archived “{{title}}”", data);
   if (stepsNeedingAttention(event.cleanup).length > 0) {
-    toast.warning(`${title}, but cleanup is incomplete`, {
-      description: "Review it to resume or force the remaining steps.",
-    });
+    toast.warning(
+      translateUi(
+        "conversation.agent-archived.archiveCleanupIncomplete",
+        "{{title}}, but cleanup is incomplete",
+        { title },
+      ),
+      {
+        description: translateUi(
+          "conversation.agentArchived.reviewItToResumeOrForceTheRemainingSteps",
+          "Review it to resume or force the remaining steps.",
+        ),
+      },
+    );
     return;
   }
   toast.success(title, { description: doneSummary(event.cleanup) });

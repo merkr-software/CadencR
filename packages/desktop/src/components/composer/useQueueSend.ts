@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import type { SendFn } from "../agent-prompt-send";
@@ -41,7 +42,12 @@ export function useQueueSend({
   const handleQueue = useCallback((): void => {
     if (!canQueue) return;
     if (attachmentCount > 0) {
-      toast.info("Images can't wait in the queue. Press Enter to send them to the agent now.");
+      toast.info(
+        translateUi(
+          "conversation.composer.useQueueSend.noImages",
+          "Images can't wait in the queue. Press Enter to send them to the agent now.",
+        ),
+      );
       return;
     }
     void runSend(

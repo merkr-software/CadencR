@@ -1,3 +1,4 @@
+import { permissionOptionCopy } from "@/lib/permission-option-copy";
 import { translateUi } from "@/lib/i18n/ui";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import type { AgentQuestion } from "@/types/agent-question";
@@ -119,11 +120,16 @@ export function buildOptions(gate: FeaturePendingGateResponse): PermissionOption
       const action = permissionActionFromDecision(decisionRaw);
       if (!action) return [];
       const label = nonEmptyString(option.label) ?? PERMISSION_FALLBACK_LABEL[action];
+      const copy = permissionOptionCopy(translateUi, {
+        label,
+        description: typeof option.description === "string" ? option.description : "",
+        optionId: typeof option.option_id === "string" ? option.option_id : undefined,
+      });
       return [
         {
           key: `${decisionRaw}-${index}`,
-          label,
-          description: typeof option.description === "string" ? option.description : undefined,
+          label: copy.label,
+          description: typeof option.description === "string" ? copy.description : undefined,
           decision: {
             type: "permission",
             action,

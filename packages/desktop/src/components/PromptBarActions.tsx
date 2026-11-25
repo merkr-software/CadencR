@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CornerDownRight, ListPlus, Loader2, Send, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImageAttachmentButton } from "./ImageAttachmentButton";
@@ -59,8 +60,7 @@ export function PromptBarActions({
   onQueue,
   queuesOnEnter = false,
 }: PromptBarActionsProps) {
-  // Stop is the binding pressed twice.
-  const stopKeys = useShortcutKeys("agent-stop");
+  const { t } = useUiTranslation();
   const showMenu = !!schedule || !!onQueue;
   const showActionGroup = showSendButton || showMenu;
 
@@ -71,26 +71,7 @@ export function PromptBarActions({
         disabled={inputsDisabled}
         providerId={providerId}
       />
-      {isRunning && (
-        <ShortcutTooltip label="Stop the agent" keys={[...stopKeys, ...stopKeys]}>
-          <button
-            type="button"
-            data-composer-action
-            onClick={onStop}
-            disabled={stopping}
-            aria-busy={stopping}
-            aria-label={stopping ? "Stopping agent" : "Stop agent"}
-            className="flex h-(--composer-instrument-size) shrink-0 items-center gap-1.5 rounded-md bg-destructive/12 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/22 disabled:opacity-60"
-          >
-            {stopping ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Square className="size-3.5 fill-current" />
-            )}
-            <span className="@max-[30rem]:hidden">{stopping ? "Stopping…" : "Stop"}</span>
-          </button>
-        </ShortcutTooltip>
-      )}
+      {isRunning && <StopAction onStop={onStop} stopping={stopping} />}
       {showActionGroup && (
         <div className="inline-flex items-center">
           {showSendButton && (
@@ -99,9 +80,9 @@ export function PromptBarActions({
               data-composer-action
               onClick={queuesOnEnter && onQueue ? onQueue : onSend}
               disabled={!canSend}
-              aria-label={runLabel(isRunning, queuesOnEnter)}
+              aria-label={runLabel(t, isRunning, queuesOnEnter)}
               aria-busy={sending}
-              title={runTitle(isRunning, queuesOnEnter)}
+              title={runTitle(t, isRunning, queuesOnEnter)}
               className={cn(
                 PRIMARY,
                 isRunning ? "px-2 text-[12px] font-medium" : "w-(--composer-instrument-size)",
@@ -117,7 +98,11 @@ export function PromptBarActions({
                   ) : (
                     <CornerDownRight className="size-3.5" />
                   )}
-                  <span className="@max-[30rem]:hidden">{queuesOnEnter ? "Queue" : "Steer"}</span>
+                  <span className="@max-[30rem]:hidden">
+                    {queuesOnEnter
+                      ? t("conversation.composer.promptBarActions.queue", "Queue")
+                      : t("conversation.composer.promptBarActions.steer", "Steer")}
+                  </span>
                 </>
               ) : (
                 <Send className="size-3.5" />
@@ -144,16 +129,65 @@ export function PromptBarActions({
   );
 }
 
-function runLabel(isRunning: boolean, queuesOnEnter: boolean): string {
-  if (!isRunning) return "Send message";
-  return queuesOnEnter
-    ? "Queue this message for after the turn"
-    : "Steer the agent with this message";
+function StopAction({
+  onStop,
+  stopping,
+}: Pick<PromptBarActionsProps, "onStop"> & { stopping: boolean }) {
+  const { t } = useUiTranslation();
+  // Stop is the binding pressed twice.
+  const stopKeys = useShortcutKeys("agent-stop");
+  return (
+    <ShortcutTooltip
+      label={t("conversation.composer.promptBarActions.stopTheAgent", "Stop the agent")}
+      keys={[...stopKeys, ...stopKeys]}
+    >
+      <button
+        type="button"
+        data-composer-action
+        onClick={onStop}
+        disabled={stopping}
+        aria-busy={stopping}
+        aria-label={
+          stopping
+            ? t("conversation.composer.promptBarActions.stoppingAgent", "Stopping agent")
+            : t("conversation.composer.promptBarActions.stopAgent", "Stop agent")
+        }
+        className="flex h-(--composer-instrument-size) shrink-0 items-center gap-1.5 rounded-md bg-destructive/12 px-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/22 disabled:opacity-60"
+      >
+        {stopping ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Square className="size-3.5 fill-current" />
+        )}
+        <span className="@max-[30rem]:hidden">
+          {stopping
+            ? t("conversation.composer.promptBarActions.stopping", "Stopping…")
+            : t("conversation.composer.promptBarActions.stop", "Stop")}
+        </span>
+      </button>
+    </ShortcutTooltip>
+  );
 }
 
-function runTitle(isRunning: boolean, queuesOnEnter: boolean): string | undefined {
+function runLabel(t: UiTranslator, isRunning: boolean, queuesOnEnter: boolean): string {
+  if (!isRunning) return t("conversation.composer.promptBarActions.sendMessage", "Send message");
+  return queuesOnEnter
+    ? t(
+        "conversation.composer.promptBarActions.queueMessage",
+        "Queue this message for after the turn",
+      )
+    : t("conversation.composer.promptBarActions.steerMessage", "Steer the agent with this message");
+}
+
+function runTitle(t: UiTranslator, isRunning: boolean, queuesOnEnter: boolean): string | undefined {
   if (!isRunning) return undefined;
   return queuesOnEnter
-    ? "This agent can't take messages mid-turn: it gets this one when the turn ends (Enter)"
-    : "Steer: the agent reads it at its next step (Enter)";
+    ? t(
+        "conversation.composer.promptBarActions.queueTitle",
+        "This agent can't take messages mid-turn: it gets this one when the turn ends (Enter)",
+      )
+    : t(
+        "conversation.composer.promptBarActions.steerTitle",
+        "Steer: the agent reads it at its next step (Enter)",
+      );
 }

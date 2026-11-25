@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import {
   ClipboardPaste,
@@ -37,6 +38,7 @@ const KIND_ICON: Record<ComposerContextKind, typeof FileText> = {
  * the agent will receive is visible before Send — never implicit.
  */
 export const ContextTray = memo(function ContextTray(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { featureId, attachments } = useComposerContext();
   const key = composerKeyFor(featureId);
   const items = useComposerContextItems(key);
@@ -54,7 +56,10 @@ export const ContextTray = memo(function ContextTray(): ReactElement | null {
   return (
     <div
       data-context-tray
-      aria-label="Context sent with this message"
+      aria-label={t(
+        "conversation.composer.contextTray.contextSentWithThisMessage",
+        "Context sent with this message",
+      )}
       className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5 empty:hidden"
     >
       {hasContent && <AttachmentChips items={attachments.items} onRemove={attachments.remove} />}
@@ -73,16 +78,36 @@ function ContextChip({
   item: ComposerContextItem;
   onRemove: (id: string) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const Icon = KIND_ICON[item.kind];
   return (
     <Chip
       icon={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-      label={item.label}
-      detail={item.detail}
+      label={contextItemLabel(t, item)}
+      detail={
+        item.kind === "pasted"
+          ? t("conversation.composer.contextTray.lineCount", {
+              count: item.content.split("\n").length,
+              defaultValue_one: "{{count}} line",
+              defaultValue_other: "{{count}} lines",
+            })
+          : item.detail
+      }
       title={item.content.length > 400 ? `${item.content.slice(0, 400)}…` : item.content}
       onRemove={() => onRemove(item.id)}
     />
   );
+}
+
+function contextItemLabel(t: UiTranslator, item: ComposerContextItem): string {
+  switch (item.kind) {
+    case "pasted":
+      return t("conversation.composer.contextTray.pastedText", "Pasted text");
+    case "review":
+      return t("conversation.composer.contextTray.reviewComments", "Review comments");
+    default:
+      return item.label;
+  }
 }
 
 /** Image and file attachments as chips; an image opens in the lightbox. */
@@ -150,6 +175,7 @@ export function Chip({
   onRemove?: () => void;
   children?: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       title={title}
@@ -162,7 +188,9 @@ export function Chip({
       {onRemove && (
         <button
           type="button"
-          aria-label={`Remove ${label}`}
+          aria-label={t("conversation.composer.contextTray.removeItem", "Remove {{label}}", {
+            label,
+          })}
           onClick={(event) => {
             event.stopPropagation();
             onRemove();

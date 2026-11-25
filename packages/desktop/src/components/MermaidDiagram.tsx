@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2Icon, AlertTriangleIcon } from "lucide-react";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
@@ -38,6 +39,7 @@ type FallbackState =
  * Its SVG is not namespaced: mermaid's `<style>` selects its root by id.
  */
 function MermaidFallbackDiagram({ code }: { code: string }) {
+  const { t } = useUiTranslation();
   const appearance = useTheme().theme.appearance;
   const cached = cachedMermaidSvg(code, appearance);
   const [state, setState] = useState<FallbackState>({ status: "loading" });
@@ -69,7 +71,9 @@ function MermaidFallbackDiagram({ code }: { code: string }) {
     return (
       <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
         <Loader2Icon className="size-3 animate-spin" />
-        <span>Rendering diagram…</span>
+        <span>
+          {t("conversation.stream.mermaidDiagram.renderingDiagram", "Rendering diagram…")}
+        </span>
       </div>
     );
   }
@@ -77,7 +81,13 @@ function MermaidFallbackDiagram({ code }: { code: string }) {
     <>
       <div className="flex items-center gap-1.5 border-b border-border bg-destructive/10 px-3 py-1 text-xs text-destructive">
         <AlertTriangleIcon className="size-3 shrink-0" />
-        <span>Could not render diagram: {current.message}</span>
+        <span>
+          {t(
+            "conversation.stream.mermaidDiagram.couldNotRenderDiagram",
+            "Could not render diagram:",
+          )}{" "}
+          {current.message}
+        </span>
       </div>
       <VisualSource code={code} language="text" />
     </>
@@ -89,6 +99,7 @@ interface MermaidDiagramProps {
 }
 
 const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiagramProps) {
+  const { t } = useUiTranslation();
   const [view, setView] = useState<"diagram" | "source">("diagram");
   const beautifulSvg = useMemo(() => renderBeautifulMermaid(code), [code]);
 
@@ -99,7 +110,7 @@ const MermaidDiagram = memo(function MermaidDiagram({ code }: MermaidDiagramProp
       leadingActions={
         <SourceToggle
           showingSource={view === "source"}
-          renderedLabel="Diagram"
+          renderedLabel={t("conversation.stream.mermaidDiagram.diagram", "Diagram")}
           onToggle={() => setView((v) => (v === "diagram" ? "source" : "diagram"))}
         />
       }

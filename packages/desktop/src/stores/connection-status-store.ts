@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Single source of truth for "is the backend reachable right now?".
  *
@@ -95,13 +96,18 @@ function aggregate(sources: Record<string, SourceState>): {
 }
 
 export function reportManualReconnectRequired(key: string): void {
-  useConnectionStatusStore
-    .getState()
-    .reportSource(
-      key,
-      "manual_reconnect_required",
-      `Backend WebSocket failed to reconnect for ${AUTO_RECONNECT_TIMEOUT_SECONDS} seconds`,
-    );
+  useConnectionStatusStore.getState().reportSource(
+    key,
+    "manual_reconnect_required",
+    translateUi(
+      "conversation.connection.reconnectTimeout",
+      "Backend WebSocket failed to reconnect for {{count}} seconds",
+      {
+        count: AUTO_RECONNECT_TIMEOUT_SECONDS,
+        defaultValue_one: "Backend WebSocket failed to reconnect for {{count}} second",
+      },
+    ),
+  );
 }
 
 export const useConnectionStatusStore = create<ConnectionStatusState>((set, get) => ({
@@ -179,7 +185,10 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
       let changed = false;
       for (const [key, src] of Object.entries(sources)) {
         if (src.status !== "manual_reconnect_required") continue;
-        sources[key] = { status: "reconnecting", reason: "Retrying backend connection" };
+        sources[key] = {
+          status: "reconnecting",
+          reason: translateUi("conversation.connection.retrying", "Retrying backend connection"),
+        };
         changed = true;
       }
       if (changed) {
@@ -203,14 +212,25 @@ useConnectionStatusStore.subscribe((state, prev) => {
   if (state.status === prev.status) return;
 
   if (state.status === "manual_reconnect_required") {
-    toast.error("Backend reconnect paused", {
+    toast.error(translateUi("conversation.connection.paused", "Backend reconnect paused"), {
       id: MANUAL_RECONNECT_TOAST_ID,
-      description: `${
-        state.reason ?? "Cadencr could not reconnect to the local backend."
-      } Automatic retries are paused after ${AUTO_RECONNECT_TIMEOUT_SECONDS} seconds.`,
+      description: translateUi(
+        "conversation.connection.pausedDetail",
+        "{{reason}} Automatic retries are paused after {{count}} seconds.",
+        {
+          reason:
+            state.reason ??
+            translateUi(
+              "conversation.connection.failed",
+              "Cadencr could not reconnect to the local backend.",
+            ),
+          count: AUTO_RECONNECT_TIMEOUT_SECONDS,
+          defaultValue_one: "{{reason}} Automatic retries are paused after {{count}} second.",
+        },
+      ),
       duration: Infinity,
       action: {
-        label: "Retry now",
+        label: translateUi("conversation.connection.retryNow", "Retry now"),
         onClick: () =>
           useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true }),
       },
@@ -221,7 +241,10 @@ useConnectionStatusStore.subscribe((state, prev) => {
   toast.dismiss(MANUAL_RECONNECT_TOAST_ID);
 
   if (state.status === "connected" && state.recoveredSinceOutage) {
-    toast.success("Reconnected to backend", { id: RECONNECTED_TOAST_ID, duration: 3000 });
+    toast.success(translateUi("conversation.connection.restored", "Reconnected to backend"), {
+      id: RECONNECTED_TOAST_ID,
+      duration: 3000,
+    });
   }
 });
 

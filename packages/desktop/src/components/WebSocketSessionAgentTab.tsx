@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -202,13 +203,14 @@ export function changeFastMode(controls: SessionControls, enabled: boolean): Pro
 }
 
 export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
+  const { t } = useUiTranslation();
   const { sessionId, featureId, projectId, data, controls, refs, agentVisible, hotkeysEnabled } =
     args;
   const onSend = useAgentSendHandler({ featureId, projectId, data, controls });
   const hasAccessModes = controls.providerAccessModes.length > 0;
   return useMemo(
     () => ({
-      label: "Agent",
+      label: t("conversation.webSocketSessionAgentTab.agentTab", "Agent"),
       Icon: AgentIcon,
       shortcutId: "pane-agent",
       content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
@@ -225,6 +227,7 @@ export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
       projectId,
       refs.agent,
       sessionId,
+      t,
     ],
   );
 }
@@ -239,6 +242,7 @@ function useAgentSendHandler(args: {
   attachments?: PromptAttachmentPayload[],
   claudeProfile?: string,
 ) => Promise<void> {
+  const { t } = useUiTranslation();
   const { featureId, projectId } = args;
   const queryClient = useQueryClient();
   const setFeatureSetting = useSetFeatureSetting();
@@ -298,7 +302,12 @@ function useAgentSendHandler(args: {
       // initializes; a rejection hands the text back to the composer.
       try {
         if (controls.ws.isCompacting && attachments?.length) {
-          throw new Error("Keep attachments in the composer until compaction finishes.");
+          throw new Error(
+            translateUi(
+              "conversation.webSocketSessionAgentTab.keepAttachmentsInTheComposerUntilCompactionFinishes",
+              "Keep attachments in the composer until compaction finishes.",
+            ),
+          );
         }
         await controls.ws.deliverPrompt(text, {
           attachments,
@@ -306,7 +315,10 @@ function useAgentSendHandler(args: {
           claudeProfile: claudeProfile ?? claudeProfileForPrompt(controls),
         });
       } catch (error) {
-        toastError(error, "Message not sent");
+        toastError(
+          error,
+          t("conversation.webSocketSessionAgentTab.messageNotSent", "Message not sent"),
+        );
         throw error;
       }
     },

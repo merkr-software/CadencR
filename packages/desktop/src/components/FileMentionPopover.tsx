@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef } from "react";
 import { FileIcon, FolderIcon } from "lucide-react";
 import { ComposerPopover, ComposerPopoverOption } from "./composer/ComposerPopover";
@@ -31,6 +32,7 @@ export function FileMentionPopover({
   onSelect,
   maxHeight,
 }: FileMentionPopoverProps) {
+  const { t } = useUiTranslation();
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,7 +41,12 @@ export function FileMentionPopover({
   }, [selectedIndex]);
 
   return (
-    <ComposerPopover ref={listRef} listId={listId} label="Files" maxHeight={maxHeight}>
+    <ComposerPopover
+      ref={listRef}
+      listId={listId}
+      label={t("conversation.composer.fileMentionPopover.files", "Files")}
+      maxHeight={maxHeight}
+    >
       {items.map((item, index) => {
         const { dir, name } = splitPath(item.path);
         const Icon = item.isDir ? FolderIcon : FileIcon;

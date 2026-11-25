@@ -31,13 +31,16 @@ describe("parseVegaLiteSpec", () => {
     });
   });
 
-  it("explains invalid JSON and non-object specs", () => {
+  it("distinguishes invalid JSON from non-object specs", () => {
     const invalid = parseVegaLiteSpec('{"mark": "bar",}');
     expect(invalid.ok).toBe(false);
-    expect(!invalid.ok && invalid.error).toMatch(/^Invalid JSON/);
+    expect(invalid).toEqual({
+      ok: false,
+      error: { kind: "invalidJson", detail: expect.any(String) },
+    });
     expect(parseVegaLiteSpec("[1, 2]")).toEqual({
       ok: false,
-      error: "A Vega-Lite spec must be a JSON object.",
+      error: { kind: "expectedObject" },
     });
   });
 });

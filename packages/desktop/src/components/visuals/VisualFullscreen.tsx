@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { lazy, Suspense, useState, type ReactElement } from "react";
 import { CodeIcon, EyeIcon, XIcon } from "lucide-react";
 import { CopyButton } from "@/components/CopyButton";
@@ -13,10 +14,21 @@ import { useVisualFullscreenStore, type FullscreenVisual } from "@/stores/visual
 const VegaLiteChart = lazy(() => import("@/components/visuals/VegaLiteChart"));
 const HtmlVisual = lazy(() => import("@/components/visuals/HtmlVisual"));
 
-const VISUAL_META = {
-  "vega-lite": { label: "Chart", sourceLanguage: "json", loading: "Loading chart renderer…" },
-  "cadencr-html": { label: "Visual", sourceLanguage: "html", loading: "Loading visual…" },
-} as const;
+function visualMeta(t: UiTranslator, kind: FullscreenVisual["kind"]) {
+  const meta = {
+    "vega-lite": {
+      label: t("conversation.stream.visual.chart", "Chart"),
+      sourceLanguage: "json",
+      loading: t("conversation.stream.visual.loadingChart", "Loading chart renderer…"),
+    },
+    "cadencr-html": {
+      label: t("conversation.stream.visual.visual", "Visual"),
+      sourceLanguage: "html",
+      loading: t("conversation.stream.visual.loadingHtml", "Loading visual…"),
+    },
+  } as const;
+  return meta[kind];
+}
 
 /**
  * The app's single full-screen visualization view (`vega-lite` chart or
@@ -24,9 +36,10 @@ const VISUAL_META = {
  * `ImageLightboxHost`.
  */
 export function VisualFullscreenHost(): ReactElement {
+  const { t } = useUiTranslation();
   const visual = useVisualFullscreenStore((s) => s.visual);
   const close = useVisualFullscreenStore((s) => s.close);
-  const title = visual ? VISUAL_META[visual.kind].label : "Visual";
+  const title = visualMeta(t, visual?.kind ?? "cadencr-html").label;
   return (
     <FullscreenDialog open={visual !== null} onClose={close} title={title}>
       {visual !== null && (
@@ -47,14 +60,21 @@ function VisualFullscreenContent({
   visual: FullscreenVisual;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [showSource, setShowSource] = useState(false);
-  const { label, sourceLanguage, loading } = VISUAL_META[visual.kind];
-  const toggleLabel = showSource ? `View ${label.toLowerCase()}` : "View source";
+  const { label, sourceLanguage, loading } = visualMeta(t, visual.kind);
+  const toggleLabel = showSource
+    ? t("conversation.stream.visualFullscreen.view", "View {{label}}", {
+        label: label.toLocaleLowerCase(),
+      })
+    : t("conversation.stream.visualFullscreen.viewSource", "View source");
 
   return (
     <>
       <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3">
-        <span className="mr-2 text-xs text-muted-foreground">Esc to close</span>
+        <span className="mr-2 text-xs text-muted-foreground">
+          {t("conversation.stream.visualFullscreen.escToClose", "Esc to close")}
+        </span>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -66,7 +86,7 @@ function VisualFullscreenContent({
         </Button>
         <CopyButton
           text={visual.code}
-          label="Copy source"
+          label={t("conversation.stream.visualFullscreen.copySource", "Copy source")}
           iconClassName="size-4"
           className="flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
         />
@@ -75,8 +95,14 @@ function VisualFullscreenContent({
           variant="ghost"
           size="icon-sm"
           onClick={onClose}
-          title="Exit full screen (Esc)"
-          aria-label="Exit full screen (Esc)"
+          title={t(
+            "conversation.stream.visualFullscreen.exitFullScreenEsc",
+            "Exit full screen (Esc)",
+          )}
+          aria-label={t(
+            "conversation.stream.visualFullscreen.exitFullScreenEsc",
+            "Exit full screen (Esc)",
+          )}
         >
           <XIcon />
         </Button>

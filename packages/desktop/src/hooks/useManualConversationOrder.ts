@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import {
@@ -107,7 +108,18 @@ async function saveMove(...args: Parameters<MoveConversation>): Promise<void> {
     const saved = await setWorkspaceSettingsBatch({ values });
     seedSettingsFromBatch(queryClient, Object.keys(values), saved);
   } catch (error) {
-    toast.error(`Could not reorder conversations: ${apiErrorMessage(error, "Unknown error")}`);
+    toast.error(
+      translateUi(
+        "sidebar.manualOrder.reorderFailed",
+        "Could not reorder conversations: {{error}}",
+        {
+          error: apiErrorMessage(
+            error,
+            translateUi("sidebar.manualOrder.unknownError", "Unknown error"),
+          ),
+        },
+      ),
+    );
   }
 }
 

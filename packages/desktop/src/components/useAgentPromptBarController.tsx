@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -344,6 +345,7 @@ export function useAgentPromptBarController(
   props: AgentPromptBarProps,
   ref: ForwardedRef<AgentPromptBarHandle>,
 ) {
+  const { t } = useUiTranslation();
   const promptCommandPolicy = props.promptCommandPolicy ?? DEFAULT_PROMPT_COMMAND_POLICY;
   const state = usePromptState(props);
   const isShellCommandMode = promptCommandPolicy.userShell && state.text.startsWith("!");
@@ -377,9 +379,13 @@ export function useAgentPromptBarController(
     onStop: props.onStop,
   });
   const promptCommandHint = [
-    "/ commands",
-    supportsDollarSkillReferences(promptCommandPolicy) ? "$ skills" : undefined,
-    promptCommandPolicy.userShell ? "! shell" : undefined,
+    t("conversation.composer.useAgentPromptBarController.commands", "/ commands"),
+    supportsDollarSkillReferences(promptCommandPolicy)
+      ? t("conversation.composer.useAgentPromptBarController.skills", "$ skills")
+      : undefined,
+    promptCommandPolicy.userShell
+      ? t("conversation.composer.useAgentPromptBarController.shell", "! shell")
+      : undefined,
   ]
     .filter((hint): hint is string => !!hint)
     .join(", ");

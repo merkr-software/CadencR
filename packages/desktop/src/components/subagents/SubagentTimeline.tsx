@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -166,6 +167,7 @@ function VirtualizedSubagentTimeline({
     [actions.length, basePath, toolResults, depth, isRunning, renderNested],
   );
 
+  const { t } = useUiTranslation();
   return (
     <Virtuoso
       ref={virtuosoRef}
@@ -184,7 +186,9 @@ function VirtualizedSubagentTimeline({
       className="min-w-0 overflow-x-hidden"
       style={{ height: "28vh" }}
       role="region"
-      aria-label={`${description} actions`}
+      aria-label={t("conversation.subagentTimeline.actionsFor", "{{description}} actions", {
+        description,
+      })}
       tabIndex={0}
       data-testid="subagent-action-timeline"
     />

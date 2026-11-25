@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Inline error message rendered in the agent conversation stream.
  *
@@ -17,6 +18,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { useIsLatestBlock } from "@/hooks/useIsLatestBlock";
 import { CONTINUE_PROMPT, presentAgentError } from "@/lib/agent-error-presentation";
 import { cn } from "@/lib/utils";
+import { transcriptErrorDisplayText } from "@/lib/client-transcript-errors";
 import { useAgentSessionContext } from "./agent-session/agent-session-context";
 
 interface ErrorBlockProps {
@@ -30,25 +32,35 @@ interface ErrorBlockProps {
 export const ErrorBlock = memo(function ErrorBlock({ content, code, blockId }: ErrorBlockProps) {
   // A failed hidden tool (no block of its own) is not a turn-ending error:
   // show its message as is.
-  if (!blockId) return <InlineError content={content} />;
+  if (!blockId) return <InlineError content={content} code={code} />;
   return <TurnError content={content} code={code} blockId={blockId} />;
 });
 
-function InlineError({ content }: { content: string }) {
+function InlineError({ content, code }: ErrorBlockProps) {
+  const { t } = useUiTranslation();
+  const displayText = transcriptErrorDisplayText(content, code, t);
   return (
     <div
       role="alert"
       className="my-1 flex gap-2 rounded-md border border-[var(--acc-red)]/40 bg-[var(--acc-red)]/8 px-3 py-2 text-xs"
     >
       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-red)]" />
-      <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/90">{content}</p>
-      <CopyButton text={content} label="Copy error" className="h-fit self-start p-1" />
+      <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground/90">
+        {displayText}
+      </p>
+      <CopyButton
+        text={displayText}
+        label={t("conversation.stream.errorBlock.copyError", "Copy error")}
+        className="h-fit self-start p-1"
+      />
     </div>
   );
 }
 
 function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: string }) {
-  const presentation = presentAgentError(code, content);
+  const { t } = useUiTranslation();
+  const presentation = presentAgentError(code, content, t);
+  const displayText = transcriptErrorDisplayText(content, code, t);
   const { wsSessionId, sendPrompt, openModelPicker } = useAgentSessionContext();
   const isLatest = useIsLatestBlock(wsSessionId, blockId);
   const [open, setOpen] = useState(false);
@@ -64,7 +76,7 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
         <p className="mt-0.5 text-muted-foreground">{presentation.hint}</p>
         {presentation.showCause && (
           <p className="mt-1.5 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/90">
-            {content}
+            {displayText}
           </p>
         )}
         {showActions && (
@@ -76,7 +88,7 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
                 onClick={() => sendPrompt(CONTINUE_PROMPT)}
               >
                 <Play className="size-3" aria-hidden />
-                Continue
+                {t("common.continue", "Continue")}
               </button>
             )}
             {presentation.actions.includes("switchModel") && (
@@ -86,13 +98,13 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
                 onClick={openModelPicker}
               >
                 <Repeat className="size-3" aria-hidden />
-                Switch model
+                {t("conversation.stream.errorBlock.switchModel", "Switch model")}
               </button>
             )}
             {presentation.actions.includes("openSettings") && (
               <Link to="/settings" className="composer-instrument gap-1.5 text-foreground">
                 <Settings className="size-3" aria-hidden />
-                Open Settings
+                {t("conversation.stream.errorBlock.openSettings", "Open Settings")}
               </Link>
             )}
           </div>
@@ -104,15 +116,20 @@ function TurnError({ content, code, blockId }: ErrorBlockProps & { blockId: stri
           className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
         >
           <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
-          Details{code ? ` · ${code}` : ""}
+          {t("conversation.stream.errorBlock.details", "Details")}
+          {code ? ` · ${code}` : ""}
         </button>
         {open && (
           <p className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/80">
-            {content}
+            {displayText}
           </p>
         )}
       </div>
-      <CopyButton text={content} label="Copy error" className="h-fit self-start p-1" />
+      <CopyButton
+        text={displayText}
+        label={t("conversation.stream.errorBlock.copyError", "Copy error")}
+        className="h-fit self-start p-1"
+      />
     </div>
   );
 }

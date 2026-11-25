@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   createAccessModeSet,
   createCommandsGet,
@@ -154,7 +155,10 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
 
     async setFastMode(sessionId: string, enabled: boolean): Promise<void> {
       const session = getSession(sessionId);
-      if (!session.serverSessionId) throw new Error("Session is not initialized yet");
+      if (!session.serverSessionId)
+        throw new Error(
+          translateUi("conversation.session.notInitialized", "Session is not initialized yet"),
+        );
       // A setting like `model.set`: the latest one waits for a reconnect, and
       // `fastMode` changes only on the correlated `fast_mode.set.ok`.
       sendCommand(
@@ -223,7 +227,13 @@ function createRuntimeOverrideActions(deps: SimpleSessionActionDeps) {
         );
         const error = parseErrorPayload(payload);
         if (error?.message || payload === null) {
-          throw new Error(error?.message ?? "Runtime override update timed out");
+          throw new Error(
+            error?.message ??
+              translateUi(
+                "conversation.config.overrideTimeout",
+                "Runtime override update timed out",
+              ),
+          );
         }
       } finally {
         set(updateSession(get(), sessionId, { runtimeOverridesPending: false }));

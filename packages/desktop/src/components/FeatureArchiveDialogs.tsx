@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import type { ArchiveFeatureOptions } from "@/hooks/useArchiveFeatureAction";
@@ -30,6 +31,7 @@ export const FeatureArchiveDialogs = memo(function FeatureArchiveDialogs({
   onArchive,
   onDelete,
 }: FeatureArchiveDialogsProps): ReactElement {
+  const { t } = useUiTranslation();
   const onOpenChange = (open: boolean): void => {
     if (!open) onClose();
   };
@@ -49,8 +51,11 @@ export const FeatureArchiveDialogs = memo(function FeatureArchiveDialogs({
       <ConfirmDialog
         open={confirmFeatureId != null && confirmation.action === "delete"}
         onOpenChange={onOpenChange}
-        title={deleteFeatureDialogTitle(confirmation.feature)}
-        description="This cannot be undone."
+        title={deleteFeatureDialogTitle(confirmation.feature, t)}
+        description={t(
+          "conversation.featureArchiveDialogs.thisCannotBeUndone",
+          "This cannot be undone.",
+        )}
         confirmText="Delete"
         variant="destructive"
         onConfirm={() => {

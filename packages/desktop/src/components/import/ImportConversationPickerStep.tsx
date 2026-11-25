@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -46,7 +47,16 @@ function ImportConversationPickerStepInner({
   const startMutation = useStartProviderImport({
     mutation: {
       onSuccess: (resp) => onStarted(resp.job_id),
-      onError: (err) => toast.error(apiErrorMessage(err, "Failed to start import")),
+      onError: (err) =>
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi(
+              "conversation.importConversationPickerStep.failedToStartImport",
+              "Failed to start import",
+            ),
+          ),
+        ),
     },
   });
 

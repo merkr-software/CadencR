@@ -31,11 +31,16 @@ import type { PersistenceStatus } from "./ws-persistence-status";
 
 export type { PermissionMode };
 
+export type SessionConfigError =
+  | { kind: "provider"; message: string }
+  | { kind: "timeout" }
+  | { kind: "invalid" };
+
 export interface SessionConfigState {
   sessionConfig: RuntimeSessionConfigSnapshot | null;
   sessionConfigLoading: boolean;
   sessionConfigSupported: boolean | null;
-  sessionConfigError: string | null;
+  sessionConfigError: SessionConfigError | null;
   pendingSessionConfigId: string | null;
 }
 

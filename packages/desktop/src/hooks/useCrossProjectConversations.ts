@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useListActiveFeatures, type Feature } from "@/api/generated";
@@ -33,9 +34,15 @@ export function useCrossProjectConversations(
   const query = useListActiveFeatures({ query: { enabled } });
   useEffect(() => {
     if (query.error) {
-      toast.error(apiErrorMessage(query.error, "Could not load conversations"), {
-        id: "sidebar-active-conversations-error",
-      });
+      toast.error(
+        apiErrorMessage(
+          query.error,
+          translateUi("sidebar.crossProject.loadFailed", "Could not load conversations"),
+        ),
+        {
+          id: "sidebar-active-conversations-error",
+        },
+      );
     }
   }, [query.error]);
   const ordered = useStableFeatureOrder(enabled ? (query.data ?? NO_FEATURES) : NO_FEATURES);

@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Markdown } from "@/components/Markdown";
 import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
@@ -22,9 +23,10 @@ import { SubagentStatusGlyph } from "./SubagentStatusGlyph";
  * running agents, so a row reads like the card it leads to.
  */
 export function SubagentIdentity({ view }: { view: SubagentView }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
-      <SubagentStatusGlyph status={view.status} label={subagentStatusSentence(view)} />
+      <SubagentStatusGlyph status={view.status} label={subagentStatusSentence(view, t)} />
       <span className="max-w-[40%] shrink-0 truncate text-[12.5px] font-medium text-foreground">
         {view.title}
       </span>
@@ -43,11 +45,18 @@ export function SubagentModelLabel({
   view: SubagentView;
   className?: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!view.model) return null;
   return (
     <span
       className={cn("truncate font-mono", className)}
-      title={view.modelRequested ? `Requested model ${view.model}` : `Model ${view.model}`}
+      title={
+        view.modelRequested
+          ? t("conversation.subagentCardParts.requestedModel", "Requested model {{model}}", {
+              model: view.model,
+            })
+          : t("conversation.subagentCardParts.model", "Model {{model}}", { model: view.model })
+      }
     >
       {view.model}
     </span>
@@ -56,11 +65,12 @@ export function SubagentModelLabel({
 
 /** Tags a sub-agent that keeps running after its turn ends. */
 export function SubagentBackgroundTag({ className }: { className?: string }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       className={cn("rounded-sm border border-border px-1 text-[10.5px] leading-[14px]", className)}
     >
-      background
+      {t("conversation.subagentCardParts.background", "background")}
     </span>
   );
 }
@@ -76,6 +86,7 @@ export const ElapsedClock = memo(function ElapsedClock({
   view: SubagentView;
   className?: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const running = view.status === "running";
   const now = useNow(running, 1_000, view.startedAtMs);
   const elapsed = subagentElapsedMs(view, now);
@@ -83,7 +94,11 @@ export const ElapsedClock = memo(function ElapsedClock({
   return (
     <span
       className={cn("shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums", className)}
-      title={running ? "Running for" : "Ran for"}
+      title={
+        running
+          ? t("conversation.subagentCardParts.runningFor", "Running for")
+          : t("conversation.subagentCardParts.ranFor", "Ran for")
+      }
     >
       {formatElapsed(elapsed)}
     </span>
@@ -103,7 +118,8 @@ export const SubagentMetaLine = memo(function SubagentMetaLine({
   actionCount: number | null;
   className?: string;
 }): ReactElement | null {
-  return <MetaItemList items={metaItems(view, actionCount)} className={className} />;
+  const { t } = useUiTranslation();
+  return <MetaItemList items={metaItems(view, actionCount, t)} className={className} />;
 });
 
 export interface MetaItem {
@@ -142,8 +158,10 @@ export function MetaItemList({
 }
 
 /** How a reasoning effort reads on a meta line. */
-export function effortLabel(effort: string): string {
-  return effort === "none" ? "no reasoning" : `${effort} effort`;
+export function effortLabel(effort: string, t: UiTranslator): string {
+  return effort === "none"
+    ? t("conversation.subagentCardParts.noReasoning", "no reasoning")
+    : t("conversation.subagentCardParts.modelEffort", "{{effort}} effort", { effort });
 }
 
 /** The frame every agent card shares; a failed one wears a red edge. */
@@ -173,13 +191,16 @@ export function SubagentCardPeek({
   /** The agent still works: its latest action keeps one line. */
   live?: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const latest = actions.some(hasCompactLine);
   if (!latest && !report) return null;
   return (
     <SubagentCardPeekFrame>
       {latest && (
         <div className="flex min-h-6 min-w-0 items-center text-xs">
-          <span className="sr-only">Latest action: </span>
+          <span className="sr-only">
+            {t("conversation.subagentCardParts.latestAction", "Latest action:")}{" "}
+          </span>
           <CompactLatestStep
             blocks={actions}
             basePath={basePath}
@@ -206,7 +227,7 @@ export function SubagentCardPeekFrame({ children }: { children: ReactNode }): Re
   );
 }
 
-function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
+function metaItems(view: SubagentView, actionCount: number | null, t: UiTranslator): MetaItem[] {
   const items: MetaItem[] = [];
   if (view.model) {
     items.push({
@@ -215,7 +236,7 @@ function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
     });
   }
   if (view.effort) {
-    items.push({ key: "effort", node: <span>{effortLabel(view.effort)}</span> });
+    items.push({ key: "effort", node: <span>{effortLabel(view.effort, t)}</span> });
   }
   if (view.background) {
     items.push({ key: "background", node: <SubagentBackgroundTag /> });
@@ -226,7 +247,11 @@ function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
       key: "actions",
       node: (
         <span className="tabular-nums">
-          {actions} action{actions === 1 ? "" : "s"}
+          {t("conversation.subagentCardParts.actionCount", {
+            count: actions,
+            defaultValue_one: "{{count}} action",
+            defaultValue_other: "{{count}} actions",
+          })}
         </span>
       ),
     });
@@ -234,10 +259,10 @@ function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
   if (view.totalTokens != null && view.totalTokens > 0) {
     items.push({
       key: "tokens",
-      node: <span className="tabular-nums">{formatTokens(view.totalTokens)}</span>,
+      node: <span className="tabular-nums">{formatTokens(view.totalTokens, t)}</span>,
     });
   }
-  const reason = view.status === "running" ? null : statusReasonLabel(view.statusReason);
+  const reason = view.status === "running" ? null : statusReasonLabel(view.statusReason, t);
   if (view.status === "failed" || (view.status === "stopped" && reason)) {
     items.push({
       key: "reason",
@@ -248,7 +273,13 @@ function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
             view.status === "failed" ? "text-(--acc-red)" : "text-muted-foreground",
           )}
         >
-          {view.status === "failed" ? `Failed${reason ? ` · ${reason}` : ""}` : reason}
+          {view.status === "failed"
+            ? reason
+              ? t("conversation.subagentCardParts.failedWithReason", "Failed · {{reason}}", {
+                  reason,
+                })
+              : t("conversation.subagentCardParts.failed", "Failed")
+            : reason}
         </span>
       ),
     });
@@ -283,11 +314,12 @@ export const SubagentPrompt = memo(function SubagentPrompt({
 }: {
   prompt: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [full, setFull] = useState(false);
   const long = prompt.length > 320 || prompt.split("\n").length > 4;
   return (
     <CardSection
-      label="Prompt"
+      label={t("conversation.subagentCardParts.prompt", "Prompt")}
       aside={
         long ? (
           <button
@@ -295,7 +327,9 @@ export const SubagentPrompt = memo(function SubagentPrompt({
             onClick={() => setFull((value) => !value)}
             className="rounded-sm text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
           >
-            {full ? "Show less" : "Show all"}
+            {full
+              ? t("conversation.subagentCardParts.showLess", "Show less")
+              : t("conversation.subagentCardParts.showAll", "Show all")}
           </button>
         ) : undefined
       }

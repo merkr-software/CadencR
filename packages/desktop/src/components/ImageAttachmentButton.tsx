@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useRef } from "react";
 import { Paperclip } from "lucide-react";
 import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
@@ -14,6 +15,7 @@ export function ImageAttachmentButton({
   disabled,
   providerId,
 }: ImageAttachmentButtonProps) {
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const promptCapabilities = useCatalogProviderMetadata(providerId)?.promptCapabilities ?? null;
 
@@ -43,7 +45,7 @@ export function ImageAttachmentButton({
         type="button"
         onClick={handleClick}
         disabled={disabled}
-        aria-label="Attach files"
+        aria-label={t("conversation.composer.imageAttachmentButton.attachFiles", "Attach files")}
         className="composer-instrument composer-instrument-icon text-muted-foreground hover:text-foreground disabled:opacity-50"
       >
         <Paperclip className="size-3.5" />

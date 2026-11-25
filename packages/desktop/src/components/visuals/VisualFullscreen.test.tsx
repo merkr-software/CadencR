@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import * as vegaChart from "@/lib/visuals/vega-chart";
 import HtmlVisual from "@/components/visuals/HtmlVisual";
 import VegaLiteChart from "@/components/visuals/VegaLiteChart";
 import { VisualFullscreenHost } from "@/components/visuals/VisualFullscreen";
@@ -45,6 +47,61 @@ describe("VisualFullscreenHost", () => {
   it("renders nothing until a visualization is opened", () => {
     render(<VisualFullscreenHost />);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("updates chart captions on locale changes while retaining the live Vega view", async () => {
+    const renderChart = vi.spyOn(vegaChart, "renderVegaLite");
+    const parseSpec = vi.spyOn(vegaChart, "parseVegaLiteSpec");
+    const previousLanguage = uiI18n.language;
+    const previousFrench = uiI18n.hasResourceBundle("fr", "ui")
+      ? structuredClone(uiI18n.getResourceBundle("fr", "ui"))
+      : undefined;
+    try {
+      await act(async () => {
+        await uiI18n.changeLanguage("en");
+      });
+      const { container } = render(
+        <>
+          <VegaLiteChart code={BAR_SPEC} />
+          <VegaLiteChart code="[]" variant="fullscreen" />
+        </>,
+      );
+      await waitFor(() => expect(container.querySelector("svg.marks")).not.toBeNull());
+      const chart = container.querySelector("svg.marks");
+      const renderCount = renderChart.mock.calls.length;
+      const parseCount = parseSpec.mock.calls.length;
+      expect(renderCount).toBeGreaterThan(0);
+      expect(parseCount).toBeGreaterThan(0);
+
+      uiI18n.addResourceBundle(
+        "fr",
+        "ui",
+        {
+          "conversation.stream.visualChrome.fullScreen": "Plein écran",
+          "conversation.stream.vegaChart.aVegaLiteSpecMustBeAJson":
+            "La spécification doit être un objet JSON.",
+        },
+        true,
+        true,
+      );
+      await act(async () => {
+        await uiI18n.changeLanguage("fr");
+      });
+
+      expect(screen.getByRole("button", { name: "Plein écran" })).toBeInTheDocument();
+      expect(screen.getByText(/La spécification doit être un objet JSON/)).toBeInTheDocument();
+      expect(container.querySelector("svg.marks")).toBe(chart);
+      expect(renderChart).toHaveBeenCalledTimes(renderCount);
+      expect(parseSpec).toHaveBeenCalledTimes(parseCount);
+    } finally {
+      renderChart.mockRestore();
+      parseSpec.mockRestore();
+      await act(async () => {
+        await uiI18n.changeLanguage(previousLanguage);
+      });
+      uiI18n.removeResourceBundle("fr", "ui");
+      if (previousFrench) uiI18n.addResourceBundle("fr", "ui", previousFrench);
+    }
   });
 
   it("opens a Vega-Lite chart full screen, keeps it open when the inline row unmounts, and closes on Escape", async () => {

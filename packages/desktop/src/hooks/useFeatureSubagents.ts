@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect } from "react";
 import { hashKey } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -62,9 +63,18 @@ export function useRunningSubagents(
 function useSubagentListError(featureId: number | null, error: unknown): void {
   useEffect(() => {
     if (error && featureId != null) {
-      toast.error(apiErrorMessage(error, "Could not load sub-agent status"), {
-        id: `feature-subagents-error-${featureId}`,
-      });
+      toast.error(
+        apiErrorMessage(
+          error,
+          translateUi(
+            "conversation.useFeatureSubagents.couldNotLoadSubAgentStatus",
+            "Could not load sub-agent status",
+          ),
+        ),
+        {
+          id: `feature-subagents-error-${featureId}`,
+        },
+      );
     }
   }, [error, featureId]);
 }

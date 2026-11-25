@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { loader as vegaLoader, logger as vegaLogger, parse, View, Warn } from "vega";
 import { expressionInterpreter } from "vega-interpreter";
 import { compile, type Config, type TopLevelSpec } from "vega-lite";
@@ -9,10 +10,11 @@ const MIN_CHART_WIDTH = 120;
 /** Shorter than this, a fullscreen chart loses legibility. */
 const MIN_CHART_HEIGHT = 200;
 
-const EXTERNAL_DATA_ERROR =
-  "Charts in the conversation cannot load external resources; inline the data in data.values.";
+export type SpecParseError = { kind: "invalidJson"; detail: string } | { kind: "expectedObject" };
 
-export type SpecParseResult = { ok: true; spec: TopLevelSpec } | { ok: false; error: string };
+export type SpecParseResult =
+  | { ok: true; spec: TopLevelSpec }
+  | { ok: false; error: SpecParseError };
 
 /** The fence body as a Vega-Lite spec object, or why it is not one. */
 export function parseVegaLiteSpec(code: string): SpecParseResult {
@@ -22,11 +24,11 @@ export function parseVegaLiteSpec(code: string): SpecParseResult {
   } catch (error) {
     return {
       ok: false,
-      error: `Invalid JSON: ${apiErrorMessage(error, String(error))}`,
+      error: { kind: "invalidJson", detail: apiErrorMessage(error, String(error)) },
     };
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return { ok: false, error: "A Vega-Lite spec must be a JSON object." };
+    return { ok: false, error: { kind: "expectedObject" } };
   }
   // Compilation (and its schema errors) happens at render time.
   return { ok: true, spec: value as TopLevelSpec };
@@ -67,11 +69,16 @@ function withSize(spec: TopLevelSpec, width: number, height: number | undefined)
  * treats a failed load as a mere warning that leaves an empty chart, so each
  * refusal is also reported through `onRefuse`.
  */
-function offlineLoader(onRefuse: () => void) {
+function offlineLoader(onRefuse: (message: string) => void) {
   const loader = vegaLoader();
+  let message: string | undefined;
   const refuse = () => {
-    onRefuse();
-    return Promise.reject(new Error(EXTERNAL_DATA_ERROR));
+    message ??= translateUi(
+      "conversation.stream.vegaChart.chartsInTheConversationCannotLoadExternal",
+      "Charts in the conversation cannot load external resources; inline the data in data.values.",
+    );
+    onRefuse(message);
+    return Promise.reject(new Error(message));
   };
   loader.load = refuse;
   loader.sanitize = refuse;
@@ -103,7 +110,7 @@ export async function renderVegaLite(
   });
   const view = new View(parse(vegaSpec, undefined, { ast: true }), {
     expr: expressionInterpreter,
-    loader: offlineLoader(() => errors.push(EXTERNAL_DATA_ERROR)),
+    loader: offlineLoader((message) => errors.push(message)),
     logger,
     renderer: "svg",
     container,

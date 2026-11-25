@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { Loader2Icon } from "lucide-react";
 
@@ -11,6 +12,7 @@ import { Loader2Icon } from "lucide-react";
  * (`AgentSessionStreamNotice`).
  */
 export const ConnectionLostNotice = memo(function ConnectionLostNotice() {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
@@ -18,9 +20,14 @@ export const ConnectionLostNotice = memo(function ConnectionLostNotice() {
       className="my-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
     >
       <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
-      <span className="shrink-0 font-medium text-foreground">Reconnecting…</span>
+      <span className="shrink-0 font-medium text-foreground">
+        {t("conversation.stream.connectionLostNotice.reconnecting", "Reconnecting…")}
+      </span>
       <span className="min-w-0">
-        The connection to Cadencr dropped. This conversation catches up once it is back.
+        {t(
+          "conversation.stream.connectionLostNotice.theConnectionToCadencrDroppedThisConversation",
+          "The connection to Cadencr dropped. This conversation catches up once it is back.",
+        )}
       </span>
     </div>
   );

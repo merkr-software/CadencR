@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import type { AgentBlockData } from "@/types/agent-block";
@@ -62,6 +63,7 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   live = false,
   spaceBelow,
 }: CompactFlowRowProps) {
+  const { t } = useUiTranslation();
   const newestFirst = useMemo(() => blocks.filter(hasCompactLine).reverse(), [blocks]);
   const [newest, ...older] = newestFirst;
   const revealIndex = revealBlockId ? older.findIndex((block) => block.id === revealBlockId) : -1;
@@ -107,7 +109,12 @@ export const CompactFlowRow = memo(function CompactFlowRow({
           <span className="flex h-6 shrink-0 items-center gap-0.5 self-start text-[11px] text-muted-foreground/60 tabular-nums transition-colors group-hover/flow:text-muted-foreground">
             +{older.length}
             <span className="sr-only">
-              {older.length === 1 ? " earlier step" : " earlier steps"}
+              {" "}
+              {t("conversation.stream.compactFlowRow.earlierSteps", {
+                count: older.length,
+                defaultValue_one: "earlier step",
+                defaultValue_other: "earlier steps",
+              })}
             </span>
             <ChevronRightIcon
               aria-hidden
@@ -154,6 +161,7 @@ interface CompactFlowStepsProps {
 }
 
 function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: CompactFlowStepsProps) {
+  const { t } = useUiTranslation();
   const [limit, setLimit] = useState(STEP_PAGE);
   const shown = Math.max(limit, revealIndex + 1);
   const hidden = steps.length - shown;
@@ -179,7 +187,11 @@ function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: Compa
             }}
             className="rounded-sm px-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
           >
-            Show {hidden} older {hidden === 1 ? "step" : "steps"}
+            {t("conversation.stream.compactFlowRow.showOlderSteps", {
+              count: hidden,
+              defaultValue_one: "Show {{count}} older step",
+              defaultValue_other: "Show {{count}} older steps",
+            })}
           </button>
         </li>
       )}

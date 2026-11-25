@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { ShieldAlertIcon, ClipboardCheck, MessageCircleQuestionIcon } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { StackSection, type StackTone } from "./composer/ComposerStack";
@@ -12,7 +13,7 @@ interface AgentPromptPendingIndicatorProps {
 
 interface KindStyle {
   icon: ReactNode;
-  label: string;
+  label: (t: UiTranslator) => string;
   /** Approvals wear the amber of "action required", questions the primary (as in the sidebar). */
   tone: StackTone;
 }
@@ -20,17 +21,23 @@ interface KindStyle {
 const STYLES: Record<Kind, KindStyle> = {
   permission: {
     icon: <ShieldAlertIcon />,
-    label: "Permission request pending",
+    label: (t) =>
+      t(
+        "conversation.composer.agentPromptPendingIndicator.permissionPending",
+        "Permission request pending",
+      ),
     tone: "attention",
   },
   plan: {
     icon: <ClipboardCheck />,
-    label: "Plan approval pending",
+    label: (t) =>
+      t("conversation.composer.agentPromptPendingIndicator.planPending", "Plan approval pending"),
     tone: "attention",
   },
   question: {
     icon: <MessageCircleQuestionIcon />,
-    label: "Question pending",
+    label: (t) =>
+      t("conversation.composer.agentPromptPendingIndicator.questionPending", "Question pending"),
     tone: "question",
   },
 };
@@ -44,7 +51,10 @@ export function AgentPromptPendingIndicator({
   kind,
   detail,
 }: AgentPromptPendingIndicatorProps): ReactElement {
-  const { icon, label, tone } = STYLES[kind];
+  const { t } = useUiTranslation();
+  const style = STYLES[kind];
+  const { icon, tone } = style;
+  const label = style.label(t);
   return (
     <StackSection
       tone={tone}
@@ -59,7 +69,14 @@ export function AgentPromptPendingIndicator({
           </code>
         ) : undefined
       }
-      actions={<span className="shrink-0 text-muted-foreground">Finish typing to review it</span>}
+      actions={
+        <span className="shrink-0 text-muted-foreground">
+          {t(
+            "conversation.composer.agentPromptPendingIndicator.finishTypingToReviewIt",
+            "Finish typing to review it",
+          )}
+        </span>
+      }
     />
   );
 }

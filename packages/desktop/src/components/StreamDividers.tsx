@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Visual dividers in the agent stream marking compaction and clear events, a
  * turn's closing line and a model switch the CLI reported.
@@ -38,7 +39,11 @@ function formatCompactSummary(metadata: CompactMetadata): string {
   const bits: string[] = [];
   if (metadata.trigger) bits.push(metadata.trigger);
   if (typeof metadata.pre_tokens === "number" && metadata.pre_tokens > 0) {
-    bits.push(`${metadata.pre_tokens.toLocaleString()} tokens`);
+    bits.push(
+      translateUi("conversation.stream.streamDividers.tokens", "{{tokens}} tokens", {
+        tokens: metadata.pre_tokens.toLocaleString(),
+      }),
+    );
   }
   return bits.join(" · ");
 }
@@ -68,20 +73,37 @@ function StreamDivider({
 }
 
 export function CompactDivider({ metadata }: { metadata?: string }) {
+  const { t } = useUiTranslation();
   const parsed = metadata ? parseCompactMetadata(metadata) : null;
   const detail = parsed ? formatCompactSummary(parsed) : undefined;
-  return <StreamDivider label="Compacted" tone="yellow" detail={detail} />;
+  return (
+    <StreamDivider
+      label={t("conversation.stream.streamDividers.compacted", "Compacted")}
+      tone="yellow"
+      detail={detail}
+    />
+  );
 }
 
 export function ClearDivider({ previousSessionId }: { previousSessionId?: string }) {
-  return <StreamDivider label="Cleared" tone="cyan" detail={previousSessionId || undefined} />;
+  const { t } = useUiTranslation();
+  return (
+    <StreamDivider
+      label={t("conversation.stream.streamDividers.cleared", "Cleared")}
+      tone="cyan"
+      detail={previousSessionId || undefined}
+    />
+  );
 }
 
 function WorkedLine({ summary }: { summary: TurnSummary }) {
+  const { t } = useUiTranslation();
   const { models, total, waiting, agent } = workedParts(summary);
   return (
     <>
-      <span className="font-medium">Worked</span>
+      <span className="font-medium">
+        {t("conversation.stream.streamDividers.worked", "Worked")}
+      </span>
       {models && (
         <>
           {" - "}
@@ -89,7 +111,11 @@ function WorkedLine({ summary }: { summary: TurnSummary }) {
         </>
       )}
       <span className="text-muted-foreground/80">
-        {` - ${total} - Waiting ${waiting} - Agent ${agent}`}
+        {t(
+          "conversation.stream.streamDividers.waitingAgent",
+          " - {{total}} - Waiting {{waiting}} - Agent {{agent}}",
+          { total, waiting, agent },
+        )}
       </span>
     </>
   );
@@ -101,12 +127,19 @@ function WorkedLine({ summary }: { summary: TurnSummary }) {
  * on every device and after any reload or restart.
  */
 export function TurnSummaryDivider({ content }: { content: string }) {
+  const { t } = useUiTranslation();
   const summary = parseTurnSummary(content);
   return (
     <div data-turn-footer className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
       <span className="h-0.5 w-5 shrink-0 rounded-full bg-muted-foreground/65" aria-hidden />
       <span className="min-w-0 truncate tabular-nums">
-        {summary ? <WorkedLine summary={summary} /> : <span className="font-medium">Worked</span>}
+        {summary ? (
+          <WorkedLine summary={summary} />
+        ) : (
+          <span className="font-medium">
+            {t("conversation.stream.streamDividers.worked", "Worked")}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -117,6 +150,7 @@ export function TurnSummaryDivider({ content }: { content: string }) {
  * first reply the new model wrote.
  */
 export function ModelSwitchDivider({ content }: { content: string }) {
+  const { t } = useUiTranslation();
   const change = parseModelSwitch(content);
   return (
     <div
@@ -126,7 +160,9 @@ export function ModelSwitchDivider({ content }: { content: string }) {
     >
       <span className="h-px flex-1 bg-border/70" aria-hidden />
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className="shrink-0 font-medium">Model</span>
+        <span className="shrink-0 font-medium">
+          {t("conversation.stream.streamDividers.model", "Model")}
+        </span>
         {change && (
           <span className="min-w-0 truncate font-mono text-[11px]">
             <span className="text-muted-foreground/70">{change.from}</span>

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -35,6 +36,7 @@ interface UserMessageActionsProps {
  * `group/usermsg` hover group owned by `UserMessageBlock`.
  */
 function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
+  const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
   const { canBranch, rewind, fork } = useMessageBranchActions(block);
   const { wsSessionId } = useAgentSessionContext();
@@ -221,7 +223,12 @@ async function payloadBase64(
 
 async function buildRetryAttachments(content: ParsedMessage): Promise<PromptAttachmentPayload[]> {
   const images = content.images.map(async (image, index) => ({
-    base64: await payloadBase64(image, `Image ${index + 1}`),
+    base64: await payloadBase64(
+      image,
+      translateUi("conversation.stream.userMessageActions.image", "Image {{position}}", {
+        position: index + 1,
+      }),
+    ),
     fileName: "image",
     kind: "image" as const,
     mimeType: image.mediaType,

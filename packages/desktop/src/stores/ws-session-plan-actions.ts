@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Plan approval / change requests, answered like every other gate: the click
  * marks the decision in flight (`submittingPermissionRequestId`, the same
@@ -68,11 +69,14 @@ function handlePlanResponse(
     return;
   }
   if (!waiting) return;
-  const message = error?.message ?? "The plan response timed out.";
+  const message =
+    error?.message ?? translateUi("conversation.plan.timeout", "The plan response timed out.");
   const closesGate = isGateClosingErrorCode(error?.code);
   if (!closesGate) {
     // The plan still waits for a decision: the response failed, not the turn.
-    toast.error("Couldn't send your plan decision", { description: message });
+    toast.error(translateUi("conversation.plan.sendFailed", "Couldn't send your plan decision"), {
+      description: message,
+    });
     ctx.set(updateSession(ctx.get(), sessionId, { submittingPermissionRequestId: null }));
     return;
   }

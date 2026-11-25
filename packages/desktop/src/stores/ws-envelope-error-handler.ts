@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { parseErrorPayload } from "./ws-envelope-payload";
 import { buildClearedGatePatch, isGateClosingErrorCode } from "./ws-gate-state";
@@ -53,7 +54,13 @@ function handleTransportError(
 ): boolean {
   if (p?.code === "RATE_LIMITED") {
     notifyRateLimited(p.retryAfterMs ?? WS_RATE_LIMIT_RETRY_MS);
-    toast.error(p.message ?? "WebSocket message rate exceeded. Reconnecting shortly.");
+    toast.error(
+      p.message ??
+        translateUi(
+          "conversation.connection.rateLimit",
+          "WebSocket message rate exceeded. Reconnecting shortly.",
+        ),
+    );
     return true;
   }
   // CLI refused a specific permission mode (e.g. Claude Code `auto` on a
@@ -83,7 +90,11 @@ export function handleCommandError(
     ? buildClearedGatePatch(ctx.getSession(sessionId))
     : null;
   if (gatePatch) ctx.set(updateSession(ctx.get(), sessionId, gatePatch));
-  toast.error(failure, { description: p?.message ?? "The backend rejected the request." });
+  toast.error(failure, {
+    description:
+      p?.message ??
+      translateUi("conversation.commands.rejected", "The backend rejected the request."),
+  });
 }
 
 export function handleError(ctx: StoreAccessors, sessionId: string, payload: unknown): void {

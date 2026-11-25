@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef } from "react";
 import { useListSessionPrompts } from "@/api/generated";
 import type { DisplayItem } from "@/types/agent-stream";
@@ -32,7 +33,14 @@ export function useSessionPromptMarks(items: readonly DisplayItem[]): UserMessag
   const { refetch, isError, error } = query;
 
   useEffect(() => {
-    if (isError) toastError(error, "Could not load your message list");
+    if (isError)
+      toastError(
+        error,
+        translateUi(
+          "conversation.stream.useSessionPromptMarks.couldNotLoadYourMessageList",
+          "Could not load your message list",
+        ),
+      );
   }, [isError, error]);
 
   // Stabilized here, at the source: `items` changes on every streaming delta,

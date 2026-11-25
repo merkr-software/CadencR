@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-  MODEL_CATALOG_LOADING_LABEL,
-  useAgentSessionModelState,
-} from "./useAgentSessionModelState";
+import { useAgentSessionModelState } from "./useAgentSessionModelState";
 import type { AgentCatalog } from "@/api/agentRuntime";
 
 const catalog: AgentCatalog = {
@@ -51,7 +48,7 @@ describe("useAgentSessionModelState.canChangeProvider", () => {
         hasConversation: false,
       }),
     );
-    expect(result.current.currentModelLabel).toBe(MODEL_CATALOG_LOADING_LABEL);
+    expect(result.current.currentModelLabel).toBe("Loading model…");
     expect(result.current.modelSelectionStatus).toBe("catalog-loading");
     expect(result.current.visibleModels).toEqual([]);
   });
@@ -65,7 +62,7 @@ describe("useAgentSessionModelState.canChangeProvider", () => {
         hasConversation: false,
       }),
     );
-    expect(result.current.currentModelLabel).toBe(MODEL_CATALOG_LOADING_LABEL);
+    expect(result.current.currentModelLabel).toBe("Loading model…");
     expect(result.current.modelSelectionStatus).toBe("selection-pending");
     expect(result.current.supportedThinkingEfforts).toEqual([]);
   });
@@ -81,7 +78,7 @@ describe("useAgentSessionModelState.canChangeProvider", () => {
       }),
     );
     expect(result.current.activeProviderId).toBe("claude_code");
-    expect(result.current.currentModelLabel).toBe(MODEL_CATALOG_LOADING_LABEL);
+    expect(result.current.currentModelLabel).toBe("Loading model…");
     expect(result.current.modelSelectionStatus).toBe("selection-pending");
   });
 
@@ -96,7 +93,7 @@ describe("useAgentSessionModelState.canChangeProvider", () => {
       }),
     );
     expect(result.current.activeProviderId).toBe("opencode");
-    expect(result.current.currentModelLabel).toBe(MODEL_CATALOG_LOADING_LABEL);
+    expect(result.current.currentModelLabel).toBe("Loading model…");
     expect(result.current.modelSelectionStatus).toBe("selection-pending");
   });
 

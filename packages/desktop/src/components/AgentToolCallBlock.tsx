@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { cn, formatJson, toRelativePath } from "@/lib/utils";
@@ -42,6 +43,7 @@ function GenericToolCallBlock({
   basePath?: string;
   error?: string;
 }) {
+  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const summary = parseToolCall(canonicalName, args);
@@ -87,7 +89,7 @@ function GenericToolCallBlock({
       </button>
       {failed && (
         <pre className="whitespace-pre-wrap break-words border-t border-destructive/20 px-3 py-1.5 font-mono text-xs text-destructive">
-          {error.trim() || "Failed"}
+          {error.trim() || t("common.failed", "Failed")}
         </pre>
       )}
       {expanded && args && (

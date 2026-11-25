@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -27,7 +28,15 @@ export function useSideConversationActions(
     try {
       await mutateAsync({ id: featureId, data: { status: "active" } });
     } catch (error) {
-      toast.error(apiErrorMessage(error, "Couldn't keep the side question as a thread"));
+      toast.error(
+        apiErrorMessage(
+          error,
+          translateUi(
+            "conversation.useSideConversationActions.couldnTKeepTheSideQuestionAsAThread",
+            "Couldn't keep the side question as a thread",
+          ),
+        ),
+      );
       return;
     }
     void invalidateByUrlPrefix(queryClient, "/api/features");

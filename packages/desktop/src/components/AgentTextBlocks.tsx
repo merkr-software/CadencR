@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
@@ -35,6 +36,7 @@ export const TextBlock = memo(function TextBlock({
   /** Off for a truncated preview: copying it would copy cut content. */
   actions?: boolean;
 }) {
+  const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   // Throttle re-parse of the actively streaming block; copy always uses the
@@ -61,17 +63,19 @@ export const TextBlock = memo(function TextBlock({
             type="button"
             onClick={handleCopy}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
-            title="Copy to clipboard"
+            title={t("conversation.stream.agentTextBlocks.copyToClipboard", "Copy to clipboard")}
           >
             {copied ? (
               <>
                 <CheckIcon className="size-3 text-green-400" />
-                <span className="text-green-400">Copied</span>
+                <span className="text-green-400">
+                  {t("conversation.stream.agentTextBlocks.copied", "Copied")}
+                </span>
               </>
             ) : (
               <>
                 <CopyIcon className="size-3" />
-                <span>Copy</span>
+                <span>{t("conversation.stream.agentTextBlocks.copy", "Copy")}</span>
               </>
             )}
           </button>

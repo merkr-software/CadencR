@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Button } from "./ui/button";
 import {
@@ -47,10 +48,13 @@ function ModelOptions({
   onSelect,
   showInherit,
 }: ModelOptionsProps): React.ReactElement {
+  const { t } = useUiTranslation();
   const effectiveModelLabel = models.find((model) => model.id === effectiveModel)?.label;
   return (
     <CommandList>
-      <CommandEmpty className="py-2 text-center text-xs">No option found.</CommandEmpty>
+      <CommandEmpty className="py-2 text-center text-xs">
+        {t("conversation.composer.modelPickerRow.noOptionFound", "No option found.")}
+      </CommandEmpty>
       <CommandGroup>
         {showInherit && (
           <CommandItem
@@ -64,7 +68,9 @@ function ModelOptions({
                 currentValue === INHERIT_VALUE ? "opacity-100" : "opacity-0",
               )}
             />
-            Inherit ({effectiveModelLabel ?? effectiveModel})
+            {t("conversation.composer.modelPickerRow.inheritModel", "Inherit ({{model}})", {
+              model: effectiveModelLabel ?? effectiveModel,
+            })}
           </CommandItem>
         )}
         {models.map((model) => (
@@ -101,6 +107,7 @@ export function ModelPickerRow({
   showInherit,
   onSelect,
 }: ModelPickerRowProps) {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
 
   function getModelLabel(modelId: string): string {
@@ -113,7 +120,9 @@ export function ModelPickerRow({
 
   const displayLabel =
     currentValue === INHERIT_VALUE
-      ? `Inherit (${getModelLabel(effectiveModel)})`
+      ? t("conversation.composer.modelPickerRow.inheritModel", "Inherit ({{model}})", {
+          model: getModelLabel(effectiveModel),
+        })
       : getModelLabel(currentValue);
 
   function handleSelect(value: string): void {
@@ -148,7 +157,13 @@ export function ModelPickerRow({
         </PopoverTrigger>
         <PopoverContent className="w-64 p-0" align="start">
           <Command>
-            <CommandInput placeholder="Search options..." className="h-8 text-xs" />
+            <CommandInput
+              placeholder={t(
+                "conversation.composer.modelPickerRow.searchOptions",
+                "Search options...",
+              )}
+              className="h-8 text-xs"
+            />
             <ModelOptions
               currentValue={currentValue}
               effectiveModel={effectiveModel}

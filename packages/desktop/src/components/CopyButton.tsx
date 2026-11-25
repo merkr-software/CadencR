@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState, type MouseEvent, type ReactElement } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -21,12 +22,13 @@ interface CopyButtonProps {
 export function CopyButton({
   text,
   label,
-  copiedLabel = "Copied",
+  copiedLabel,
   copiedClassName = "text-green-400",
   idleClassName = "text-muted-foreground",
   iconClassName = "size-3",
   className,
 }: CopyButtonProps): ReactElement {
+  const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -61,11 +63,16 @@ export function CopyButton({
         copiedTimeoutRef.current = null;
       }
       setCopied(false);
-      toast.error("Failed to copy to clipboard");
+      toast.error(
+        translateUi(
+          "conversation.stream.copyButton.failedToCopyToClipboard",
+          "Failed to copy to clipboard",
+        ),
+      );
     }
   }
 
-  const currentLabel = copied ? copiedLabel : label;
+  const currentLabel = copied ? (copiedLabel ?? t("common.copied", "Copied")) : label;
 
   return (
     <button

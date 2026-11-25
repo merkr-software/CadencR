@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CheckSquareIcon, CircleHelpIcon, ListChecksIcon, SquareTerminalIcon } from "lucide-react";
 import { memo, useMemo, type ReactElement } from "react";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
@@ -46,6 +47,7 @@ interface QuestionDetailsProps {
 const QuestionDetails = memo(function QuestionDetails({
   toolInput,
 }: QuestionDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   const questions = useMemo(() => parseAskUserQuestions(toolInput), [toolInput]);
   if (questions.length === 0) return <GateFallback kind="question" />;
   return (
@@ -60,7 +62,7 @@ const QuestionDetails = memo(function QuestionDetails({
             <p className="text-[13px] font-medium leading-5 text-foreground">{question.question}</p>
             {question.multiSelect && (
               <span className="mt-0.5 shrink-0 rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                Select multiple
+                {t("conversation.composer.sessionGateDetails.selectMultiple", "Select multiple")}
               </span>
             )}
           </div>
@@ -87,7 +89,12 @@ const QuestionDetails = memo(function QuestionDetails({
                 </div>
               ))
             ) : (
-              <span className="text-[10px] italic text-muted-foreground">Free-text response</span>
+              <span className="text-[10px] italic text-muted-foreground">
+                {t(
+                  "conversation.composer.sessionGateDetails.freeTextResponse",
+                  "Free-text response",
+                )}
+              </span>
             )}
           </div>
         </section>
@@ -109,6 +116,7 @@ const PermissionDetails = memo(function PermissionDetails({
   pattern,
   preview,
 }: PermissionDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-start gap-2">
@@ -119,7 +127,8 @@ const PermissionDetails = memo(function PermissionDetails({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-[11px] font-semibold text-foreground">
-              {toolName ?? "Tool permission"}
+              {toolName ??
+                t("conversation.composer.sessionGateDetails.toolPermission", "Tool permission")}
             </span>
             {pattern && (
               <span className="max-w-full truncate rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
@@ -137,7 +146,12 @@ const PermissionDetails = memo(function PermissionDetails({
           {preview}
         </pre>
       ) : (
-        <p className="pl-5 text-[10px] italic text-muted-foreground">No command preview provided</p>
+        <p className="pl-5 text-[10px] italic text-muted-foreground">
+          {t(
+            "conversation.composer.sessionGateDetails.noCommandPreviewProvided",
+            "No command preview provided",
+          )}
+        </p>
       )}
     </div>
   );
@@ -152,6 +166,7 @@ const PlanDetails = memo(function PlanDetails({
   description,
   preview,
 }: PlanDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-start gap-2">
@@ -160,7 +175,11 @@ const PlanDetails = memo(function PlanDetails({
           aria-hidden="true"
         />
         <p className="text-[11px] leading-4 text-muted-foreground">
-          {description ?? "The child is waiting for plan approval."}
+          {description ??
+            t(
+              "conversation.composer.sessionGateDetails.waitingForPlan",
+              "The child is waiting for plan approval.",
+            )}
         </p>
       </div>
       {preview && (
@@ -173,12 +192,30 @@ const PlanDetails = memo(function PlanDetails({
 });
 
 function GateFallback({ kind }: { kind: SessionGateKind }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
       <CheckSquareIcon className="size-3.5" aria-hidden="true" />
-      <span>The child is waiting for a {kind} response.</span>
+      <span>
+        {t(
+          "conversation.composer.sessionGateDetails.waitingForResponse",
+          "The child is waiting for a {{kind}} response.",
+          { kind: sessionGateKindLabel(t, kind) },
+        )}
+      </span>
     </div>
   );
+}
+
+export function sessionGateKindLabel(t: UiTranslator, kind: SessionGateKind): string {
+  switch (kind) {
+    case "question":
+      return t("conversation.composer.sessionGateDetails.kindQuestion", "question");
+    case "permission":
+      return t("conversation.composer.sessionGateDetails.kindPermission", "permission");
+    case "plan":
+      return t("conversation.composer.sessionGateDetails.kindPlan", "plan");
+  }
 }
 
 function planPreview(input: Record<string, unknown>, preview?: string): string | null {

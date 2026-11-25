@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useState, type ReactElement } from "react";
 import { ArrowLeft, Keyboard, MoreHorizontal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,6 +13,7 @@ import { useComposerContext } from "./ComposerContext";
  * straight on the keys.
  */
 export const AssistMenu = memo(function AssistMenu(): ReactElement {
+  const { t } = useUiTranslation();
   const { sessionInfo, editor } = useComposerContext();
   const [open, setOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -30,7 +32,10 @@ export const AssistMenu = memo(function AssistMenu(): ReactElement {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="More composer actions"
+          aria-label={t(
+            "conversation.composer.assistMenu.moreComposerActions",
+            "More composer actions",
+          )}
           className="composer-instrument composer-instrument-icon text-muted-foreground"
         >
           <MoreHorizontal className="size-3.5" />
@@ -55,7 +60,7 @@ export const AssistMenu = memo(function AssistMenu(): ReactElement {
                 className="mx-1.5 mt-1.5 inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <ArrowLeft className="size-3" />
-                Session
+                {t("conversation.composer.assistMenu.session", "Session")}
               </button>
             )}
             <ComposerHelp />
@@ -70,7 +75,7 @@ export const AssistMenu = memo(function AssistMenu(): ReactElement {
                 className="-mx-1.5 -mb-1.5 flex shrink-0 items-center gap-2 border-t border-border/70 px-1.5 pt-2.5 pb-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
               >
                 <Keyboard className="size-3.5" />
-                Keys & syntax
+                {t("conversation.composer.assistMenu.keysSyntax", "Keys & syntax")}
               </button>
             </>
           )

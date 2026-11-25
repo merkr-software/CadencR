@@ -1,3 +1,4 @@
+import { type UiTranslator } from "@/lib/i18n/ui";
 /**
  * How the composer's context meter reads, cycled by clicking it. A global
  * workspace setting, so every conversation shows the same meter.
@@ -10,13 +11,17 @@ export type ContextMeterDisplay = (typeof CONTEXT_METER_DISPLAYS)[number];
 
 export const DEFAULT_CONTEXT_METER_DISPLAY: ContextMeterDisplay = "bar_percent";
 
-export const CONTEXT_METER_DISPLAY_LABEL: Record<ContextMeterDisplay, string> = {
-  bar_percent: "Bar + percentage",
-  percent: "Percentage",
-  tokens: "Used / window",
-  left: "Tokens left",
-  bar: "Bar only",
+const DISPLAY_LABEL: Record<ContextMeterDisplay, (t: UiTranslator) => string> = {
+  bar_percent: (t) => t("conversation.composer.contextMeter.barPercent", "Bar + percentage"),
+  percent: (t) => t("conversation.composer.contextMeter.percent", "Percentage"),
+  tokens: (t) => t("conversation.composer.contextMeter.tokens", "Used / window"),
+  left: (t) => t("conversation.composer.contextMeter.left", "Tokens left"),
+  bar: (t) => t("conversation.composer.contextMeter.bar", "Bar only"),
 };
+
+export function contextMeterDisplayLabel(t: UiTranslator, display: ContextMeterDisplay): string {
+  return DISPLAY_LABEL[display](t);
+}
 
 export function parseContextMeterDisplay(value: string | null | undefined): ContextMeterDisplay {
   return CONTEXT_METER_DISPLAYS.includes(value as ContextMeterDisplay)

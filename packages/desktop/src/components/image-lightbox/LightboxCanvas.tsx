@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ImageOffIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement, type RefObject } from "react";
 import { cn } from "@/lib/utils";
@@ -65,11 +66,15 @@ export function LightboxCanvas({
 }
 
 function UnavailableImage(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col items-center justify-center gap-3 text-white/60">
       <ImageOffIcon className="size-8" aria-hidden="true" />
       <p className="max-w-sm text-center text-sm">
-        This image is no longer held in memory. Reload the conversation to fetch it again.
+        {t(
+          "conversation.stream.lightboxCanvas.thisImageIsNoLongerHeldIn",
+          "This image is no longer held in memory. Reload the conversation to fetch it again.",
+        )}
       </p>
     </div>
   );

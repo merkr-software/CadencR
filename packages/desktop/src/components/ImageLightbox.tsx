@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,28 @@ export function ImageLightboxHost(): ReactElement {
 interface Dimensions {
   width: number;
   height: number;
+}
+
+function LightboxCaption({
+  index,
+  count,
+  dimensions,
+}: {
+  index: number;
+  count: number;
+  dimensions: Dimensions | null;
+}) {
+  const { t } = useUiTranslation();
+  const position =
+    count > 1
+      ? t("conversation.stream.imageLightbox.of", "{{position}} of {{count}}", {
+          position: index + 1,
+          count,
+        })
+      : null;
+  const size = dimensions ? `${dimensions.width} × ${dimensions.height}` : null;
+  const caption = [position, size].filter(Boolean).join(" · ");
+  return caption ? <p className="font-mono text-[11px] text-white/55">{caption}</p> : null;
 }
 
 function LightboxContent({ onClose }: { onClose: () => void }): ReactElement | null {
@@ -97,17 +120,6 @@ function LightboxContent({ onClose }: { onClose: () => void }): ReactElement | n
     [step, zoom],
   );
 
-  const caption = useMemo(
-    () =>
-      [
-        images.length > 1 ? `${index + 1} of ${images.length}` : null,
-        dimensions ? `${dimensions.width} × ${dimensions.height}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    [dimensions, images.length, index],
-  );
-
   if (!image) return null;
   const fileName = lightboxFileName(image.fileName, image.mediaType);
 
@@ -123,7 +135,7 @@ function LightboxContent({ onClose }: { onClose: () => void }): ReactElement | n
         <header className="flex shrink-0 items-start justify-between gap-4 p-4">
           <div className="min-w-0 rounded-lg border border-white/10 bg-black/45 px-3 py-2 backdrop-blur-md">
             <p className="truncate text-sm font-medium text-white/90">{fileName}</p>
-            {caption && <p className="font-mono text-[11px] text-white/55">{caption}</p>}
+            <LightboxCaption index={index} count={images.length} dimensions={dimensions} />
           </div>
           <LightboxToolbar
             scale={zoom.scale}
@@ -162,13 +174,18 @@ function StepButton({
   side: "left" | "right";
   onClick: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const Icon = side === "left" ? ChevronLeftIcon : ChevronRightIcon;
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={onClick}
-      aria-label={side === "left" ? "Previous image (←)" : "Next image (→)"}
+      aria-label={
+        side === "left"
+          ? t("conversation.stream.imageLightbox.previousImage", "Previous image (←)")
+          : t("conversation.stream.imageLightbox.nextImage", "Next image (→)")
+      }
       className={`absolute top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/45 text-white/75 backdrop-blur-md hover:bg-black/70 hover:text-white ${
         side === "left" ? "left-4" : "right-4"
       }`}

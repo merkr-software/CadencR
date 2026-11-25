@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Button } from "./ui/button";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
@@ -33,6 +34,7 @@ interface ModelSelectorRowProps {
 }
 
 export function ModelSelectorRow(props: ModelSelectorRowProps) {
+  const { t } = useUiTranslation();
   const {
     agentLabel,
     stateLabel,
@@ -53,7 +55,7 @@ export function ModelSelectorRow(props: ModelSelectorRowProps) {
     level !== "global" && onInherit
       ? {
           id: "inherit-selection",
-          label: "Inherit selection",
+          label: t("conversation.composer.modelSelectorRow.inheritSelection", "Inherit selection"),
           description: selectedModelLabel,
           selected: isInherited,
           keywords: [selectedProviderLabel, selectedModelLabel],
@@ -69,7 +71,15 @@ export function ModelSelectorRow(props: ModelSelectorRowProps) {
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">{agentLabel}</div>
-          <div className="truncate text-[11px] text-muted-foreground">{stateLabel}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {stateLabel === "Default"
+              ? t("conversation.composer.modelSelectorRow.default", "Default")
+              : stateLabel === "Override"
+                ? t("conversation.composer.modelSelectorRow.override", "Override")
+                : stateLabel === "Inherited"
+                  ? t("conversation.composer.modelSelectorRow.inherited", "Inherited")
+                  : stateLabel}
+          </div>
         </div>
       </div>
       <div className="flex min-w-0 w-full items-center gap-2 sm:flex-1">
@@ -98,7 +108,7 @@ export function ModelSelectorRow(props: ModelSelectorRowProps) {
                     <span className="truncate text-sm text-foreground">{selectedModelLabel}</span>
                     {level !== "global" && isInherited && (
                       <span className="ml-1 hidden truncate text-[11px] text-muted-foreground sm:inline">
-                        Inherited
+                        {t("conversation.composer.modelSelectorRow.inherited", "Inherited")}
                       </span>
                     )}
                   </span>

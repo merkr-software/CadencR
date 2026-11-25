@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -64,7 +65,15 @@ export function LinkRoutingProvider({ scopeId, children }: LinkRoutingProviderPr
           );
           navigateToFeatureIdOrHome(navigateRef.current, feature.project_id, feature.id);
         } catch (error) {
-          toast.error(apiErrorMessage(error, "Could not open conversation"));
+          toast.error(
+            apiErrorMessage(
+              error,
+              translateUi(
+                "conversation.stream.linkRoutingProvider.couldNotOpenConversation",
+                "Could not open conversation",
+              ),
+            ),
+          );
         }
       },
       setHoverLink: (url) => {

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -61,7 +62,11 @@ function railIndexFromPointer(
 
 function tickLabel(mark: UserMessageMark, index: number, count: number): string {
   const preview = mark.text.length > 80 ? `${mark.text.slice(0, 80)}…` : mark.text;
-  return `Jump to message ${index + 1} of ${count}${preview ? `: ${preview}` : ""}`;
+  return translateUi(
+    "conversation.stream.messageNavigator.jumpToMessageOf",
+    "Jump to message {{position}} of {{count}}{{preview}}",
+    { position: index + 1, count, preview: preview ? `: ${preview}` : "" },
+  );
 }
 
 interface TickProps {
@@ -141,6 +146,7 @@ const MessageNavigatorRail = memo(function MessageNavigatorRail({
   pendingKey,
   onJump,
 }: RailProps): ReactElement {
+  const { t } = useUiTranslation();
   const [hover, setHover] = useState<HoverState | null>(null);
   const navRef = useRef<HTMLElement>(null);
   const [pendingRail, setPendingRail] = useState<RailBox | null>(null);
@@ -194,7 +200,7 @@ const MessageNavigatorRail = memo(function MessageNavigatorRail({
   return (
     <nav
       ref={navRef}
-      aria-label="Your messages"
+      aria-label={t("conversation.stream.messageNavigator.yourMessages", "Your messages")}
       data-testid="message-navigator"
       // Lives in the lane AgentStream reserves right of the scroller, so it
       // never covers a message, the scrollbar or a split's resize handle.

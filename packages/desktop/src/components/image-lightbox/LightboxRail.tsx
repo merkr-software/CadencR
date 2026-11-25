@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ImageOffIcon } from "lucide-react";
 import { memo, type ReactElement } from "react";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ interface LightboxRailProps {
 /** Thumbnail rail, shown only when a message carried more than one image. */
 function LightboxRailImpl({ images, index, onSelect }: LightboxRailProps): ReactElement | null {
   if (images.length < 2) return null;
+  const { t } = useUiTranslation();
   return (
     <div className="flex shrink-0 justify-center px-6 pb-6">
       <div className="flex max-w-full gap-2 overflow-x-auto rounded-lg border border-white/10 bg-black/45 p-2 backdrop-blur-md">
@@ -20,7 +22,9 @@ function LightboxRailImpl({ images, index, onSelect }: LightboxRailProps): React
             key={image.id}
             type="button"
             onClick={() => onSelect(position)}
-            aria-label={`Show ${image.alt}`}
+            aria-label={t("conversation.stream.lightboxRail.show", "Show {{image}}", {
+              image: image.alt,
+            })}
             aria-current={position === index ? "true" : undefined}
             className={cn(
               "size-12 shrink-0 overflow-hidden rounded-md border transition-all",

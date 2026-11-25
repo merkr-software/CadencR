@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CircleIcon, Loader2Icon } from "lucide-react";
 import {
@@ -32,13 +33,18 @@ const TodoTrigger = forwardRef<
     variant: "chip" | "instrument";
   }
 >(function TodoTrigger({ completed, total, inProgress, chipClass, variant, ...props }, ref) {
+  const { t } = useUiTranslation();
   const instrument = variant === "instrument";
   return (
     <button
       {...props}
       ref={ref}
       type="button"
-      aria-label={`Tasks: ${completed} of ${total} done`}
+      aria-label={t(
+        "conversation.stream.agentTodoList.tasksOfDone",
+        "Tasks: {{completed}} of {{total}} done",
+        { completed, total },
+      )}
       className={
         instrument
           ? "composer-instrument gap-1.5 tabular-nums text-foreground/80"
@@ -64,6 +70,7 @@ export function AgentTodoList({
   chipClass,
   variant = "chip",
 }: AgentTodoListProps): ReactElement {
+  const { t } = useUiTranslation();
   const completed = todos.filter((t) => t.status === "completed").length;
   const total = todos.length;
   const inProgress = todos.find((t) => t.status === "in_progress");
@@ -122,7 +129,7 @@ export function AgentTodoList({
         className="w-auto max-w-[min(640px,90vw)] p-3"
       >
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Tasks
+          {t("conversation.stream.agentTodoList.tasks", "Tasks")}
         </p>
         <ul className="space-y-1">
           {todos.map((todo, i) => (

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useState, type ReactElement } from "react";
 import { GitBranch, GitPullRequest, Plus, X } from "lucide-react";
 import { useLookupFeatureRepoPr } from "@/api/generated";
@@ -27,6 +28,7 @@ function repoOf(url: string): string {
  * repository are resolved (the forge vouches for them).
  */
 export function PullRequestLinkSuggestion(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { featureId, isFirstPrompt, startOnBranch } = useComposerContext();
   // Settled text only: typing `/pull/123` must not look up #1, then #12.
   const draftText = useDebouncedValue(useComposerDraftText(), LOOKUP_DEBOUNCE_MS);
@@ -71,22 +73,26 @@ export function PullRequestLinkSuggestion(): ReactElement | null {
         className="composer-instrument h-6 gap-0.5 px-1.5 text-foreground"
       >
         <Plus className="size-3" />
-        Attach
+        {t("conversation.composer.pullRequestLinkSuggestion.attach", "Attach")}
       </button>
       {isFirstPrompt && startOnBranch && (
         <button
           type="button"
           onClick={() => startOnBranch(pr.source_branch)}
           className="composer-instrument h-6 gap-1 px-1.5 text-[var(--chip-worktree-fg)]"
-          title={`Work on ${pr.source_branch} in its own worktree`}
+          title={t(
+            "conversation.composer.pullRequestLinkSuggestion.worktreeHint",
+            "Work on {{branch}} in its own worktree",
+            { branch: pr.source_branch },
+          )}
         >
           <GitBranch className="size-3" />
-          Use its branch
+          {t("conversation.composer.pullRequestLinkSuggestion.useBranch", "Use its branch")}
         </button>
       )}
       <button
         type="button"
-        aria-label="Dismiss"
+        aria-label={t("conversation.composer.pullRequestLinkSuggestion.dismiss", "Dismiss")}
         onClick={() => setDismissed(link)}
         className="flex size-5 items-center justify-center rounded hover:bg-muted"
       >

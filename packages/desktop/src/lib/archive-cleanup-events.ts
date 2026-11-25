@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { z } from "zod";
 import {
@@ -136,8 +137,17 @@ function leaveArchivedFeature(projectId: number, featureId: number | undefined):
   import("@/router")
     .then(({ router }) => navigateToFeatureIdOrHome(router.navigate, projectId, featureId))
     .catch((error: unknown) => {
-      toast.error("Could not leave the archived session", {
-        description: apiErrorMessage(error, "Navigation failed"),
-      });
+      toast.error(
+        translateUi(
+          "conversation.archiveCleanupEvents.couldNotLeaveTheArchivedSession",
+          "Could not leave the archived session",
+        ),
+        {
+          description: apiErrorMessage(
+            error,
+            translateUi("conversation.archiveCleanupEvents.navigationFailed", "Navigation failed"),
+          ),
+        },
+      );
     });
 }

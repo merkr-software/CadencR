@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { PaperclipIcon } from "lucide-react";
 import { useMemo, useRef, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@/components/Markdown";
@@ -32,6 +33,7 @@ export function UserMessageBlock({
   senderTab,
   renderActions,
 }: UserMessageBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const bubbleRef = useRef<HTMLDivElement>(null);
   const {
     text: textContent,
@@ -91,19 +93,34 @@ export function UserMessageBlock({
             className="size-1.5 animate-pulse rounded-full bg-amber-400/90"
             aria-hidden="true"
           />
-          <span className="text-amber-300">Not received by agent yet…</span>
+          <span className="text-amber-300">
+            {t(
+              "conversation.stream.userMessageBlock.notReceivedByAgentYet",
+              "Not received by agent yet…",
+            )}
+          </span>
         </div>
       </CollapsibleSection>
       {isUnknownDelivery && (
         <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
           <span className="size-1.5 rounded-full bg-muted-foreground/70" aria-hidden="true" />
-          <span>Agent receipt could not be confirmed</span>
+          <span>
+            {t(
+              "conversation.stream.userMessageBlock.agentReceiptCouldNotBeConfirmed",
+              "Agent receipt could not be confirmed",
+            )}
+          </span>
         </div>
       )}
       {isFailedDelivery && (
         <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-destructive">
           <span className="size-1.5 rounded-full bg-destructive/80" aria-hidden="true" />
-          <span>Message was not delivered to the agent</span>
+          <span>
+            {t(
+              "conversation.stream.userMessageBlock.messageWasNotDeliveredToTheAgent",
+              "Message was not delivered to the agent",
+            )}
+          </span>
         </div>
       )}
       {renderActions?.(bubbleRef)}

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { lazy, Suspense, type ReactElement, type ReactNode, type RefObject } from "react";
 import type { Components } from "streamdown";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
@@ -34,20 +35,28 @@ const RENDERED_FENCES = {
   mermaid: {
     highlight: "text",
     Component: MermaidDiagram,
-    loading: "Loading diagram…",
+    loading: (t: UiTranslator) =>
+      t("conversation.stream.visual.loadingDiagram", "Loading diagram…"),
     drafting: null,
   },
   "vega-lite": {
     highlight: "json",
     Component: VegaLiteChart,
-    loading: "Loading chart renderer…",
-    drafting: { label: "Writing chart…", preload: loadVegaLiteChart },
+    loading: (t: UiTranslator) =>
+      t("conversation.stream.visual.loadingChart", "Loading chart renderer…"),
+    drafting: {
+      label: (t: UiTranslator) => t("conversation.stream.visual.writingChart", "Writing chart…"),
+      preload: loadVegaLiteChart,
+    },
   },
   "cadencr-html": {
     highlight: "html",
     Component: HtmlVisual,
-    loading: "Loading visual…",
-    drafting: { label: "Writing visual…", preload: loadHtmlVisual },
+    loading: (t: UiTranslator) => t("conversation.stream.visual.loadingHtml", "Loading visual…"),
+    drafting: {
+      label: (t: UiTranslator) => t("conversation.stream.visual.writingHtml", "Writing visual…"),
+      preload: loadHtmlVisual,
+    },
   },
 } as const;
 type RenderedFence = keyof typeof RENDERED_FENCES;
@@ -112,9 +121,14 @@ type FencePosition = { start?: { line?: number }; end?: { line?: number } };
  * the text would rebuild the whole fence on every streamed delta. Includes the
  * closing line once written.
  */
-function writtenLines(position: FencePosition | undefined): string {
+function writtenLines(position: FencePosition | undefined, t: UiTranslator): string {
   const lines = Math.max((position?.end?.line ?? 0) - (position?.start?.line ?? 0), 0);
-  return lines === 1 ? "1 line" : `${lines} lines`;
+  return t("conversation.stream.visual.linesWritten", {
+    count: lines,
+    defaultValue_zero: "0 lines",
+    defaultValue_one: "{{count}} line",
+    defaultValue_other: "{{count}} lines",
+  });
 }
 
 /** Shown while a fence's renderer loads: bare for charts and visuals, in a code block for diagrams. */
@@ -125,13 +139,25 @@ function VisualFallback({
   language: RenderedFence;
   code: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { drafting, loading } = RENDERED_FENCES[language];
-  if (drafting) return <VisualLoading label={loading} />;
+  if (drafting) return <VisualLoading label={loading(t)} />;
   return (
     <CodeBlockShell language={language} code={code}>
-      <div className="p-3 text-xs text-muted-foreground">{loading}</div>
+      <div className="p-3 text-xs text-muted-foreground">{loading(t)}</div>
     </CodeBlockShell>
   );
+}
+
+function DraftingVisual({
+  label,
+  position,
+}: {
+  label: (t: UiTranslator) => string;
+  position?: FencePosition;
+}) {
+  const { t } = useUiTranslation();
+  return <VisualLoading label={label(t)} detail={writtenLines(position, t)} />;
 }
 
 interface MarkdownComponentOptions {
@@ -159,7 +185,7 @@ function buildCodeComponent({
       const drafting = fence && !isSettled ? RENDERED_FENCES[fence].drafting : null;
       if (drafting) {
         void drafting.preload();
-        return <VisualLoading label={drafting.label} detail={writtenLines(node?.position)} />;
+        return <DraftingVisual label={drafting.label} position={node?.position} />;
       }
       const code = extractText(children).replace(/\n$/, "");
       if (fence && isSettled && isFenceClosed(contentRef.current, node)) {

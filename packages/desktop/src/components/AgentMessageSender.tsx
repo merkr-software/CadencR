@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2Icon } from "lucide-react";
 import { memo, useCallback, type ReactElement } from "react";
@@ -23,10 +24,11 @@ export const AgentMessageSender = memo(function AgentMessageSender({
   origin,
   sentAt,
 }: AgentMessageSenderProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs">
       <span className="shrink-0 text-[10.5px] font-semibold tracking-wide text-muted-foreground uppercase">
-        Agent
+        {t("conversation.stream.agentMessageSender.agent", "Agent")}
       </span>
       <SenderName origin={origin} />
       {sentAt && (
@@ -39,6 +41,7 @@ export const AgentMessageSender = memo(function AgentMessageSender({
 });
 
 function SenderName({ origin }: { origin: AgentMessageOrigin }): ReactElement {
+  const { t } = useUiTranslation();
   const sourceFeatureId = origin.sourceFeatureId ?? 0;
   const featureQuery = useGetFeature(sourceFeatureId, {
     query: { enabled: Boolean(origin.sourceFeatureId) },
@@ -49,19 +52,28 @@ function SenderName({ origin }: { origin: AgentMessageOrigin }): ReactElement {
     return (
       <span className="inline-flex items-center gap-1 text-muted-foreground">
         <Loader2Icon className="size-3 animate-spin" aria-hidden="true" />
-        Loading sender…
+        {t("conversation.stream.agentMessageSender.loadingSender", "Loading sender…")}
       </span>
     );
   }
   if (feature) return <SourceConversationButton feature={feature} note={origin.note} />;
 
   const tooltip = [
-    featureQuery.isError ? "Conversation could not be loaded" : null,
+    featureQuery.isError
+      ? t(
+          "conversation.stream.agentMessageSender.conversationCouldNotBeLoaded",
+          "Conversation could not be loaded",
+        )
+      : null,
     origin.note,
   ].filter((part): part is string => Boolean(part));
   return (
     <span className="truncate font-medium text-foreground" title={tooltip.join(" · ") || undefined}>
-      {origin.sourceSessionId ? `Session ${origin.sourceSessionId}` : "Another conversation"}
+      {origin.sourceSessionId
+        ? t("conversation.stream.agentMessageSender.session", "Session {{sessionId}}", {
+            sessionId: origin.sourceSessionId,
+          })
+        : t("conversation.stream.agentMessageSender.anotherConversation", "Another conversation")}
     </span>
   );
 }
@@ -73,6 +85,7 @@ function SourceConversationButton({
   feature: Feature;
   note: string | null | undefined;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const point = usePointSidebarFeature(feature.id);
   const openConversation = useCallback((): void => {
@@ -85,8 +98,20 @@ function SourceConversationButton({
       onClick={openConversation}
       {...point}
       className="-my-0.5 inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 font-medium text-foreground transition-colors hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      title={["Sent by this conversation's agent — open it", note].filter(Boolean).join(" · ")}
-      aria-label={`Sent by ${feature.title}. Open conversation`}
+      title={[
+        t(
+          "conversation.stream.agentMessageSender.sentByThisConversationSAgentOpen",
+          "Sent by this conversation's agent — open it",
+        ),
+        note,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      aria-label={t(
+        "conversation.stream.agentMessageSender.sentByOpenConversation",
+        "Sent by {{title}}. Open conversation",
+        { title: feature.title },
+      )}
     >
       <ProviderIcon
         providerId={feature.runtime_provider}

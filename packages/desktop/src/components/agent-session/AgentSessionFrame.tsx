@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ComponentType, type ReactElement, type ReactNode, type RefObject } from "react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,7 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
   onToggleMaximize,
   wsSessionId,
 }: AgentSessionFrameProps): ReactElement {
+  const { t } = useUiTranslation();
   const historyFailed = useHasHistoryLoadFailure(wsSessionId);
   // An empty transcript whose history is still on its way is not a new
   // conversation: it must not flash the empty state before its messages.
@@ -124,7 +126,7 @@ export const AgentSessionFrame = memo(function AgentSessionFrame({
               {historyFailed ? (
                 <AgentSessionHistoryFailure sessionId={wsSessionId} variant="empty" />
               ) : (
-                "No output yet"
+                t("conversation.stream.agentSessionFrame.noOutputYet", "No output yet")
               )}
             </div>
           ) : (

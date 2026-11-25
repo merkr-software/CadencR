@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import {
   useDeleteSessionQueuedPrompt,
@@ -65,9 +66,18 @@ export function usePromptQueue(sessionId: number | undefined): PromptQueueApi {
     async (content: string) => {
       const queued = await run(
         () => enqueueAsync({ sessionId: id, data: { content } }),
-        "Couldn't queue the message",
+        translateUi(
+          "conversation.composer.usePromptQueue.queueFailed",
+          "Couldn't queue the message",
+        ),
       );
-      if (!queued) throw new Error("The message was not queued");
+      if (!queued)
+        throw new Error(
+          translateUi(
+            "conversation.composer.usePromptQueue.notQueued",
+            "The message was not queued",
+          ),
+        );
     },
     [enqueueAsync, id, run],
   );
@@ -75,18 +85,33 @@ export function usePromptQueue(sessionId: number | undefined): PromptQueueApi {
     (promptId: number, content: string) =>
       run(
         () => updateAsync({ sessionId: id, id: promptId, data: { content } }),
-        "Couldn't update the queued message",
+        translateUi(
+          "conversation.composer.usePromptQueue.updateFailed",
+          "Couldn't update the queued message",
+        ),
       ),
     [id, run, updateAsync],
   );
   const remove = useCallback(
     (promptId: number) =>
-      run(() => deleteAsync({ sessionId: id, id: promptId }), "Couldn't remove the queued message"),
+      run(
+        () => deleteAsync({ sessionId: id, id: promptId }),
+        translateUi(
+          "conversation.composer.usePromptQueue.removeFailed",
+          "Couldn't remove the queued message",
+        ),
+      ),
     [deleteAsync, id, run],
   );
   const sendNow = useCallback(
     (promptId: number) =>
-      run(() => sendNowAsync({ sessionId: id, id: promptId }), "Couldn't send the queued message"),
+      run(
+        () => sendNowAsync({ sessionId: id, id: promptId }),
+        translateUi(
+          "conversation.composer.usePromptQueue.sendFailed",
+          "Couldn't send the queued message",
+        ),
+      ),
     [id, run, sendNowAsync],
   );
 

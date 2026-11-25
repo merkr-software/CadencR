@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, type ReactElement, useMemo, useState } from "react";
 import { contextUsageToShow, totalTokens, usageRatio, type ContextUsageState } from "@/types/agent";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ function ContextUsageTrigger({
   className?: string;
   isStreaming: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const hover = useHoverOpen();
   const used = totalTokens(usage);
   const ratio = usageRatio(usage);
@@ -43,7 +45,7 @@ function ContextUsageTrigger({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={contextUsageAriaLabel(usage, ratio)}
+            aria-label={contextUsageAriaLabel(t, usage, ratio)}
             className={cn(
               "flex min-w-0 flex-1 cursor-help items-center gap-2 rounded-sm",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -73,11 +75,23 @@ function ContextUsageTrigger({
 }
 
 /** Screen-reader reading of a context meter. */
-export function contextUsageAriaLabel(usage: ContextUsageState, ratio: number | null): string {
+export function contextUsageAriaLabel(
+  t: UiTranslator,
+  usage: ContextUsageState,
+  ratio: number | null,
+): string {
   const used = totalTokens(usage).toLocaleString();
   return ratio == null
-    ? `Context usage: ${used} tokens, window size not reported yet`
-    : `Context usage ${Math.round(ratio * 100)}%: ${used} of ${usage.contextWindow?.toLocaleString()} tokens`;
+    ? t(
+        "conversation.composer.contextUsageBar.usageUnknownWindow",
+        "Context usage: {{used}} tokens, window size not reported yet",
+        { used },
+      )
+    : t(
+        "conversation.composer.contextUsageBar.usageWithWindow",
+        "Context usage {{percent}}%: {{used}} of {{window}} tokens",
+        { percent: Math.round(ratio * 100), used, window: usage.contextWindow?.toLocaleString() },
+      );
 }
 
 /** A details card opened by hovering or focusing its trigger (it never takes focus). */
@@ -179,20 +193,28 @@ function ContextUsageDetails({
   usage: ContextUsageState;
   ratio: number | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const windowLabel = ratio == null ? "—" : usage.contextWindow?.toLocaleString();
   const usedLabel = `${totalTokens(usage).toLocaleString()} / ${windowLabel}`;
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium text-foreground">Context</span>
+      <span className="text-[11px] font-medium text-foreground">
+        {t("conversation.composer.contextUsageBar.context", "Context")}
+      </span>
       <UsageMeter ratio={ratio} isStreaming={false} className="h-1" />
       <p className="font-mono text-[10.5px] tabular-nums text-muted-foreground">{usedLabel}</p>
       {ratio == null ? (
-        <p className="text-[10.5px] text-muted-foreground">Window size not reported yet</p>
+        <p className="text-[10.5px] text-muted-foreground">
+          {t(
+            "conversation.composer.contextUsageBar.windowSizeNotReportedYet",
+            "Window size not reported yet",
+          )}
+        </p>
       ) : null}
       {usage.wasCompacted ? (
         <p className="border-t border-border pt-2 text-[10.5px] font-medium text-[var(--acc-orange)]">
-          Context compacted
+          {t("conversation.composer.contextUsageBar.contextCompacted", "Context compacted")}
         </p>
       ) : null}
     </div>
@@ -200,16 +222,17 @@ function ContextUsageDetails({
 }
 
 function PromptKeyboardHint(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       data-prompt-keyboard-hint
       className="hidden shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground md:inline-flex"
     >
       <KbdShortcut keys={["enter"]} variant="hint" />
-      <span>send</span>
+      <span>{t("conversation.composer.contextUsageBar.send", "send")}</span>
       <span className="text-muted-foreground">·</span>
       <KbdShortcut keys={["shift", "enter"]} variant="hint" />
-      <span>newline</span>
+      <span>{t("conversation.composer.contextUsageBar.newline", "newline")}</span>
     </span>
   );
 }

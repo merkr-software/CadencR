@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -129,6 +130,10 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
   onTogglePin,
   onExclude,
 }: EmbeddedFeatureHeaderActionsProps): ReactElement {
+  const { t } = useUiTranslation();
+  const pinLabel = isPinned
+    ? t("conversation.embeddedFeatureHeader.unpinAgent", "Unpin agent")
+    : t("conversation.embeddedFeatureHeader.pinAgent", "Pin agent");
   const handlePinClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>): void => {
       event.stopPropagation();
@@ -146,7 +151,7 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
   return (
     <div className="flex items-center">
       {onTogglePin ? (
-        <ActionTooltip label={isPinned ? "Unpin agent" : "Pin agent"} shortcutId="agents-pin">
+        <ActionTooltip label={pinLabel} shortcutId="agents-pin">
           <Button
             type="button"
             variant="ghost"
@@ -154,7 +159,7 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
             className={cn(ACTION_BUTTON_CLASS, isPinned && "text-primary hover:text-primary")}
             disabled={isPinPending}
             aria-pressed={isPinned}
-            aria-label={isPinned ? "Unpin agent" : "Pin agent"}
+            aria-label={pinLabel}
             onClick={handlePinClick}
           >
             {isPinPending ? (
@@ -166,20 +171,29 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
         </ActionTooltip>
       ) : null}
       {onExclude ? (
-        <ActionTooltip label="Hide from this view" shortcutId="agents-hide">
+        <ActionTooltip
+          label={t("conversation.embeddedFeatureHeader.hideFromThisView", "Hide from this view")}
+          shortcutId="agents-hide"
+        >
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className={ACTION_BUTTON_CLASS}
-            aria-label="Hide agent from this view"
+            aria-label={t(
+              "conversation.embeddedFeatureHeader.hideAgentFromThisView",
+              "Hide agent from this view",
+            )}
             onClick={handleExcludeClick}
           >
             <EyeOffIcon className="size-3.5" />
           </Button>
         </ActionTooltip>
       ) : null}
-      <ActionTooltip label="Open feature page" shortcutId="agents-open-feature">
+      <ActionTooltip
+        label={t("conversation.embeddedFeatureHeader.openFeaturePage", "Open feature page")}
+        shortcutId="agents-open-feature"
+      >
         <Button
           asChild
           variant="ghost"
@@ -190,7 +204,10 @@ const EmbeddedFeatureHeaderActions = memo(function EmbeddedFeatureHeaderActions(
           <Link
             to="/projects/$projectId/features/$featureId"
             params={{ projectId: String(projectId), featureId: String(featureId) }}
-            aria-label="Open feature page"
+            aria-label={t(
+              "conversation.embeddedFeatureHeader.openFeaturePage",
+              "Open feature page",
+            )}
           >
             <ArrowUpRightIcon className="size-3.5" />
           </Link>
@@ -228,7 +245,8 @@ function WorktreeIndicator({
   if (!status || status === "idle") return null;
   const busy = status === "creating" || status === "setup_running";
   const Icon = status === "setup_error" ? AlertTriangleIcon : busy ? Loader2Icon : GitBranchIcon;
-  const label = worktreeLabel(status, branch);
+  const { t } = useUiTranslation();
+  const label = worktreeLabel(status, t, branch);
   return (
     <ShortcutTooltip label={label} className="shrink-0">
       <span
@@ -249,11 +267,32 @@ function worktreeIndicatorClass(status: WorktreeStatus): string {
 }
 
 /** One wording for the tooltip and the screen reader alike. */
-function worktreeLabel(status: WorktreeStatus, branch?: string | null): string {
-  const suffix = branch ? ` · ${branch}` : "";
-  if (status === "setup_error") return `Git worktree setup failed${suffix}`;
+function worktreeLabel(status: WorktreeStatus, t: UiTranslator, branch?: string | null): string {
+  if (status === "setup_error")
+    return branch
+      ? t(
+          "conversation.embeddedFeatureHeader.failedWorktreeWithBranch",
+          "Git worktree setup failed · {{branch}}",
+          { branch },
+        )
+      : t("conversation.embeddedFeatureHeader.failedWorktree", "Git worktree setup failed");
   if (status === "creating" || status === "setup_running") {
-    return `Preparing isolated Git worktree${suffix}`;
+    return branch
+      ? t(
+          "conversation.embeddedFeatureHeader.preparingWorktreeWithBranch",
+          "Preparing isolated Git worktree · {{branch}}",
+          { branch },
+        )
+      : t(
+          "conversation.embeddedFeatureHeader.preparingWorktree",
+          "Preparing isolated Git worktree",
+        );
   }
-  return `Agent uses an isolated Git worktree${suffix}`;
+  return branch
+    ? t(
+        "conversation.embeddedFeatureHeader.readyWorktreeWithBranch",
+        "Agent uses an isolated Git worktree · {{branch}}",
+        { branch },
+      )
+    : t("conversation.embeddedFeatureHeader.readyWorktree", "Agent uses an isolated Git worktree");
 }

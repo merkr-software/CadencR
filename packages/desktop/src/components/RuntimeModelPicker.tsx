@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
@@ -115,11 +116,12 @@ function useModelGroups(
   toggleFavorite: (value: string) => void;
   toggleHighlightedFavorite: () => void;
 } {
+  const { t } = useUiTranslation();
   const { favorites, toggleFavorite } = useFavoriteModels();
   const allEntries = useMemo<ModelEntry[]>(() => getModelEntries(providers), [providers]);
   const modelGroups = useMemo<ModelGroupSpec[]>(
-    () => groupCatalogEntries(allEntries, favorites),
-    [allEntries, favorites],
+    () => groupCatalogEntries(allEntries, favorites, t),
+    [allEntries, favorites, t],
   );
   const needsCollapse = catalogNeedsCollapse(modelGroups);
   const modelValues = useMemo(() => new Set(allEntries.map((entry) => entry.value)), [allEntries]);
@@ -238,12 +240,13 @@ export function RuntimeModelPicker({
   resolveSelectedModelId,
   onSelect,
   action,
-  searchPlaceholder = "Search providers or models...",
-  emptyText = "No matching model.",
+  searchPlaceholder,
+  emptyText,
   align = "start",
   contentClassName,
   onAfterSelectClose,
 }: RuntimeModelPickerProps): React.ReactElement {
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const restoreFocusAfterCloseRef = useRef(false);
@@ -281,8 +284,8 @@ export function RuntimeModelPicker({
   });
 
   const providerStateEntries = useMemo<ProviderStateEntry[]>(
-    () => getProviderStateEntries(providers),
-    [providers],
+    () => getProviderStateEntries(providers, t),
+    [providers, t],
   );
   const catalogNotices = useMemo<CatalogRefreshNotice[]>(
     () => getCatalogRefreshNotices(providers),
@@ -297,7 +300,9 @@ export function RuntimeModelPicker({
         align={align}
         catalogNotices={catalogNotices}
         contentClassName={contentClassName}
-        emptyText={emptyText}
+        emptyText={
+          emptyText ?? t("conversation.composer.runtimeModelPicker.empty", "No matching model.")
+        }
         expandedGroupIds={expandedGroupIds}
         favorites={favorites}
         inputRef={inputRef}
@@ -315,7 +320,13 @@ export function RuntimeModelPicker({
         providerStateEntries={providerStateEntries}
         restoreFocusAfterCloseRef={restoreFocusAfterCloseRef}
         search={search}
-        searchPlaceholder={searchPlaceholder}
+        searchPlaceholder={
+          searchPlaceholder ??
+          t(
+            "conversation.composer.runtimeModelPicker.searchPlaceholder",
+            "Search providers or models...",
+          )
+        }
         selectedCommandValue={selectedCommandValue}
         selectedModelValue={selectedModelValue}
         setSearch={setSearch}

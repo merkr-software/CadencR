@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ export function FeatureRenameForm({
   onClose,
   open,
 }: FeatureRenameFormProps): ReactElement {
+  const { t } = useUiTranslation();
   const [value, setValue] = useState(currentTitle);
 
   // Reset the input every time the popover opens so reopening after a cancel
@@ -38,11 +40,21 @@ export function FeatureRenameForm({
   const mutation = useUpdateFeatureTitle({
     mutation: {
       onSuccess: () => {
-        toast.success("Feature renamed");
+        toast.success(
+          translateUi("conversation.featureRenamePopover.featureRenamed", "Feature renamed"),
+        );
         onClose();
       },
       onError: (error) => {
-        toast.error(apiErrorMessage(error, "Failed to rename feature"));
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "conversation.featureRenamePopover.failedToRenameFeature",
+              "Failed to rename feature",
+            ),
+          ),
+        );
       },
     },
   });
@@ -58,13 +70,15 @@ export function FeatureRenameForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-      <label className="text-xs font-medium text-muted-foreground">Rename feature</label>
+      <label className="text-xs font-medium text-muted-foreground">
+        {t("conversation.featureRenamePopover.renameFeature", "Rename feature")}
+      </label>
       <Input
         autoFocus
         value={value}
         onFocus={(event) => event.currentTarget.select()}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Feature name"
+        placeholder={t("conversation.featureRenamePopover.featureName", "Feature name")}
         maxLength={120}
         disabled={mutation.isPending}
       />
@@ -76,10 +90,10 @@ export function FeatureRenameForm({
           onClick={onClose}
           disabled={mutation.isPending}
         >
-          Cancel
+          {t("conversation.featureRenamePopover.cancel", "Cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={!canSubmit}>
-          {mutation.isPending ? "Saving…" : "Save"}
+          {mutation.isPending ? t("conversation.featureRenamePopover.saving", "Saving…") : "Save"}
         </Button>
       </div>
     </form>

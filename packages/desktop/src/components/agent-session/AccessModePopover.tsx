@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,10 @@ export function AccessModePopover({
   providerId,
   options,
   description,
-  selectedHint = "New default",
+  selectedHint,
   variant = "chip",
 }: AccessModePopoverProps): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const providerConfig = useProviderAccessModeConfig(providerId);
   const activeMode = getAccessModeDefinition(mode);
@@ -49,7 +51,12 @@ export function AccessModePopover({
         <button
           type="button"
           title={activeCopy?.description ?? activeMode.description}
-          aria-label={`${providerConfig.providerLabel} access mode: ${activeCopy?.label ?? activeMode.label}. ${activeCopy?.description ?? activeMode.description}`}
+          aria-label={accessModeLabel(
+            t,
+            providerConfig.providerLabel,
+            activeCopy?.label ?? activeMode.label,
+            activeCopy?.description ?? activeMode.description,
+          )}
           className={
             variant === "instrument"
               ? "composer-instrument gap-1.5 text-foreground/85"
@@ -68,18 +75,11 @@ export function AccessModePopover({
         className="w-[360px] space-y-3 p-3 text-xs"
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
-        <div>
-          <div className="text-sm font-semibold">{providerConfig.providerLabel} access mode</div>
-          <p className="mt-1 text-muted-foreground">
-            {description ?? (
-              <>
-                This conversation is using {activeCopy?.label ?? activeMode.label}. Pick a mode
-                below to switch it for this conversation and set the default for new{" "}
-                {providerConfig.providerLabel} conversations.
-              </>
-            )}
-          </p>
-        </div>
+        <AccessModeHeading
+          provider={providerConfig.providerLabel}
+          mode={activeCopy?.label ?? activeMode.label}
+          description={description}
+        />
         <div className="space-y-1.5">
           {options.map((copy) => {
             const option = getAccessModeDefinition(copy.id);
@@ -109,7 +109,8 @@ export function AccessModePopover({
                       <>
                         <CheckIcon className="size-3 text-[var(--acc-green)]" />
                         <span className="text-[10px] font-normal text-muted-foreground">
-                          {selectedHint}
+                          {selectedHint ??
+                            t("conversation.stream.accessModePopover.newDefault", "New default")}
                         </span>
                       </>
                     )}
@@ -124,5 +125,50 @@ export function AccessModePopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function AccessModeHeading({
+  provider,
+  mode,
+  description,
+}: {
+  provider: string;
+  mode: string;
+  description?: string;
+}) {
+  const { t } = useUiTranslation();
+  return (
+    <div>
+      <div className="text-sm font-semibold">
+        {t("conversation.stream.accessModePopover.heading", "{{provider}} access mode", {
+          provider: provider,
+        })}
+      </div>
+      <p className="mt-1 text-muted-foreground">
+        {description ??
+          t(
+            "conversation.stream.accessModePopover.changeDefault",
+            "This conversation is using {{mode}}. Pick a mode below to switch it for this conversation and set the default for new {{provider}} conversations.",
+            {
+              mode: mode,
+              provider: provider,
+            },
+          )}
+      </p>
+    </div>
+  );
+}
+
+function accessModeLabel(
+  t: UiTranslator,
+  provider: string,
+  mode: string,
+  description: string,
+): string {
+  return t(
+    "conversation.stream.accessModePopover.accessMode",
+    "{{provider}} access mode: {{mode}}. {{description}}",
+    { provider, mode, description },
   );
 }

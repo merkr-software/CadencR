@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * First-prompt worktree side effects for the agent send handler: switching the
  * project repo to a picked branch ("On branch"), and persisting the feature
@@ -46,7 +47,12 @@ export async function checkoutSelectedBranch(params: {
     invalidateAfterBranchMove(queryClient, projectId, featureId);
     return true;
   } catch (err) {
-    toast.error(apiErrorMessage(err, "git checkout failed"));
+    toast.error(
+      apiErrorMessage(
+        err,
+        translateUi("conversation.worktreeSendHelpers.gitCheckoutFailed", "git checkout failed"),
+      ),
+    );
     return false;
   }
 }
@@ -77,8 +83,17 @@ export async function saveWorktreeChoice(params: {
       data: { key: "worktree_mode", value: choice.backendMode },
     });
   } catch (err) {
-    const message = apiErrorMessage(err, "Unknown error");
-    toast.error(`Could not save worktree settings: ${message}`);
+    const message = apiErrorMessage(
+      err,
+      translateUi("conversation.worktreeSendHelpers.unknownError", "Unknown error"),
+    );
+    toast.error(
+      translateUi(
+        "conversation.worktree-send-helpers.couldNotSaveWorktreeSettings",
+        "Could not save worktree settings: {{message}}",
+        { message },
+      ),
+    );
     throw err;
   }
 }

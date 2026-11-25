@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useState, type ReactElement } from "react";
 import { Layers, X } from "lucide-react";
 import { useGetFeature } from "@/api/generated";
@@ -32,6 +33,7 @@ export function shouldRecommendCompaction(
  * rest of the session.
  */
 export const CompactionHint = memo(function CompactionHint(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { featureId, contextUsage, slashCommands, isRunning, send } = useComposerContext();
   const [dismissed, setDismissed] = useState(false);
   // Ticks each minute, so the hint appears once the hour passes, unprompted.
@@ -53,15 +55,23 @@ export const CompactionHint = memo(function CompactionHint(): ReactElement | nul
       <button
         type="button"
         onClick={() => send("/compact")}
-        title="This conversation is over an hour old and its context is large: compacting keeps a summary and makes each turn faster and cheaper."
+        title={t(
+          "conversation.composer.compactionHint.thisConversationIsOverAnHourOld",
+          "This conversation is over an hour old and its context is large: compacting keeps a summary and makes each turn faster and cheaper.",
+        )}
         className="composer-instrument gap-1.5"
       >
         <Layers className="size-3.5" aria-hidden />
-        <span className="@max-[34rem]:hidden">Compact</span>
+        <span className="@max-[34rem]:hidden">
+          {t("conversation.composer.compactionHint.compact", "Compact")}
+        </span>
       </button>
       <button
         type="button"
-        aria-label="Dismiss the compaction suggestion"
+        aria-label={t(
+          "conversation.composer.compactionHint.dismissTheCompactionSuggestion",
+          "Dismiss the compaction suggestion",
+        )}
         onClick={() => setDismissed(true)}
         className="flex size-6 items-center justify-center rounded-md hover:bg-[var(--acc-orange)]/15"
       >

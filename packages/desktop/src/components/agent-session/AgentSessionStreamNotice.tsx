@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { Loader2Icon } from "lucide-react";
 import { useWsSessionStore } from "@/stores/ws-session-store";
@@ -12,6 +13,7 @@ export const AgentSessionStreamNotice = memo(function AgentSessionStreamNotice({
 }: {
   sessionId: string | undefined;
 }) {
+  const { t } = useUiTranslation();
   const health = useWsSessionStore((state) =>
     sessionId ? state.sessions[sessionId]?.streamHealth : undefined,
   );
@@ -25,7 +27,9 @@ export const AgentSessionStreamNotice = memo(function AgentSessionStreamNotice({
       title={health.reason}
     >
       <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
-      <span className="shrink-0 font-medium text-foreground">Reconnecting…</span>
+      <span className="shrink-0 font-medium text-foreground">
+        {t("conversation.stream.agentSessionStreamNotice.reconnecting", "Reconnecting…")}
+      </span>
       {health.reason ? <span className="min-w-0 truncate">{health.reason}</span> : null}
     </div>
   );

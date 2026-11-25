@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 import { getListFeaturesQueryKey } from "@/api/generated";
@@ -52,7 +53,7 @@ export async function rewindToMessage(
   const session = deps.get().sessions[sessionId];
   if (!session) return;
   const toastId = `branch-${sessionId}`;
-  toast.loading("Rewinding…", { id: toastId });
+  toast.loading(translateUi("conversation.rewind.loading", "Rewinding…"), { id: toastId });
 
   const reply = await deps.sendRequest(
     sessionId,
@@ -60,7 +61,9 @@ export async function rewindToMessage(
     BRANCH_REPLY_TIMEOUT_MS,
   );
   if (!isRecord(reply)) {
-    toast.error("Rewind failed or timed out.", { id: toastId });
+    toast.error(translateUi("conversation.rewind.timeout", "Rewind failed or timed out."), {
+      id: toastId,
+    });
     return;
   }
   const failure = branchError(reply);
@@ -91,17 +94,23 @@ export async function rewindToMessage(
       ? reply.codeRestoreError
       : null;
   if (codeRestoreError) {
-    toast.warning("Rewound, but restoring the code failed.", {
-      id: toastId,
-      description: codeRestoreError,
-    });
+    toast.warning(
+      translateUi("conversation.rewind.restoreFailed", "Rewound, but restoring the code failed."),
+      {
+        id: toastId,
+        description: codeRestoreError,
+      },
+    );
   } else {
-    toast.success("Rewound — edit and re-send.", {
+    toast.success(translateUi("conversation.rewind.success", "Rewound — edit and re-send."), {
       id: toastId,
       description:
         reply.codeRestored === true
-          ? "Code and conversation rewound."
-          : "Conversation rewound (no code checkpoint for this message).",
+          ? translateUi("conversation.rewind.codeAndHistory", "Code and conversation rewound.")
+          : translateUi(
+              "conversation.rewind.historyOnly",
+              "Conversation rewound (no code checkpoint for this message).",
+            ),
     });
   }
 }
@@ -114,7 +123,7 @@ export async function forkFromMessage(
   const session = deps.get().sessions[sessionId];
   if (!session) return;
   const toastId = `branch-${sessionId}`;
-  toast.loading("Forking…", { id: toastId });
+  toast.loading(translateUi("conversation.fork.loading", "Forking…"), { id: toastId });
 
   const reply = await deps.sendRequest(
     sessionId,
@@ -122,7 +131,9 @@ export async function forkFromMessage(
     BRANCH_REPLY_TIMEOUT_MS,
   );
   if (!isRecord(reply)) {
-    toast.error("Fork failed or timed out.", { id: toastId });
+    toast.error(translateUi("conversation.fork.timeout", "Fork failed or timed out."), {
+      id: toastId,
+    });
     return;
   }
   const failure = branchError(reply);
@@ -134,7 +145,10 @@ export async function forkFromMessage(
   const newFeatureId = typeof reply.newFeatureId === "number" ? reply.newFeatureId : null;
   const projectId = typeof reply.projectId === "number" ? reply.projectId : null;
   if (newFeatureId == null || projectId == null) {
-    toast.error("Fork did not return a new feature.", { id: toastId });
+    toast.error(
+      translateUi("conversation.fork.missingConversation", "Fork did not return a new feature."),
+      { id: toastId },
+    );
     return;
   }
 
@@ -147,9 +161,12 @@ export async function forkFromMessage(
     forkNavigation: { sessionId, projectId, featureId: newFeatureId, nonce: ++forkNonce },
   });
 
-  toast.success("Forked into a new session.", {
+  toast.success(translateUi("conversation.fork.success", "Forked into a new session."), {
     id: toastId,
-    description: "Opening the fork — your message is waiting as a draft.",
+    description: translateUi(
+      "conversation.fork.opening",
+      "Opening the fork — your message is waiting as a draft.",
+    ),
   });
 }
 

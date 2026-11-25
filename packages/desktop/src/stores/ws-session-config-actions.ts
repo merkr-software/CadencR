@@ -61,9 +61,12 @@ function applyConfigResponse(
         sessionConfigSupported: unavailable
           ? false
           : ctx.getSession(sessionId).sessionConfigSupported,
-        sessionConfigError: unavailable
-          ? null
-          : (error?.message ?? "Session configuration timed out."),
+        sessionConfigError:
+          unavailable || error?.message === ""
+            ? null
+            : error?.message != null
+              ? { kind: "provider", message: error.message }
+              : { kind: "timeout" },
         pendingSessionConfigId: null,
       }),
     );
@@ -74,7 +77,7 @@ function applyConfigResponse(
     updateSession(ctx.get(), sessionId, {
       sessionConfigLoading: false,
       sessionConfigSupported: snapshot ? true : null,
-      sessionConfigError: snapshot ? null : "The runtime returned invalid session configuration.",
+      sessionConfigError: snapshot ? null : { kind: "invalid" },
       pendingSessionConfigId: null,
       ...(snapshot ? { sessionConfig: snapshot.config } : {}),
     }),

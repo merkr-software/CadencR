@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -165,6 +166,7 @@ const AgentStreamMenuItems = memo(function AgentStreamMenuItems({
   block,
   copy,
 }: AgentStreamMenuItemsProps) {
+  const { t } = useUiTranslation();
   return (
     <>
       <ContextMenuActionItem
@@ -172,10 +174,12 @@ const AgentStreamMenuItems = memo(function AgentStreamMenuItems({
         shortcutKeys={["mod", "c"]}
         onSelect={() => copy("plain", "selection-or-block")}
       >
-        Copy
+        {t("conversation.stream.agentStreamContextMenu.copy", "Copy")}
       </ContextMenuActionItem>
       <ContextMenuSub>
-        <ContextMenuSubActionTrigger icon={ClipboardCopyIcon}>Copy as</ContextMenuSubActionTrigger>
+        <ContextMenuSubActionTrigger icon={ClipboardCopyIcon}>
+          {t("conversation.stream.agentStreamContextMenu.copyAs", "Copy as")}
+        </ContextMenuSubActionTrigger>
         <ContextMenuSubContent>
           {COPY_AS_FORMATS.map(({ format, label, icon }) => (
             <ContextMenuActionItem
@@ -190,7 +194,10 @@ const AgentStreamMenuItems = memo(function AgentStreamMenuItems({
       </ContextMenuSub>
       <ContextMenuSeparator />
       <ContextMenuActionItem icon={FileTextIcon} onSelect={() => copy("markdown", "block")}>
-        Copy block as Markdown
+        {t(
+          "conversation.stream.agentStreamContextMenu.copyBlockAsMarkdown",
+          "Copy block as Markdown",
+        )}
       </ContextMenuActionItem>
       {branchingEnabled && <AgentStreamBranchItems block={block} />}
     </>
@@ -202,16 +209,17 @@ const AgentStreamBranchItems = memo(function AgentStreamBranchItems({
 }: {
   block: AgentBlockData;
 }) {
+  const { t } = useUiTranslation();
   const { canBranch, rewind, fork } = useMessageBranchActions(block);
   if (!canBranch) return null;
   return (
     <>
       <ContextMenuSeparator />
       <ContextMenuActionItem icon={RotateCcwIcon} onSelect={rewind}>
-        Rewind to here
+        {t("conversation.stream.agentStreamContextMenu.rewindToHere", "Rewind to here")}
       </ContextMenuActionItem>
       <ContextMenuActionItem icon={GitBranchIcon} onSelect={fork}>
-        Fork from here
+        {t("conversation.stream.agentStreamContextMenu.forkFromHere", "Fork from here")}
       </ContextMenuActionItem>
     </>
   );

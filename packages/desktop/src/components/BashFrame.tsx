@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 import { TerminalIcon } from "lucide-react";
 
@@ -25,11 +26,14 @@ export function BashFrame({
   className,
   bodyClassName,
 }: BashFrameProps): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <div className={cn("overflow-hidden rounded-md border border-border", className)}>
       <div className="flex items-center gap-2 bg-[var(--block-bash-header-bg)] px-3 py-1.5 text-xs text-[var(--block-bash-muted-fg)]">
         <TerminalIcon className="size-3 shrink-0" />
-        <span className="font-medium text-[var(--block-bash-fg)]">Bash</span>
+        <span className="font-medium text-[var(--block-bash-fg)]">
+          {t("conversation.stream.bashFrame.bash", "Bash")}
+        </span>
         {headerTrailing}
       </div>
       <div

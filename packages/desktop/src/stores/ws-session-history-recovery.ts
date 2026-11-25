@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { isAxiosError } from "axios";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { WsConnection } from "@/lib/ws-connection";
@@ -60,7 +61,10 @@ export async function recoverConnectedHistory(
           historyLoadFailure: {
             resyncSessionDbId: dbId,
             retrying: false,
-            message: apiErrorMessage(error, "Some messages may be missing."),
+            message: apiErrorMessage(
+              error,
+              translateUi("conversation.history.incomplete", "Some messages may be missing."),
+            ),
           },
         }),
       );

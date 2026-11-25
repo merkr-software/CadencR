@@ -1,4 +1,4 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon } from "lucide-react";
@@ -52,6 +52,7 @@ export const SpawnedSessionBlock = memo(function SpawnedSessionBlock({
   result,
   basePath,
 }: SpawnedSessionBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const request = useMemo(
     () => parseSpawnRequest(block.toolName ?? "", block.toolArgs),
     [block.toolName, block.toolArgs],
@@ -68,7 +69,13 @@ export const SpawnedSessionBlock = memo(function SpawnedSessionBlock({
       <PendingSpawnCard
         request={request}
         state="failed"
-        error={spawnResultText(result.content) ?? "The conversation could not be created."}
+        error={
+          spawnResultText(result.content) ??
+          t(
+            "conversation.spawnedSessionBlock.theConversationCouldNotBeCreated",
+            "The conversation could not be created.",
+          )
+        }
       />
     );
   }
@@ -89,10 +96,13 @@ function UnansweredSpawnCard({ request }: { request: SpawnRequest }): ReactEleme
 
 type PendingState = "starting" | "waiting" | "stopped" | "failed";
 
-function pendingLabel(state: PendingState, kind: PendingKind | null): string {
-  if (state === "starting") return "Starting conversation";
+function pendingLabel(state: PendingState, kind: PendingKind | null, t: UiTranslator): string {
+  if (state === "starting")
+    return t("conversation.spawnedSessionBlock.startingConversation", "Starting conversation");
   if (state === "waiting") return waitingLabel(kind);
-  return state === "failed" ? "Could not start" : "Not started";
+  return state === "failed"
+    ? t("conversation.spawnedSessionBlock.couldNotStart", "Could not start")
+    : t("conversation.spawnedSessionBlock.notStarted", "Not started");
 }
 
 function PendingSpawnCard({
@@ -107,7 +117,7 @@ function PendingSpawnCard({
   error?: string;
 }): ReactElement {
   const { t } = useUiTranslation();
-  const label = pendingLabel(state, kind);
+  const label = pendingLabel(state, kind, t);
   const provider = useProviderMetadata(request.provider, null, "mono");
   return (
     <section
@@ -125,7 +135,8 @@ function PendingSpawnCard({
         )}
         <ProviderMark provider={provider} />
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-          {request.title ?? "New conversation"}
+          {request.title ??
+            t("conversation.spawnedSessionBlock.newConversation", "New conversation")}
         </span>
         <span className="shrink-0 text-[11px] text-muted-foreground">{label}</span>
       </div>
@@ -212,7 +223,9 @@ function SpawnedConversationCard({
           <Skeleton className="h-3.5 min-w-0 flex-1" />
         ) : (
           <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
-            Conversation {featureId}
+            {t("conversation.spawnedSessionBlock.conversationWithId", "Conversation {{id}}", {
+              id: featureId,
+            })}
           </span>
         )}
         {canOpen && (
@@ -224,10 +237,14 @@ function SpawnedConversationCard({
       </button>
       <SpawnMetaLine
         provider={provider}
-        model={feature?.model_session ?? request.model ?? "Default model"}
+        model={
+          feature?.model_session ??
+          request.model ??
+          t("conversation.spawnedSessionBlock.defaultModel", "Default model")
+        }
         effort={feature?.thinking_effort ?? request.thinkingLevel}
         project={spawned.crossProject ? spawned.projectName : null}
-        trailing={spawnProblem(spawned, featureQuery.error)}
+        trailing={spawnProblem(spawned, featureQuery.error, t)}
       />
       {!featureQuery.isError && (
         <SpawnedSessionPeek featureId={featureId} status={status} basePath={basePath} />
@@ -237,21 +254,28 @@ function SpawnedConversationCard({
 }
 
 /** What went wrong after the spawn answered: the conversation is gone, or never got its prompt. */
-function spawnProblem(spawned: SpawnResult, featureError: unknown): ReactElement | null {
+function spawnProblem(
+  spawned: SpawnResult,
+  featureError: unknown,
+  t: UiTranslator,
+): ReactElement | null {
   if (featureError) {
     return (
       <span
         className="truncate text-(--acc-red)"
-        title={apiErrorMessage(featureError, "unknown error")}
+        title={apiErrorMessage(
+          featureError,
+          t("conversation.spawnedSessionBlock.unknownError", "unknown error"),
+        )}
       >
-        Conversation unavailable
+        {t("conversation.spawnedSessionBlock.conversationUnavailable", "Conversation unavailable")}
       </span>
     );
   }
   if (!spawned.dispatchError) return null;
   return (
     <span className="truncate text-(--acc-red)" title={spawned.dispatchError}>
-      First prompt not sent
+      {t("conversation.spawnedSessionBlock.firstPromptNotSent", "First prompt not sent")}
     </span>
   );
 }
@@ -287,6 +311,7 @@ function SpawnMetaLine({
   project?: string | null;
   trailing: ReactNode;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const items: MetaItem[] = [];
   if (provider?.label) items.push({ key: "provider", node: <span>{provider.label}</span> });
   if (model?.trim()) {
@@ -295,8 +320,16 @@ function SpawnMetaLine({
       node: <span className="truncate font-mono text-foreground/80">{model.trim()}</span>,
     });
   }
-  if (effort) items.push({ key: "effort", node: <span>{effortLabel(effort)}</span> });
-  if (project) items.push({ key: "project", node: <span className="truncate">in {project}</span> });
+  if (effort) items.push({ key: "effort", node: <span>{effortLabel(effort, t)}</span> });
+  if (project)
+    items.push({
+      key: "project",
+      node: (
+        <span className="truncate">
+          {t("conversation.spawnedSessionBlock.inProject", "in {{project}}", { project })}
+        </span>
+      ),
+    });
   if (trailing) items.push({ key: "trailing", node: trailing });
   return <MetaItemList items={items} className="px-3 pb-2 pl-[34px]" />;
 }

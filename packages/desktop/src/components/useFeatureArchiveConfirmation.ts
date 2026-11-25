@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -56,7 +57,14 @@ export function useFeatureArchiveConfirmation(
   useEffect(() => {
     if (confirmFeatureId == null) return;
     const toastId = `feature-archive-check-${confirmFeatureId}`;
-    if (isChecking) toast.loading("Checking conversation…", { id: toastId });
+    if (isChecking)
+      toast.loading(
+        translateUi(
+          "conversation.useFeatureArchiveConfirmation.checkingConversation",
+          "Checking conversation…",
+        ),
+        { id: toastId },
+      );
     else toast.dismiss(toastId);
     return () => {
       toast.dismiss(toastId);
@@ -64,11 +72,27 @@ export function useFeatureArchiveConfirmation(
   }, [confirmFeatureId, isChecking]);
   useEffect(() => {
     if (emptyCheck.error == null || confirmFeatureId == null || isDelete) return;
-    toast.error(apiErrorMessage(emptyCheck.error, "Failed to check whether session is empty"));
+    toast.error(
+      apiErrorMessage(
+        emptyCheck.error,
+        translateUi(
+          "conversation.useFeatureArchiveConfirmation.failedToCheckWhetherSessionIsEmpty",
+          "Failed to check whether session is empty",
+        ),
+      ),
+    );
   }, [confirmFeatureId, emptyCheck.error, isDelete]);
   useEffect(() => {
     if (relationCheck.error == null || confirmFeatureId == null || isDelete) return;
-    toast.error(apiErrorMessage(relationCheck.error, "Failed to load related conversations"));
+    toast.error(
+      apiErrorMessage(
+        relationCheck.error,
+        translateUi(
+          "conversation.useFeatureArchiveConfirmation.failedToLoadRelatedConversations",
+          "Failed to load related conversations",
+        ),
+      ),
+    );
   }, [confirmFeatureId, isDelete, relationCheck.error]);
   return useMemo(
     () => ({

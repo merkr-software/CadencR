@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,6 +18,7 @@ interface ImportProgressStepProps {
  * conversations appear in the sidebar without manual refresh.
  */
 function ImportProgressStepInner({ jobId, projectId, onClose }: ImportProgressStepProps) {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const finishedRef = useRef(false);
 
@@ -39,7 +41,13 @@ function ImportProgressStepInner({ jobId, projectId, onClose }: ImportProgressSt
     });
     const count = job.imported.length;
     if (count > 0) {
-      toast.success(`Imported ${count} conversation${count === 1 ? "" : "s"}`);
+      toast.success(
+        translateUi("conversation.importProgressStep.importedConversations", {
+          count,
+          defaultValue_one: "Imported {{count}} conversation",
+          defaultValue_other: "Imported {{count}} conversations",
+        }),
+      );
     }
   }, [job, queryClient, projectId]);
 
@@ -52,15 +60,26 @@ function ImportProgressStepInner({ jobId, projectId, onClose }: ImportProgressSt
     <div className="flex flex-1 flex-col gap-4">
       <div className="flex flex-col gap-2">
         <div className="text-sm font-medium">
-          {isFinal ? "Import complete" : "Importing conversations…"}
+          {isFinal
+            ? t("conversation.importProgressStep.importComplete", "Import complete")
+            : t(
+                "conversation.importProgressStep.importingConversations",
+                "Importing conversations…",
+              )}
         </div>
         <ProgressBar completed={completed} total={total} />
       </div>
 
       {isFinal && (
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <SummaryStat label="Imported" value={importedCount} />
-          <SummaryStat label="Skipped" value={skippedCount} />
+          <SummaryStat
+            label={t("conversation.importProgressStep.imported", "Imported")}
+            value={importedCount}
+          />
+          <SummaryStat
+            label={t("conversation.importProgressStep.skipped", "Skipped")}
+            value={skippedCount}
+          />
         </div>
       )}
 
@@ -71,7 +90,7 @@ function ImportProgressStepInner({ jobId, projectId, onClose }: ImportProgressSt
       {isFinal && (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={onClose}>
-            Done
+            {t("conversation.importProgressStep.done", "Done")}
           </Button>
         </div>
       )}
@@ -95,22 +114,44 @@ function SkippedList({
   items: { source_session_id: string; reason: SkipReason }[];
   more: number;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="rounded-md border border-border bg-muted/30 p-2">
       <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        Skipped sessions
+        {t("conversation.importProgressStep.skippedSessions", "Skipped sessions")}
       </div>
       <ul className="space-y-0.5 text-[11px]">
         {items.map((s) => (
           <li key={s.source_session_id} className="flex items-center justify-between gap-2">
             <span className="truncate font-mono">{s.source_session_id.slice(0, 8)}</span>
-            <span className="text-muted-foreground">{s.reason}</span>
+            <span className="text-muted-foreground">{skipReasonLabel(s.reason, t)}</span>
           </li>
         ))}
-        {more > 0 && <li className="text-muted-foreground">…and {more} more</li>}
+        {more > 0 && (
+          <li className="text-muted-foreground">
+            {t("conversation.importProgressStep.moreSkipped", "…and {{count}} more", {
+              count: more,
+            })}
+          </li>
+        )}
       </ul>
     </div>
   );
+}
+
+function skipReasonLabel(reason: SkipReason, t: UiTranslator): string {
+  switch (reason) {
+    case "already_imported":
+      return t("conversation.importProgressStep.alreadyImported", "Already imported");
+    case "empty":
+      return t("conversation.importProgressStep.empty", "Empty session");
+    case "not_found":
+      return t("conversation.importProgressStep.notFound", "Session not found");
+    case "parse_error":
+      return t("conversation.importProgressStep.parseError", "Could not read the session");
+    case "db_error":
+      return t("conversation.importProgressStep.databaseError", "Could not save the session");
+  }
 }
 
 export const ImportProgressStep = memo(ImportProgressStepInner);

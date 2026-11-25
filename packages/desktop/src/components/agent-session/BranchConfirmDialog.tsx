@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 
@@ -13,6 +14,7 @@ interface BranchConfirmDialogProps {
  * gated on the pending confirm's session id, so exactly one dialog can show.
  */
 export function BranchConfirmDialog({ wsSessionId }: BranchConfirmDialogProps) {
+  const { t } = useUiTranslation();
   const branchConfirm = useWsSessionStore((s) =>
     s.branchConfirm?.sessionId === wsSessionId ? s.branchConfirm : null,
   );
@@ -22,11 +24,23 @@ export function BranchConfirmDialog({ wsSessionId }: BranchConfirmDialogProps) {
     <ConfirmDialog
       open={branchConfirm != null}
       onOpenChange={(next) => !next && resolveBranchConfirm(false)}
-      title="Discard changes and rewind?"
-      description={`${
-        branchConfirm?.reason ?? "Rewinding will discard uncommitted changes in the worktree."
-      } This cannot be undone.`}
-      confirmText="Discard & rewind"
+      title={t(
+        "conversation.stream.branchConfirmDialog.discardChangesAndRewind",
+        "Discard changes and rewind?",
+      )}
+      description={
+        branchConfirm?.reason
+          ? t(
+              "conversation.stream.branchConfirmDialog.cannotUndo",
+              "{{reason}} This cannot be undone.",
+              { reason: branchConfirm.reason },
+            )
+          : t(
+              "conversation.stream.branchConfirmDialog.discardWarning",
+              "Rewinding will discard uncommitted changes in the worktree. This cannot be undone.",
+            )
+      }
+      confirmText={t("conversation.stream.branchConfirmDialog.discardRewind", "Discard & rewind")}
       variant="destructive"
       onConfirm={() => resolveBranchConfirm(true)}
     />

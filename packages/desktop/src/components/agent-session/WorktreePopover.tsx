@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Pre-first-prompt branch/worktree selector. A segmented chip with two halves:
  *
@@ -17,9 +18,9 @@
  * `prompt.send` envelope — see `resolveWorktreeChoice` in `lib/worktree-mode`.
  */
 import { memo, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { CheckIcon, ChevronDownIcon, GitBranchIcon, Loader2 } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, GitBranchIcon } from "lucide-react";
 
-import { apiErrorMessage } from "@/lib/api-errors";
+import { BranchList, BranchRow } from "./worktree-branch-list";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -132,6 +133,7 @@ function BranchPicker({
   onQueryChange,
   onSelectDefault,
 }: BranchPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -143,7 +145,15 @@ function BranchPicker({
               : cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")
           }
           title={effectHint ?? undefined}
-          aria-label={variant === "manifest" ? `Base branch: ${branchLabel}` : undefined}
+          aria-label={
+            variant === "manifest"
+              ? t(
+                  "conversation.stream.worktreePopover.baseBranch",
+                  "Base branch: {{branchLabel}}",
+                  { branchLabel },
+                )
+              : undefined
+          }
         >
           <GitBranchIcon className="size-3 shrink-0" />
           <SlidingText text={branchLabel} className="max-w-[160px]" />
@@ -156,7 +166,10 @@ function BranchPicker({
             <Input
               variant="ghost"
               autoFocus
-              placeholder="Search branches…"
+              placeholder={t(
+                "conversation.stream.worktreePopover.searchBranches",
+                "Search branches…",
+              )}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onKeyDown={branchList.onKeyDown}
@@ -173,10 +186,19 @@ function BranchPicker({
           >
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium leading-tight">
-                Project default{defaultBranch ? ` (${defaultBranch})` : ""}
+                {defaultBranch
+                  ? t(
+                      "conversation.stream.worktreePopover.projectDefaultBranch",
+                      "Project default ({{branch}})",
+                      { branch: defaultBranch },
+                    )
+                  : t("conversation.stream.worktreePopover.projectDefault", "Project default")}
               </div>
               <div className="text-xs text-muted-foreground leading-tight">
-                Use the branch the project is currently on.
+                {t(
+                  "conversation.stream.worktreePopover.useTheBranchTheProjectIsCurrently",
+                  "Use the branch the project is currently on.",
+                )}
               </div>
             </div>
             {selectedBranch == null && (
@@ -207,6 +229,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
   enableModeShortcut,
   variant = "chip",
 }: WorktreeButtonGroupProps): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const branchesQuery = useListBranches(
@@ -239,7 +262,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
   });
 
   const branchLabel = state.effectiveBranch ?? "branch";
-  const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch });
+  const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch }, t);
   // The manifest reads "<mode> from <branch>"; the chip reads "<branch> | <mode>".
   const modePicker = (
     <WorktreeModePicker
@@ -263,7 +286,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
     >
       {variant === "manifest" && modePicker}
       {variant === "manifest" && (
-        <span className="px-0.5 text-muted-foreground">{manifestJoiner(mode)}</span>
+        <span className="px-0.5 text-muted-foreground">{manifestJoiner(mode, t)}</span>
       )}
       <BranchPicker
         variant={variant}
@@ -350,6 +373,7 @@ function useBranchPickerList({
   selectedBranch: string | null;
   onPick: (branch: BranchInfo) => void;
 }) {
+  const { t } = useUiTranslation();
   const renderBranchRow = useCallback(
     (ctx: BranchListRowContext) => (
       <BranchRow
@@ -369,90 +393,16 @@ function useBranchPickerList({
     renderRow: renderBranchRow,
     height: 240,
     emptyState: (
-      <p className="text-sm text-muted-foreground p-3 text-center">No matching branches.</p>
+      <p className="text-sm text-muted-foreground p-3 text-center">
+        {t("conversation.stream.worktreePopover.noMatchingBranches", "No matching branches.")}
+      </p>
     ),
   });
 }
 
 /** "<mode> from|on <branch>" — the word linking the two manifest tokens. */
-function manifestJoiner(mode: WorktreeMode): string {
-  return createsBranch(mode) ? "from" : "on";
-}
-
-interface BranchListProps {
-  isLoading: boolean;
-  isError: boolean;
-  error: unknown;
-  list: ReactElement;
-}
-
-function BranchList({ isLoading, isError, error, list }: BranchListProps): ReactElement {
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        <span>Loading branches…</span>
-      </div>
-    );
-  }
-  if (isError) {
-    return (
-      <p className="text-sm text-destructive p-3">
-        {apiErrorMessage(error, "Failed to load branches.")}
-      </p>
-    );
-  }
-  return list;
-}
-
-interface BranchRowProps {
-  branch: BranchInfo;
-  isActive: boolean;
-  isDefault: boolean;
-  isSelected: boolean;
-  onPick: (branch: BranchInfo) => void;
-}
-
-function BranchRow({
-  branch,
-  isActive,
-  isDefault,
-  isSelected,
-  onPick,
-}: BranchRowProps): ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={() => onPick(branch)}
-      className={cn(
-        "w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-accent",
-        isSelected && "bg-accent/50",
-        isActive && "bg-accent",
-      )}
-    >
-      {/* Leading worktree icon mirrors the sidebar's "has worktree" affordance.
-          Picking such a branch steers the mode to reuse its worktree. */}
-      {branch.attached_worktree_path ? (
-        <GitBranchIcon
-          className="size-3 shrink-0 text-[var(--chip-worktree-fg)]"
-          aria-label="Has worktree"
-        />
-      ) : (
-        <span className="size-3 shrink-0" aria-hidden="true" />
-      )}
-      <span className="flex-1 truncate font-mono text-xs">{branch.name}</span>
-      {isDefault && (
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">default</span>
-      )}
-      {!branch.is_local && (
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">remote</span>
-      )}
-      {branch.attached_feature_id != null && (
-        <span className="text-[10px] text-muted-foreground">
-          in use by feature #{branch.attached_feature_id}
-        </span>
-      )}
-      {isSelected && <CheckIcon className="size-3 shrink-0 text-[var(--chip-worktree-fg)]" />}
-    </button>
-  );
+function manifestJoiner(mode: WorktreeMode, t: UiTranslator): string {
+  return createsBranch(mode)
+    ? t("conversation.stream.worktreePopover.fromBranch", "from")
+    : t("conversation.stream.worktreePopover.onBranch", "on");
 }

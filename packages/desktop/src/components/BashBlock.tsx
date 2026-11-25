@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -56,13 +57,14 @@ function BashHeader({
   isError,
   isBodyOpen,
 }: BashHeaderProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <TerminalIcon className="size-3 shrink-0" />
       <span
         className={cn("font-medium", isError ? "text-destructive" : "text-[var(--block-bash-fg)]")}
       >
-        Bash
+        {t("conversation.stream.bashBlock.bash", "Bash")}
       </span>
       <pre
         className={cn(
@@ -71,7 +73,8 @@ function BashHeader({
           isBodyOpen ? "whitespace-pre-wrap break-all" : "truncate",
         )}
       >
-        {(isBodyOpen ? formattedCommand : command) ?? "Running command…"}
+        {(isBodyOpen ? formattedCommand : command) ??
+          t("conversation.stream.bashBlock.runningCommand", "Running command…")}
       </pre>
     </>
   );
@@ -84,6 +87,7 @@ function BashHeaderToggle({
   isBodyOpen: boolean;
   onToggle: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
@@ -93,7 +97,11 @@ function BashHeaderToggle({
       }}
       className="text-[var(--block-bash-muted-fg)] hover:text-[var(--block-bash-fg)]"
       aria-expanded={isBodyOpen}
-      aria-label={isBodyOpen ? "Collapse output" : "Expand output"}
+      aria-label={
+        isBodyOpen
+          ? t("conversation.stream.bashBlock.collapseOutput", "Collapse output")
+          : t("conversation.stream.bashBlock.expandOutput", "Expand output")
+      }
     >
       <ChevronRightIcon className={cn("size-3 transition-transform", isBodyOpen && "rotate-90")} />
     </button>
@@ -105,21 +113,32 @@ function BashContextMenuItems({
   content,
   hasOutput,
 }: Pick<BashBlockProps, "command" | "content"> & { hasOutput: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <ContextMenuActionItem
         icon={ClipboardCopyIcon}
         disabled={!hasOutput}
-        onSelect={() => void copyToClipboard(content ?? "", "Output copied")}
+        onSelect={() =>
+          void copyToClipboard(
+            content ?? "",
+            translateUi("conversation.stream.bashBlock.outputCopied", "Output copied"),
+          )
+        }
       >
-        Copy Output
+        {t("conversation.stream.bashBlock.copyOutput", "Copy Output")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={TerminalIcon}
         disabled={!command}
-        onSelect={() => void copyToClipboard(command ?? "", "Command copied")}
+        onSelect={() =>
+          void copyToClipboard(
+            command ?? "",
+            translateUi("conversation.stream.bashBlock.commandCopied", "Command copied"),
+          )
+        }
       >
-        Copy Command
+        {t("conversation.stream.bashBlock.copyCommand", "Copy Command")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={Code2Icon}
@@ -127,11 +146,14 @@ function BashContextMenuItems({
         onSelect={() =>
           void copyToClipboard(
             "```bash\n" + (content ?? "") + "\n```",
-            "Copied as Markdown code block",
+            translateUi(
+              "conversation.stream.bashBlock.copiedAsMarkdownCodeBlock",
+              "Copied as Markdown code block",
+            ),
           )
         }
       >
-        Copy as Markdown Code Block
+        {t("conversation.stream.bashBlock.copyAsMarkdownCodeBlock", "Copy as Markdown Code Block")}
       </ContextMenuActionItem>
     </>
   );
@@ -150,6 +172,7 @@ export const BashBlock = memo(function BashBlock({
   expanded,
   onExpandedChange,
 }: BashBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const lines = content?.split("\n") ?? [];
   const totalLines = lines.length;
   const triggerProps = useTouchSafeTriggerProps();
@@ -218,10 +241,12 @@ export const BashBlock = memo(function BashBlock({
               ) : running ? (
                 <div className="flex items-center gap-2 text-xs text-[var(--block-bash-muted-fg)]">
                   <Loader2Icon className="size-3 animate-spin" />
-                  <span>Running…</span>
+                  <span>{t("conversation.stream.bashBlock.running", "Running…")}</span>
                 </div>
               ) : (
-                <div className="text-xs text-[var(--block-bash-muted-fg)]">No output</div>
+                <div className="text-xs text-[var(--block-bash-muted-fg)]">
+                  {t("conversation.stream.bashBlock.noOutput", "No output")}
+                </div>
               )
             }
           </CollapsibleBlock>
@@ -253,6 +278,7 @@ function BashBodyContent({
   truncatedContent,
   runningFooter,
 }: BashBodyContentProps): ReactElement {
+  const { t } = useUiTranslation();
   if (showAll && truncatedContent && messageId !== undefined) {
     return (
       <FetchedBashBodyContent
@@ -269,8 +295,10 @@ function BashBodyContent({
     <>
       {showAll && truncatedContent && messageId === undefined && (
         <p role="alert" className="mb-2 text-destructive">
-          Earlier output is unavailable until this message is synchronized. Reopen the conversation
-          to retry.
+          {t(
+            "conversation.stream.bashBlock.earlierOutputIsUnavailableUntilThisMessage",
+            "Earlier output is unavailable until this message is synchronized. Reopen the conversation to retry.",
+          )}
         </p>
       )}
       <ParsedBashBodyContent
@@ -302,6 +330,7 @@ function FetchedBashBodyContent({
   messageId,
   runningFooter,
 }: FetchedBashBodyContentProps): ReactElement {
+  const { t } = useUiTranslation();
   const fullContentQuery = useQuery({
     queryKey: getGetMessageFullContentQueryKey(messageId),
     queryFn: ({ signal }) => getMessageFullContent(messageId, signal),
@@ -322,12 +351,15 @@ function FetchedBashBodyContent({
       {fullContentQuery.isFetching && (
         <div className="mb-2 flex items-center gap-2 text-xs text-[var(--block-bash-muted-fg)]">
           <Loader2Icon className="size-3 animate-spin" />
-          <span>Loading full output…</span>
+          <span>
+            {t("conversation.stream.bashBlock.loadingFullOutput", "Loading full output…")}
+          </span>
         </div>
       )}
       {fullContentQuery.isError && (
         <div className="mb-2 text-xs text-destructive">
-          Could not load full output: {errorMessage(fullContentQuery.error)}
+          {t("conversation.stream.bashBlock.couldNotLoadFullOutput", "Could not load full output:")}{" "}
+          {errorMessage(fullContentQuery.error)}
         </div>
       )}
       <ParsedBashBodyContent
@@ -376,5 +408,8 @@ function ParsedBashBodyContent({
 }
 
 function errorMessage(error: unknown): string {
-  return apiErrorMessage(error, "unknown error");
+  return apiErrorMessage(
+    error,
+    translateUi("conversation.stream.bashBlock.unknownError", "unknown error"),
+  );
 }

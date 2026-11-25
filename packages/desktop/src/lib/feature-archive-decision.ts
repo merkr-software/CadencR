@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   getGetFeatureArchivePreviewQueryOptions,
@@ -49,8 +50,13 @@ export function getPendingFeatureArchiveAction(args: {
   );
 }
 
-export function deleteFeatureDialogTitle(feature: Feature | undefined): string {
-  return feature?.status === "archived" ? "Delete archived session?" : "Delete session?";
+export function deleteFeatureDialogTitle(
+  feature: Feature | undefined,
+  t: UiTranslator = translateUi,
+): string {
+  return feature?.status === "archived"
+    ? t("conversation.featureArchiveDecision.deleteArchivedSession", "Delete archived session?")
+    : t("conversation.featureArchiveDecision.deleteSession", "Delete session?");
 }
 
 export async function resolveFeatureArchiveAction(

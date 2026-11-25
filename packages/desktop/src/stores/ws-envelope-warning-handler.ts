@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { SessionWarningPayload } from "@/api/generated";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -12,7 +13,12 @@ const warningSchema = z.object({
 export function handleWarning(_ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const parsed = warningSchema.safeParse(payload);
   if (!parsed.success) {
-    toast.error("The service sent an invalid session warning. The conversation was not changed.");
+    toast.error(
+      translateUi(
+        "conversation.stream.invalidWarning",
+        "The service sent an invalid session warning. The conversation was not changed.",
+      ),
+    );
     return;
   }
   // Keep these command notices outside the stream: even appending an inline

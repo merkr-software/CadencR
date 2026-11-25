@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactNode } from "react";
 import { CodeIcon, Maximize2Icon } from "lucide-react";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
@@ -63,6 +64,7 @@ export function VisualChrome({
   onExpand,
   ...fence
 }: VisualFenceInfo & { children: ReactNode; onExpand?: () => void }) {
+  const { t } = useUiTranslation();
   const [showSource, setShowSource] = useState(false);
 
   if (showSource) {
@@ -87,14 +89,14 @@ export function VisualChrome({
           variant="ghost"
           size="icon-xs"
           onClick={() => setShowSource(true)}
-          title="View source"
-          aria-label="View source"
+          title={t("conversation.stream.visualChrome.viewSource", "View source")}
+          aria-label={t("conversation.stream.visualChrome.viewSource", "View source")}
         >
           <CodeIcon />
         </Button>
         <CopyButton
           text={fence.code}
-          label="Copy source"
+          label={t("conversation.stream.visualChrome.copySource", "Copy source")}
           className="flex size-6 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
         />
         {onExpand && (
@@ -102,8 +104,8 @@ export function VisualChrome({
             variant="ghost"
             size="icon-xs"
             onClick={onExpand}
-            title="Full screen"
-            aria-label="Full screen"
+            title={t("conversation.stream.visualChrome.fullScreen", "Full screen")}
+            aria-label={t("conversation.stream.visualChrome.fullScreen", "Full screen")}
           >
             <Maximize2Icon />
           </Button>

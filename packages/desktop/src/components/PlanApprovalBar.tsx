@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { AlertTriangle, ClipboardCheck, Loader2, MessageSquare, Play, Send, X } from "lucide-react";
@@ -31,6 +32,7 @@ function FeedbackEditor({
   onSend,
   onCancel,
 }: FeedbackEditorProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-end gap-2">
       <Textarea
@@ -48,7 +50,10 @@ function FeedbackEditor({
             onCancel();
           }
         }}
-        placeholder="Describe the changes you'd like..."
+        placeholder={t(
+          "conversation.composer.planApprovalBar.describeTheChangesYouDLike",
+          "Describe the changes you'd like...",
+        )}
         rows={2}
         autoFocus
         className="max-h-24 min-h-[42px] resize-none border-border/50 bg-muted/40 py-2 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring/40"
@@ -81,6 +86,7 @@ function PlanActions({
   onReject,
   isSubmitting,
 }: PlanActionsProps): ReactElement {
+  const { t } = useUiTranslation();
   const approveKeys = useShortcutKeys("plan-approve");
   const feedbackKeys = useShortcutKeys("plan-feedback");
   const rejectKeys = useShortcutKeys("plan-reject");
@@ -99,7 +105,8 @@ function PlanActions({
         ) : (
           <Play className="size-3.5" />
         )}
-        {approveLabel ?? "Approve & Execute"}
+        {approveLabel ??
+          t("conversation.composer.planApprovalBar.approveExecute", "Approve & Execute")}
         <KbdShortcut keys={approveKeys} scope="agent" />
       </Button>
       <Button
@@ -110,7 +117,7 @@ function PlanActions({
         className="gap-1.5 text-muted-foreground"
       >
         <MessageSquare className="size-3.5" />
-        Request Changes
+        {t("conversation.composer.planApprovalBar.requestChanges", "Request Changes")}
         <KbdShortcut keys={feedbackKeys} scope="agent" />
       </Button>
       {onReject && (
@@ -122,7 +129,7 @@ function PlanActions({
           className="gap-1.5 text-muted-foreground"
         >
           <X className="size-3.5" />
-          Reject & Stop
+          {t("conversation.composer.planApprovalBar.rejectStop", "Reject & Stop")}
           <KbdShortcut keys={rejectKeys} scope="agent" />
         </Button>
       )}
@@ -134,11 +141,17 @@ function PlanReviewSummary({
   allowedPrompts,
   error,
 }: Pick<PlanApprovalBarProps, "allowedPrompts" | "error">): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       {allowedPrompts && allowedPrompts.length > 0 && (
         <div className="flex flex-col gap-1 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/70">Permissions requested:</span>
+          <span className="font-medium text-foreground/70">
+            {t(
+              "conversation.composer.planApprovalBar.permissionsRequested",
+              "Permissions requested:",
+            )}
+          </span>
           <ul className="list-inside list-disc space-y-0.5">
             {allowedPrompts.map((prompt, index) => (
               <li key={index}>{prompt.prompt}</li>
@@ -166,6 +179,7 @@ export function PlanApprovalBar({
   error,
   isSubmitting = false,
 }: PlanApprovalBarProps) {
+  const { t } = useUiTranslation();
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState(initialFeedback ?? "");
 
@@ -219,7 +233,7 @@ export function PlanApprovalBar({
     <div className="agent-prompt-gate-panel flex flex-col gap-2 bg-card px-3 py-3">
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <ClipboardCheck className="size-4 text-primary" />
-        Plan ready for review
+        {t("conversation.composer.planApprovalBar.ready", "Plan ready for review")}
       </div>
 
       <PlanReviewSummary allowedPrompts={allowedPrompts} error={error} />

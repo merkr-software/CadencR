@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, useState } from "react";
 import type { ReactElement } from "react";
 import { BrainIcon, ChevronRightIcon } from "lucide-react";
@@ -56,6 +57,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   onExpandedChange,
   disableCache,
 }: ThinkingBlockProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const [internalExpanded, setInternalExpanded] = useState(true);
   const isExpanded = expanded ?? internalExpanded;
   // Throttle re-parse of the actively streaming thinking block (see hook).
@@ -95,7 +97,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
             isStreaming && "thinking-glow",
           )}
         >
-          Thinking
+          {t("conversation.stream.thinkingBlock.thinking", "Thinking")}
         </span>
         {!isExpanded && preview && (
           <span className="min-w-0 flex-1 truncate text-muted-foreground" title={preview}>

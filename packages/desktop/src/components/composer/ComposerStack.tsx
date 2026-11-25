@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -96,6 +97,7 @@ export function StackSection({
   children,
   ...rest
 }: StackSectionProps): ReactElement {
+  const { t } = useUiTranslation();
   const ownFold = useSectionFold(!lentFold && summary != null && title != null, opensOnArrival);
   const fold = useShownFold(lentFold ?? ownFold);
   const { folding } = lentFold ?? ownFold;
@@ -140,8 +142,15 @@ export function StackSection({
                       variant="ghost"
                       size="icon-xs"
                       aria-expanded
-                      aria-label={`Fold ${label}`}
-                      title="Fold to one line"
+                      aria-label={t(
+                        "conversation.composer.composerStack.foldItem",
+                        "Fold {{label}}",
+                        { label },
+                      )}
+                      title={t(
+                        "conversation.composer.composerStack.foldToOneLine",
+                        "Fold to one line",
+                      )}
                       onClick={fold.toggle}
                       className="size-6 shrink-0 text-muted-foreground"
                     >

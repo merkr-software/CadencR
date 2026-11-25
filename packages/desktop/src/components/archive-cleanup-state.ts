@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -49,6 +50,7 @@ interface ArchiveCleanupState {
 }
 
 export function useArchiveCleanupState(args: ArchiveCleanupStateArgs): ArchiveCleanupState {
+  const { t } = useUiTranslation();
   const [removeWorktree, setRemoveWorktree] = useState(false);
   const [removeBranch, setRemoveBranch] = useState(false);
   const { branchCheck, gitStatus, noWorktreeBranchMode } = useArchiveCleanupQueries(
@@ -56,12 +58,15 @@ export function useArchiveCleanupState(args: ArchiveCleanupStateArgs): ArchiveCl
     removeWorktree,
     removeBranch,
   );
-  const branchSafety = getBranchCleanupSafety({
-    data: branchCheck.data,
-    isLoading: branchCheck.isLoading,
-    noWorktreeBranchMode,
-    removeBranch,
-  });
+  const branchSafety = getBranchCleanupSafety(
+    {
+      data: branchCheck.data,
+      isLoading: branchCheck.isLoading,
+      noWorktreeBranchMode,
+      removeBranch,
+    },
+    t,
+  );
   const isCheckingWorktree = removeWorktree && args.hasLiveWorktree && gitStatus.isLoading;
   const forceWorktreeDelete =
     removeWorktree &&
@@ -197,7 +202,10 @@ interface BranchCleanupSafety {
   forceBranchDelete: boolean;
 }
 
-function getBranchCleanupSafety(args: BranchCleanupSafetyArgs): BranchCleanupSafety {
+function getBranchCleanupSafety(
+  args: BranchCleanupSafetyArgs,
+  t: UiTranslator,
+): BranchCleanupSafety {
   const currentBranch = args.data?.current_branch ?? null;
   const targetBranch = args.data?.target_branch ?? "target branch";
   const isRemovingTargetBranch =
@@ -210,11 +218,16 @@ function getBranchCleanupSafety(args: BranchCleanupSafetyArgs): BranchCleanupSaf
       isRemovingDefaultBranch || isRemovingTargetBranch || isCheckingBranchRemovalSafety,
     isCheckingBranchRemovalSafety,
     isRemovingDefaultBranch,
-    defaultBranch: args.data?.default_branch ?? "default branch",
+    defaultBranch:
+      args.data?.default_branch ??
+      t("conversation.archiveCleanupState.defaultBranch", "default branch"),
     isRemovingTargetBranch,
     branchCheckReady: args.data != null,
-    branchName: args.data?.branch ?? "feature branch",
-    targetBranch,
+    branchName:
+      args.data?.branch ?? t("conversation.archiveCleanupState.featureBranch", "feature branch"),
+    targetBranch:
+      args.data?.target_branch ??
+      t("conversation.archiveCleanupState.targetBranch", "target branch"),
     forceBranchDelete: args.removeBranch && !(args.data?.merged ?? true),
   };
 }

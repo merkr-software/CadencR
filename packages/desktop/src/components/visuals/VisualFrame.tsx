@@ -1,4 +1,13 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import { VisualError, VisualLoading } from "@/components/visuals/VisualStatus";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { rememberedHeight, rememberHeight } from "@/lib/visuals/height-cache";
@@ -42,9 +51,19 @@ async function buildDocument(
 type FramePhase = "preparing" | "rendering" | "painted";
 
 /** The loader's step: fetching bundled libraries, then waiting for the first paint. */
-function loadingLabel(phase: FramePhase, libraries: readonly string[]): string {
-  if (phase === "rendering") return "Rendering visual…";
-  return libraries.length > 0 ? `Loading ${libraries.join(" and ")}…` : "Preparing visual…";
+function loadingLabel(
+  phase: FramePhase,
+  libraries: readonly string[],
+  t: UiTranslator,
+  language: string,
+): string {
+  if (phase === "rendering")
+    return t("conversation.stream.visualFrame.renderingVisual", "Rendering visual…");
+  return libraries.length > 0
+    ? t("conversation.stream.visualFrame.loading", "Loading {{libraries}}…", {
+        libraries: new Intl.ListFormat(language).format(libraries),
+      })
+    : t("conversation.stream.visualFrame.preparingVisual", "Preparing visual…");
 }
 
 interface VisualFrameProps {
@@ -63,6 +82,7 @@ interface VisualFrameProps {
  * visual reports and surfaces its script errors.
  */
 export function VisualFrame({ html, theme, variant = "inline", onEscape }: VisualFrameProps) {
+  const { t, i18n } = useUiTranslation();
   const fullscreen = variant === "fullscreen";
   const frameRef = useRef<HTMLIFrameElement>(null);
   const onEscapeRef = useRef(onEscape);
@@ -75,6 +95,80 @@ export function VisualFrame({ html, theme, variant = "inline", onEscape }: Visua
   const libraries = useMemo(() => requestedLibraries(html), [html]);
   const [errors, setErrors] = useState<string[]>([]);
 
+  useVisualFrameLifecycle({
+    frameRef,
+    onEscapeRef,
+    fullscreen,
+    html,
+    libraries,
+    theme,
+    setPhase,
+    setErrors,
+    setHeight,
+  });
+
+  const painted = phase === "painted";
+  // A visual that failed before painting anything collapses to its errors.
+  const failed = !painted && errors.length > 0;
+
+  return (
+    <>
+      <div className={fullscreen && !failed ? "relative min-h-0 flex-1" : "relative"}>
+        {!painted && !failed && (
+          <VisualLoading overlay label={loadingLabel(phase, libraries, t, i18n.language)} />
+        )}
+        <iframe
+          ref={frameRef}
+          src={src}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          title={t("conversation.stream.visualFrame.agentVisual", "Agent visual")}
+          className={
+            fullscreen
+              ? failed
+                ? "block h-0 w-full border-0"
+                : "block h-full w-full border-0"
+              : "block w-full border-0"
+          }
+          style={fullscreen ? undefined : { height: failed ? 0 : height }}
+        />
+      </div>
+      {/* Below the visual, clear of the actions floating over its top corner. */}
+      {errors.map((message) => (
+        <VisualError
+          key={message}
+          message={t("conversation.stream.visualFrame.visualError", "Visual error: {{message}}", {
+            message,
+          })}
+        />
+      ))}
+    </>
+  );
+}
+
+interface VisualFrameLifecycleOptions {
+  frameRef: RefObject<HTMLIFrameElement | null>;
+  onEscapeRef: RefObject<(() => void) | undefined>;
+  fullscreen: boolean;
+  html: string;
+  libraries: readonly VisualLibrary[];
+  theme: VisualTheme;
+  setPhase: Dispatch<SetStateAction<FramePhase>>;
+  setErrors: Dispatch<SetStateAction<string[]>>;
+  setHeight: Dispatch<SetStateAction<number>>;
+}
+
+function useVisualFrameLifecycle({
+  frameRef,
+  onEscapeRef,
+  fullscreen,
+  html,
+  libraries,
+  theme,
+  setPhase,
+  setErrors,
+  setHeight,
+}: VisualFrameLifecycleOptions) {
   // Layout effect: the listener must exist before the frame can load and post `ready`.
   useLayoutEffect(() => {
     const frame = frameRef.current;
@@ -100,11 +194,22 @@ export function VisualFrame({ html, theme, variant = "inline", onEscape }: Visua
         send();
       },
       (error: unknown) =>
-        addError(`Could not prepare the visual: ${apiErrorMessage(error, String(error))}`),
+        addError(
+          translateUi(
+            "conversation.stream.visualFrame.couldNotPrepareTheVisual",
+            "Could not prepare the visual: {{error}}",
+            { error: apiErrorMessage(error, String(error)) },
+          ),
+        ),
     );
     const timeout = window.setTimeout(() => {
       if (!frameReady)
-        addError("The visual sandbox did not load. Is the Cadencr service reachable?");
+        addError(
+          translateUi(
+            "conversation.stream.visualFrame.theVisualSandboxDidNotLoadIs",
+            "The visual sandbox did not load. Is the Cadencr service reachable?",
+          ),
+        );
     }, READY_TIMEOUT_MS);
 
     const onMessage = (event: MessageEvent) => {
@@ -133,36 +238,5 @@ export function VisualFrame({ html, theme, variant = "inline", onEscape }: Visua
       window.clearTimeout(timeout);
       window.removeEventListener("message", onMessage);
     };
-  }, [fullscreen, html, libraries, theme]);
-
-  const painted = phase === "painted";
-  // A visual that failed before painting anything collapses to its errors.
-  const failed = !painted && errors.length > 0;
-
-  return (
-    <>
-      <div className={fullscreen && !failed ? "relative min-h-0 flex-1" : "relative"}>
-        {!painted && !failed && <VisualLoading overlay label={loadingLabel(phase, libraries)} />}
-        <iframe
-          ref={frameRef}
-          src={src}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          title="Agent visual"
-          className={
-            fullscreen
-              ? failed
-                ? "block h-0 w-full border-0"
-                : "block h-full w-full border-0"
-              : "block w-full border-0"
-          }
-          style={fullscreen ? undefined : { height: failed ? 0 : height }}
-        />
-      </div>
-      {/* Below the visual, clear of the actions floating over its top corner. */}
-      {errors.map((message) => (
-        <VisualError key={message} message={`Visual error: ${message}`} />
-      ))}
-    </>
-  );
+  }, [frameRef, onEscapeRef, fullscreen, html, libraries, theme, setErrors, setHeight, setPhase]);
 }
