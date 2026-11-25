@@ -1,6 +1,6 @@
 import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, stripElectronIpcPrefix } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 
 /**
@@ -10,15 +10,16 @@ import { desktopBridge } from "@/lib/desktop-bridge";
  * affordance, so the failure belongs in front of the user, not in a `catch` at
  * each call site.
  */
-export async function openExternalUrl(url: string, failureMessage: string): Promise<void> {
+export async function openExternalUrl(url: string, failureMessage: string): Promise<boolean> {
   try {
     await desktopBridge.openExternal(url);
+    return true;
   } catch (error) {
     toast.error(failureMessage, {
-      description: apiErrorMessage(
-        error,
-        translateUi("workspace.links.openFailed", "External link failed"),
+      description: stripElectronIpcPrefix(
+        apiErrorMessage(error, translateUi("workspace.links.openFailed", "External link failed")),
       ),
     });
+    return false;
   }
 }

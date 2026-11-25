@@ -1,4 +1,7 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
 import { useMemo, useSyncExternalStore } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { UsageStatsEntry } from "@/api/generated";
 import {
   getProviderCatalog,
@@ -58,21 +61,12 @@ function useProviderLookups(): ProviderLookups {
   return { labelOf, slotOf };
 }
 
-function modelIdOf(seriesKey: string): string {
-  return splitProviderModelSeriesKey(seriesKey).modelId || "Unknown model";
-}
-
 function providerOfModelSeriesKey(seriesKey: string): string {
   return splitProviderModelSeriesKey(seriesKey).providerId;
 }
 
 function modelSeriesKeyOf(entry: UsageStatsEntry): string {
   return providerModelSeriesKey(entry.provider_id, entry.model_id);
-}
-
-/** "Claude · claude-opus-4-8" — a series of the model chart. */
-function modelLabel(seriesKey: string, providerLabel: (providerId: string) => string): string {
-  return `${providerLabel(providerOfModelSeriesKey(seriesKey))} · ${modelIdOf(seriesKey)}`;
 }
 
 export interface UsageSummary {
@@ -149,6 +143,8 @@ export function useUsageCharts({
   metric,
   grouping,
 }: UseUsageChartsParams): UsageCharts {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   const axis = useMemo(() => dayAxis(windowDays, endDay), [windowDays, endDay]);
   const { labelOf: providerLabel, slotOf: providerSlot } = useProviderLookups();
 
@@ -177,15 +173,28 @@ export function useUsageCharts({
   );
   const chart = grouping === "provider" ? providerChart : modelChart;
 
+  const model = useMemo(
+    () => (seriesKey: string) => {
+      const { providerId, modelId } = splitProviderModelSeriesKey(seriesKey);
+      const name = modelId || t("system.usage.unknownModel", "Unknown model");
+      const label = t("system.usage.modelSeries", "{{provider}} · {{model}}", {
+        provider: providerLabel(providerId),
+        model: name,
+      });
+      return { name, label };
+    },
+    [providerLabel, t],
+  );
   const labelOf = useMemo(() => {
     const { foldedCount } = chart;
     return (seriesKey: string) => {
-      if (seriesKey === OTHER_SERIES_KEY) return `Other (${foldedCount})`;
-      return grouping === "provider"
-        ? providerLabel(seriesKey)
-        : modelLabel(seriesKey, providerLabel);
+      if (seriesKey === OTHER_SERIES_KEY)
+        return t("system.usage.otherSeries", "Other ({{formattedCount}})", {
+          formattedCount: formatExactNumber(foldedCount, locale),
+        });
+      return grouping === "provider" ? providerLabel(seriesKey) : model(seriesKey).label;
     };
-  }, [chart, grouping, providerLabel]);
+  }, [chart, grouping, locale, model, providerLabel, t]);
 
   // Independent of the measure, so toggling it does not re-sum the window.
   const totals = useMemo(() => windowTotals(entries, axis), [entries, axis]);
@@ -199,11 +208,9 @@ export function useUsageCharts({
       ...totals,
       topProvider: topProvider ? providerLabel(topProvider.key) : null,
       topModel:
-        topModel === undefined || topModel.key === OTHER_SERIES_KEY
-          ? null
-          : { name: modelIdOf(topModel.key), label: modelLabel(topModel.key, providerLabel) },
+        topModel === undefined || topModel.key === OTHER_SERIES_KEY ? null : model(topModel.key),
     };
-  }, [totals, providerChart, modelChart, providerLabel]);
+  }, [totals, providerChart, modelChart, model, providerLabel]);
 
   return useMemo(() => ({ chart, labelOf, summary }), [chart, labelOf, summary]);
 }

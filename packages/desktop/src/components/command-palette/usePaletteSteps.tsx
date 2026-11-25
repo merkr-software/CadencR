@@ -1,3 +1,4 @@
+import { themeAppearanceLabel, themeDisplayLabel } from "@/lib/themes/display";
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef } from "react";
 import {
@@ -249,21 +250,28 @@ function useThemeStep(
   const themes = useMemo(() => (active ? allThemes() : []), [active]);
   const commands = useMemo<PaletteCommand[]>(
     () =>
-      themes.map((definition) => ({
-        id: `theme-${definition.id}`,
-        title:
-          definition.id === theme.themeId
-            ? t("palette.steps.theme.current", "{{theme}} (current)", { theme: definition.label })
-            : definition.label,
-        group: "View",
-        icon: <ThemeStripes theme={definition} />,
-        keywords: [definition.appearance],
-        description: themeDescription(definition.appearance, theme.followSystemTheme, t),
-        run: () => {
-          if (theme.followSystemTheme) theme.setFollowSystemTheme(false);
-          theme.setTheme(definition.id as ThemeId);
-        },
-      })),
+      themes.map((definition) => {
+        const label = themeDisplayLabel(definition, t);
+        return {
+          id: `theme-${definition.id}`,
+          title:
+            definition.id === theme.themeId
+              ? t("palette.steps.theme.current", "{{theme}} (current)", { theme: label })
+              : label,
+          group: "View",
+          icon: <ThemeStripes theme={definition} />,
+          keywords: [
+            definition.label,
+            definition.appearance,
+            themeAppearanceLabel(definition.appearance, t),
+          ],
+          description: themeDescription(definition.appearance, theme.followSystemTheme, t),
+          run: () => {
+            if (theme.followSystemTheme) theme.setFollowSystemTheme(false);
+            theme.setTheme(definition.id as ThemeId);
+          },
+        };
+      }),
     [t, theme, themes],
   );
   const previewByKey = useMemo(

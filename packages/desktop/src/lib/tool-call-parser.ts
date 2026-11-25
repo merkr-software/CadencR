@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { extractApplyPatchPrimaryPath } from "@/lib/apply-patch";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 import { extractBashCommandFromArgs, normalizeToolName } from "@/lib/tool-adapter";
@@ -21,126 +22,126 @@ export function isCadencrPlanPresentationTool(_toolName: string | undefined): bo
   return false;
 }
 
-type ToolParser = (args: Record<string, unknown>) => ToolSummary;
+type ToolParser = (args: Record<string, unknown>, t: UiTranslator) => ToolSummary;
 
 const toolParsers: Record<string, ToolParser> = {
-  Task: (args) => ({
-    label: "Running subtask",
+  Task: (args, t) => ({
+    label: t("tools.activity.runningSubtask", "Running subtask"),
     detail: descriptionDetail(args) ?? stringArg(args, "prompt"),
   }),
 
-  Agent: (args) => ({
-    label: "Running subtask",
+  Agent: (args, t) => ({
+    label: t("tools.activity.runningSubtask", "Running subtask"),
     detail: descriptionDetail(args) ?? stringArg(args, "prompt"),
   }),
 
-  Bash: (args) => ({
-    label: "Running command",
+  Bash: (args, t) => ({
+    label: t("tools.activity.runningCommand", "Running command"),
     detail: extractBashCommandFromArgs(args) ?? descriptionDetail(args),
   }),
 
-  exec_command: (args) => ({
-    label: "Starting terminal command",
+  exec_command: (args, t) => ({
+    label: t("tools.activity.startingTerminalCommand", "Starting terminal command"),
     detail: extractBashCommandFromArgs(args),
   }),
 
-  write_stdin: (args) => ({
-    label: "Writing to terminal",
-    detail: writeStdinDetail(args),
+  write_stdin: (args, t) => ({
+    label: t("tools.activity.writingToTerminal", "Writing to terminal"),
+    detail: writeStdinDetail(args, t),
   }),
 
-  Glob: (args) => ({
-    label: "Finding files",
-    detail: globDetail(args),
+  Glob: (args, t) => ({
+    label: t("tools.activity.findingFiles", "Finding files"),
+    detail: globDetail(args, t),
   }),
 
-  Grep: (args) => ({
-    label: "Searching code",
-    detail: searchDetail(args),
+  Grep: (args, t) => ({
+    label: t("tools.activity.searchingCode", "Searching code"),
+    detail: searchDetail(args, t),
   }),
 
-  Search: (args) => ({
-    label: "Searching code",
-    detail: searchDetail(args),
+  Search: (args, t) => ({
+    label: t("tools.activity.searchingCode", "Searching code"),
+    detail: searchDetail(args, t),
   }),
 
-  Read: (args) => ({
-    label: "Reading file",
+  Read: (args, t) => ({
+    label: t("tools.activity.readingFile", "Reading file"),
     detail: fileDetail(args),
   }),
 
-  LS: (args) => ({
-    label: "Listing files",
+  LS: (args, t) => ({
+    label: t("tools.activity.listingFiles", "Listing files"),
     detail: stringArg(args, "path", "directory", "dir") ?? descriptionDetail(args),
   }),
 
-  Write: (args) => ({
-    label: "Writing file",
+  Write: (args, t) => ({
+    label: t("tools.activity.writingFile", "Writing file"),
     detail: fileDetail(args),
   }),
 
-  Edit: (args) => ({
-    label: "Editing file",
+  Edit: (args, t) => ({
+    label: t("tools.activity.editingFile", "Editing file"),
     detail: fileDetail(args),
   }),
 
-  ApplyPatch: (args) => ({
-    label: "Applying patch",
+  ApplyPatch: (args, t) => ({
+    label: t("tools.activity.applyingPatch", "Applying patch"),
     detail: extractApplyPatchPrimaryPath(args) ?? descriptionDetail(args),
   }),
 
-  Delete: (args) => ({
-    label: "Deleting file",
+  Delete: (args, t) => ({
+    label: t("tools.activity.deletingFile", "Deleting file"),
     detail: fileDetail(args),
   }),
 
-  Move: (args) => ({
-    label: "Moving file",
+  Move: (args, t) => ({
+    label: t("tools.activity.movingFile", "Moving file"),
     detail: moveDetail(args),
   }),
 
-  Think: (args) => ({
-    label: "Thinking",
+  Think: (args, t) => ({
+    label: t("tools.activity.thinking", "Thinking"),
     detail: descriptionDetail(args),
   }),
 
-  Fetch: (args) => ({
-    label: "Fetching resource",
+  Fetch: (args, t) => ({
+    label: t("tools.activity.fetchingResource", "Fetching resource"),
     detail: stringArg(args, "url", "uri") ?? fileDetail(args),
   }),
 
-  SwitchMode: (args) => ({
-    label: "Switching mode",
+  SwitchMode: (args, t) => ({
+    label: t("tools.activity.switchingMode", "Switching mode"),
     detail: stringArg(args, "targetModeId", "target_mode_id", "mode") ?? descriptionDetail(args),
   }),
 
-  WebSearch: (args) => ({
-    label: "Searching web",
+  WebSearch: (args, t) => ({
+    label: t("tools.activity.searchingWeb", "Searching web"),
     detail: stringArg(args, "query") ?? descriptionDetail(args),
   }),
 
-  WebFetch: (args) => ({
-    label: "Fetching page",
+  WebFetch: (args, t) => ({
+    label: t("tools.activity.fetchingPage", "Fetching page"),
     detail: stringArg(args, "url") ?? descriptionDetail(args),
   }),
 
-  GenerateImage: (args) => ({
-    label: "Generating image",
+  GenerateImage: (args, t) => ({
+    label: t("tools.activity.generatingImage", "Generating image"),
     detail: stringArg(args, "filePath", "file_path") ?? descriptionDetail(args),
   }),
 
-  Skill: (args) => ({
-    label: "Running skill",
+  Skill: (args, t) => ({
+    label: t("tools.activity.runningSkill", "Running skill"),
     detail: stringArg(args, "skill", "name"),
   }),
 
-  ToolSearch: (args) => ({
-    label: "Searching tools",
+  ToolSearch: (args, t) => ({
+    label: t("tools.activity.searchingTools", "Searching tools"),
     detail: stringArg(args, "query"),
   }),
 
-  ExitPlanMode: () => ({
-    label: "Plan ready for review",
+  ExitPlanMode: (_args, t) => ({
+    label: t("tools.activity.planReadyForReview", "Plan ready for review"),
   }),
 };
 
@@ -152,14 +153,15 @@ function fileDetail(args: Record<string, unknown>): string | undefined {
   return stringArg(args, "file_path", "filePath", "path") ?? descriptionDetail(args);
 }
 
-function globDetail(args: Record<string, unknown>): string | undefined {
+function globDetail(args: Record<string, unknown>, t: UiTranslator): string | undefined {
   const pattern = stringArg(args, "pattern", "glob", "query") ?? descriptionDetail(args);
   const path = stringArg(args, "path", "directory", "dir");
-  if (pattern && path && pattern !== path) return `${pattern} in ${path}`;
+  if (pattern && path && pattern !== path)
+    return t("tools.activity.patternInPath", "{{pattern}} in {{path}}", { pattern, path });
   return pattern ?? path;
 }
 
-function searchDetail(args: Record<string, unknown>): string | undefined {
+function searchDetail(args: Record<string, unknown>, t: UiTranslator): string | undefined {
   const query =
     stringArg(args, "pattern", "query", "searchTerm", "search_term") ?? descriptionDetail(args);
   const type = stringArg(args, "type");
@@ -167,7 +169,7 @@ function searchDetail(args: Record<string, unknown>): string | undefined {
   const parts: string[] = [];
   if (query) parts.push(query);
   if (type) parts.push(`(${type})`);
-  if (path && path !== query) parts.push(`in ${path}`);
+  if (path && path !== query) parts.push(t("tools.activity.inPath", "in {{path}}", { path }));
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
@@ -178,15 +180,27 @@ function moveDetail(args: Record<string, unknown>): string | undefined {
   return source ?? destination ?? fileDetail(args);
 }
 
-function writeStdinDetail(args: Record<string, unknown>): string | undefined {
-  const sessionId = sessionIdDetail(args);
+function writeStdinDetail(args: Record<string, unknown>, t: UiTranslator): string {
+  const session = sessionIdDetail(args) ?? "";
   const chars = typeof args.chars === "string" ? args.chars : undefined;
-  const suffix = sessionId ? ` ${sessionId}` : "";
-
-  if (chars === undefined || chars.length === 0) return `poll session${suffix}`.trim();
-  if (chars === "\u0003") return `interrupt session${suffix}`.trim();
-  if (chars === "\u0004") return `send EOF to session${suffix}`.trim();
-  return `send ${chars.length.toLocaleString()} chars to session${suffix}`.trim();
+  if (!chars)
+    return t("tools.activity.pollSession", "poll session {{session}}", { session }).trim();
+  if (chars === "\u0003")
+    return t("tools.activity.interruptSession", "interrupt session {{session}}", {
+      session,
+    }).trim();
+  if (chars === "\u0004")
+    return t("tools.activity.sendEofToSession", "send EOF to session {{session}}", {
+      session,
+    }).trim();
+  return t(
+    "tools.activity.sendCharsToSession",
+    "send {{count, number}} chars to session {{session}}",
+    {
+      count: chars.length,
+      session,
+    },
+  ).trim();
 }
 
 function sessionIdDetail(args: Record<string, unknown>): string | undefined {
@@ -200,16 +214,25 @@ function sessionIdDetail(args: Record<string, unknown>): string | undefined {
  * Parse a tool call into a human-readable summary.
  * Returns undefined if the tool is not recognized.
  */
-export function parseToolCall(toolName: string, toolArgs?: string): ToolSummary | undefined {
+export function parseToolCall(
+  toolName: string,
+  toolArgs?: string,
+  t: UiTranslator = translateUi,
+): ToolSummary | undefined {
   const canonicalToolName = normalizeToolName(toolName);
   const args = parseToolArgsObject(toolArgs) ?? {};
   const parser = toolParsers[canonicalToolName];
   if (!parser) {
     const detail = genericDetail(args);
-    return detail ? { label: `Running ${canonicalToolName}`, detail } : undefined;
+    return detail
+      ? {
+          label: t("tools.activity.runningTool", "Running {{tool}}", { tool: canonicalToolName }),
+          detail,
+        }
+      : undefined;
   }
 
-  return parser(args);
+  return parser(args, t);
 }
 
 function genericDetail(args: Record<string, unknown>): string | undefined {
@@ -223,15 +246,30 @@ function genericDetail(args: Record<string, unknown>): string | undefined {
  * Get an activity label for the streaming indicator.
  * Returns something like "Reading src/main.ts" or "Running command: git status".
  */
-export function getToolActivityLabel(toolName: string, toolArgs?: string): string {
+export function getToolActivityLabel(
+  toolName: string,
+  toolArgs?: string,
+  t: UiTranslator = translateUi,
+): string {
   const canonicalToolName = normalizeToolName(toolName);
-  const mcp = parseMcpTool(canonicalToolName, toolArgs);
+  const mcp = parseMcpTool(canonicalToolName, toolArgs, t);
   if (mcp) {
-    const prefix = `[${mcp.server}]`;
-    return mcp.detail ? `${prefix} ${mcp.label}: ${mcp.detail}` : `${prefix} ${mcp.label}`;
+    const { server, label, detail } = mcp;
+    return detail
+      ? t("tools.activity.mcpWithDetail", "[{{server}}] {{label}}: {{detail}}", {
+          server,
+          label,
+          detail,
+        })
+      : t("tools.activity.mcp", "[{{server}}] {{label}}", { server, label });
   }
-  const summary = parseToolCall(canonicalToolName, toolArgs);
-  if (!summary) return `Running ${canonicalToolName}`;
-  if (summary.detail) return `${summary.label}: ${summary.detail}`;
+  const summary = parseToolCall(canonicalToolName, toolArgs, t);
+  if (!summary)
+    return t("tools.activity.runningTool", "Running {{tool}}", { tool: canonicalToolName });
+  if (summary.detail)
+    return t("tools.activity.withDetail", "{{label}}: {{detail}}", {
+      label: summary.label,
+      detail: summary.detail,
+    });
   return summary.label;
 }

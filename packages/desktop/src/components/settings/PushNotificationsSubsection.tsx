@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { type PushState } from "@/lib/remote/push-subscribe";
 import { SettingsGroup } from "./SettingsGroup";
@@ -13,15 +14,19 @@ import { SettingsSwitchRow } from "./SettingsSwitchRow";
  * Shares state + toggle with the sidebar quick toggle via `usePushNotifications`.
  */
 export function PushNotificationsSubsection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { state, busy, toggle } = usePushNotifications();
 
   return (
     <SettingsGroup
       id={SETTINGS_ANCHORS.push}
-      title="Push notifications on this device"
-      description="A native notification when an agent finishes or needs input, even with this tab in the background or closed."
+      title={t("settings.notifications.push.title", "Push notifications on this device")}
+      description={t(
+        "settings.notifications.push.description",
+        "A native notification when an agent finishes or needs input, even with this tab in the background or closed.",
+      )}
     >
-      {renderBody(state, busy, toggle)}
+      {renderBody(state, busy, toggle, t)}
     </SettingsGroup>
   );
 }
@@ -30,30 +35,61 @@ function renderBody(
   state: PushState | "loading",
   busy: boolean,
   onToggle: (next: boolean) => void,
+  t: UiTranslator,
 ): React.JSX.Element {
   if (state === "loading") {
-    return <InfoRow description="Checking push notification support…" />;
+    return (
+      <InfoRow
+        description={t(
+          "settings.notifications.push.checking",
+          "Checking push notification support…",
+        )}
+      />
+    );
   }
   if (state === "unsupported") {
-    return <InfoRow description="This browser doesn't support push notifications." />;
+    return (
+      <InfoRow
+        description={t(
+          "settings.notifications.push.unsupported",
+          "This browser doesn't support push notifications.",
+        )}
+      />
+    );
   }
   if (state === "ios-needs-install") {
     return (
-      <InfoRow description="On iOS, add Cadencr to your Home Screen (Share → Add to Home Screen), then reopen it from the icon to enable push." />
+      <InfoRow
+        description={t(
+          "settings.notifications.push.iosInstall",
+          "On iOS, add Cadencr to your Home Screen (Share → Add to Home Screen), then reopen it from the icon to enable push.",
+        )}
+      />
     );
   }
   if (state === "denied") {
     return (
-      <InfoRow description="Notifications are blocked. Allow notifications for this site in your browser settings, then try again." />
+      <InfoRow
+        description={t(
+          "settings.notifications.push.blocked",
+          "Notifications are blocked. Allow notifications for this site in your browser settings, then try again.",
+        )}
+      />
     );
   }
   return (
     <SettingsSwitchRow
-      label="Enable on this device"
+      label={t("settings.notifications.push.enable", "Enable on this device")}
       description={
         state === "on"
-          ? "This device will receive background notifications."
-          : "Turn on to receive background notifications on this device."
+          ? t(
+              "settings.notifications.push.onDescription",
+              "This device will receive background notifications.",
+            )
+          : t(
+              "settings.notifications.push.offDescription",
+              "Turn on to receive background notifications on this device.",
+            )
       }
       checked={state === "on"}
       onCheckedChange={onToggle}
@@ -63,5 +99,11 @@ function renderBody(
 }
 
 function InfoRow({ description }: { description: string }): React.JSX.Element {
-  return <SettingsRow label="Push notifications" description={description} />;
+  const { t } = useUiTranslation();
+  return (
+    <SettingsRow
+      label={t("settings.notifications.push.label", "Push notifications")}
+      description={description}
+    />
+  );
 }

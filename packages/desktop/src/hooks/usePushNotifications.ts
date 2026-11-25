@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -34,14 +35,24 @@ export function usePushNotifications(): PushNotificationsControls {
       try {
         if (next) {
           await enablePush();
-          toast.success("Push notifications enabled on this device.");
+          toast.success(
+            translateUi("notifications.push.enabled", "Push notifications enabled on this device."),
+          );
         } else {
           await disablePush();
-          toast.success("Push notifications disabled on this device.");
+          toast.success(
+            translateUi(
+              "notifications.push.disabled",
+              "Push notifications disabled on this device.",
+            ),
+          );
         }
       } catch (e: unknown) {
         const message = apiErrorMessage(e, String(e));
-        toast.error("Couldn't update push notifications", { description: message });
+        toast.error(
+          translateUi("notifications.push.updateError", "Couldn't update push notifications"),
+          { description: message },
+        );
       } finally {
         setBusy(false);
         refresh();

@@ -1,3 +1,5 @@
+import { newerDatabaseRecoveryDetail } from "../../src/shared/service-status";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -37,10 +39,6 @@ export interface StartupRecoveryState {
 }
 
 export const NEWER_DATABASE_MARKER = "updated by a newer version of Cadencr";
-export const NEWER_DATABASE_RECOVERY_TITLE = "Cadencr can't open this database safely";
-export const NEWER_DATABASE_RECOVERY_DETAIL =
-  "This database was updated by a newer version of Cadencr. Install the latest version to continue, or restore a pre-migration backup if you need to use this older version.";
-
 export function isNewerDatabaseStartupFailure(message: string): boolean {
   return message.includes(NEWER_DATABASE_MARKER);
 }
@@ -49,15 +47,26 @@ export function buildStartupRecovery(input: StartupRecoveryInput): StartupRecove
   const isNewerDatabase = isNewerDatabaseStartupFailure(input.message);
   const dbPath = isNewerDatabase ? input.getDbPath() : null;
   const backup = dbPath ? findLatestPreMigrationBackup(dbPath) : null;
-  const title = isNewerDatabase ? NEWER_DATABASE_RECOVERY_TITLE : "Cadencr couldn't start";
-  const detail = isNewerDatabase ? NEWER_DATABASE_RECOVERY_DETAIL : input.message;
+  const title = isNewerDatabase
+    ? t("system.recovery.newerTitle", "Cadencr can't open this database safely")
+    : t("system.recovery.failedTitle", "Cadencr couldn't start");
+  const detail = isNewerDatabase ? newerDatabaseRecoveryDetail() : input.message;
   const actions: StartupRecoveryAction[] = [
-    { id: "download_latest", label: "Download latest Cadencr", primary: true },
+    {
+      id: "download_latest",
+      label: t("system.recovery.downloadLatest", "Download latest Cadencr"),
+      primary: true,
+    },
   ];
-  if (backup) actions.push({ id: "restore_backup", label: "Restore backup…", danger: true });
+  if (backup)
+    actions.push({
+      id: "restore_backup",
+      label: t("system.recovery.restoreAction", "Restore backup…"),
+      danger: true,
+    });
   actions.push(
-    { id: "copy_diagnostics", label: "Copy diagnostics" },
-    { id: "quit", label: "Quit" },
+    { id: "copy_diagnostics", label: t("system.recovery.copyDiagnostics", "Copy diagnostics") },
+    { id: "quit", label: t("native.menu.quit", "Quit") },
   );
 
   return {

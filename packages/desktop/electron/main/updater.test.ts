@@ -217,12 +217,32 @@ describe("auto-updater IPC", () => {
       initAutoUpdater({ getMainWindow: () => window });
 
       const read = await electronState.handlers.get("app:update-state")?.(trustedEvent());
-      expect(read).toMatchObject({ status: "unsupported", revision: 1 });
+      expect(read).toMatchObject({
+        status: "unsupported",
+        unsupportedReason: "unsupported-install",
+        unsupportedMessage: null,
+        revision: 1,
+      });
       const checked = await electronState.handlers.get("app:check-for-updates")?.(trustedEvent());
       expect(checked).toEqual(read);
       expect(window.webContents.send).toHaveBeenCalledOnce();
       expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
     });
+  });
+
+  it("publishes a stable development-build reason for an explicit update check", async () => {
+    electronState.isPackaged = false;
+    const { registerAutoUpdaterIpc } = await import("./updater");
+    const window = mainWindow();
+    registerAutoUpdaterIpc({ getMainWindow: () => window });
+
+    const checked = await electronState.handlers.get("app:check-for-updates")?.(trustedEvent());
+    expect(checked).toMatchObject({
+      status: "unsupported",
+      unsupportedReason: "dev-build",
+      unsupportedMessage: null,
+    });
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
   });
 
   it("replays dev update events into the main-process state", async () => {

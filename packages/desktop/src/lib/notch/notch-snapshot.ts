@@ -1,3 +1,4 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import type { AgentActivityDigestEntry } from "@/api/generated";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import { NOTCH_MAX_AGENTS, type NotchAgent, type NotchSnapshot } from "@/shared/notch";
@@ -36,6 +37,7 @@ export interface NotchTrackingInput {
 
 export interface NotchComposeInput extends NotchTrackingInput {
   digest: readonly AgentActivityDigestEntry[];
+  t: UiTranslator;
   provider: (providerId: string | null | undefined) => NotchProviderVisual | null;
 }
 
@@ -126,7 +128,7 @@ function toAgent(input: NotchComposeInput, entry: AgentActivityDigestEntry): Not
   return {
     featureId: entry.feature_id,
     projectId: entry.project_id,
-    title: entry.feature_title.trim() || "Untitled conversation",
+    title: entry.feature_title.trim() || null,
     projectName: entry.project_name,
     status,
     pendingKind: status === "question" ? (live?.kind ?? null) : null,
@@ -144,8 +146,8 @@ function toAgent(input: NotchComposeInput, entry: AgentActivityDigestEntry): Not
         : parseIsoMs(entry.last_activity_at),
     lastAction: tool
       ? {
-          kind: notchActionKind(tool.name, tool.args),
-          label: notchActionLabel(tool.name, tool.args),
+          kind: notchActionKind(tool.name),
+          label: notchActionLabel(tool.name, tool.args, input.t),
         }
       : null,
     preview: entry.last_reply ? plainPreview(entry.last_reply) || null : null,

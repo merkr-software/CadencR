@@ -1,3 +1,4 @@
+import { translateUi, uiI18n } from "@/lib/i18n/ui";
 import type { ThemeChrome as ApiThemeChrome, ThemeDocument, UserTheme } from "@/api/generated";
 import { PLAIN_CHROME, type ThemeChrome } from "./chrome";
 import { CADENCR_THEME_LOGOS } from "./logos";
@@ -143,10 +144,20 @@ export function readThemeCssVars(themeId: string, cssVars?: ThemeCssVars): Theme
     const fromTheme = readTokensWithThemeApplied(root, themeId);
     const missing = THEME_TOKEN_KEYS.filter((key) => fromTheme[key] === "");
     if (missing.length > 0) {
-      const shown = missing.slice(0, 3).join(", ");
-      const rest = missing.length > 3 ? ` and ${missing.length - 3} more` : "";
+      const tokens = missing.slice(0, 3).join(", ");
+      const count = missing.length - 3;
       throw new Error(
-        `Theme "${themeId}" has no value for ${shown}${rest} — its stylesheet may not have loaded.`,
+        count > 0
+          ? translateUi(
+              "appearance.library.missingTokensAndMore",
+              'Theme "{{themeId}}" has no value for {{tokens}} and {{count, number}} more — its stylesheet may not have loaded.',
+              { themeId, tokens, count, formatParams: { count: { locale: uiI18n.language } } },
+            )
+          : translateUi(
+              "appearance.library.missingTokens",
+              'Theme "{{themeId}}" has no value for {{tokens}} — its stylesheet may not have loaded.',
+              { themeId, tokens },
+            ),
       );
     }
     return fromTheme;

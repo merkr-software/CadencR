@@ -14,13 +14,7 @@ const FOLLOW_TIMEOUT_MS = 30_000;
 
 /** Shows how a check ended; `false` while it is still running. */
 function settle(state: UpdateStoreState, toastId: string | number): boolean {
-  const detail = {
-    progress: state.progress,
-    version: state.version,
-    error: state.error,
-    unsupportedMessage: state.unsupportedMessage,
-  };
-  const message = updateStatusMessage(state.status, detail);
+  const message = updateStatusMessage(state.status, state);
   switch (state.status) {
     case "idle":
     case "checking":
@@ -28,7 +22,7 @@ function settle(state: UpdateStoreState, toastId: string | number): boolean {
     case "available":
     case "downloading":
       // The download runs on; its banner offers the restart when it is ready.
-      toast.success(updateStatusMessage("available", detail), {
+      toast.success(updateStatusMessage("available", state), {
         id: toastId,
         description: translateUi(
           "cli.update.downloading",

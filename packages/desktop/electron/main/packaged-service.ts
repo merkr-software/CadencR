@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import type { ServiceStatus } from "../../src/shared/service-status";
 import {
   spawnProductionSidecar,
@@ -49,7 +50,7 @@ export function createPackagedService(host: PackagedServiceHost): PackagedServic
       const next = await spawn();
       if (host.shuttingDown()) {
         await next.stop();
-        throw new Error("Cadencr is shutting down.");
+        throw new Error(t("system.service.shuttingDown", "Cadencr is shutting down."));
       }
       try {
         await host.adopt(next);

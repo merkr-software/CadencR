@@ -3,6 +3,7 @@ import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "elect
 import pkg from "electron-updater";
 import { z } from "zod";
 import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
+import { translateUi } from "../../src/shared/ui-i18n";
 import { fetchChangelogImage } from "./changelog-images";
 import { assertTrustedSender } from "./ipc";
 import { GH_OWNER, GH_REPO } from "./release-repo";
@@ -47,12 +48,9 @@ function unsupportedInstall(): LinuxInstallType | null {
   return (cachedUnsupported = installType === "unknown" ? installType : null);
 }
 
-const UNSUPPORTED_INSTALL_MESSAGE =
-  "This Linux build is not an official AppImage, DEB, or RPM package. Download an official build from GitHub Releases to enable in-app updates.";
 const UNSUPPORTED_EVENT: UpdateEvent = {
   kind: "unsupported",
   reason: "unsupported-install",
-  message: UNSUPPORTED_INSTALL_MESSAGE,
 };
 
 interface InitOptions {
@@ -72,7 +70,7 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
   ipcMain.handle("app:check-for-updates", (event: IpcMainInvokeEvent): UpdateSnapshot => {
     assertTrustedSender(event, getMainWindow);
     if (!app.isPackaged) {
-      return updates.apply({ kind: "error", message: "Updates are disabled in dev builds." });
+      return updates.apply({ kind: "unsupported", reason: "dev-build" });
     }
     if (unsupportedInstall()) return updates.apply(UNSUPPORTED_EVENT);
     const checking = updates.apply({ kind: "checking" });
@@ -86,10 +84,15 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
     (event: IpcMainInvokeEvent, pending: unknown): UpdateSnapshot => {
       assertTrustedSender(event, getMainWindow);
       const wish = z.boolean().safeParse(pending);
-      if (!wish.success) throw new Error("The install wish must be a boolean.");
+      if (!wish.success)
+        throw new Error(
+          translateUi("updates.invalidInstallWish", "The install wish must be a boolean."),
+        );
       const next = updates.apply({ kind: "install-when-agents-finish", pending: wish.data });
       if (next.installWhenAgentsFinish !== wish.data) {
-        throw new Error("No downloaded update to install.");
+        throw new Error(
+          translateUi("updates.noDownloadedUpdate", "No downloaded update to install."),
+        );
       }
       return next;
     },
@@ -128,7 +131,10 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
     async (event: IpcMainInvokeEvent, src: unknown): Promise<ChangelogImageBytes> => {
       assertTrustedSender(event, getMainWindow);
       const source = z.string().safeParse(src);
-      if (!source.success) throw new Error("Image source must be a string.");
+      if (!source.success)
+        throw new Error(
+          translateUi("system.changelog.invalidImageSource", "Image source must be a string."),
+        );
       return fetchChangelogImage(source.data);
     },
   );

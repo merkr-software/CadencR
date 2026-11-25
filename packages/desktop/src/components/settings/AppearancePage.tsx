@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ThemeLibrary } from "@/components/theme/ThemeLibrary";
 import { AgentMessageNavigatorSetting } from "./AgentMessageNavigatorSetting";
 import { AgentSummaryModeToggle } from "./AgentSummaryModeToggle";
@@ -15,23 +16,33 @@ import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
  * those options change what you see, never what an agent does.
  */
 export function AppearancePage(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsPageSection pageId="appearance">
-      <SettingsGroup id={SETTINGS_ANCHORS.theme} title="Theme & motion">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.theme}
+        title={t("appearance.themeAndMotion.title", "Theme & motion")}
+      >
         <ThemeSelector />
         <AnimationsToggle divided />
       </SettingsGroup>
       <SettingsGroup
         id={SETTINGS_ANCHORS.font}
-        title="Monospace font"
-        description="Used by the terminal, the editor and code snippets."
+        title={t("appearance.font.title", "Monospace font")}
+        description={t(
+          "appearance.font.description",
+          "Used by the terminal, the editor and code snippets.",
+        )}
       >
         <FontSelector />
       </SettingsGroup>
       <SettingsGroup
         id={SETTINGS_ANCHORS.themeLibrary}
-        title="Theme library"
-        description="Start from any theme and make it your own. Each one gets a project in the sidebar: edit its JSON or ask an agent, and the app restyles as you go. Your themes join the built-ins in the picker."
+        title={t("appearance.library.title", "Theme library")}
+        description={t(
+          "appearance.library.description",
+          "Start from any theme and make it your own. Each one gets a project in the sidebar: edit its JSON or ask an agent, and the app restyles as you go. Your themes join the built-ins in the picker.",
+        )}
       >
         <SettingsSubsection>
           <ThemeLibrary />
@@ -39,8 +50,11 @@ export function AppearancePage(): React.JSX.Element {
       </SettingsGroup>
       <SettingsGroup
         id={SETTINGS_ANCHORS.agentOutput}
-        title="Agent transcript"
-        description="How much of each agent turn stays expanded in the stream. This only changes what you see, never what the agent does."
+        title={t("appearance.transcript.title", "Agent transcript")}
+        description={t(
+          "appearance.transcript.description",
+          "How much of each agent turn stays expanded in the stream. This only changes what you see, never what the agent does.",
+        )}
       >
         <SettingsSubsection>
           <AgentVerbositySettings />

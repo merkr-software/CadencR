@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useEffect, useRef, type CSSProperties } from "react";
 import { XIcon } from "lucide-react";
 import { useReportHeight } from "./useReportHeight";
@@ -29,11 +30,16 @@ export function peekTone(
   return agent?.pendingKind === "question" ? "question" : "permission";
 }
 
-const STATUS_LABEL: Record<NotchNotification["status"], string> = {
-  completed: "Done",
-  needs_input: "Needs you",
-  error: "Failed",
-};
+function statusLabel(status: NotchNotification["status"], t: UiTranslator): string {
+  switch (status) {
+    case "completed":
+      return t("notch.peek.done", "Done");
+    case "needs_input":
+      return t("notch.peek.needsYou", "Needs you");
+    case "error":
+      return t("notch.peek.failed", "Failed");
+  }
+}
 
 /**
  * Auto-dismiss that pauses while the pointer holds the peek and resumes with
@@ -64,12 +70,13 @@ export function PeekEars({
   notification: NotchNotification;
   tone: NotchTone;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <>
       <span className="ear">
         <IndexDotsOrb state={notification.status === "completed" ? "done" : "question"} />
       </span>
-      <span className={`ear ear-meta tone-${tone}`}>{STATUS_LABEL[notification.status]}</span>
+      <span className={`ear ear-meta tone-${tone}`}>{statusLabel(notification.status, t)}</span>
     </>
   );
 }
@@ -97,11 +104,22 @@ export function NotchPeek({
   onExpire: () => void;
   onHeight: (height: number) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const ref = useRef<HTMLDivElement>(null);
   useReportHeight(ref, onHeight);
   const totalMs = PEEK_MS[notification.status];
   usePeekCountdown(totalMs, paused, onExpire);
   const meta = [agent?.projectName, agent?.providerLabel].filter(Boolean).join(" · ");
+  const preview = isNotchPreview(notification);
+  const title = preview
+    ? t("notch.peek.previewTitle", "Your agent finished")
+    : (notification.title ?? t("notch.untitledConversation", "Untitled conversation"));
+  const body = preview
+    ? t(
+        "notch.peek.previewBody",
+        "This is how a finished agent peeks out of the notch. Hover the notch anytime to see every running agent and jump straight into its conversation.",
+      )
+    : notification.body;
   return (
     <div
       ref={ref}
@@ -110,16 +128,17 @@ export function NotchPeek({
       style={{ "--peek-ms": `${totalMs}ms` } as CSSProperties}
     >
       {/* Stretched over the whole peek; its own controls sit above it. */}
-      {isNotchPreview(notification) ? null : (
+      {preview ? null : (
         <button
           type="button"
           className="peek-open"
-          aria-label={`Open ${notification.title}`}
+          aria-label={t("notch.peek.open", "Open {{title}}", { title })}
           onClick={onOpen}
         />
       )}
       <NotchTile
         size="lg"
+        t={t}
         agent={{
           status: notification.status === "completed" ? "done" : "question",
           pendingKind: agent?.pendingKind ?? "permission",
@@ -130,15 +149,20 @@ export function NotchPeek({
         }}
       />
       <div className="peek-head">
-        <div className="peek-title">{notification.title}</div>
+        <div className="peek-title">{title}</div>
         <div className="peek-meta">{meta || "Cadencr"}</div>
       </div>
       {paused ? (
-        <button type="button" className="peek-close" aria-label="Close" onClick={onClose}>
+        <button
+          type="button"
+          className="peek-close"
+          aria-label={t("common.close", "Close")}
+          onClick={onClose}
+        >
           <XIcon strokeWidth={2.2} aria-hidden="true" />
         </button>
       ) : null}
-      {notification.body ? <p className="peek-body">{notification.body}</p> : null}
+      {body ? <p className="peek-body">{body}</p> : null}
       {paused ? <SnoozeChips onSnooze={onSnooze} /> : null}
       {error ? <div className="panel-error peek-error">{error}</div> : null}
       <span className={`peek-drain tone-${tone}`} />

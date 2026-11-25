@@ -2,6 +2,7 @@ import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { DownloadIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { stripElectronIpcPrefix } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { captureDiagnosticContext } from "@/lib/renderer-diagnostics";
 
@@ -20,7 +21,7 @@ export function ExportDiagnosticsButton() {
     } catch (error) {
       setStatus({
         kind: "error",
-        detail: error instanceof Error ? error.message : undefined,
+        detail: error instanceof Error ? stripElectronIpcPrefix(error.message) : undefined,
       });
     } finally {
       setBusy(false);
@@ -47,7 +48,11 @@ export function ExportDiagnosticsButton() {
         >
           {status.kind === "success"
             ? t("diagnostics.export.success", "Diagnostic report exported")
-            : (status.detail ?? t("diagnostics.export.failure", "Could not export diagnostics"))}
+            : status.detail
+              ? t("diagnostics.export.failureDetail", "Could not export diagnostics: {{detail}}", {
+                  detail: status.detail,
+                })
+              : t("diagnostics.export.failure", "Could not export diagnostics")}
         </p>
       )}
     </div>

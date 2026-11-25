@@ -1,4 +1,4 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { cn, formatJson, toRelativePath } from "@/lib/utils";
@@ -24,11 +24,18 @@ export function ToolCallBlock({
   /** The message of the call's error result; set only when the call failed. */
   error?: string;
 }) {
+  const { t } = useUiTranslation();
   const canonicalName = normalizeToolName(name);
-  const mcp = parseMcpTool(canonicalName, args);
+  const mcp = parseMcpTool(canonicalName, args, t);
   if (mcp) return <McpToolBlock mcp={mcp} />;
   return (
-    <GenericToolCallBlock name={canonicalName} args={args} basePath={basePath} error={error} />
+    <GenericToolCallBlock
+      name={canonicalName}
+      args={args}
+      basePath={basePath}
+      error={error}
+      t={t}
+    />
   );
 }
 
@@ -37,16 +44,17 @@ function GenericToolCallBlock({
   args,
   basePath,
   error,
+  t,
 }: {
   name: string;
   args?: string;
   basePath?: string;
   error?: string;
+  t: UiTranslator;
 }) {
-  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  const summary = parseToolCall(canonicalName, args);
+  const summary = parseToolCall(canonicalName, args, t);
   const detail =
     summary?.detail && basePath ? toRelativePath(summary.detail, basePath) : summary?.detail;
   // File-patch tools (Edit / Write / ApplyPatch) use a dedicated accent while

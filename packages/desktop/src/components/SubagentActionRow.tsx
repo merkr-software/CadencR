@@ -1,4 +1,4 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import {
   BrainIcon,
@@ -200,7 +200,13 @@ function ToolActionLine({
 
   const toolName = normalizeToolName(rawToolName);
   if (toolName === "Bash") {
-    return <BashActionLine toolArgs={block.toolArgs} basePath={basePath} />;
+    return (
+      <BashActionLine
+        toolArgs={block.toolArgs}
+        basePath={basePath}
+        label={t("conversation.subagentActionRow.bash", "Bash")}
+      />
+    );
   }
   if (isFileChangeTool(toolName)) {
     return (
@@ -212,29 +218,25 @@ function ToolActionLine({
       />
     );
   }
-  return <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} />;
+  return (
+    <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} t={t} />
+  );
 }
 
 function BashActionLine({
   toolArgs,
   basePath,
+  label,
 }: {
   toolArgs: string | undefined;
   basePath: string | undefined;
+  label: string;
 }): ReactElement {
-  const { t } = useUiTranslation();
   const detail = useMemo(() => {
     const command = oneLineShellCommand(extractBashCommand(toolArgs), basePath);
     return truncateOptional(command, 90);
   }, [toolArgs, basePath]);
-  return (
-    <ActionLine
-      icon={TerminalIcon}
-      accent="bash"
-      label={t("conversation.subagentActionRow.bash", "Bash")}
-      detail={detail}
-    />
-  );
+  return <ActionLine icon={TerminalIcon} accent="bash" label={label} detail={detail} />;
 }
 
 function FileChangeActionLine({
@@ -276,23 +278,25 @@ function GenericActionLine({
   toolName,
   toolArgs,
   basePath,
+  t,
 }: {
   toolName: string;
   toolArgs: string | undefined;
   basePath: string | undefined;
+  t: UiTranslator;
 }): ReactElement {
   const { label, detail, accent } = useMemo(() => {
-    const mcp = parseMcpTool(toolName, toolArgs);
+    const mcp = parseMcpTool(toolName, toolArgs, t);
     if (mcp) {
       return { label: mcp.label, detail: mcp.detail, accent: "mcp" as const };
     }
-    const summary = parseToolCall(toolName, toolArgs);
+    const summary = parseToolCall(toolName, toolArgs, t);
     return {
       label: toolName,
       detail: summary?.detail === toolName ? undefined : oneLineDetail(summary?.detail, basePath),
       accent: "tool" as const,
     };
-  }, [toolName, toolArgs, basePath]);
+  }, [toolName, toolArgs, basePath, t]);
   return (
     <ActionLine
       icon={WrenchIcon}

@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { isValidElement } from "react";
+import { uiI18n } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -22,6 +26,7 @@ function actionOf(options: ToastOptions): (event: { preventDefault: () => void }
 
 beforeEach(() => resetServiceStatusToastForTests());
 afterEach(() => {
+  cleanup();
   clearDesktopBridgeOverrideForTests();
   vi.restoreAllMocks();
 });
@@ -63,7 +68,9 @@ describe("showServiceStatus", () => {
 
     showServiceStatus({ state: "restarting" });
 
-    expect(loading).toHaveBeenCalledWith("Restarting Cadencr's service…", {
+    renderMessage(loading.mock.calls[0][0]);
+    expect(screen.getByText("Restarting Cadencr's service…")).toBeTruthy();
+    expect(loading.mock.calls[0][1]).toEqual({
       id: "service-status",
       description: undefined,
       action: undefined,
@@ -80,8 +87,9 @@ describe("showServiceStatus", () => {
 
     showServiceStatus({ state: "restarting" });
     showServiceStatus({ state: "running" });
-    expect(success).toHaveBeenCalledWith(
-      "Cadencr's service is running again",
+    renderMessage(success.mock.calls[0][0]);
+    expect(screen.getByText("Cadencr's service is running again")).toBeTruthy();
+    expect(success.mock.calls[0][1]).toEqual(
       expect.objectContaining({ id: "service-status", action: undefined }),
     );
   });
@@ -97,11 +105,30 @@ describe("showServiceStatus", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(error).toHaveBeenLastCalledWith(
-      "Cadencr's service stopped",
-      expect.objectContaining({
-        description: "Cadencr is shutting down. Cadencr can't reach it until it restarts.",
-      }),
-    );
+    const [title, options] = error.mock.calls.at(-1)!;
+    renderMessage(title);
+    renderMessage(options?.description);
+    expect(screen.getByText("Cadencr's service stopped")).toBeTruthy();
+    const refusal = "Cadencr is shutting down. Cadencr can't reach it until it restarts.";
+    expect(screen.getByText(refusal)).toBeTruthy();
+    const language = uiI18n.language;
+    uiI18n.addResource("fr-CA", "ui", "system.service.stopped", "Service arrêté");
+    uiI18n.addResource("fr-CA", "ui", "system.service.downDetail", "Motif : {{reason}}");
+    try {
+      await act(() => uiI18n.changeLanguage("fr-CA").then(() => {}));
+      expect(screen.getByText("Motif : Cadencr is shutting down.")).toBeTruthy();
+      expect(screen.getByText("Service arrêté")).toBeTruthy();
+      await act(() => uiI18n.changeLanguage(language).then(() => {}));
+      expect(screen.getByText(refusal)).toBeTruthy();
+      expect(error).toHaveBeenCalledTimes(2);
+    } finally {
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+      await act(() => uiI18n.changeLanguage(language).then(() => {}));
+    }
   });
 });
+
+function renderMessage(node: unknown): void {
+  if (!isValidElement(node)) throw new Error("Expected a rendered toast message");
+  render(node);
+}

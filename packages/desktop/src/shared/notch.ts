@@ -9,8 +9,10 @@
  * blindly, and vice versa.
  */
 import { z } from "zod";
+import { matchSystemLocale } from "../lib/i18n/languages";
 
-const title = z.string().min(1).max(200);
+/** A missing title uses the receiving renderer's interface language. */
+const title = z.string().min(1).max(200).nullable();
 const text = z.string().max(600);
 const id = z.number().int().positive();
 const epochMs = z.number().int().nonnegative();
@@ -126,7 +128,15 @@ export const DEFAULT_NOTCH_PREFS: NotchPrefs = {
 };
 
 /** Everything the app renderer decides about the island in one message. */
-export const notchConfigSchema = z.object({ enabled: z.boolean(), prefs: notchPrefsSchema });
+export const notchConfigSchema = z.object({
+  enabled: z.boolean(),
+  prefs: notchPrefsSchema,
+  /** A canonical supported locale, including regional preferences for clocks and numbers. */
+  locale: z
+    .string()
+    .max(64)
+    .refine((locale) => matchSystemLocale([locale]) === locale),
+});
 export type NotchConfig = z.infer<typeof notchConfigSchema>;
 
 export interface NotchGeometry {
@@ -147,6 +157,7 @@ export interface NotchReadyPayload {
   geometry: NotchGeometry | null;
   snapshot: NotchSnapshot;
   prefs: NotchPrefs;
+  locale: string;
   /** Epoch ms the island stays muted until; `null` when it isn't snoozed. */
   snoozedUntil: number | null;
 }
@@ -165,6 +176,7 @@ export interface NotchBridge {
   onHover: (cb: (hovering: boolean) => void) => () => void;
   onGeometry: (cb: (geometry: NotchGeometry | null) => void) => () => void;
   onPrefs: (cb: (prefs: NotchPrefs) => void) => () => void;
+  onLocale: (cb: (locale: string) => void) => () => void;
   onSnooze: (cb: (snoozedUntil: number | null) => void) => () => void;
 }
 

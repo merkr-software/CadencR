@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useNotchDestinationActive } from "@/components/notch/useNotchCapabilities";
@@ -16,6 +17,7 @@ import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
  * peeks a sample notification out of it so the result can be judged live.
  */
 export function NotchSettings(): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const active = useNotchDestinationActive();
   const [sending, setSending] = useState(false);
   if (!active) return null;
@@ -28,13 +30,19 @@ export function NotchSettings(): React.JSX.Element | null {
         featureId: null,
         projectId: null,
         status: "completed",
-        title: "Your agent finished",
-        body: "This is how a finished agent peeks out of the notch. Hover the notch anytime to see every running agent and jump straight into its conversation.",
+        title: null,
+        body: "",
       });
     } catch (e: unknown) {
-      toast.error("Couldn't preview the notch island", {
-        description: apiErrorMessage(e, String(e)),
-      });
+      toast.error(
+        translateUi(
+          "settings.notifications.notch.previewError",
+          "Couldn't preview the notch island",
+        ),
+        {
+          description: apiErrorMessage(e, String(e)),
+        },
+      );
     } finally {
       setSending(false);
     }
@@ -43,19 +51,27 @@ export function NotchSettings(): React.JSX.Element | null {
   return (
     <SettingsGroup
       id={SETTINGS_ANCHORS.notch}
-      title="Notch island"
-      description="Agent activity and notifications around the MacBook camera notch."
+      title={t("settings.notifications.notch.sectionTitle", "Notch island")}
+      description={t(
+        "settings.notifications.notch.sectionDescription",
+        "Agent activity and notifications around the MacBook camera notch.",
+      )}
     >
       <NotchDisplaySetting />
       <NotchPrimaryStyleSetting />
       <NotchBehaviorSettings />
       <SettingsRow
         divided
-        label="Preview the notch island"
-        description="Peeks a sample notification out of the notch. Hover the notch to see the live agent list."
+        label={t("settings.notifications.notch.previewLabel", "Preview the notch island")}
+        description={t(
+          "settings.notifications.notch.previewDescription",
+          "Peeks a sample notification out of the notch. Hover the notch to see the live agent list.",
+        )}
         control={
           <Button variant="outline" size="sm" onClick={handlePreview} disabled={sending}>
-            {sending ? "Sending…" : "Preview"}
+            {sending
+              ? t("common.sending", "Sending…")
+              : t("settings.notifications.notch.previewAction", "Preview")}
           </Button>
         }
       />

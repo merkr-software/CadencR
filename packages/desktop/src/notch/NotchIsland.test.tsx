@@ -1,3 +1,4 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -34,6 +35,7 @@ interface BridgeHandles {
   notify: (notification: NotchNotification) => void;
   hover: (hovering: boolean) => void;
   snoozed: (until: number | null) => void;
+  updateLocale: (locale: string) => void;
 }
 
 function installBridge(
@@ -45,6 +47,7 @@ function installBridge(
   const off = () => () => {};
   let notify: (notification: NotchNotification) => void = () => {};
   let hover: (hovering: boolean) => void = () => {};
+  let updateLocale: (locale: string) => void = () => {};
   let snoozed: (until: number | null) => void = () => {};
   const bridge: NotchBridge = {
     ready: () =>
@@ -59,6 +62,7 @@ function installBridge(
         },
         snapshot: { agents },
         prefs,
+        locale: "en",
         snoozedUntil,
       }),
     setHotRect: vi.fn(() => Promise.resolve()),
@@ -77,6 +81,10 @@ function installBridge(
     },
     onGeometry: off,
     onPrefs: off,
+    onLocale: (cb) => {
+      updateLocale = cb;
+      return () => {};
+    },
     onSnooze: (cb) => {
       snoozed = cb;
       return () => {};
@@ -87,6 +95,7 @@ function installBridge(
     bridge,
     notify: (n: NotchNotification) => notify(n),
     hover: (h: boolean) => hover(h),
+    updateLocale: (locale: string) => updateLocale(locale),
     snoozed: (until: number | null) => snoozed(until),
   };
   window.cadencrNotch = handles;
@@ -107,6 +116,87 @@ async function renderCompactLayer(prefs: NotchPrefs, hardware = true): Promise<H
 afterEach(() => {
   delete window.cadencrNotch;
   vi.useRealTimers();
+});
+
+it("changes the language of an active peek while preserving agent content and its DOM", async () => {
+  uiI18n.addResource("fr", "ui", "notch.peek.done", "Terminé");
+  try {
+    const handles = installBridge(DEFAULT_NOTCH_PREFS);
+    handles.ready = async () => ({ ...(await handles.bridge.ready()), locale: "fr-CA" });
+    const { container } = render(<NotchIsland />);
+    await waitFor(() => {
+      expect(uiI18n.language).toBe("fr-CA");
+      expect(container.querySelector(".island")).not.toBeNull();
+    });
+    act(() =>
+      handles.notify({
+        id: "live-locale",
+        featureId: 7,
+        projectId: 1,
+        status: "completed",
+        title: "Original conversation title",
+        body: "Original agent message",
+      }),
+    );
+    await screen.findByText("Terminé");
+    const title = screen.getByText("Original conversation title");
+    const message = screen.getByText("Original agent message");
+
+    act(() => handles.updateLocale("en-GB"));
+
+    await screen.findByText("Done");
+    expect(uiI18n.language).toBe("en-GB");
+    expect(screen.getByText("Original conversation title")).toBe(title);
+    expect(screen.getByText("Original agent message")).toBe(message);
+  } finally {
+    uiI18n.removeResourceBundle("fr", "ui");
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+  }
+});
+
+it("keeps the newest locale when the ready reply arrives late", async () => {
+  const handles = installBridge(DEFAULT_NOTCH_PREFS);
+  const ready = Promise.withResolvers<Awaited<ReturnType<NotchBridge["ready"]>>>();
+  handles.ready = () => ready.promise;
+  const { container } = render(<NotchIsland />);
+  try {
+    act(() => handles.updateLocale("fr-CA"));
+    ready.resolve(await handles.bridge.ready());
+    await waitFor(() => expect(container.querySelector(".island")).not.toBeNull());
+    expect(uiI18n.language).toBe("fr-CA");
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+  }
+});
+
+it("updates active panel row copy without changing the provider's label", async () => {
+  uiI18n.addResource("fr", "ui", "notch.row.waitingApproval", "En attente de votre accord");
+  uiI18n.addResource("fr", "ui", "notch.tile.needsPermission", "Autorisation nécessaire");
+  try {
+    const handles = installBridge(DEFAULT_NOTCH_PREFS, true, [
+      { ...agent(1, "question"), providerLabel: "Provider-owned label" },
+    ]);
+    const { container } = render(<NotchIsland />);
+    await waitFor(() => expect(container.querySelector(".island")).not.toBeNull());
+    act(() => handles.hover(true));
+    await screen.findByText("Waiting for your approval");
+    const tile = screen.getByTitle("Provider-owned label");
+
+    act(() => handles.updateLocale("fr-CA"));
+
+    await screen.findByText("En attente de votre accord");
+    expect(screen.getByTitle("Provider-owned label")).toBe(tile);
+    expect(screen.getByLabelText("Autorisation nécessaire")).toBeInTheDocument();
+  } finally {
+    uiI18n.removeResourceBundle("fr", "ui");
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+  }
 });
 
 describe("NotchIsland compact ears", () => {

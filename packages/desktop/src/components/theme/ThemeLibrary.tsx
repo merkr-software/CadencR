@@ -1,10 +1,11 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import type { UserTheme } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useTheme } from "@/hooks/useTheme";
-import { useUserThemes } from "@/hooks/useUserThemes";
+import { useUserThemes, userThemeLoadError } from "@/hooks/useUserThemes";
 import type { ThemeDefinition } from "@/lib/themes";
 import { userThemeId, userThemeLabel } from "@/lib/themes/user-theme";
 import { CreateThemeDialog } from "./CreateThemeDialog";
@@ -22,6 +23,7 @@ import { useThemeLibraryActions } from "./useThemeLibraryActions";
  * and the diff of what either of them changed all sit together.
  */
 export function ThemeLibrary(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { entries, enabledThemes, isLoading, isEnabled, setEnabled, error } = useUserThemes();
   const { themeId } = useTheme();
   const actions = useThemeLibraryActions();
@@ -54,22 +56,28 @@ export function ThemeLibrary(): React.JSX.Element {
     <div className="space-y-4">
       <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
         <Plus className="size-3.5" />
-        Create theme
+        {t("appearance.library.create", "Create theme")}
       </Button>
 
       {error ? (
-        <p className="text-xs text-[var(--acc-red)]">Could not load your themes: {error.message}</p>
+        <p className="text-xs text-[var(--acc-red)]">
+          {t("appearance.library.loadError", "Could not load your themes: {{error}}", {
+            error: userThemeLoadError(error, t),
+          })}
+        </p>
       ) : null}
 
       {isLoading ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin" aria-hidden />
-          Loading themes…
+          {t("appearance.library.loading", "Loading themes…")}
         </p>
       ) : entries.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No themes yet. Create one from any theme you already like. You get its complete, working
-          set of colors to change.
+          {t(
+            "appearance.library.empty",
+            "No themes yet. Create one from any theme you already like. You get its complete, working set of colors to change.",
+          )}
         </p>
       ) : (
         <div className="space-y-2">
@@ -102,9 +110,18 @@ export function ThemeLibrary(): React.JSX.Element {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open_) => !open_ && setDeleting(null)}
-        title={deleting ? `Delete “${userThemeLabel(deleting)}”?` : ""}
-        description="Its project goes too. The complete theme folder moves to the Trash, including its file and git history."
-        confirmText="Delete"
+        title={
+          deleting
+            ? t("appearance.library.deleteTitle", "Delete “{{theme}}”?", {
+                theme: userThemeLabel(deleting),
+              })
+            : ""
+        }
+        description={t(
+          "appearance.library.deleteDescription",
+          "Its project goes too. The complete theme folder moves to the Trash, including its file and git history.",
+        )}
+        confirmText={t("appearance.library.delete", "Delete")}
         variant="destructive"
         onConfirm={() => deleting && actions.remove(deleting)}
       />

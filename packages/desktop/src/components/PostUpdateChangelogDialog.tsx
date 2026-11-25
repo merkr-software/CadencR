@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactElement } from "react";
 import { ExternalLink, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { APP_VERSION } from "@/lib/app-version";
-import { CHANGELOG_URL, LAST_SEEN_VERSION_KEY } from "@/lib/changelog";
+import { LAST_SEEN_VERSION_KEY, openFullChangelog } from "@/lib/changelog";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBody";
 
@@ -25,6 +26,7 @@ import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBo
  * published" notice when the release body isn't available.
  */
 export function PostUpdateChangelogDialog(): ReactElement | null {
+  const { t } = useUiTranslation();
   const [previousVersion, setPreviousVersion] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [changelog, setChangelog] = useState<ChangelogBodyState>({ kind: "loading" });
@@ -69,12 +71,18 @@ export function PostUpdateChangelogDialog(): ReactElement | null {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-primary" aria-hidden />
-            Cadencr updated to v{APP_VERSION}
+            {t("system.changelog.updatedVersion", "Cadencr updated to v{{version}}", {
+              version: APP_VERSION,
+            })}
           </DialogTitle>
           <DialogDescription>
             {previousVersion
-              ? `You were on v${previousVersion}. Here's what's new in this release.`
-              : "Here's what's new in this release."}
+              ? t(
+                  "system.changelog.previousVersion",
+                  "You were on v{{version}}. Here's what's new in this release.",
+                  { version: previousVersion },
+                )
+              : t("system.changelog.whatsNew", "Here's what's new in this release.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -82,16 +90,17 @@ export function PostUpdateChangelogDialog(): ReactElement | null {
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Dismiss
+            {t("system.postUpdateChangelogDialog.dismiss", "Dismiss")}
           </Button>
           <Button
             onClick={() => {
-              void desktopBridge.openExternal(CHANGELOG_URL);
-              setOpen(false);
+              void openFullChangelog().then((opened) => {
+                if (opened) setOpen(false);
+              });
             }}
           >
             <ExternalLink className="size-4" aria-hidden />
-            View full changelog
+            {t("sidebar.updateButton.viewFullChangelog", "View full changelog")}
           </Button>
         </DialogFooter>
       </DialogContent>

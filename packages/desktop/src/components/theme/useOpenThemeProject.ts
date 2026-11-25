@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -14,6 +15,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { themeAppearanceLabel } from "@/lib/themes/display";
 import { userThemeId, userThemeLabel } from "@/lib/themes/user-theme";
 import { DEFAULT_PANE_ID } from "@/stores/editor-helpers";
 import { useEditorStore } from "@/stores/editor-store";
@@ -76,7 +78,12 @@ export function useOpenThemeProject(): OpenThemeProject {
           });
         })
         .catch((error: unknown) => {
-          toast.error(apiErrorMessage(error, "Failed to open the theme"));
+          toast.error(
+            apiErrorMessage(
+              error,
+              translateUi("appearance.library.openFailed", "Failed to open the theme"),
+            ),
+          );
         })
         .finally(() => setOpeningId(null));
     },
@@ -110,7 +117,13 @@ function useArrangePanes(): (featureId: number) => Promise<void> {
         });
       } catch (error: unknown) {
         toast.error(
-          `Could not save the theme's pane layout: ${apiErrorMessage(error, "Unknown error")}`,
+          translateUi(
+            "appearance.library.paneLayoutFailed",
+            "Could not save the theme's pane layout: {{error}}",
+            {
+              error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
+            },
+          ),
         );
         return;
       }
@@ -151,7 +164,15 @@ function useWearTheme(): (theme: UserTheme) => void {
       else setSystemDarkTheme(id);
       if (system.appearance !== appearance) {
         toast.info(
-          `“${userThemeLabel(theme)}” is now your ${appearance} theme. Your system is in ${system.appearance} mode, so you'll see it there.`,
+          translateUi(
+            "appearance.library.followSystemApplied",
+            "“{{theme}}” is now your {{appearance}} theme. Your system is in {{systemAppearance}} mode, so you'll see it there.",
+            {
+              theme: userThemeLabel(theme),
+              appearance: themeAppearanceLabel(appearance, translateUi),
+              systemAppearance: themeAppearanceLabel(system.appearance, translateUi),
+            },
+          ),
         );
       }
     },

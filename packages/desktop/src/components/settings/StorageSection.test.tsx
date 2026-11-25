@@ -151,17 +151,20 @@ describe("StorageSection", () => {
     expect(apiMocks.mutate).toHaveBeenCalledOnce();
   });
 
-  it("shows the backend-confirmed manual-run result", () => {
+  it.each([
+    [1, "Cleanup started for 1 archived conversation."],
+    [2, "Cleanup started for 2 archived conversations."],
+  ])("shows the backend-confirmed manual-run result for %s items", (count, message) => {
     values.set("retention_compact_archived_enabled", "true");
     const view = render(<StorageSection />);
 
     runData = {
       status: ArchivedCleanupRunStatus.started,
-      eligible_features: 2,
+      eligible_features: count,
     };
     view.rerender(<StorageSection />);
 
-    expect(screen.getByText(/cleanup started for 2 archived conversations/i)).toBeInTheDocument();
+    expect(screen.getByText(`${message} Progress appears above Settings.`)).toBeInTheDocument();
   });
 
   it.each([

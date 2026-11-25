@@ -8,6 +8,7 @@ import {
   type NotchSnapshot,
 } from "@/shared/notch";
 import { notchBridge } from "./notch-bridge";
+import { uiI18n } from "@/shared/ui-i18n";
 
 const MAX_QUEUED_PEEKS = 4;
 /** Hover must settle this long before the island opens — passing through the menu bar shouldn't. */
@@ -35,6 +36,18 @@ export interface NotchFeed {
   reportError: (error: unknown) => void;
 }
 
+function useSnoozeDeadline() {
+  const [until, setUntil] = useState<number | null>(null);
+  useEffect(() => {
+    if (until == null) return;
+    const timer = setInterval(() => {
+      if (Date.now() >= until) setUntil(null);
+    }, SNOOZE_CHECK_MS);
+    return () => clearInterval(timer);
+  }, [until]);
+  return [until, setUntil] as const;
+}
+
 export function useNotchFeed(): NotchFeed {
   const [snapshot, setSnapshot] = useState<NotchSnapshot>({ agents: [] });
   const [geometry, setGeometry] = useState<NotchGeometry | null>(null);
@@ -42,7 +55,7 @@ export function useNotchFeed(): NotchFeed {
   const [hovering, setHovering] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [queue, setQueue] = useState<NotchNotification[]>([]);
-  const [snoozedUntil, setSnoozedUntil] = useState<number | null>(null);
+  const [snoozedUntil, setSnoozedUntil] = useSnoozeDeadline();
   const [error, setError] = useState<string | null>(null);
 
   const reportError = useCallback((cause: unknown) => {
@@ -51,10 +64,22 @@ export function useNotchFeed(): NotchFeed {
 
   useEffect(() => {
     const bridge = notchBridge();
+    let active = true;
+    let receivedLocale = false;
+    const applyLocale = (locale: string) => {
+      if (uiI18n.language === locale) return;
+      void uiI18n.changeLanguage(locale).catch((error: unknown) => {
+        if (active) reportError(error);
+      });
+    };
     const offs = [
       bridge.onSnapshot(setSnapshot),
       bridge.onGeometry(setGeometry),
       bridge.onPrefs(setPrefs),
+      bridge.onLocale((locale) => {
+        receivedLocale = true;
+        applyLocale(locale);
+      }),
       bridge.onHover(setHovering),
       bridge.onSnooze((until) => {
         setSnoozedUntil(until);
@@ -77,14 +102,22 @@ export function useNotchFeed(): NotchFeed {
     bridge
       .ready()
       .then((initial) => {
+        if (!active) return;
+        // A live change can arrive while the ready reply is still in flight.
+        if (!receivedLocale) applyLocale(initial.locale);
         setGeometry(initial.geometry);
         setSnapshot(initial.snapshot);
         setPrefs(initial.prefs);
         setSnoozedUntil(initial.snoozedUntil);
       })
-      .catch(reportError);
-    return () => offs.forEach((off) => off());
-  }, [reportError]);
+      .catch((error: unknown) => {
+        if (active) reportError(error);
+      });
+    return () => {
+      active = false;
+      offs.forEach((off) => off());
+    };
+  }, [reportError, setSnoozedUntil]);
 
   useEffect(() => {
     const timer = setTimeout(
@@ -107,14 +140,6 @@ export function useNotchFeed(): NotchFeed {
   const release = useCallback(() => {
     notchBridge().collapse().then(settle).catch(reportError);
   }, [reportError, settle]);
-
-  useEffect(() => {
-    if (snoozedUntil == null) return;
-    const timer = setInterval(() => {
-      if (Date.now() >= snoozedUntil) setSnoozedUntil(null);
-    }, SNOOZE_CHECK_MS);
-    return () => clearInterval(timer);
-  }, [snoozedUntil]);
 
   return {
     snapshot,

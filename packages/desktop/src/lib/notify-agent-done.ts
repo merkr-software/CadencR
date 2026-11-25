@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -56,7 +57,7 @@ export function readNotificationMode() {
  */
 export function listenForNotificationFailures(): () => void {
   return desktopBridge.onNotificationFailed((payload) => {
-    toast.error("System notification was blocked", {
+    toast.error(translateUi("notifications.systemBlocked", "System notification was blocked"), {
       description: payload.reason,
     });
   });
@@ -158,7 +159,9 @@ export function notifyAgentDone(opts: NotifyOptions): void {
       });
     } catch (e: unknown) {
       const message = apiErrorMessage(e, String(e));
-      toast.error("Couldn't send notification", { description: message });
+      toast.error(translateUi("notifications.sendError", "Couldn't send notification"), {
+        description: message,
+      });
     }
   })();
 }
@@ -175,11 +178,11 @@ async function notifyThroughNotch(opts: NotifyOptions): Promise<void> {
       featureId: opts.featureId,
       projectId: opts.projectId,
       status: opts.status,
-      title: opts.featureTitle.trim().slice(0, 200) || "Untitled conversation",
+      title: opts.featureTitle.trim().slice(0, 200) || null,
       body: plainPreview(preview ?? "").slice(0, 600),
     });
   } catch (e: unknown) {
-    toast.error("Couldn't show the notch notification", {
+    toast.error(translateUi("notifications.notchError", "Couldn't show the notch notification"), {
       description: apiErrorMessage(e, String(e)),
     });
   }
@@ -235,7 +238,7 @@ export function listenForNotificationFallbacks(
       description: scopedToastDescription({ projectId: click?.project_id }, payload.body),
       action: click
         ? {
-            label: "Open",
+            label: translateUi("common.open", "Open"),
             onClick: () => openFromNotification(click, navigate, queryClient),
           }
         : undefined,

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -25,18 +26,25 @@ import { apiErrorMessage } from "@/lib/api-errors";
  *     destination they picked.
  */
 export function NotificationsSection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [sending, setSending] = useState(false);
 
   const handleSendTest = async () => {
     setSending(true);
     try {
       await desktopBridge.notifyTest();
-      toast.success("Test notification sent", {
-        description: "Nothing showing? Allow notifications for Cadencr in your system's settings.",
+      toast.success(translateUi("settings.notifications.testSent", "Test notification sent"), {
+        description: translateUi(
+          "settings.notifications.testSentDescription",
+          "Nothing showing? Allow notifications for Cadencr in your system's settings.",
+        ),
       });
     } catch (e: unknown) {
       const message = apiErrorMessage(e, String(e));
-      toast.error("Couldn't send test notification", { description: message });
+      toast.error(
+        translateUi("settings.notifications.testError", "Couldn't send test notification"),
+        { description: message },
+      );
     } finally {
       setSending(false);
     }
@@ -46,8 +54,11 @@ export function NotificationsSection(): React.JSX.Element {
     <SettingsPageSection pageId="notifications">
       <SettingsGroup
         id={SETTINGS_ANCHORS.notificationDestination}
-        title="Destination"
-        description="System notifications stay visible while Cadencr is in the background."
+        title={t("settings.notifications.destinationTitle", "Destination")}
+        description={t(
+          "settings.notifications.destinationDescription",
+          "System notifications stay visible while Cadencr is in the background.",
+        )}
       >
         <SettingsSubsection>
           <NotificationModePicker />
@@ -61,13 +72,21 @@ export function NotificationsSection(): React.JSX.Element {
       <NotchSettings />
       {/* The OS notification path only exists in the desktop shell. */}
       {isDesktopShell() ? (
-        <SettingsGroup id={SETTINGS_ANCHORS.notificationTest} title="Troubleshooting">
+        <SettingsGroup
+          id={SETTINGS_ANCHORS.notificationTest}
+          title={t("settings.notifications.troubleshooting", "Troubleshooting")}
+        >
           <SettingsRow
-            label="Send a test notification"
-            description="Always goes through the operating system, whatever the destination above, so you can tell a delivery problem from a setting. Nothing shows up? Allow notifications for Cadencr in your system's settings."
+            label={t("settings.notifications.testLabel", "Send a test notification")}
+            description={t(
+              "settings.notifications.testDescription",
+              "Always goes through the operating system, whatever the destination above, so you can tell a delivery problem from a setting. Nothing shows up? Allow notifications for Cadencr in your system's settings.",
+            )}
             control={
               <Button variant="outline" size="sm" onClick={handleSendTest} disabled={sending}>
-                {sending ? "Sending…" : "Send test"}
+                {sending
+                  ? t("common.sending", "Sending…")
+                  : t("settings.notifications.sendTest", "Send test")}
               </Button>
             }
           />

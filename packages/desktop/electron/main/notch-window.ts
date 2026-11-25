@@ -1,4 +1,5 @@
 import { app, screen, type BrowserWindow } from "electron";
+import { translateUi } from "../../src/shared/ui-i18n";
 import {
   DEFAULT_NOTCH_PREFS,
   isNotchPreview,
@@ -33,6 +34,7 @@ export class NotchController {
   private snapshot: NotchSnapshot = { agents: [] };
   private pendingNotifications: NotchNotification[] = [];
   private prefs: NotchPrefs = DEFAULT_NOTCH_PREFS;
+  private locale = "en";
   /** Kept across window rebuilds; read against the wall clock, so it outlasts a sleep correctly. */
   private snoozedUntil: number | null = null;
   private probe: Promise<ProbedNotch[] | null> | null = null;
@@ -62,11 +64,15 @@ export class NotchController {
     return { supported: true, hardware: placements.some((placement) => placement.hardware) };
   }
 
-  async configure({ enabled, prefs }: NotchConfig): Promise<void> {
+  async configure({ enabled, prefs, locale }: NotchConfig): Promise<void> {
     if (process.platform !== "darwin") return;
     const displayChanged = this.prefs.displayMode !== prefs.displayMode;
     this.prefs = prefs;
-    for (const island of this.islands.values()) island.updatePrefs(prefs);
+    this.locale = locale;
+    for (const island of this.islands.values()) {
+      island.updatePrefs(prefs);
+      island.updateLocale(locale);
+    }
     if (enabled === this.enabled) {
       if (enabled && displayChanged) await this.place();
       return;
@@ -142,7 +148,10 @@ export class NotchController {
 
   openFeature(ref: NotchFeatureRef): void {
     const main = this.options.getMainWindow();
-    if (!main || main.isDestroyed()) throw new Error("The Cadencr window is not open.");
+    if (!main || main.isDestroyed())
+      throw new Error(
+        translateUi("notch.errors.mainWindowClosed", "The Cadencr window is not open."),
+      );
     if (main.isMinimized()) main.restore();
     main.show();
     app.focus({ steal: true });
@@ -199,6 +208,7 @@ export class NotchController {
             new NotchIslandWindow(placement, {
               snapshot: this.snapshot,
               prefs: this.prefs,
+              locale: this.locale,
               snoozedUntil: this.isSnoozed() ? this.snoozedUntil : null,
             }),
           );

@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { getAgentActivityDigest } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useNow } from "@/hooks/useNow";
 import { useNotchPrefs } from "@/lib/notch/notch-prefs";
 import {
@@ -41,15 +42,22 @@ export function NotchChannelBridge(): React.JSX.Element | null {
   const capabilities = useNotchCapabilities();
   const enabled = useNotchDestinationActive();
   const prefs = useNotchPrefs();
+  const { i18n } = useUiTranslation();
+  const locale = i18n.language;
 
   useEffect(() => {
     if (!capabilities.data?.supported) return;
-    desktopBridge.notchConfigure({ enabled, prefs }).catch((e: unknown) => {
-      toast.error(enabled ? "Couldn't open the notch island" : "Couldn't close the notch island", {
-        description: apiErrorMessage(e, String(e)),
-      });
+    desktopBridge.notchConfigure({ enabled, prefs, locale }).catch((e: unknown) => {
+      toast.error(
+        enabled
+          ? translateUi("notch.errors.openIsland", "Couldn't open the notch island")
+          : translateUi("notch.errors.closeIsland", "Couldn't close the notch island"),
+        {
+          description: apiErrorMessage(e, String(e)),
+        },
+      );
     });
-  }, [capabilities.data?.supported, enabled, prefs]);
+  }, [capabilities.data?.supported, enabled, locale, prefs]);
 
   return enabled ? <NotchFeed /> : null;
 }
@@ -96,6 +104,7 @@ function useFinishTracking(): void {
 }
 
 function NotchFeed(): null {
+  const { t } = useUiTranslation();
   useFinishTracking();
   const bySession = useSessionStatusStore((s) => s.bySession);
   const unread = useUnreadStore((s) => s.byFeature);
@@ -140,7 +149,7 @@ function NotchFeed(): null {
   useEffect(() => {
     if (!digest.isError) return;
     // One toast while the backend stays down, not one per retry.
-    toast.error("Couldn't refresh the notch island", {
+    toast.error(translateUi("notch.errors.refreshIsland", "Couldn't refresh the notch island"), {
       id: "notch-digest-error",
       description: apiErrorMessage(digest.error, String(digest.error)),
     });
@@ -156,8 +165,9 @@ function NotchFeed(): null {
         digest: digest.data?.entries ?? [],
         provider,
         now,
+        t,
       }),
-    [digest.data, dismissedAt, finishedAt, live, now, provider, unread],
+    [digest.data, dismissedAt, finishedAt, live, now, provider, t, unread],
   );
 
   const lastPushed = useRef<string | null>(null);
@@ -167,7 +177,7 @@ function NotchFeed(): null {
     lastPushed.current = serialized;
     desktopBridge.notchPushSnapshot(snapshot).catch((e: unknown) => {
       lastPushed.current = null;
-      toast.error("Couldn't update the notch island", {
+      toast.error(translateUi("notch.errors.updateIsland", "Couldn't update the notch island"), {
         id: "notch-push-error",
         description: apiErrorMessage(e, String(e)),
       });

@@ -77,7 +77,7 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
   const detail = childBlocks ?? EMPTY_BLOCKS;
   // Recap chips are derived here (not upstream) so the diff parse for numstat
   // only runs for the recaps Virtuoso actually mounts, and re-memoizes per turn.
-  const chips = useMemo(() => buildToolChips(detail), [detail]);
+  const chips = useMemo(() => buildToolChips(detail, t), [detail, t]);
   if (chips.length === 0) return null;
 
   const total = chips.reduce((sum, chip) => sum + chip.count, 0);

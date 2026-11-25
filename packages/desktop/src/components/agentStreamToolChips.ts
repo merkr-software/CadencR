@@ -1,3 +1,4 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import type { AgentBlockData } from "@/types/agent-block";
 import { isCountableTool } from "@/lib/agent-stream-summary";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
@@ -39,7 +40,7 @@ function classifyAccent(name: string, mcp: McpTool | undefined): ToolAccent {
  * first-appearance order. File-change groups accumulate their numstat from each
  * call's args; the heavier diff parse only runs for `edit`-accent groups.
  */
-export function buildToolChips(blocks: AgentBlockData[]): ToolChip[] {
+export function buildToolChips(blocks: AgentBlockData[], t?: UiTranslator): ToolChip[] {
   const order: string[] = [];
   const groups = new Map<string, ToolChip>();
 
@@ -54,7 +55,7 @@ export function buildToolChips(blocks: AgentBlockData[]): ToolChip[] {
 
     let chip = groups.get(key);
     if (!chip) {
-      const mcp = parseMcpTool(rawName, args);
+      const mcp = parseMcpTool(rawName, args, t);
       chip = {
         key,
         label: mcp?.label ?? name,

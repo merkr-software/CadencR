@@ -13,6 +13,8 @@ import { IconTile, type IconTileTint } from "./IconTile";
 export function SettingsSwitchRow({
   id,
   label,
+  ariaLabel,
+  align = "start",
   description,
   checked,
   onCheckedChange,
@@ -25,6 +27,8 @@ export function SettingsSwitchRow({
 }: {
   id?: string;
   label: ReactNode;
+  ariaLabel?: string;
+  align?: "start" | "center";
   description?: ReactNode;
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
@@ -47,7 +51,7 @@ export function SettingsSwitchRow({
       label={label}
       description={description}
       divided={divided}
-      align="start"
+      align={align}
       className={className}
       control={
         <span className="inline-flex items-center gap-2">
@@ -62,6 +66,7 @@ export function SettingsSwitchRow({
             checked={checked}
             onCheckedChange={onCheckedChange}
             disabled={disabled || saving}
+            aria-label={ariaLabel}
             aria-busy={saving}
           />
         </span>

@@ -1,8 +1,7 @@
-import {
-  formatChartTokens,
-  formatCompactTokens,
-  formatExactNumber,
-} from "@/components/usage/usage-chart-palette";
+import { formatExactNumber } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { formatChartTokens, formatCompactTokens } from "@/components/usage/usage-chart-palette";
 import type { UsageSummary } from "@/components/usage/use-usage-charts";
 import type { UsageMetric } from "@/components/usage/usage-stats-model";
 
@@ -20,6 +19,7 @@ export function UsageSummaryTiles({
   metric: UsageMetric;
   windowDays: number;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {metric === "messages" ? (
@@ -27,10 +27,14 @@ export function UsageSummaryTiles({
       ) : (
         <TokenTiles summary={summary} />
       )}
-      <Tile label="Top provider" value={summary.topProvider ?? "None"} name />
       <Tile
-        label="Top model"
-        value={summary.topModel?.name ?? "None"}
+        label={t("system.usageSummaryTiles.topProvider", "Top provider")}
+        value={summary.topProvider ?? t("system.usage.none", "None")}
+        name
+      />
+      <Tile
+        label={t("system.usageSummaryTiles.topModel", "Top model")}
+        value={summary.topModel?.name ?? t("system.usage.none", "None")}
         title={summary.topModel?.label}
         name
       />
@@ -39,17 +43,31 @@ export function UsageSummaryTiles({
 }
 
 function TokenTiles({ summary }: { summary: UsageSummary }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   return (
     <>
       <Tile
-        label="Input"
-        value={formatChartTokens(summary.totalInputTokens)}
-        title={`${formatExactNumber(summary.totalInputTokens)} input tokens`}
+        label={t("system.usageSummaryTiles.input", "Input")}
+        value={formatChartTokens(summary.totalInputTokens, locale)}
+        title={t("system.usage.titleInputTokens", "{{formattedCount}} input tokens", {
+          count: summary.totalInputTokens,
+          formattedCount: formatExactNumber(summary.totalInputTokens, locale),
+          defaultValue_zero: "{{formattedCount}} input tokens",
+          defaultValue_one: "{{formattedCount}} input token",
+          defaultValue_other: "{{formattedCount}} input tokens",
+        })}
       />
       <Tile
-        label="Output"
-        value={formatChartTokens(summary.totalOutputTokens)}
-        title={`${formatExactNumber(summary.totalOutputTokens)} output tokens`}
+        label={t("system.usageSummaryTiles.output", "Output")}
+        value={formatChartTokens(summary.totalOutputTokens, locale)}
+        title={t("system.usage.titleOutputTokens", "{{formattedCount}} output tokens", {
+          count: summary.totalOutputTokens,
+          formattedCount: formatExactNumber(summary.totalOutputTokens, locale),
+          defaultValue_zero: "{{formattedCount}} output tokens",
+          defaultValue_one: "{{formattedCount}} output token",
+          defaultValue_other: "{{formattedCount}} output tokens",
+        })}
       />
     </>
   );
@@ -62,18 +80,29 @@ function MessageTiles({
   total: number;
   windowDays: number;
 }): React.JSX.Element {
-  const perDay = formatCompactTokens(total / Math.max(1, windowDays));
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
+  const perDay = formatCompactTokens(total / Math.max(1, windowDays), locale);
   return (
     <>
       <Tile
-        label="Messages sent"
-        value={formatExactNumber(total)}
-        title={`${formatExactNumber(total)} messages sent`}
+        label={t("system.usageSummaryTiles.messagesSent", "Messages sent")}
+        value={formatExactNumber(total, locale)}
+        title={t("system.usage.titleMessages", "{{formattedCount}} messages sent", {
+          count: total,
+          formattedCount: formatExactNumber(total, locale),
+          defaultValue_zero: "{{formattedCount}} messages sent",
+          defaultValue_one: "{{formattedCount}} message sent",
+          defaultValue_other: "{{formattedCount}} messages sent",
+        })}
       />
       <Tile
-        label="Daily average"
+        label={t("system.usageSummaryTiles.dailyAverage", "Daily average")}
         value={perDay}
-        title={`${perDay} messages a day over ${windowDays} days`}
+        title={t("system.usage.averageOverDays", "{{average}} messages a day over {{days}} days", {
+          average: perDay,
+          days: formatExactNumber(windowDays, locale),
+        })}
       />
     </>
   );

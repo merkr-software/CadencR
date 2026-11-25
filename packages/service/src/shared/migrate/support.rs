@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{AssertSqlSafe, Row, SqlitePool};
 
-use crate::shared::startup_progress::run_phase;
+use crate::shared::startup_progress::{run_phase, StartupStep};
 
 pub(super) async fn has_pending_migrations(
     pool: &SqlitePool,
@@ -149,13 +149,8 @@ pub(super) async fn backup_database(
     let staging_str = staging
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("backup path is not valid UTF-8: {}", staging.display()))?;
-    let detail = format!(
-        "Creating a {} safety copy before applying database updates.",
-        crate::shared::disk_space::human_bytes(db_bytes)
-    );
     run_phase(
-        "backing_up",
-        &detail,
+        StartupStep::CreateBackup { bytes: db_bytes },
         sqlx::query("VACUUM INTO ?").bind(staging_str).execute(pool),
     )
     .await?;

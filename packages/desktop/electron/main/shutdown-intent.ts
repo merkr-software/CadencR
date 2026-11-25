@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 const INTENT_TIMEOUT_MS = 2_000;
 const LIVE_QUIT_TIMEOUT_MS = 45_000;
 
@@ -72,7 +73,7 @@ export async function stopLiveWorkForQuit(
   authToken: string | null,
 ): Promise<void> {
   const failure = (detail: string): Error =>
-    new Error(`Cadencr could not confirm that your agents stopped: ${detail}`);
+    new Error(t("system.shutdown.stopIntent", "Cadencr could not confirm that your agents stopped: {{detail}}", { detail }));
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/api/restart-continuations/prepare-desktop-quit`, {
@@ -92,9 +93,9 @@ export async function stopLiveWorkForQuit(
         "error" in body &&
         typeof body.error === "string"
           ? body.error
-          : `the service returned ${response.status}`,
+          : t("system.shutdown.responseStatus", "the service returned {{status}}", { status: response.status }),
       )
-      .catch(() => `the service returned ${response.status}`);
+      .catch(() => t("system.shutdown.responseStatus", "the service returned {{status}}", { status: response.status }));
     throw failure(detail);
   }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import type { AgentBlockData } from "@/types/agent-block";
 import { CompactToolLine } from "./CompactToolLine";
 
@@ -8,6 +9,38 @@ function toolCall(overrides: Partial<AgentBlockData> = {}): AgentBlockData {
 }
 
 describe("CompactToolLine", () => {
+  it("updates the host MCP label in place and preserves provider data", async () => {
+    uiI18n.addResource("fr", "ui", "tools.mcp.openingUrl", "Ouverture de l’URL");
+    const url = "https://example.com/provider-url";
+    try {
+      render(
+        <>
+          <CompactToolLine
+            block={toolCall({
+              toolName: "mcp__cadencr-browser__browser_open_url",
+              toolArgs: JSON.stringify({ url }),
+            })}
+          />
+          <CompactToolLine block={toolCall({ toolName: "ProviderCustomTool" })} />
+        </>,
+      );
+      expect(screen.getByText("Opening URL")).toBeInTheDocument();
+      const detail = screen.getByText(url);
+      const providerTool = screen.getByText("ProviderCustomTool");
+      await act(async () => {
+        await uiI18n.changeLanguage("fr");
+      });
+      expect(screen.getByText("Ouverture de l’URL")).toBeInTheDocument();
+      expect(screen.getByText(url)).toBe(detail);
+      expect(screen.getByText("ProviderCustomTool")).toBe(providerTool);
+    } finally {
+      uiI18n.removeResourceBundle("fr", "ui");
+      await act(async () => {
+        await uiI18n.changeLanguage("en");
+      });
+    }
+  });
+
   it("shows the first line of a thinking block, without markdown marks", () => {
     render(
       <CompactToolLine

@@ -1,3 +1,5 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatClock } from "@/lib/format-clock";
 import { isSameDay, isSameYear } from "date-fns";
 import { translateUi, uiI18n } from "@/lib/i18n/ui";
 
@@ -11,7 +13,6 @@ const YEAR_MS = 365 * DAY_MS;
 // Cache by effective locale: every visible row formats its time again each minute.
 function makeTimeFormats(locale: string) {
   return {
-    clock: new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }),
     full: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
     shortDate: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }),
     dateWithYear: new Intl.DateTimeFormat(locale, {
@@ -24,12 +25,11 @@ function makeTimeFormats(locale: string) {
 
 const timeFormats = new Map<string, ReturnType<typeof makeTimeFormats>>();
 
-function sidebarTimeFormats() {
-  const language = uiI18n.language || "en";
-  const existing = timeFormats.get(language);
+function sidebarTimeFormats(locale: string) {
+  const existing = timeFormats.get(locale);
   if (existing) return existing;
-  const formats = makeTimeFormats(language === "cimode" ? "en" : language);
-  timeFormats.set(language, formats);
+  const formats = makeTimeFormats(locale);
+  timeFormats.set(locale, formats);
   return formats;
 }
 
@@ -67,12 +67,13 @@ export function formatSidebarRelativeTime(date: Date, now: number): string {
 
 /** A sidebar-width absolute time: the clock time today, else the date. */
 export function formatSidebarAbsoluteTime(date: Date, now: number): string {
-  const formats = sidebarTimeFormats();
-  if (isSameDay(date, now)) return formats.clock.format(date);
+  const locale = formattingLocale(uiI18n.language);
+  if (isSameDay(date, now)) return formatClock(date, locale);
+  const formats = sidebarTimeFormats(locale);
   return (isSameYear(date, now) ? formats.shortDate : formats.dateWithYear).format(date);
 }
 
 /** The full date and time, for the label's tooltip. */
 export function formatSidebarFullTime(date: Date): string {
-  return sidebarTimeFormats().full.format(date);
+  return sidebarTimeFormats(formattingLocale(uiI18n.language)).full.format(date);
 }

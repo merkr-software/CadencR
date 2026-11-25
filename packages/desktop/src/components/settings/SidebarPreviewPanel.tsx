@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useRef, type ReactElement } from "react";
 import { SidebarConfigProvider } from "@/components/SidebarConfigProvider";
 import { SampleReplayButton } from "@/components/SidebarSampleBanner";
@@ -35,6 +36,7 @@ export function SidebarPreviewPanel(): ReactElement {
 }
 
 function PreviewFrame(): ReactElement {
+  const { t } = useUiTranslation();
   const frameRef = useRef<HTMLElement>(null);
   const displayAttributes = useSidebarDisplayAttributes();
   useSidebarHighlightAttribute(frameRef);
@@ -42,7 +44,7 @@ function PreviewFrame(): ReactElement {
   return (
     <section
       ref={frameRef}
-      aria-label="Sidebar preview"
+      aria-label={t("sidebar.settings.preview.label", "Sidebar preview")}
       {...displayAttributes}
       className="glass-surface flex max-h-[min(36rem,calc(100vh-4rem))] flex-col overflow-hidden rounded-xl border border-border/60 bg-sidebar"
     >
@@ -50,9 +52,12 @@ function PreviewFrame(): ReactElement {
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
         <span
           className="min-w-0 flex-1 truncate font-medium text-foreground/85"
-          title="Sample conversations covering every case the options change"
+          title={t(
+            "sidebar.settings.preview.description",
+            "Sample conversations covering every case the options change",
+          )}
         >
-          Live preview
+          {t("sidebar.settings.preview.title", "Live preview")}
         </span>
         {preview && <SampleReplayButton onReplay={preview.replay} />}
       </div>

@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { app } from "electron";
 import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
 import { declaredTooLarge, readBounded } from "./bounded-body";
@@ -62,7 +63,13 @@ export function resolveChangelogImageUrl(src: string): string | null {
 export async function fetchChangelogImage(src: string): Promise<ChangelogImageBytes> {
   const url = resolveChangelogImageUrl(src);
   if (!url) {
-    throw new Error(`Only images committed to the ${GH_OWNER}/${GH_REPO} repository can be shown.`);
+    throw new Error(
+      translateUi(
+        "system.changelog.outsideRepository",
+        "Only images committed to the {{repository}} repository can be shown.",
+        { repository: `${GH_OWNER}/${GH_REPO}` },
+      ),
+    );
   }
 
   const res = await fetch(url, {
@@ -74,19 +81,37 @@ export async function fetchChangelogImage(src: string): Promise<ChangelogImageBy
   });
   if (!res.ok) {
     await res.body?.cancel();
-    throw new Error(`GitHub returned HTTP ${res.status} for this image.`);
+    throw new Error(
+      translateUi(
+        "system.changelog.imageHttpError",
+        "GitHub returned HTTP {{status}} for this image.",
+        { status: res.status },
+      ),
+    );
   }
 
   const mimeType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   if (!IMAGE_MIME_TYPES.has(mimeType)) {
     await res.body?.cancel();
-    throw new Error(`Unsupported image type: ${mimeType || "unknown"}.`);
+    throw new Error(
+      mimeType
+        ? translateUi(
+            "system.changelog.unsupportedImageType",
+            "Unsupported image type: {{type}}.",
+            { type: mimeType },
+          )
+        : translateUi("system.changelog.unknownImageType", "Unsupported image type: unknown."),
+    );
   }
   if (declaredTooLarge(res.headers.get("content-length"), MAX_IMAGE_BYTES)) {
     await res.body?.cancel();
-    throw new Error("Image is too large to display.");
+    throw imageTooLarge();
   }
   const data = await readBounded(res.body, MAX_IMAGE_BYTES);
-  if (!data) throw new Error("Image is too large to display.");
+  if (!data) throw imageTooLarge();
   return { data, mimeType };
+}
+
+function imageTooLarge(): Error {
+  return new Error(translateUi("system.changelog.imageTooLarge", "Image is too large to display."));
 }

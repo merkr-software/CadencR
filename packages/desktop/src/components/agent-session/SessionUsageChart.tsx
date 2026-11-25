@@ -1,3 +1,5 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useGetUsageStats, type UsageStatsEntry } from "@/api/generated";
 import { UsageOverviewChart } from "@/components/usage/UsageOverviewChart";
@@ -47,7 +49,7 @@ function metricOptions(t: UiTranslator) {
  * visible — a missing chart must never read as "no usage".
  */
 export function SessionUsageChart(): React.JSX.Element | null {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
   const { data, isLoading, error } = useGetUsageStats({ days: OVERVIEW_DAYS });
   const [metric, setMetric] = useSessionUsageMetric();
   const { chart, labelOf, summary } = useUsageCharts({
@@ -79,17 +81,18 @@ export function SessionUsageChart(): React.JSX.Element | null {
 
   if (!summary.hasUsage) return null;
 
+  const days = formatExactNumber(OVERVIEW_DAYS, formattingLocale(i18n.language));
   const caption =
     metric === "messages"
       ? t(
           "conversation.stream.sessionUsageChart.messagesOverDays",
           "Messages sent over the last {{days}} days",
-          { days: OVERVIEW_DAYS },
+          { days },
         )
       : t(
           "conversation.stream.sessionUsageChart.tokensOverDays",
           "Tokens exchanged over the last {{days}} days",
-          { days: OVERVIEW_DAYS },
+          { days },
         );
 
   return (
@@ -128,12 +131,12 @@ export function SessionUsageChart(): React.JSX.Element | null {
             ? t(
                 "conversation.stream.sessionUsageChart.noMessages",
                 "No messages sent in the last {{days}} days.",
-                { days: OVERVIEW_DAYS },
+                { days },
               )
             : t(
                 "conversation.stream.sessionUsageChart.noTokens",
                 "No tokens exchanged in the last {{days}} days.",
-                { days: OVERVIEW_DAYS },
+                { days },
               )
         }
       />

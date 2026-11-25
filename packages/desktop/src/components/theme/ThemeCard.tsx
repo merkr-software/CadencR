@@ -1,5 +1,7 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import type { ThemeDefinition } from "@/lib/themes";
+import { themeAppearanceLabel, themeDisplayLabel } from "@/lib/themes/display";
 import { ThemeSwatch } from "./ThemeSwatch";
 
 /**
@@ -26,6 +28,7 @@ export function ThemeCard({
   onSelect: () => void;
   className?: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
@@ -47,9 +50,11 @@ export function ThemeCard({
     >
       <ThemeSwatch theme={theme} />
       <div className="min-w-0 w-full">
-        <div className="truncate text-[11px] font-medium leading-tight">{theme.label}</div>
+        <div className="truncate text-[11px] font-medium leading-tight">
+          {themeDisplayLabel(theme, t)}
+        </div>
         <div className="text-[10px] text-muted-foreground capitalize leading-tight">
-          {theme.appearance}
+          {themeAppearanceLabel(theme.appearance, t)}
         </div>
       </div>
     </button>

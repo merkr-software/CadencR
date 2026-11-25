@@ -6,6 +6,7 @@
  * blocked before the request leaves. The Electron main process fetches the
  * bytes (`electron/main/changelog-images.ts`) and they render from a `blob:` URL.
  */
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -25,6 +26,7 @@ async function changelogImageBlob(src: string): Promise<Blob> {
 
 /** `img` renderer for markdown inside the changelog dialogs. */
 export function ChangelogImage(props: MarkdownImageProps): ReactElement {
+  const { t } = useUiTranslation();
   const src = props.src ?? "";
   const direct = isDirectSource(src);
   const query = useQuery({
@@ -42,9 +44,14 @@ export function ChangelogImage(props: MarkdownImageProps): ReactElement {
 
   if (direct) return <DecodedMarkdownImage key={src} {...props} />;
   const errorMessage = !src
-    ? "This image has no source."
+    ? t("system.changelog.noImageSource", "This image has no source.")
     : query.error
-      ? stripElectronIpcPrefix(apiErrorMessage(query.error, "Could not load this image"))
+      ? stripElectronIpcPrefix(
+          apiErrorMessage(
+            query.error,
+            t("system.changelog.imageError", "Could not load this image"),
+          ),
+        )
       : null;
   return <ProxiedMarkdownImage {...props} url={url} errorMessage={errorMessage} />;
 }

@@ -2,6 +2,7 @@ import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CheckCircle2, CircleAlert, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { catalogSourceMissing, marketplaceError } from "@/lib/marketplace";
+import { managedThemeInventoryError } from "@/lib/theme-marketplace";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { KINDS } from "./kinds";
 
@@ -60,10 +61,12 @@ function useActivityLines(t: UiTranslator): Line[] {
     providers.inventoryQuery.error,
   );
   error("theme-catalog-error", themeLabel, themes.catalog.error ?? themes.refresh.error);
-  error(
+  diagnostic(
     "theme-inventory-error",
     t("marketplace.activity.installedThemes", "Installed themes"),
-    themes.inventory.error ?? themes.recovery.error,
+    themes.inventory.error
+      ? managedThemeInventoryError(themes.inventory.error, t)
+      : marketplaceError(themes.recovery.error, t),
   );
   error("lsp-catalog-error", lspLabel, lsps.catalog.error ?? lsps.refresh.error);
   error(

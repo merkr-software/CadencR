@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { describe, expect, it } from "vitest";
 import type { AgentActivityDigestEntry } from "@/api/generated";
 import {
@@ -37,6 +38,7 @@ function input(overrides: Partial<NotchComposeInput>): NotchComposeInput {
     digest: [],
     provider: (id) => (id ? { label: "Claude", iconSrc: "/claude.png", mono: true } : null),
     now: NOW,
+    t: translateUi,
     ...overrides,
   };
 }

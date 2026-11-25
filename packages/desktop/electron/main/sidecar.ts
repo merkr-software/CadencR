@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -62,11 +63,18 @@ export interface SpawnProductionSidecarOptions {
 function normalizeBaseUrl(key: string, value: string): string {
   const parsed = new URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`${key} must use http:// or https://`);
+    throw new Error(
+      t("system.service.configScheme", "{{name}} must use http:// or https://", { name: key }),
+    );
   }
-  if (!parsed.hostname) throw new Error(`${key} must include a host`);
+  if (!parsed.hostname)
+    throw new Error(t("system.service.configHost", "{{name}} must include a host", { name: key }));
   if ((parsed.pathname && parsed.pathname !== "/") || parsed.search || parsed.hash) {
-    throw new Error(`${key} must not include a path, query, or fragment`);
+    throw new Error(
+      t("system.service.configPath", "{{name}} must not include a path, query, or fragment", {
+        name: key,
+      }),
+    );
   }
   const port = parsed.port ? `:${parsed.port}` : "";
   return `${parsed.protocol}//${parsed.hostname}${port}`;
@@ -95,7 +103,12 @@ export async function waitForDevSidecar(
   onStatus: (update: SidecarStatusUpdate) => void = () => {},
 ): Promise<void> {
   if (!handle.authToken) {
-    throw new Error("Cannot start Cadencr: development service auth token is missing.");
+    throw new Error(
+      t(
+        "system.service.missingToken",
+        "Cannot start Cadencr: development service auth token is missing.",
+      ),
+    );
   }
   const watchdog = createStartupWatchdog();
   recordStartupProgress(watchdog, "waiting_for_service");
@@ -111,7 +124,13 @@ export function productionDbPath(): string {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cadencr can't initialize its data directory at ${dir}: ${cause}`);
+    throw new Error(
+      t(
+        "system.service.dataDirectory",
+        "Cadencr can't initialize its data directory at {{dir}}: {{cause}}",
+        { dir, cause },
+      ),
+    );
   }
   return dbPath;
 }
@@ -311,7 +330,11 @@ export async function rethrowAfterCleanup(
     const detail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
     throw new AggregateError(
       [failure, cleanupError],
-      `${failure.message}\n\nFailed to stop the service after startup failure: ${detail}`,
+      t(
+        "system.service.cleanupFailure",
+        "{{message}}\n\nFailed to stop the service after startup failure: {{detail}}",
+        { message: failure.message, detail },
+      ),
     );
   }
   throw failure;

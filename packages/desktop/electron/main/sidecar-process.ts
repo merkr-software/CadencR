@@ -1,7 +1,8 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import type { ChildProcessByStdio } from "node:child_process";
 import net from "node:net";
 import type { Readable, Writable } from "node:stream";
-import { NEWER_DATABASE_RECOVERY_DETAIL, isNewerDatabaseStartupFailure } from "./startup-recovery";
+import { isNewerDatabaseStartupFailure } from "./startup-recovery";
 
 const STDERR_TAIL_LINES = 12;
 const PHASE_PREFIX = "CADENCR_PHASE ";
@@ -35,9 +36,8 @@ export function describeStartupFailure(
   exitCode: number | null,
   exitSignal: NodeJS.Signals | null,
 ): string {
-  if (stderrTail.some(isNewerDatabaseStartupFailure)) {
-    return NEWER_DATABASE_RECOVERY_DETAIL;
-  }
+  const newerDatabase = stderrTail.find(isNewerDatabaseStartupFailure);
+  if (newerDatabase) return newerDatabase;
 
   const detail = describeServiceFailure(stderrTail, exitCode, exitSignal);
   return detail ? [baseMessage, detail].join("\n\n") : baseMessage;
@@ -63,8 +63,11 @@ export async function assertPortAvailable(port: number): Promise<void> {
   const available = await isPortAvailable(port);
   if (!available) {
     throw new Error(
-      `cadencr-service cannot start because 127.0.0.1:${port} is already in use. ` +
-        "A headless Cadencr started with `cadencr serve` uses this port: stop it, or quit the other program using it.",
+      t(
+        "system.service.busyPort",
+        "cadencr-service cannot start because 127.0.0.1:{{port}} is already in use. A headless Cadencr started with `cadencr serve` uses this port: stop it, or quit the other program using it.",
+        { port },
+      ),
     );
   }
 }
@@ -157,17 +160,21 @@ export async function stopChild(child: ServiceProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const termSent = child.kill("SIGTERM");
   if (!termSent && !(await waitForExit(child, 100))) {
-    throw new Error("cadencr-service rejected SIGTERM and is still running");
+    throw new Error(
+      t("system.service.termRejected", "cadencr-service rejected SIGTERM and is still running"),
+    );
   }
   if (await waitForExit(child, 2_000)) return;
   if (child.exitCode === null && child.signalCode === null) {
     const killSent = child.kill("SIGKILL");
     if (!killSent && !(await waitForExit(child, 100))) {
-      throw new Error("cadencr-service rejected SIGKILL and is still running");
+      throw new Error(
+        t("system.service.killRejected", "cadencr-service rejected SIGKILL and is still running"),
+      );
     }
   }
   if (!(await waitForExit(child, 2_000))) {
-    throw new Error("cadencr-service did not exit after SIGKILL");
+    throw new Error(t("system.service.killFailed", "cadencr-service did not exit after SIGKILL"));
   }
 }
 

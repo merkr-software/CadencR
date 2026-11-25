@@ -1,3 +1,6 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   NotchAgent,
@@ -85,13 +88,25 @@ function CompactEars({
   agents: readonly NotchAgent[];
   still: boolean;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   const { shown, extra } = compactDots(agents);
   return (
     <>
       <span className="ear">
         <IndexDotsOrb state={still ? "logo" : aggregateOrbState(agents)} />
       </span>
-      <span className="ear compact-dots" data-still={still} aria-label={`${agents.length} agents`}>
+      <span
+        className="ear compact-dots"
+        data-still={still}
+        aria-label={t("notch.activity.agentCount", {
+          count: agents.length,
+          formattedCount: formatExactNumber(agents.length, locale),
+          defaultValue_zero: "{{formattedCount}} agents",
+          defaultValue_one: "{{formattedCount}} agent",
+          defaultValue_other: "{{formattedCount}} agents",
+        })}
+      >
         {shown.map((agent, i) => (
           <span
             key={agent.featureId}
@@ -100,7 +115,13 @@ function CompactEars({
             style={{ "--i": i } as CSSProperties}
           />
         ))}
-        {extra > 0 ? <span className="compact-count">+{extra}</span> : null}
+        {extra > 0 ? (
+          <span className="compact-count">
+            {t("notch.activity.overflow", "+{{formattedCount}}", {
+              formattedCount: formatExactNumber(extra, locale),
+            })}
+          </span>
+        ) : null}
       </span>
     </>
   );

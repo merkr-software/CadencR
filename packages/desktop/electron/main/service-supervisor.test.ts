@@ -41,6 +41,17 @@ describe("service supervisor", () => {
     expect(supervisor.status()).toEqual({ state: "down", detail: "port 5004 is already in use" });
   });
 
+  it("retains the native diagnostic and marks newer-database failures for the renderer", async () => {
+    const detail = "SQLite: database updated by a newer version of Cadencr";
+    const supervisor = createServiceSupervisor({
+      respawn: () => Promise.reject(new Error(detail)),
+      publish: vi.fn(),
+    });
+    supervisor.reportExit(EXIT);
+    await supervisor.restart();
+    expect(supervisor.status()).toEqual({ state: "down", reason: "newer-database", detail });
+  });
+
   it("refuses to restart a running service", async () => {
     const respawn = vi.fn();
     const supervisor = createServiceSupervisor({ respawn, publish: vi.fn() });

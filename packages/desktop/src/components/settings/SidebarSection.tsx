@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import {
   ChoiceControl,
@@ -36,6 +37,7 @@ const DENSE_ROW = "gap-y-2 py-3";
  * popover edits the same values in a compact layout.
  */
 export function SidebarSection(): ReactElement {
+  const { t } = useUiTranslation();
   const form = useSidebarDisplayForm();
   const highlight = useSidebarOptionHighlight();
 
@@ -67,8 +69,11 @@ export function SidebarSection(): ReactElement {
           <SettingsCard>
             <SettingsRow
               className={DENSE_ROW}
-              label="Reset display options"
-              description="Restore every option above to its default."
+              label={t("sidebar.settings.reset", "Reset display options")}
+              description={t(
+                "sidebar.settings.resetDescription",
+                "Restore every option above to its default.",
+              )}
               control={<ResetDisplayOptionsButton form={form} variant="outline" size="sm" />}
             />
           </SettingsCard>
@@ -88,6 +93,7 @@ function SettingsItem({
   item: DisplayItem;
   divided: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const resolved = resolveDisplayItem(item);
   if (resolved.kind === "sectionOrder") {
     return (
@@ -96,7 +102,7 @@ function SettingsItem({
           divided={divided}
           align="start"
           className={DENSE_ROW}
-          label="Block order"
+          label={t("sidebar.displayOptions.blockOrder", "Block order")}
           description={sectionOrderDescription()}
           control={
             <div className="w-56">
@@ -113,7 +119,7 @@ function SettingsItem({
         divided={divided}
         align="start"
         className={DENSE_ROW}
-        label="Show in rows"
+        label={t("sidebar.displayOptions.showInRows", "Show in rows")}
         description={rowElementsDescription()}
         control={<RowElementGrid form={form} className="gap-x-6 gap-y-2" />}
       />

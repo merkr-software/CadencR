@@ -16,6 +16,7 @@ import {
   duplicateThemeResponseSchema,
   themeCatalogSchema,
   managedThemesKey,
+  parseManagedThemeResponse,
 } from "@/lib/theme-marketplace";
 import { useManagedThemes } from "./useManagedThemes";
 import { useStableMutation, useStableQuery } from "./stable-query";
@@ -112,10 +113,13 @@ async function executeThemeAction(action: ThemeAction): Promise<string | null> {
         action.kind === "install"
           ? await installManagedTheme(body)
           : await updateManagedTheme(action.id, body);
-      return managedThemeEntrySchema.parse(response).warning ?? null;
+      return parseManagedThemeResponse(managedThemeEntrySchema, response).warning ?? null;
     }
     case "apply":
-      return managedThemeEntrySchema.parse(await applyManagedTheme(action.id)).warning ?? null;
+      return (
+        parseManagedThemeResponse(managedThemeEntrySchema, await applyManagedTheme(action.id))
+          .warning ?? null
+      );
     case "remove":
       z.object({ success: z.literal(true), fallback: z.string().nullable().optional() }).parse(
         await removeManagedTheme(action.id, { confirm_builtin_fallback: action.confirmFallback }),

@@ -159,6 +159,7 @@ function ToolCallLine({ block, basePath, failed, t }: ToolCallLineProps) {
       toolArgs={block.toolArgs}
       basePath={basePath}
       failed={failed}
+      t={t}
     />
   );
 }
@@ -212,13 +213,14 @@ function GenericToolLine({
   toolArgs,
   basePath,
   failed,
-}: ToolLineProps & { toolName: string }) {
+  t,
+}: ToolLineProps & { toolName: string; t: UiTranslator }) {
   const presentation = useMemo(() => {
-    const mcp = parseMcpTool(toolName, toolArgs);
+    const mcp = parseMcpTool(toolName, toolArgs, t);
     if (mcp) return { label: mcp.label, detail: oneLineDetail(mcp.detail, undefined), mcp: true };
-    const detail = oneLineDetail(parseToolCall(toolName, toolArgs)?.detail, basePath);
+    const detail = oneLineDetail(parseToolCall(toolName, toolArgs, t)?.detail, basePath);
     return { label: toolName, detail, mcp: false };
-  }, [toolName, toolArgs, basePath]);
+  }, [toolName, toolArgs, basePath, t]);
   const subagent = isSubagentToolName(toolName);
   return (
     <BaseLine

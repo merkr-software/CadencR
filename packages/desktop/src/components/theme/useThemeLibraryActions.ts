@@ -1,5 +1,6 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   getListThemesQueryKey,
@@ -8,7 +9,7 @@ import {
   type UserTheme,
   type ThemeWorkspace,
 } from "@/api/generated";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { toastError } from "@/lib/api-errors";
 import { invalidateByExactUrl, invalidateByUrlPrefix } from "@/lib/queryClient";
 import { downloadJsonFile } from "@/lib/download";
 import { type ThemeDefinition } from "@/lib/themes";
@@ -48,20 +49,29 @@ interface ThemeLibraryActions {
  */
 export function useThemeLibraryActions(): ThemeLibraryActions {
   const queryClient = useQueryClient();
-  const create = useCreateTheme();
-  const remove = useDeleteTheme();
-  const release = useReleaseTheme();
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
   // Refresh after partial creation too: the retained theme can be reopened to
   // retry project setup, instead of asking the user to create another copy.
   const refresh = useCallback((): void => {
     void queryClient
       .invalidateQueries({ queryKey: getListThemesQueryKey() })
       .catch((error: unknown) => {
-        toast.error(apiErrorMessage(error, "Could not refresh the theme library"));
+        toastError(
+          error,
+          translateUi("appearance.library.refreshFailed", "Could not refresh the theme library"),
+        );
       });
   }, [queryClient]);
+
+  const { duplicate, isDuplicating } = useDuplicateTheme(queryClient, refresh);
+  const { remove, deletingId } = useRemoveTheme(queryClient, refresh);
+  return useMemo(
+    () => ({ duplicate, remove, exportTheme, isDuplicating, deletingId }),
+    [duplicate, remove, isDuplicating, deletingId],
+  );
+}
+
+function useDuplicateTheme(queryClient: QueryClient, refresh: () => void) {
+  const { mutate, isPending } = useCreateTheme();
 
   const duplicate = useCallback(
     (
@@ -73,10 +83,13 @@ export function useThemeLibraryActions(): ThemeLibraryActions {
       try {
         cssVars = readThemeCssVars(source.id, source.cssVars);
       } catch (error) {
-        toast.error(apiErrorMessage(error, "Failed to read the source theme"));
+        toastError(
+          error,
+          translateUi("appearance.library.readSourceFailed", "Failed to read the source theme"),
+        );
         return;
       }
-      create.mutate(
+      mutate(
         {
           data: {
             label,
@@ -97,26 +110,38 @@ export function useThemeLibraryActions(): ThemeLibraryActions {
           onSuccess: (created) => {
             refresh();
             void invalidateByUrlPrefix(queryClient, ["/api/projects", "/api/features"]).catch(
-              (error: unknown) =>
-                toast.error(apiErrorMessage(error, "Could not refresh plugin projects")),
+              toastProjectRefreshError,
             );
-            toast.success(`Created “${userThemeLabel(created.theme)}”`);
+            toast.success(
+              translateUi("appearance.library.created", "Created “{{theme}}”", {
+                theme: userThemeLabel(created.theme),
+              }),
+            );
             onCreated?.(created.theme, created.workspace);
           },
           onError: (error) => {
             refresh();
-            toast.error(apiErrorMessage(error, "Failed to duplicate theme"));
+            toastError(
+              error,
+              translateUi("appearance.library.duplicateFailed", "Failed to duplicate theme"),
+            );
           },
         },
       );
     },
-    [create, queryClient, refresh],
+    [mutate, queryClient, refresh],
   );
+  return useMemo(() => ({ duplicate, isDuplicating: isPending }), [duplicate, isPending]);
+}
 
-  const removeTheme = useCallback(
+function useRemoveTheme(queryClient: QueryClient, refresh: () => void) {
+  const { mutate } = useDeleteTheme();
+  const release = useReleaseTheme();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const remove = useCallback(
     (theme: UserTheme): void => {
       setDeletingId(theme.id);
-      remove.mutate(
+      mutate(
         { id: theme.id },
         {
           onSuccess: () => {
@@ -129,33 +154,40 @@ export function useThemeLibraryActions(): ThemeLibraryActions {
             // its mounted settings observers can outlive the sidebar refresh.
             void invalidateByExactUrl(queryClient, ["/api/projects", "/api/features"], {
               throwOnError: true,
-            }).catch((error: unknown) =>
-              toast.error(apiErrorMessage(error, "Could not refresh plugin projects")),
+            }).catch(toastProjectRefreshError);
+            toast.success(
+              translateUi(
+                "appearance.library.deleted",
+                "Deleted “{{theme}}”. It is in the Trash.",
+                {
+                  theme: userThemeLabel(theme),
+                },
+              ),
             );
-            toast.success(`Deleted “${userThemeLabel(theme)}”. It is in the Trash.`);
           },
-          onError: (error) => toast.error(apiErrorMessage(error, "Failed to delete theme")),
+          onError: (error) =>
+            toastError(
+              error,
+              translateUi("appearance.library.deleteFailed", "Failed to delete theme"),
+            ),
           onSettled: () => setDeletingId(null),
         },
       );
     },
-    [remove, refresh, release, queryClient],
+    [mutate, refresh, release, queryClient],
   );
+  return useMemo(() => ({ remove, deletingId }), [remove, deletingId]);
+}
 
-  const exportTheme = useCallback((theme: UserTheme): void => {
-    // Export is the whole sharing story for now: a theme file is portable data,
-    // so "share" is "send someone this file".
-    downloadJsonFile(`${theme.id}.theme.json`, theme.content);
-  }, []);
-
-  return useMemo(
-    () => ({
-      duplicate,
-      remove: removeTheme,
-      exportTheme,
-      isDuplicating: create.isPending,
-      deletingId,
-    }),
-    [duplicate, removeTheme, exportTheme, create.isPending, deletingId],
+function toastProjectRefreshError(error: unknown): void {
+  toastError(
+    error,
+    translateUi("appearance.library.refreshProjectsFailed", "Could not refresh plugin projects"),
   );
+}
+
+function exportTheme(theme: UserTheme): void {
+  // Export is the whole sharing story for now: a theme file is portable data,
+  // so "share" is "send someone this file".
+  downloadJsonFile(`${theme.id}.theme.json`, theme.content);
 }

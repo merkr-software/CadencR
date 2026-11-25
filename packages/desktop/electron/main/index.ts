@@ -1,6 +1,6 @@
 import path from "node:path";
 import { installMainTelemetry } from "./main-telemetry";
-import { closeAllWindowsForQuit } from "./window-shutdown";
+import * as windowShutdown from "./window-shutdown";
 import { app, BrowserWindow, dialog, protocol } from "electron";
 import { loadDevEnv } from "./env";
 import { clearRegisteredFilePaths, registerIpc, registerThemeEvents } from "./ipc";
@@ -16,7 +16,7 @@ import {
   type SidecarHandle,
   type SidecarStatusUpdate,
 } from "./sidecar";
-import { createSplashWindow, type SplashHandle } from "./splash";
+import { createSplashWindow, initializeStartupLanguage, type SplashHandle } from "./splash";
 import { installContextMenu } from "./context-menu";
 import { resolveDevProfile, type DevProfile } from "./dev-user-data";
 import { sendToWindow } from "./safe-send";
@@ -247,6 +247,7 @@ function wireMainProcess(): void {
 }
 
 async function bootstrap(): Promise<void> {
+  await initializeStartupLanguage();
   if (!app.isPackaged) {
     // Already loaded at module scope (see the `userData` block below); this is
     // where a failure becomes reportable. Throwing at module scope would land
@@ -406,9 +407,7 @@ async function finishExit(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Could not complete shutdown safely: ${message}`);
-  dialog.showErrorBox("Could not close Cadencr", message);
+  windowShutdown.reportShutdownFailure(error);
 }
 
 async function stopBrowserBridge(): Promise<void> {
@@ -422,7 +421,7 @@ async function stopSidecarForExit(): Promise<void> {
     const currentSidecar = sidecar;
     if (!currentSidecar) return;
     sidecar = null;
-    closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
+    windowShutdown.closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
     sidecarStopPromise = currentSidecar.stop().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Failed to stop cadencr-service cleanly: ${message}`);

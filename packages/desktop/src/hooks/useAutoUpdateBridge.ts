@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { toastError } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -23,7 +24,12 @@ export function useAutoUpdateBridge(): void {
     desktopBridge
       .getUpdateState()
       .then(receive)
-      .catch((error: unknown) => toastError(error, "Could not read the update status."));
+      .catch((error: unknown) =>
+        toastError(
+          error,
+          translateUi("updates.readStateError", "Could not read the update status."),
+        ),
+      );
     return () => {
       unsubscribe();
       stopFollowing();

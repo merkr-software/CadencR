@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { ChangelogImage } from "@/components/ChangelogImage";
@@ -20,18 +21,22 @@ export const ChangelogBody = memo(function ChangelogBody({
 }: {
   state: ChangelogBodyState;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (state.kind === "loading") {
     return (
       <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
         <Loader2 className="size-4 animate-spin" aria-hidden />
-        Loading release notes…
+        {t("system.changelogBody.loadingReleaseNotes", "Loading release notes…")}
       </div>
     );
   }
   if (state.kind === "missing") {
     return (
       <div className="py-2 text-xs text-muted-foreground">
-        Release notes aren't published yet. Open the full changelog to see the latest updates.
+        {t(
+          "system.changelogBody.releaseNotesArenTPublishedYetOpenThe",
+          "Release notes aren't published yet. Open the full changelog to see the latest updates.",
+        )}
       </div>
     );
   }

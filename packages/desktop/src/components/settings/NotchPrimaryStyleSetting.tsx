@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId } from "react";
 import { LoaderCircle } from "lucide-react";
 import {
@@ -12,6 +13,7 @@ import { NOTCH_PRIMARY_STYLE_KEY, useNotchPrefs } from "@/lib/notch/notch-prefs"
 import { SettingsRow } from "./SettingsRow";
 
 export function NotchPrimaryStyleSetting(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const id = useId();
   const prefs = useNotchPrefs();
   const setting = useSetting(NOTCH_PRIMARY_STYLE_KEY);
@@ -20,13 +22,19 @@ export function NotchPrimaryStyleSetting(): React.JSX.Element {
 
   return (
     <SettingsRow
-      label="Primary display status"
+      label={t("settings.notifications.notch.primaryStyle.label", "Primary display status")}
       htmlFor={id}
       divided
       description={
         builtinOnly
-          ? "Choose Both or Primary in Show notch on to customize the primary display status."
-          : "On screens without a hardware notch, choose a thin activity strip or the built-in notch's full style. No status hides compact activity; notifications still appear. Hardware notches keep their own style."
+          ? t(
+              "settings.notifications.notch.primaryStyle.disabledDescription",
+              "Choose Both or Primary in Show notch on to customize the primary display status.",
+            )
+          : t(
+              "settings.notifications.notch.primaryStyle.description",
+              "On screens without a hardware notch, choose a thin activity strip or the built-in notch's full style. No status hides compact activity; notifications still appear. Hardware notches keep their own style.",
+            )
       }
       control={
         <>
@@ -40,10 +48,21 @@ export function NotchPrimaryStyleSetting(): React.JSX.Element {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">No status</SelectItem>
-              <SelectItem value="strip_4">4 px</SelectItem>
-              <SelectItem value="strip_8">8 px</SelectItem>
-              <SelectItem value="builtin">Built-in notch style</SelectItem>
+              <SelectItem value="none">
+                {t("settings.notifications.notch.primaryStyle.noStatus", "No status")}
+              </SelectItem>
+              <SelectItem value="strip_4">
+                {t("settings.notifications.notch.primaryStyle.fourPixels", "4 px")}
+              </SelectItem>
+              <SelectItem value="strip_8">
+                {t("settings.notifications.notch.primaryStyle.eightPixels", "8 px")}
+              </SelectItem>
+              <SelectItem value="builtin">
+                {t(
+                  "settings.notifications.notch.primaryStyle.builtInNotchStyle",
+                  "Built-in notch style",
+                )}
+              </SelectItem>
             </SelectContent>
           </Select>
         </>

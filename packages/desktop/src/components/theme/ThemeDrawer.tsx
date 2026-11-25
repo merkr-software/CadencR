@@ -1,4 +1,5 @@
-import { memo, useCallback, useEffect } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { memo, useCallback, useEffect, useId } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { LoaderCircle, X } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils";
 export const THEME_SELECTOR_SEARCH_KEY = "theme-selector";
 
 function ThemeDrawerImpl(): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const isOpen = useRouterState({
     select: (s) =>
@@ -58,7 +60,7 @@ function ThemeDrawerImpl(): React.JSX.Element | null {
     <div
       role="dialog"
       aria-modal="false"
-      aria-label="Change theme"
+      aria-label={t("appearance.theme.change", "Change theme")}
       className={cn(
         // Anchored bottom-left and floated above the left sidebar.
         "fixed bottom-4 left-4 z-50 w-[min(calc(100vw-2rem),22rem)]",
@@ -73,6 +75,7 @@ function ThemeDrawerImpl(): React.JSX.Element | null {
 }
 
 function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const {
     manualThemeId,
     systemLightThemeId,
@@ -91,7 +94,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
   // the list can only offer themes `getTheme` can actually resolve; `useTheme`
   // above subscribes to it, so this re-renders when it changes.
   const themes = allThemes();
-  const followSystemId = "theme-drawer-follow-system";
+  const followSystemId = useId();
 
   return (
     <div className="flex max-h-[min(70vh,40rem)] flex-col">
@@ -99,21 +102,27 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
         <div className="min-w-0 space-y-0.5">
           {/* The theme applies once the backend confirms it; the spinner covers the wait. */}
           <h2 className="flex items-center gap-1.5 text-sm font-semibold" aria-busy={isSaving}>
-            Change theme
+            {t("appearance.theme.change", "Change theme")}
             {isSaving && (
-              <LoaderCircle aria-label="Saving theme" className="size-3.5 animate-spin" />
+              <LoaderCircle
+                aria-label={t("appearance.theme.saving", "Saving theme")}
+                className="size-3.5 animate-spin"
+              />
             )}
           </h2>
           <p className="text-xs text-muted-foreground">
-            Your pick is saved, then shown on the screen behind this panel.
+            {t(
+              "appearance.theme.pickerDescription",
+              "Your pick is saved, then shown on the screen behind this panel.",
+            )}
           </p>
         </div>
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={onClose}
-          aria-label="Close theme picker"
-          title="Close (Esc)"
+          aria-label={t("appearance.theme.closePicker", "Close theme picker")}
+          title={t("appearance.theme.closePickerWithShortcut", "Close (Esc)")}
         >
           <X />
         </Button>
@@ -123,10 +132,13 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
         <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-background px-4 py-3">
           <span className="space-y-1">
             <label htmlFor={followSystemId} className="block text-sm font-medium">
-              Follow system theme
+              {t("appearance.theme.followSystem", "Follow system theme")}
             </label>
             <span className="block text-xs text-muted-foreground">
-              Switch automatically when your OS changes between light and dark mode.
+              {t(
+                "appearance.theme.followSystemDescription",
+                "Switch automatically when your OS changes between light and dark mode.",
+              )}
             </span>
           </span>
           <Switch
@@ -141,7 +153,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
           <div className="space-y-5">
             <ThemePicker
               themes={themes}
-              title="Light system theme"
+              title={t("appearance.theme.systemLight", "Light system theme")}
               selectedThemeId={systemLightThemeId}
               onSelect={setSystemLightTheme}
               disabled={isLoading}
@@ -149,7 +161,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
             />
             <ThemePicker
               themes={themes}
-              title="Dark system theme"
+              title={t("appearance.theme.systemDark", "Dark system theme")}
               selectedThemeId={systemDarkThemeId}
               onSelect={setSystemDarkTheme}
               disabled={isLoading}
@@ -158,7 +170,7 @@ function ThemeDrawerContent({ onClose }: { onClose: () => void }): React.JSX.Ele
         ) : (
           <ThemePicker
             themes={themes}
-            title="All UI theme"
+            title={t("appearance.theme.manual", "All UI theme")}
             selectedThemeId={manualThemeId}
             onSelect={setTheme}
             disabled={isLoading}
