@@ -87,6 +87,19 @@ pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
     signal_process_group(pid, libc::SIGKILL)
 }
 
+/// [`kill_group_after_leader_exit`], then up to `grace` for the group to
+/// drain, so a lease-holding worker cannot outlive the `ProcessExited` event
+/// a caller publishes once this returns.
+#[cfg(unix)]
+pub(crate) async fn kill_group_after_leader_exit_and_drain(
+    pid: u32,
+    grace: Duration,
+) -> io::Result<()> {
+    kill_group_after_leader_exit(pid).await?;
+    wait_group_gone(pid, tokio::time::Instant::now() + grace).await;
+    Ok(())
+}
+
 /// SIGKILLs, when dropped, the process group a still-unreaped child leads —
 /// the abandoned launcher's hooks, aliases and filters with it. Disarm it
 /// once the leader is reaped: until then the leader's zombie keeps the group
@@ -131,7 +144,8 @@ impl Drop for KillGroupOnDrop {
 /// exit. If it does, SIGKILL whatever it left behind and wait, bounded by
 /// the remaining grace, until no live member remains, so a lease-holding
 /// worker cannot outlive the `ProcessExited` event. If the leader does not
-/// exit within `grace`, SIGKILL the whole group and wait `grace` more.
+/// exit within `grace`, SIGKILL the whole group, reap the leader and wait
+/// `grace` more for the group to drain.
 #[cfg(unix)]
 pub(crate) async fn terminate_process_group(
     child: &mut Child,
@@ -153,9 +167,14 @@ pub(crate) async fn terminate_process_group(
             signal_process_group(pid, libc::SIGKILL)?;
             // The TERM deadline has passed; give the group a fresh bound to
             // drain after SIGKILL so a lease-holding worker cannot outlive
-            // the ProcessExited event.
-            wait_group_gone(pid, tokio::time::Instant::now() + grace).await;
-            wait_bounded(child, grace).await
+            // the ProcessExited event. The leader is reaped first: on Linux
+            // its zombie keeps the group alive until it is collected, so
+            // draining before the reap would spend the whole bound on a
+            // group that is already gone.
+            let deadline = tokio::time::Instant::now() + grace;
+            let status = wait_until(child, deadline).await?;
+            wait_group_gone(pid, deadline).await;
+            Ok(status)
         }
     }
 }
@@ -233,11 +252,16 @@ async fn wait_group_gone(pid: u32, deadline: tokio::time::Instant) {
     }
 }
 
-/// Wait for `child` to exit, failing once `timeout` has passed.
-pub(crate) async fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
-    tokio::time::timeout(timeout, child.wait())
+/// Wait for `child` to exit, failing once `deadline` has passed.
+async fn wait_until(child: &mut Child, deadline: tokio::time::Instant) -> io::Result<ExitStatus> {
+    tokio::time::timeout_at(deadline, child.wait())
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "process did not exit after kill"))?
+}
+
+/// Wait for `child` to exit, failing once `timeout` has passed.
+pub(crate) async fn wait_bounded(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
+    wait_until(child, tokio::time::Instant::now() + timeout).await
 }
 
 #[cfg(all(test, unix))]
@@ -441,6 +465,58 @@ mod tests {
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(status.signal(), Some(libc::SIGKILL));
         assert!(process_gone(grandchild).await, "the grandchild survived");
+    }
+
+    /// A group SIGKILL already emptied must not spend the whole grace
+    /// waiting: the leader is reaped first, so its zombie stops counting.
+    #[tokio::test]
+    async fn terminate_does_not_wait_out_the_grace_on_a_group_that_is_gone() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        // The leader and the worker it holds both ignore SIGTERM, so the
+        // worker outlives the leader until the SIGKILL after the grace.
+        let mut child = group_leader(
+            &pid_file,
+            &format!("trap '' TERM; {STUBBORN_GRANDCHILD} while :; do sleep 1; done"),
+        );
+        let leader = child.id().unwrap();
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+
+        let grace = Duration::from_secs(1);
+        let started = std::time::Instant::now();
+        terminate_process_group(&mut child, grace).await.unwrap();
+        let elapsed = started.elapsed();
+
+        assert!(!process_group_alive(leader), "the group outlived the stop");
+        assert!(process_gone(grandchild).await, "the worker survived");
+        assert!(elapsed < grace + Duration::from_millis(500), "{elapsed:?}");
+    }
+
+    /// The natural-exit path publishes completion only once the group is
+    /// empty: a worker that outlives its leader must not hold a session
+    /// lease past it.
+    #[tokio::test]
+    async fn a_group_left_by_an_exited_leader_is_drained_before_the_caller_resumes() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("child.pid");
+        // The leader exits at once, leaving a worker that ignores SIGTERM.
+        let mut child = group_leader(&pid_file, STUBBORN_GRANDCHILD);
+        let leader = child.id().unwrap();
+        wait_for_file(&pid_file).await;
+        let grandchild = read_pid(&pid_file);
+        child.wait().await.unwrap();
+        assert!(process_group_alive(leader));
+
+        kill_group_after_leader_exit_and_drain(leader, Duration::from_secs(1))
+            .await
+            .unwrap();
+
+        assert!(
+            !process_group_alive(leader),
+            "the group outlived the cleanup"
+        );
+        assert!(process_gone(grandchild).await, "the worker survived");
     }
 
     #[tokio::test]

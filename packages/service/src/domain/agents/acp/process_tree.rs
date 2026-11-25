@@ -13,6 +13,11 @@ use super::process_tree_windows as windows_job;
 #[cfg(windows)]
 use crate::shared::process_group::wait_bounded;
 
+/// Bound on the drain that follows the SIGKILL of a group whose leader
+/// exited, so a lease-holding worker cannot outlive `ProcessExited`.
+#[cfg(unix)]
+const CLEANUP_GRACE: Duration = Duration::from_secs(1);
+
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcpProcessTreeLimits {
@@ -95,7 +100,11 @@ impl ProcessTreeControl {
                 {
                     match pid {
                         Some(pid) => {
-                            crate::shared::process_group::kill_group_after_leader_exit(pid).await
+                            crate::shared::process_group::kill_group_after_leader_exit_and_drain(
+                                pid,
+                                CLEANUP_GRACE,
+                            )
+                            .await
                         }
                         None => Ok(()),
                     }
@@ -265,7 +274,8 @@ mod unix_tests {
             .arg("60")
             .spawn()
             .expect("spawn descendant");
-        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        crate::shared::test_processes::publish_pid(Path::new(&pid_file), descendant.id())
+            .expect("publish descendant pid");
         let _ = descendant.wait();
     }
 
@@ -292,7 +302,9 @@ mod unix_tests {
     fn process_dead_or_zombie(pid: libc::pid_t) -> bool {
         // SAFETY: kill with signal 0 only probes the process table.
         if unsafe { libc::kill(pid, 0) } != 0 {
-            return true;
+            // Only ESRCH says the pid is gone; EPERM is a live process this
+            // one may not signal.
+            return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         }
         // On Linux, read /proc/<pid>/stat: state Z means zombie (exited).
         #[cfg(target_os = "linux")]
@@ -316,8 +328,7 @@ mod unix_tests {
     async fn grouped_policy_leads_a_new_process_group() {
         // Start `sleep` directly: if grouping regresses, the only process this
         // test started is the one the cleanup guard covers.
-        let mut command = Command::new("/bin/sleep");
-        command.arg("60");
+        let mut command = crate::shared::test_processes::sleeping_child_command();
         let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
             .expect("prepare grouped command");
         let mut child = command.spawn().expect("spawn sleep");
@@ -360,7 +371,12 @@ mod unix_tests {
             .group_of_pid_in(&pid_file);
         control.attach(&child).expect("attach grouped control");
 
-        let descendant = wait_for_pid(&pid_file).await;
+        let descendant = crate::shared::test_processes::wait_for_published_pid(
+            &pid_file,
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("helper never published its descendant pid");
         // Register the descendant itself so a failed assertion cannot leave it running.
         let _descendant_cleanup =
             crate::shared::test_processes::KillOnDrop::default().process(descendant as u32);
@@ -376,17 +392,5 @@ mod unix_tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("grouped descendant {descendant} survived tree termination");
-    }
-
-    async fn wait_for_pid(path: &Path) -> libc::pid_t {
-        for _ in 0..100 {
-            if let Ok(text) = std::fs::read_to_string(path) {
-                if let Ok(pid) = text.trim().parse() {
-                    return pid;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("helper never published its descendant pid");
     }
 }
