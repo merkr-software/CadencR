@@ -3,19 +3,16 @@
  * and unfolded on its side, iOS keeps an 84pt column along one edge for the
  * status bar and the Dynamic Island, reported as that side's safe-area inset.
  *
- * - `data-side-strip`: the main column and the phone sheets keep off it, so
- *   nothing renders under the status bar or the camera.
- * - `data-strip-rail`: as in Apple's own apps on the Duo, the conversation's
- *   tabs move into the strip, a vertical rail under the status bar, aligned
- *   to its bottom. The conversation reaches into the strip (its layer spans
- *   the main column's padding), what sits above its pane (header, worktree
- *   panel) keeps off it, and the rail takes the strip's width beside the
- *   pane. The rail costs no height: the transcript gains the bottom bar's
- *   56px, and the composer clears the home indicator itself (the bar's host
- *   no longer zeroes `--app-inset-bottom`, `phone-tab-bar.css`). Like the
- *   bottom bar, the rail steps aside while the keyboard is up, and the
- *   conversation then keeps off the strip, as the column beside the rail
- *   would run under the status bar.
+ * - The main column and the phone sheets keep off it, so nothing renders
+ *   under the status bar or the camera.
+ * - As in Apple's own apps on the Duo, the conversation's tabs move into the
+ *   strip, a vertical rail under the status bar
+ *   (`phone-tab-bar.css` lays the rail out). The conversation reaches into
+ *   the strip (its layer spans the main column's padding), what sits above
+ *   its pane (header, worktree panel) keeps off it, and the rail takes the
+ *   strip's width beside the pane. Like the bottom bar, the rail steps aside
+ *   while the keyboard is up, and the conversation then keeps off the strip,
+ *   as the column beside the rail would run under the status bar.
  *
  * Unlayered, like `phone-tab-bar.css`, so it wins over Tailwind utilities.
  * ------------------------------------------------------------------------- */
@@ -35,69 +32,38 @@ html[data-side-strip="left"] [data-phone-sheet] {
 }
 
 /* The drawer's edge-swipe strip starts past a rail on the left. */
-html[data-strip-rail="left"] [data-drawer-edge-swipe] {
+html[data-side-strip="left"] [data-drawer-edge-swipe] {
   left: env(safe-area-inset-left, 0px);
 }
 
 /* The conversation reaches into the strip; what sits above its pane keeps off it. */
-html[data-strip-rail="right"]:not([data-keyboard-open]) [data-conversation-layer] {
+html[data-side-strip="right"]:not([data-keyboard-open]) [data-conversation-layer] {
   right: calc(-1 * env(safe-area-inset-right, 0px));
 }
-html[data-strip-rail="left"]:not([data-keyboard-open]) [data-conversation-layer] {
+html[data-side-strip="left"]:not([data-keyboard-open]) [data-conversation-layer] {
   left: calc(-1 * env(safe-area-inset-left, 0px));
 }
-html[data-strip-rail="right"]:not([data-keyboard-open])
+html[data-side-strip="right"]:not([data-keyboard-open])
   [data-conversation-layer]
   [data-agent-prompt-id]
   > :not([data-feature-layout-shell]) {
   margin-right: env(safe-area-inset-right, 0px);
 }
-html[data-strip-rail="left"]:not([data-keyboard-open])
+html[data-side-strip="left"]:not([data-keyboard-open])
   [data-conversation-layer]
   [data-agent-prompt-id]
   > :not([data-feature-layout-shell]) {
   margin-left: env(safe-area-inset-left, 0px);
 }
 
-/* The pane: its body, then the rail on the strip's side. */
-html[data-strip-rail="right"] [data-phone-tab-bar-host] {
-  flex-direction: row;
-}
-html[data-strip-rail="left"] [data-phone-tab-bar-host] {
-  flex-direction: row-reverse;
-}
-
-.phone-tab-bar[data-rail] {
-  flex-direction: column;
-  gap: 4px;
-  height: auto;
-  overflow-y: auto;
-  padding: 8px 6px max(8px, env(safe-area-inset-bottom, 0px));
+/* The rail takes the strip's width, which is the inset itself. */
+html[data-side-strip] .phone-tab-bar[data-rail] {
+  padding-right: 6px;
   box-shadow: none;
 }
-.phone-tab-bar[data-rail="right"] {
+html[data-side-strip="right"] .phone-tab-bar[data-rail="right"] {
   width: env(safe-area-inset-right, 0px);
 }
-.phone-tab-bar[data-rail="left"] {
+html[data-side-strip="left"] .phone-tab-bar[data-rail="left"] {
   width: env(safe-area-inset-left, 0px);
-}
-.phone-tab-bar[data-rail] > [role="tab"] {
-  flex: none;
-  min-height: 56px;
-  border-radius: 14px;
-}
-.phone-tab-bar[data-rail] > [role="tab"][aria-selected="true"] {
-  background: var(--accent);
-}
-/* Aligned to the bottom, under the status bar; an auto margin, not
- * `justify-content`, so a rail taller than its column scrolls from its top. */
-.phone-tab-bar[data-rail] > [role="tab"]:first-child {
-  margin-top: auto;
-}
-/* On its side, folded, the strip has no status bar but holds the camera at
- * one of its ends: the rail sits in its middle, clear of both. */
-@media (max-height: 499px) {
-  .phone-tab-bar[data-rail] > [role="tab"]:last-child {
-    margin-bottom: auto;
-  }
 }

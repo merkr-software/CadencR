@@ -2,7 +2,7 @@ import { memo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 
 import type { TabKind } from "@/stores/feature-layout-schema";
-import { useStripRail } from "@/hooks/useStripRail";
+import { useTabRail } from "@/hooks/useTabRail";
 import { cn } from "@/lib/utils";
 
 import { FeatureTabIcon } from "./FeatureTabIcon";
@@ -34,9 +34,10 @@ const TAB_CLASS = cn(
  * `phone-tab-bar.css`): Agent, Terminal, Git, Files, and More for the rest
  * (Browser, Preview, custom tabs). It drives the root pane exactly as the
  * strip does on a wider screen — same active tab, same activation handler.
- * Where the system keeps a side strip for its status bar (an iPhone Duo
- * folded, or unfolded on its side), the bar is a vertical rail inside it
- * (`phone-side-strip.css`).
+ * On a touch screen in the phone layout 600px wide or more it is a vertical
+ * rail on the right of the pane instead, and where the system keeps a side
+ * strip for its status bar (an iPhone Duo folded, or unfolded on its side) a
+ * rail inside that strip (`useTabRail`, `phone-side-strip.css`).
  */
 export const PhoneTabBar = memo(function PhoneTabBar({
   featureId,
@@ -47,7 +48,7 @@ export const PhoneTabBar = memo(function PhoneTabBar({
   onCloseTab,
 }: PhoneTabBarProps): ReactNode {
   const [moreOpen, setMoreOpen] = useState(false);
-  const rail = useStripRail();
+  const rail = useTabRail();
   const { bar, more } = splitPhoneTabs(tabIds, tabs);
   const moreActive = activeTabId != null && more.includes(activeTabId);
   // The bar's one Tab stop: the active tab, else its first, so it never drops

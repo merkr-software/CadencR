@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
-  useMatch: () => undefined,
   // The inbox's home route: no conversation open.
   useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
     select({ location: { pathname: "/", search: {} } }),

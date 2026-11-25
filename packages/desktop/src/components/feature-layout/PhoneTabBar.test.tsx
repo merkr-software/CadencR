@@ -13,8 +13,8 @@ import type { TabKind } from "@/stores/feature-layout-schema";
 
 import { PhoneTabBar } from "./PhoneTabBar";
 
-const strip = vi.hoisted(() => ({ rail: null as "left" | "right" | null }));
-vi.mock("@/hooks/useStripRail", () => ({ useStripRail: () => strip.rail }));
+const tabRail = vi.hoisted(() => ({ rail: null as "left" | "right" | null }));
+vi.mock("@/hooks/useTabRail", () => ({ useTabRail: () => tabRail.rail }));
 import type { FeatureTabs } from "./types";
 
 const tabs: FeatureTabs = {
@@ -60,8 +60,8 @@ function renderBar(activeTabId: TabKind | null = "agent") {
 }
 
 describe("PhoneTabBar", () => {
-  it("is a vertical rail in the system's side strip, moved with Up and Down", () => {
-    strip.rail = "right";
+  it("is a vertical rail where the layout asks for one, moved with Up and Down", () => {
+    tabRail.rail = "right";
     try {
       renderBar("agent");
       const bar = screen.getByRole("tablist", { name: "Conversation tabs" });
@@ -74,7 +74,7 @@ describe("PhoneTabBar", () => {
       fireEvent.keyDown(document.activeElement ?? bar, { key: "ArrowRight" });
       expect(screen.getByRole("tab", { name: "Terminal" })).toHaveFocus();
     } finally {
-      strip.rail = null;
+      tabRail.rail = null;
     }
   });
 

@@ -25,7 +25,7 @@ import "./index.css";
 // Phone or desktop layout on `<html data-shell>`, before the first paint, so the
 // `phone:` / `desktop:` CSS already matches what `useIsMobile()` will render.
 installShellAttribute();
-// An iPhone Duo's status-bar strip on <html data-side-strip / data-strip-rail>.
+// An iPhone Duo's status-bar strip on <html data-side-strip>.
 installSideStrip();
 
 // iOS caches the status-bar mode when installing a PWA. Seed its viewport

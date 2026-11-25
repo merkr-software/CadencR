@@ -17,18 +17,14 @@ import { prefetchAgentSession } from "@/components/lazy/agent-session-chunk";
 import { scheduleIdle } from "@/lib/schedule-idle";
 import { navigateToConversation } from "@/lib/conversation-route";
 import { isStrongAction } from "@/lib/next-actions";
-import { cn } from "@/lib/utils";
 
 /**
  * The phone layout's home: the "Agents" inbox. For me (what waits on the
  * user, answered from here through the quick reply sheet), In progress
  * (agents at work) and Recent (the conversations touched last), across
  * projects. A card's body opens its conversation.
- *
- * `variant="pane"` is the inbox as the left of two panes (`RoutedStage`):
- * a 12px gutter, and the card of the conversation open beside it marked.
  */
-export function PhoneInbox({ variant = "page" }: { variant?: "page" | "pane" }): ReactElement {
+export function PhoneInbox(): ReactElement {
   const inbox = usePhoneInbox();
   const navigate = useNavigate();
   const { projectsById } = inbox;
@@ -51,11 +47,8 @@ export function PhoneInbox({ variant = "page" }: { variant?: "page" | "pane" }):
       actions={<NewConversation projects={inbox.projects.rows} variant="icon" />}
     >
       <div
-        data-phone-inbox={variant}
-        className={cn(
-          "h-full overflow-y-auto overscroll-contain pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]",
-          variant === "pane" ? "px-3" : "px-4",
-        )}
+        data-phone-inbox
+        className="h-full overflow-y-auto overscroll-contain px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]"
       >
         {/* A card's swipe actions and the archive dialog they share. */}
         <SidebarRowActionsProvider>

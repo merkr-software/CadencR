@@ -34,7 +34,6 @@
 @import "./command-palette-panels.css";
 @import "./touch-shell.css";
 @import "./phone-tab-bar.css";
-@import "./phone-panes.css";
 @import "./phone-side-strip.css";
 
 /* Reveal-on-hover only where hover actually exists. On touch devices (no hover)

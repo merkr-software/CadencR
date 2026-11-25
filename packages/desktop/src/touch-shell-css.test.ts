@@ -57,7 +57,9 @@ describe("phone tab bar CSS", () => {
   const bar = cssRules("./phone-tab-bar.css");
 
   it("owns the bottom safe area: the pane it closes zeroes the inset for what sits above", () => {
-    expect(bar).toMatch(/\[data-phone-tab-bar-host\]\s*{\s*--app-inset-bottom:\s*0px;\s*}/);
+    expect(bar).toMatch(
+      /\[data-phone-tab-bar-host\]:not\(:has\(> \.phone-tab-bar\[data-rail\]\)\)\s*{\s*--app-inset-bottom:\s*0px;\s*}/,
+    );
     expect(bar).toMatch(/padding:[^;]*env\(safe-area-inset-bottom/);
   });
 
@@ -80,38 +82,25 @@ describe("phone tab bar CSS", () => {
   });
 });
 
-describe("phone panes CSS", () => {
-  const panes = cssRules("./phone-panes.css");
+describe("phone tab rail CSS", () => {
+  const bar = cssRules("./phone-tab-bar.css");
+  const strip = cssRules("./phone-side-strip.css");
 
-  it("sizes the inbox pane at 40%, between 280px and 380px", () => {
-    expect(panes).toMatch(
-      /\[data-stage-pane="inbox"\]\s*{[^}]*width:\s*clamp\(280px,\s*40%,\s*380px\);/,
+  it("lays the rail beside the pane's body, on its side", () => {
+    expect(selectors(bar)).toContain(
+      '[data-phone-tab-bar-host]:has(> .phone-tab-bar[data-rail="right"])',
+    );
+    expect(selectors(bar)).toContain(
+      '[data-phone-tab-bar-host]:has(> .phone-tab-bar[data-rail="left"])',
     );
   });
 
-  it("fits the inbox to the first viewport segment and puts the gap on the hinge", () => {
-    const segments =
-      /@media \(horizontal-viewport-segments: 2\)\s*{([\s\S]*)}\s*\[data-stage-panes/.exec(
-        panes,
-      )?.[1];
-    expect(segments).toBeDefined();
-    expect(segments).toMatch(
-      /column-gap:\s*calc\(env\(viewport-segment-left 1 0, 0px\) - env\(viewport-segment-right 0 0, 0px\)\)/,
+  it("is 76px wide plus the right inset, unless it fills the system's strip", () => {
+    expect(bar).toMatch(
+      /\.phone-tab-bar\[data-rail="right"\]\s*{[^}]*width:\s*calc\(76px \+ env\(safe-area-inset-right, 0px\)\);/,
     );
-    expect(segments).toMatch(/width:\s*env\(viewport-segment-width 0 0, 40%\)/);
-  });
-
-  it("leaves one menu button, the inbox's", () => {
-    expect(selectors(panes)).toContain(
-      '[data-stage-panes="2"] [data-stage-pane="main"] [data-sidebar-collapsed-chrome]',
+    expect(strip).toMatch(
+      /html\[data-side-strip="right"\] \.phone-tab-bar\[data-rail="right"\]\s*{\s*width:\s*env\(safe-area-inset-right, 0px\);/,
     );
-  });
-
-  it("is imported unlayered, after Tailwind", () => {
-    const imports = [...cssRules("./index.css").matchAll(/@import\s+"([^"]+)"([^;]*);/g)];
-    const entry = imports.find(([, path]) => path === "./phone-panes.css");
-    expect(entry?.[2].trim()).toBe("");
-    const order = imports.map(([, path]) => path);
-    expect(order.indexOf("./phone-panes.css")).toBeGreaterThan(order.indexOf("tailwindcss"));
   });
 });

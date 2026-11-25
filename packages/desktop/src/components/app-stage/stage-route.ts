@@ -19,8 +19,6 @@ export function routedContentKey(pathname: string): string {
 }
 
 export interface StageLayout {
-  /** The inbox pane beside the conversation (the phone layout, two panes, on the inbox or a conversation). */
-  inboxPane: boolean;
   /** The workspace pool stays mounted: on a conversation, and on the phone inbox it returns from. */
   keepConversations: boolean;
   /** A conversation is on screen. */
@@ -32,11 +30,10 @@ export interface StageLayout {
  * a conversation is a flip, not a cold mount; any other page (settings, the
  * desktop home that redirects) unmounts it, as before.
  */
-export function stageLayout(contentKey: string, phone: boolean, twoPanes: boolean): StageLayout {
+export function stageLayout(contentKey: string, phone: boolean): StageLayout {
   const conversationShown = contentKey === CONVERSATION_CONTENT_KEY;
   const phoneHome = phone && contentKey === HOME_CONTENT_KEY;
   return {
-    inboxPane: phone && twoPanes && (conversationShown || phoneHome),
     keepConversations: conversationShown || phoneHome,
     conversationShown,
   };

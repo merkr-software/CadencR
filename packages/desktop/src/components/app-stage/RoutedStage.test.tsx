@@ -5,8 +5,7 @@ import type { WorkspaceTarget } from "@/components/workspace-pool/workspace-pool
 
 /**
  * The stage keeps the conversation layer (and its pool) at one place in the
- * tree across the phone inbox, a fold and a layout flip, and puts the inbox
- * beside it when two panes show.
+ * tree across the phone inbox and a layout flip.
  */
 
 interface MockMatch {
@@ -27,9 +26,8 @@ const mocks = vi.hoisted(() => {
     /** No route matched: only the root match is committed. */
     unmatched: false,
     phone: true,
-    twoPanes: false,
   };
-  const counts = { pool: 0, inbox: 0 };
+  const counts = { pool: 0 };
   const targets: (WorkspaceTarget | null)[] = [];
   /** Each committed frame of the pool: the layer's state and the pool's target. */
   const frames: { layer: string | undefined; target: WorkspaceTarget | null }[] = [];
@@ -92,17 +90,6 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/hooks/useIsMobile", () => ({
   useIsMobile: () => useMockState(() => mocks.state.phone),
 }));
-vi.mock("@/hooks/useTwoPanes", () => ({
-  useTwoPanes: () => useMockState(() => mocks.state.twoPanes),
-}));
-vi.mock("@/components/phone-inbox/PhoneInbox", () => ({
-  PhoneInbox: ({ variant }: { variant: string }) => {
-    useEffect(() => {
-      mocks.counts.inbox += 1;
-    }, []);
-    return <div data-testid="inbox-pane-content" data-variant={variant} />;
-  },
-}));
 vi.mock("@/components/workspace-pool/WorkspacePool", () => ({
   WorkspacePool: ({ target }: { target: WorkspaceTarget | null }) => {
     useEffect(() => {
@@ -156,17 +143,15 @@ beforeEach(() => {
     match: null,
     unmatched: false,
     phone: true,
-    twoPanes: false,
   });
   mocks.counts.pool = 0;
-  mocks.counts.inbox = 0;
   mocks.targets.length = 0;
   mocks.frames.length = 0;
   outletMounts.length = 0;
 });
 afterEach(cleanup);
 
-describe("RoutedStage on a phone, one pane", () => {
+describe("RoutedStage on a phone", () => {
   it("keeps the conversation mounted across the inbox", () => {
     render(<RoutedStage outlet={OUTLET} />);
     // The inbox page: the pool is mounted, every workspace hidden, presses pass through.
@@ -186,7 +171,6 @@ describe("RoutedStage on a phone, one pane", () => {
     act(() => mocks.set(conversation(7)));
     expect(screen.getByTestId("pool")).toBe(pool);
     expect(mocks.counts.pool).toBe(1);
-    expect(document.querySelector("[data-stage-pane='inbox']")).toBeNull();
   });
 
   it("never shows the layer without a conversation going to and from the inbox", () => {
@@ -208,7 +192,6 @@ describe("RoutedStage on a phone, one pane", () => {
     // when only the location moved.
     expect(outletMounts).toHaveLength(5);
     for (const mount of outletMounts) expect(mount.page).toBe(mount.location);
-    expect(mocks.counts.inbox).toBe(0);
   });
 
   it("leaves a conversation link that did not resolve to the route's error UI", () => {
@@ -239,57 +222,17 @@ describe("RoutedStage on a phone, one pane", () => {
     expect(mocks.targets.length).toBe(renders);
   });
 
+  it("never takes a page no route matched for the phone home", () => {
+    render(<RoutedStage outlet={OUTLET} />);
+    act(() => mocks.set({ unmatched: true, locationPathname: "/nowhere", match: null }));
+    expect(layer()).toBeNull();
+  });
+
   it("unmounts the conversations on any other page", () => {
     render(<RoutedStage outlet={OUTLET} />);
     act(() => mocks.set({ pathname: "/settings", locationPathname: "/settings", match: null }));
     expect(layer()).toBeNull();
     expect(screen.getByTestId("outlet")).toBeInTheDocument();
-  });
-});
-
-describe("RoutedStage with two panes", () => {
-  it("puts the inbox beside the conversation, which keeps its place when the panes come and go", () => {
-    mocks.state.twoPanes = true;
-    render(<RoutedStage outlet={OUTLET} />);
-    // `#/`: the inbox on the left, the routed page (Pick a conversation) on the right.
-    expect(screen.getByTestId("inbox-pane-content").dataset.variant).toBe("pane");
-    expect(document.querySelector("[data-stage-panes]")?.getAttribute("data-stage-panes")).toBe(
-      "2",
-    );
-    expect(screen.getByTestId("outlet")).toBeInTheDocument();
-
-    // A card opens the conversation in the right pane; the inbox stays.
-    act(() => mocks.set(conversation(3)));
-    const pool = screen.getByTestId("pool");
-    const main = document.querySelector("[data-stage-pane='main']");
-    expect(pool.dataset.session).toBe("ws-feature-3");
-    expect(mocks.counts.inbox).toBe(1);
-
-    // Folding: one pane, the same conversation, not remounted.
-    act(() => mocks.set({ twoPanes: false }));
-    expect(document.querySelector("[data-stage-pane='inbox']")).toBeNull();
-    expect(screen.getByTestId("pool")).toBe(pool);
-    expect(document.querySelector("[data-stage-pane='main']")).toBe(main);
-
-    // Unfolding with the conversation open: inbox + that conversation.
-    act(() => mocks.set({ twoPanes: true }));
-    expect(screen.getByTestId("inbox-pane-content")).toBeInTheDocument();
-    expect(screen.getByTestId("pool")).toBe(pool);
-    expect(mocks.counts.pool).toBe(1);
-  });
-
-  it("shows one pane on other pages", () => {
-    mocks.state.twoPanes = true;
-    render(<RoutedStage outlet={OUTLET} />);
-    act(() => mocks.set({ pathname: "/schedules", locationPathname: "/schedules", match: null }));
-    expect(document.querySelector("[data-stage-pane='inbox']")).toBeNull();
-  });
-  it("never takes a page no route matched for the phone home", () => {
-    mocks.state.twoPanes = true;
-    render(<RoutedStage outlet={OUTLET} />);
-    act(() => mocks.set({ unmatched: true, locationPathname: "/nowhere", match: null }));
-    expect(document.querySelector("[data-stage-pane='inbox']")).toBeNull();
-    expect(screen.queryByTestId("pool")).toBeNull();
   });
 });
 

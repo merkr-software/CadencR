@@ -13,7 +13,6 @@ import { formatElapsed } from "@/lib/format-elapsed";
 import type { NextActionKind } from "@/lib/next-actions";
 import { serverToLocalMs } from "@/lib/server-clock";
 import { cn } from "@/lib/utils";
-import { useIsConversationOnScreen } from "@/components/app-stage/conversation-match";
 import { preloadPressedConversation } from "@/hooks/useConversationPreloadIntent";
 import { useFeatureTurnStartedAt } from "@/stores/session-status-selectors";
 
@@ -70,22 +69,15 @@ export const InboxCard = memo(function InboxCard({
     nextAction,
     liveTitle,
   );
-  // Two panes: the conversation open beside the inbox.
-  const onScreen = useIsConversationOnScreen(feature.id);
   return (
     <li
       ref={cardRef}
       data-phone-inbox-card={feature.id}
-      data-on-screen={onScreen || undefined}
       {...swipe.rowProps}
-      className={cn(
-        "relative flex min-h-14 min-w-0 items-center gap-1 rounded-xl border",
-        onScreen ? "border-primary/50 bg-accent" : "border-border/60 bg-card/50",
-      )}
+      className="relative flex min-h-14 min-w-0 items-center gap-1 rounded-xl border border-border/60 bg-card/50"
     >
       <button
         type="button"
-        aria-current={onScreen ? "page" : undefined}
         className={cn(
           "flex min-h-14 min-w-0 flex-1 items-start gap-3 rounded-xl py-2.5 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent/50",
           // The time keeps the card's inner margin; a verb after it brings its own.

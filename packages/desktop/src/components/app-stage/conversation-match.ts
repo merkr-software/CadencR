@@ -44,14 +44,3 @@ export function useConversationTarget(): WorkspaceTarget | null {
     }) ?? null
   );
 }
-
-/** Whether `featureId` is the conversation on screen: a per-card boolean selector for the inbox pane. */
-export function useIsConversationOnScreen(featureId: number): boolean {
-  return (
-    useMatch({
-      from: CONVERSATION_ROUTE,
-      shouldThrow: false,
-      select: (match) => isResolved(match) && match.search.featureId === featureId,
-    }) === true
-  );
-}

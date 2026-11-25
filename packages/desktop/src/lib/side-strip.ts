@@ -1,7 +1,6 @@
 import {
   getDockedSidebarSnapshot,
   getPhoneShellSnapshot,
-  getTwoPanesSnapshot,
   subscribeFormFactor,
 } from "./form-factor";
 import { watchViewport } from "./viewport-settle";
@@ -13,15 +12,13 @@ import { watchViewport } from "./viewport-settle";
  * when folded on its side) and reports it as that side's safe-area inset, the
  * other side's being 0. Native apps put their tab bar and toolbar in that
  * column, under the status bar ("the system moves controls to the side",
- * Apple's iPhone Duo guidelines); the phone layout does the same:
- *
- * - `<html data-side-strip="left|right">`: the main column keeps off the
- *   strip, so nothing renders under the status bar or the camera. Unset when
- *   the strip is on the left behind a docked sidebar, which already keeps
- *   off it.
- * - `<html data-strip-rail="left|right">`: the conversation's tab bar is a
- *   vertical rail inside the strip (`phone-side-strip.css`), beside the
- *   conversation: on the right, or on the left in one pane.
+ * Apple's iPhone Duo guidelines); the phone layout does the same, on
+ * `<html data-side-strip="left|right">` (`phone-side-strip.css`): the main
+ * column keeps off the strip, so nothing renders under the status bar or the
+ * camera, and the conversation's tab bar is a vertical rail inside it, beside
+ * the conversation. Unset when the strip is on the left behind a docked
+ * sidebar, which already keeps off it; the rail is then the layout's own, on
+ * the right (`useTabRail`).
  *
  * A phone on its side reports the same inset on both sides (its notch or
  * Dynamic Island, then the room it mirrors), so it has no strip. iOS only:
@@ -33,15 +30,6 @@ export type StripSide = "left" | "right";
 /** A side inset at least this wide, with none on the other side, is a strip. */
 const STRIP_MIN_WIDTH = 40;
 
-export interface SideStrip {
-  /** Where the main column keeps off a strip. */
-  strip: StripSide | null;
-  /** Where the conversation's tab rail sits. */
-  rail: StripSide | null;
-}
-
-const NONE: SideStrip = { strip: null, rail: null };
-
 /** The side the system reserves, from the left and right safe-area insets. */
 export function stripSide(left: number, right: number): StripSide | null {
   if (right >= STRIP_MIN_WIDTH && left < 1) return "right";
@@ -49,37 +37,36 @@ export function stripSide(left: number, right: number): StripSide | null {
   return null;
 }
 
-/** What the layout does with the system's strip (see the module comment). */
+/** The strip the layout uses, rail and all, or null (see the module comment). */
 export function resolveSideStrip(
   system: StripSide | null,
-  layout: { phone: boolean; docked: boolean; twoPanes: boolean },
-): SideStrip {
-  if (!system || !layout.phone) return NONE;
-  if (system === "left" && layout.docked) return NONE;
-  const rail = system === "right" || !layout.twoPanes ? system : null;
-  return { strip: system, rail };
+  layout: { phone: boolean; docked: boolean },
+): StripSide | null {
+  if (!system || !layout.phone) return null;
+  if (system === "left" && layout.docked) return null;
+  return system;
 }
 
 // ─── Live store ──────────────────────────────────────────────────────────
 
-let current: SideStrip = NONE;
+let current: StripSide | null = null;
 const listeners = new Set<() => void>();
 
-/** `useSyncExternalStore` subscribe: fires when the strip or the rail moves. */
+/** `useSyncExternalStore` subscribe: fires when the strip comes, goes or changes sides. */
 export function subscribeSideStrip(onChange: () => void): () => void {
   listeners.add(onChange);
   return () => listeners.delete(onChange);
 }
 
-/** Where the conversation's tab rail sits, or null for the bottom bar. */
-export function getStripRailSnapshot(): StripSide | null {
-  return current.rail;
+/** The side of the strip the layout uses (the tab rail's place), or null. */
+export function getSideStripSnapshot(): StripSide | null {
+  return current;
 }
 
-function writeAttribute(name: "sideStrip" | "stripRail", side: StripSide | null): void {
+function writeAttribute(side: StripSide | null): void {
   const { dataset } = document.documentElement;
-  if (side) dataset[name] = side;
-  else delete dataset[name];
+  if (side) dataset.sideStrip = side;
+  else delete dataset.sideStrip;
 }
 
 /** A hidden element padded with the side insets, read back as pixels. */
@@ -100,8 +87,7 @@ function isIosWebKit(): boolean {
 }
 
 /**
- * Writes `data-side-strip` and `data-strip-rail` on `<html>` and keeps them
- * current through folds, rotations and layout changes. Call once from the
+ * Writes `data-side-strip` on `<html>` and keeps it current through folds, rotations and layout changes. Call once from the
  * entry, after `installShellAttribute`. Does nothing outside iOS.
  */
 export function installSideStrip(): () => void {
@@ -115,15 +101,10 @@ export function installSideStrip(): () => void {
     const system = phone
       ? stripSide(parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0)
       : null;
-    const next = resolveSideStrip(system, {
-      phone,
-      docked: getDockedSidebarSnapshot(),
-      twoPanes: getTwoPanesSnapshot(),
-    });
-    if (next.strip === current.strip && next.rail === current.rail) return;
+    const next = resolveSideStrip(system, { phone, docked: getDockedSidebarSnapshot() });
+    if (next === current) return;
     current = next;
-    writeAttribute("sideStrip", next.strip);
-    writeAttribute("stripRail", next.rail);
+    writeAttribute(next);
     for (const listener of listeners) listener();
   };
   const stopViewport = watchViewport(update);
@@ -132,8 +113,7 @@ export function installSideStrip(): () => void {
     stopViewport();
     stopLayout();
     probe.remove();
-    current = NONE;
-    writeAttribute("sideStrip", null);
-    writeAttribute("stripRail", null);
+    current = null;
+    writeAttribute(null);
   };
 }
