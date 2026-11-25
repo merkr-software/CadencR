@@ -39,7 +39,7 @@ use crate::domain::agents::adapter::{
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 pub(super) use options::CodexSessionOptions;
 use stream::{error_receiver, spawn_local_forwarder, stream_channel};
 
@@ -82,7 +82,8 @@ pub(super) struct CodexSession {
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
     known_subagents: Vec<KnownSubagent>,
-    browser_trust: CadencrBrowserTrust,
+    automatic_mcp: Arc<Mutex<super::trusted_mcp::McpApprovalTurn>>,
+    mcp_trust: CadencrMcpTrust,
 }
 
 impl CodexSession {
@@ -126,7 +127,8 @@ impl CodexSession {
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
             known_subagents: Vec::new(),
-            browser_trust: options.browser_trust,
+            automatic_mcp: Default::default(),
+            mcp_trust: options.mcp_trust,
         }
     }
 
@@ -189,7 +191,8 @@ impl AgentRuntimeSession for CodexSession {
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
             .known_subagents(std::mem::take(&mut self.known_subagents))
-            .browser_trust(self.browser_trust)
+            .automatic_mcp(self.automatic_mcp.clone())
+            .mcp_trust(self.mcp_trust)
             .call();
         spawn_local_forwarder(local_rx, tx);
         rx

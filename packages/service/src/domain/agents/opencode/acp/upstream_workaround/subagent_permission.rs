@@ -15,12 +15,12 @@ use crate::domain::agents::opencode::permissions::permission_options;
 use crate::domain::agents::opencode::tool_names::{
     canonical_acp_tool_name, canonical_cadencr_tool_name,
 };
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 use crate::domain::permission_bridge::extract_permission_preview;
 
 pub(super) fn should_auto_allow_trusted_cadencr_browser_permission(
     entry: &PendingPermission,
-    trust: CadencrBrowserTrust,
+    trust: CadencrMcpTrust,
 ) -> bool {
     entry
         .tool
@@ -33,7 +33,7 @@ pub(super) async fn try_auto_allow_trusted_cadencr_browser_permission(
     client: &OpenCodeClient,
     directory: &str,
     entry: &PendingPermission,
-    trust: CadencrBrowserTrust,
+    trust: CadencrMcpTrust,
 ) -> bool {
     if !should_auto_allow_trusted_cadencr_browser_permission(entry, trust) {
         return false;
@@ -89,7 +89,7 @@ fn merge_tool_input(metadata: &Value, patterns: &[String]) -> Value {
 mod tests {
     use super::{build_request, should_auto_allow_trusted_cadencr_browser_permission};
     use crate::domain::mcp::trusted::test_support::injected_browser_servers;
-    use crate::domain::mcp::trusted::CadencrBrowserTrust;
+    use crate::domain::mcp::trusted::CadencrMcpTrust;
     use opencode_sdk_rs::PendingPermission;
     use serde_json::json;
 
@@ -130,7 +130,7 @@ mod tests {
             ..sample()
         };
 
-        let trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
+        let trust = CadencrMcpTrust::injected_in(Some(&injected_browser_servers()));
         assert!(should_auto_allow_trusted_cadencr_browser_permission(
             &entry, trust
         ));
@@ -138,7 +138,7 @@ mod tests {
         // browser server comes from someone else's `cadencr-browser`.
         assert!(!should_auto_allow_trusted_cadencr_browser_permission(
             &entry,
-            CadencrBrowserTrust::default()
+            CadencrMcpTrust::default()
         ));
     }
 

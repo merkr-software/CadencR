@@ -182,7 +182,13 @@ pub async fn run(binary: &Path, args: &[OsString]) -> Result<ExitCode, ProviderE
         ));
     };
     let brain = native_brain(args);
-    let state = RefCell::new(FrameMapper::new(brain.clone()));
+    let mut mapper = FrameMapper::new(brain.clone());
+    if args.is_empty() {
+        if let Some(home) = std::env::var_os("HOME") {
+            mapper.events.set_mcp_config_home(PathBuf::from(home));
+        }
+    }
+    let state = RefCell::new(mapper);
     let host_changed = Notify::new();
     let mut host_output = tokio::io::stdout();
     let result = tokio::select! {

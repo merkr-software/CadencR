@@ -28,7 +28,7 @@ use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 use super::detached_replies::{DetachedReply, DetachedUpdate};
 use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
@@ -76,7 +76,10 @@ pub struct EventLoopConfig {
     /// Prompt client ids waiting for provider-side receipt confirmation.
     pub pending_prompt_receipts: Arc<PendingPromptReceipts>,
     /// Whether Cadencr's browser tools skip the permission prompt.
-    pub browser_trust: CadencrBrowserTrust,
+    pub browser_trust: CadencrMcpTrust,
+    pub attached_mcp: CadencrMcpTrust,
+    #[cfg(unix)]
+    pub(crate) connected_mcp: crate::domain::mcp::connection::ConnectedServers,
 }
 
 /// Spawn the loop. Returns a handle the session can `abort()` on close;

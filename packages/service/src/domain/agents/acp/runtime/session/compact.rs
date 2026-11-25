@@ -266,6 +266,9 @@ mod tests {
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
+            attached_mcp: Default::default(),
+            #[cfg(unix)]
+            connected_mcp: Default::default(),
             indexer: Arc::clone(&indexer),
             prompt_turn_lock: Default::default(),
         };

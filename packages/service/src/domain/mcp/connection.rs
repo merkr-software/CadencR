@@ -123,6 +123,22 @@ pub(crate) struct Connections {
     tasks: JoinSet<()>,
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct ConnectedServers {
+    names: Vec<String>,
+    statuses: Option<watch::Receiver<Vec<&'static str>>>,
+}
+
+impl ConnectedServers {
+    pub(crate) fn contains(&self, server: &str) -> bool {
+        self.names
+            .iter()
+            .position(|name| name == server)
+            .zip(self.statuses.as_ref())
+            .is_some_and(|(index, states)| states.borrow()[index] == "connected")
+    }
+}
+
 impl Connections {
     pub(crate) fn attach(servers: Option<&mut HashMap<String, RuntimeMcpServerConfig>>) -> Self {
         Self::start(Listener::attach(servers))
@@ -141,6 +157,13 @@ impl Connections {
             }
         }
         connections
+    }
+
+    pub(crate) fn observed(&self) -> ConnectedServers {
+        ConnectedServers {
+            names: self.names.clone(),
+            statuses: self.statuses.clone(),
+        }
     }
 
     pub(crate) fn is_empty(&self) -> bool {

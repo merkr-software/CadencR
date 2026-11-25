@@ -155,8 +155,8 @@ fn has_explicit_permission_input(input: &Value) -> bool {
 /// fail-closed for unknown policy or safety messages.
 pub fn mcp_input_from_permission_content(params: &Value) -> Option<Value> {
     let mut texts = params
-        .pointer("/toolCall/content")
-        .and_then(Value::as_array)?
+        .pointer("/toolCall/content")?
+        .as_array()?
         .iter()
         .filter_map(content_text);
     let input = parse_json_object(texts.next()?)?;
@@ -188,7 +188,7 @@ fn parse_object(text: &str) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-fn canonical_mcp_identity(tool_name: &str) -> Option<(&str, &str)> {
+pub(crate) fn canonical_mcp_identity(tool_name: &str) -> Option<(&str, &str)> {
     let canonical = tool_name.strip_prefix("mcp__")?;
     let (server, tool) = canonical.split_once("__")?;
     (!server.is_empty() && !tool.is_empty()).then_some((server, tool))
@@ -328,6 +328,15 @@ mod tests {
                 &params,
             ),
             json!({ "text": "authoritative raw input" })
+        );
+        let mut annotated = params.clone();
+        annotated["toolCall"]["content"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"type":"image","mimeType":"image/png","data":"AA=="}));
+        assert_eq!(
+            mcp_input_from_permission_content(&annotated),
+            Some(json!({"text":"composer-2.5-cadencr"}))
         );
         let safety = json!({
             "toolCall": {

@@ -1,6 +1,7 @@
 //! Starting the Claude Code CLI for a runtime spawn.
 
 use std::path::PathBuf;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use serde_json::Value;
 
@@ -11,7 +12,9 @@ use super::session::{
     map_mcp_server_config, map_permission_mode, ClaudeCanUseToolAdapter, ClaudeCodeSession,
 };
 use super::ClaudeCodeAdapter;
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{
+    AgentRuntimeSession, RuntimeError, RuntimePermissionMode, RuntimeSpawnConfig,
+};
 use crate::domain::agents::response_style::response_style_instruction;
 
 impl ClaudeCodeAdapter {
@@ -24,7 +27,7 @@ impl ClaudeCodeAdapter {
         // the same cache key the settings catalog populated.
         let cli_models = self.cli_model_resolver(config.env.clone()).await;
         let cwd = config.cwd.clone();
-        let (options, config_dir) = spawn_options(config, &cli_models);
+        let (options, config_dir, automatic_mcp) = spawn_options(config, &cli_models);
         let query = claude_agent_sdk_rs::query(content, options)
             .await
             .map_err(RuntimeError::from)?;
@@ -32,6 +35,7 @@ impl ClaudeCodeAdapter {
         Ok(Box::new(ClaudeCodeSession {
             query,
             processes,
+            automatic_mcp,
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd,
@@ -47,7 +51,14 @@ impl ClaudeCodeAdapter {
 fn spawn_options(
     config: RuntimeSpawnConfig,
     cli_models: &CliModelResolver,
-) -> (claude_agent_sdk_rs::Options, Option<PathBuf>) {
+) -> (
+    claude_agent_sdk_rs::Options,
+    Option<PathBuf>,
+    Arc<AtomicBool>,
+) {
+    let automatic_mcp = Arc::new(AtomicBool::new(
+        config.permission_mode == Some(RuntimePermissionMode::Auto),
+    ));
     let model = config
         .model
         .as_deref()
@@ -72,30 +83,33 @@ fn spawn_options(
         None => config.env,
     };
     let config_dir = super::config_dir::for_env(env.as_ref());
-    let options =
-        claude_agent_sdk_rs::Options::builder()
-            .cwd(config.cwd)
-            .maybe_permission_mode(config.permission_mode.map(map_permission_mode))
-            .maybe_model(model)
-            .maybe_effort(config.thinking_effort)
-            .maybe_system_prompt(system_prompt)
-            .maybe_append_system_prompt(append_system_prompt)
-            .maybe_resume(config.resume_session_id)
-            .allow_dangerously_skip_permissions(config.allow_bypass_permissions)
-            .maybe_can_use_tool(config.permission_handler.map(|handler| {
-                ClaudeCanUseToolAdapter::shared(handler, config.mcp_servers.as_ref())
-            }))
-            .maybe_mcp_servers(config.mcp_servers.map(|servers| {
-                servers
-                    .into_iter()
-                    .map(|(name, cfg)| (name, map_mcp_server_config(cfg)))
-                    .collect()
-            }))
-            .maybe_user_config_file(super::config_dir::user_file_for_env(env.as_ref()))
-            .maybe_env(env)
-            .own_process_group(true)
-            .build();
-    (options, config_dir)
+    let options = claude_agent_sdk_rs::Options::builder()
+        .cwd(config.cwd)
+        .maybe_permission_mode(config.permission_mode.map(map_permission_mode))
+        .maybe_model(model)
+        .maybe_effort(config.thinking_effort)
+        .maybe_system_prompt(system_prompt)
+        .maybe_append_system_prompt(append_system_prompt)
+        .maybe_resume(config.resume_session_id)
+        .allow_dangerously_skip_permissions(config.allow_bypass_permissions)
+        .maybe_can_use_tool(config.permission_handler.map(|handler| {
+            ClaudeCanUseToolAdapter::shared(
+                handler,
+                config.mcp_servers.as_ref(),
+                automatic_mcp.clone(),
+            )
+        }))
+        .maybe_mcp_servers(config.mcp_servers.map(|servers| {
+            servers
+                .into_iter()
+                .map(|(name, cfg)| (name, map_mcp_server_config(cfg)))
+                .collect()
+        }))
+        .maybe_user_config_file(super::config_dir::user_file_for_env(env.as_ref()))
+        .maybe_env(env)
+        .own_process_group(true)
+        .build();
+    (options, config_dir, automatic_mcp)
 }
 
 #[cfg(test)]
@@ -160,7 +174,7 @@ mod tests {
                 system_prompt,
                 ..RuntimeSpawnConfig::default()
             };
-            let (options, _) = spawn_options(config, &cli_models);
+            let (options, _, _) = spawn_options(config, &cli_models);
             let args = options.to_cli_args();
 
             assert_eq!(options.system_prompt, None);

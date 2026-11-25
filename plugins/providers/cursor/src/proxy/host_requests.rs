@@ -48,20 +48,24 @@ impl Proxy {
     }
 
     async fn session_new(&self, params: Value) -> RpcResult {
-        let mut result = self
-            .child()
-            .peer
-            .request("session/new", params.clone())
-            .await?;
+        let child = self.child();
+        let native = super::mcp_inventory::start(&self.launch, &params);
+        let mut result = child.peer.request("session/new", params.clone()).await?;
         let session_id = session_id_of(&result)
             .ok_or_else(|| RpcError::internal("Cursor `session/new` returned no sessionId"))?;
         self.catalog().await;
         let mut session = SessionState::from_params(&params);
+        session.native_mcp_servers = native;
         if let Some(options) = config_options_of(&result) {
             session.config.observe(&options);
         }
         {
             let mut state = self.state();
+            if state.generation != child.generation {
+                return Err(RpcError::internal(
+                    "Cursor child changed during session setup",
+                ));
+            }
             state.sessions.insert(session_id.clone(), session);
             state.last_session = Some(session_id.clone());
         }
@@ -74,19 +78,44 @@ impl Proxy {
     async fn session_restore(&self, method: &str, params: Value) -> RpcResult {
         let session_id =
             session_id_of(&params).ok_or_else(|| invalid_params("`sessionId` is required"))?;
-        {
-            let mut state = self.state();
-            let fresh = SessionState::from_params(&params);
-            let session = state.sessions.entry(session_id.clone()).or_default();
-            session.cwd = fresh.cwd;
-            session.mcp_servers = fresh.mcp_servers;
-            session.persisted = true;
-            state.last_session = Some(session_id.clone());
-        }
-        let mut result = self.child().peer.request(method, params).await?;
+        let mut result = self
+            .load_with_inventory(&session_id, method, params)
+            .await?;
+        self.state().last_session = Some(session_id.clone());
         self.catalog().await;
         self.observe_child_options(&session_id, &result);
         self.rewrite_session_result(&session_id, &mut result);
+        Ok(result)
+    }
+
+    pub(super) async fn load_with_inventory(
+        &self,
+        id: &str,
+        method: &str,
+        params: Value,
+    ) -> RpcResult {
+        let child = self.child();
+        let revision = {
+            let mut state = self.state();
+            let session = state.sessions.entry(id.to_owned()).or_default();
+            session.native_mcp_servers = None;
+            session.restore_revision += 1;
+            session.restore_revision
+        };
+        let fresh = SessionState::from_params(&params);
+        let native = super::mcp_inventory::start(&self.launch, &params);
+        let result = child.peer.request(method, params).await?;
+        let mut state = self.state();
+        let generation = state.generation;
+        let Some(session) = state.sessions.get_mut(id).filter(|session| {
+            session.restore_revision == revision && generation == child.generation
+        }) else {
+            return Err(RpcError::internal("Cursor session restore was superseded"));
+        };
+        session.cwd = fresh.cwd;
+        session.mcp_servers = fresh.mcp_servers;
+        session.native_mcp_servers = native;
+        session.persisted = true;
         Ok(result)
     }
 

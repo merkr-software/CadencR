@@ -410,6 +410,74 @@ async fn proxies_a_cursor_session_end_to_end() {
 }
 
 #[tokio::test]
+async fn workspace_approval_identifies_only_the_attached_server_in_auto_review() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("agent.jsonl");
+    let mut host = Host::spawn(&log);
+    host.request("initialize", json!({ "protocolVersion": 1 }))
+        .await;
+    let tool = "mcp__cadencr-workspace__workspace_list_projects";
+    for (mode, native_collision, expected) in [
+        ("default", false, None),
+        ("auto_review", false, Some(tool)),
+        ("auto_review", true, None),
+    ] {
+        let hold = dir.path().join("hold-inventory");
+        if expected.is_some() {
+            std::fs::write(&hold, "").unwrap();
+        }
+        if native_collision {
+            std::fs::write(dir.path().join("native-workspace"), "").unwrap();
+        }
+        let created = host
+            .request(
+                "session/new",
+                json!({"cwd":dir.path(), "mcpServers":[{"name":"cadencr-workspace"}]}),
+            )
+            .await;
+        // Session setup must complete even while native inventory is pending.
+        if expected.is_some() {
+            std::fs::remove_file(&hold).unwrap();
+        }
+        let session = created["result"]["sessionId"].as_str().unwrap();
+        set_config(&mut host, session, "access", mode).await;
+        for failed_restore in [false, true] {
+            if failed_restore {
+                let result = host.request("session/load", json!({"sessionId":session, "cwd":dir.path().join("missing-qa-project"), "mcpServers":[{"name":"cadencr-workspace"}]})).await;
+                assert!(result.get("error").is_some());
+            }
+            let expected = if failed_restore { None } else { expected };
+            let mut observed = false;
+            let result = host
+            .request_with(
+                "session/prompt",
+                json!({"sessionId":session,"prompt":[{"type":"text","text":"workspace-approval"}]}),
+                &mut |request| {
+                    assert_eq!(request["method"], "session/request_permission");
+                    assert_eq!(
+                        request
+                            .pointer("/params/toolCall/name")
+                            .and_then(Value::as_str),
+                        Some(tool)
+                    );
+                    assert_eq!(
+                        request
+                            .pointer("/params/_meta/cadencr/attachedMcpApproval")
+                            .and_then(Value::as_str),
+                        expected
+                    );
+                    observed = true;
+                    json!({"outcome":{"outcome":"selected","optionId":"allow"}})
+                },
+            )
+            .await;
+            assert!(observed);
+            assert_eq!(result["result"]["stopReason"], "end_turn");
+        }
+    }
+}
+
+#[tokio::test]
 async fn full_access_before_the_first_prompt_waits_for_cursor_to_save_it() {
     let dir = tempfile::tempdir().unwrap();
     let log = dir.path().join("agent.jsonl");

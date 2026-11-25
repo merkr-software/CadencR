@@ -24,7 +24,7 @@ use crate::domain::agents::adapter::{
     RuntimeError, RuntimeMcpServerStatus, RuntimePermissionMode, RuntimeSlashCommand, RuntimeUsage,
 };
 use crate::domain::agents::mcp_tool_names::McpToolNameResolver;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 pub(super) struct OpenCodeV2Hooks {
     binary: PathBuf,
@@ -118,8 +118,8 @@ impl AcpProviderHooks for OpenCodeV2Hooks {
     async fn cadencr_browser_trust(
         &self,
         cwd: &Path,
-        injected: CadencrBrowserTrust,
-    ) -> CadencrBrowserTrust {
+        injected: CadencrMcpTrust,
+    ) -> CadencrMcpTrust {
         if !injected.is_trusted() {
             return injected;
         }

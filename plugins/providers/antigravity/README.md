@@ -98,8 +98,10 @@ restores a session. See [Antigravity execution modes](https://antigravity.google
 
 In Auto mode, Antigravity can still request approval for an MCP tool.
 The `agy 1.5.14` ACP evaluator can classify even a read-only MCP call as
-`unsupported_tool` and offer a one-time allow or deny decision. CadencR presents
-that decision to the user. See [Antigravity CLI permissions](https://antigravity.google/docs/permissions#antigravity-cli).
+`unsupported_tool` and offer a one-time allow or deny decision. In Auto, CadencR can accept this request once for a verified tool
+from its own attached servers. A warning on the one-time grant goes through
+Antigravity’s permission flow. Native policy also applies to `browser_evaluate`,
+`browser_open_external_url`, `project_respond_gate`, and external MCP servers. See [Antigravity CLI permissions](https://antigravity.google/docs/permissions#antigravity-cli).
 
 ## Build and test
 

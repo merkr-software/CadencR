@@ -6,7 +6,8 @@ use tracing::warn;
 
 use super::CodexSession;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeEffectiveConfig, RuntimeError, RuntimePermissionResponse,
+    AgentRuntimeSession, RuntimeAccessMode, RuntimeEffectiveConfig, RuntimeError,
+    RuntimePermissionMode, RuntimePermissionResponse,
 };
 use crate::domain::agents::codex::input::user_input_from_content;
 use crate::domain::agents::codex::session_permissions::plan_approval_prompt;
@@ -54,7 +55,18 @@ impl CodexSession {
             params["clientUserMessageId"] = Value::String(client_message_id.to_string());
         }
         let _starting = self.turn_start.lock().await;
-        let turn = self.client.turn_start(params).await?;
+        self.automatic_mcp.lock().await.start(
+            access_mode == Some(RuntimeAccessMode::AutoReview)
+                && permission_mode != Some(RuntimePermissionMode::Plan),
+        );
+        let turn = match self.client.turn_start(params).await {
+            Ok(turn) => turn,
+            Err(error) => {
+                self.automatic_mcp.lock().await.start(false);
+                return Err(error.into());
+            }
+        };
+        self.automatic_mcp.lock().await.started(&turn.id);
         *self.delivered_controls.write().await = controls;
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);

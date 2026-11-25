@@ -27,7 +27,7 @@ impl WorkspaceServer {
     }
 }
 
-const WORKSPACE_TOOL_NAMES: [&str; 8] = [
+pub(super) const WORKSPACE_TOOL_NAMES: [&str; 8] = [
     "workspace_list_projects",
     "workspace_read_session",
     "workspace_read_sessions",
