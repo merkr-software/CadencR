@@ -261,7 +261,58 @@ describe("BrowserResponsiveController", () => {
       status: "error",
     });
     expect(host.applyLayout).toHaveBeenCalledOnce();
-    expect(host.reportError).toHaveBeenCalledOnce();
+    expect(host.reportError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        issue: {
+          kind: "responsiveRollback",
+          diagnostics: expect.arrayContaining(["protocol unavailable"]),
+        },
+      }),
+      7,
+    );
+  });
+
+  it("keeps a native viewport refresh failure as raw diagnostic data", async () => {
+    const { controller, debug, host, tab } = fixture({ enabled: true });
+    debug.sendCommand.mockRejectedValueOnce(new Error("raw Chromium failure <#1>"));
+
+    controller.syncScale(tab, 0.75);
+    await waitUntil(() => host.reportError.mock.calls.length === 1);
+
+    expect(host.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue: {
+          kind: "responsiveRecovery",
+          context: "viewportSize",
+          detail: "raw Chromium failure <#1>",
+        },
+      }),
+      7,
+    );
+    expect(tab.metadata.responsive.enabled).toBe(false);
+  });
+
+  it("reports failed responsive cleanup with the underlying Chromium diagnostics", async () => {
+    const { controller, debug, host, tab } = fixture({ enabled: true });
+    debug.sendCommand
+      .mockRejectedValueOnce(new Error("raw update <#1>"))
+      .mockRejectedValueOnce(new Error("raw cleanup <#2>"));
+
+    controller.syncScale(tab, 0.75);
+    await waitUntil(() => host.reportError.mock.calls.length === 1);
+
+    expect(host.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issue: {
+          kind: "responsiveRecovery",
+          context: "viewportSize",
+          detail: "raw update <#1>",
+          cleanupDetail: "raw cleanup <#2>",
+        },
+      }),
+      7,
+    );
+    expect(tab.metadata.responsive.status).toBe("error");
   });
 
   it("serializes rapid requests and commits only the newest state", async () => {

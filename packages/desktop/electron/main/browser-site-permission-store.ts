@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 import { z } from "zod";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import {
   BROWSER_SITE_PERMISSIONS,
   BROWSER_SITE_PERMISSION_DECISIONS,
@@ -85,7 +86,14 @@ export class BrowserSitePermissionStore {
       this.decisions = storedFileSchema.parse(parsed).decisions;
     } catch (error) {
       if (isMissingFile(error)) this.decisions = [];
-      else throw new Error("Could not read saved browser site permissions.", { cause: error });
+      else
+        throw new Error(
+          t(
+            "workspace.browser.site.readPermissionsFailed",
+            "Could not read saved browser site permissions.",
+          ),
+          { cause: error },
+        );
     }
     return this.decisions;
   }

@@ -1,4 +1,5 @@
 import {
+  type ApplyPatchPreview,
   extractApplyPatchPreviewPartial,
   extractApplyPatchPreviewsPartial,
   isApplyPatchToolName,
@@ -6,22 +7,11 @@ import {
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 import { toRelativePath } from "@/lib/utils";
 
-export interface InlineDiffPreview {
-  filePath: string;
-  oldContent: string;
-  newContent: string;
-}
+export type InlineDiffPreview = ApplyPatchPreview;
 
 const FILE_CHANGE_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "ApplyPatch"]);
 const TASK_TODO_TOOLS = new Set(["TaskCreate", "TaskUpdate"]);
 const LEGACY_OPENCODE_OUTPUT_KEYS = ["__opencode_output", "__opencode_stdout"] as const;
-export const BASH_OUTPUT_KEYS = new Set<string>([
-  "aggregatedOutput",
-  "output",
-  "stdout",
-  "stderr",
-  ...LEGACY_OPENCODE_OUTPUT_KEYS,
-]);
 const LEGACY_OPENCODE_STATUS_KEY = "__opencode_status";
 
 export function normalizeToolName(toolName: string): string {

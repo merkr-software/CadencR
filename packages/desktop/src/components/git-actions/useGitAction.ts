@@ -387,7 +387,9 @@ export function deriveGitAction(
         continueDisabled: updatePending
           ? t("workspace.git.useGitAction.updateRequestInProgress", "Update request in progress")
           : gitUpdateContinueDisabledReason(operationConflictCount, t),
-        abortDisabled: updatePending ? "Update request in progress" : null,
+        abortDisabled: updatePending
+          ? t("workspace.git.useGitAction.updateRequestInProgress", "Update request in progress")
+          : null,
       }
     : null;
 

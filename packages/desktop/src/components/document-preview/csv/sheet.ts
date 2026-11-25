@@ -42,11 +42,13 @@ export function columnName(index: number): string {
 export function sheetSummary(sheet: Sheet, t: UiTranslator): string {
   const rows = t("workspace.editor.sheet.rowCount", {
     count: sheet.rowCount,
+    defaultValue_zero: "{{count, number}} rows",
     defaultValue_one: "{{count, number}} row",
     defaultValue_other: "{{count, number}} rows",
   });
   const columns = t("workspace.editor.sheet.columnCount", {
     count: sheet.colCount,
+    defaultValue_zero: "{{count, number}} columns",
     defaultValue_one: "{{count, number}} column",
     defaultValue_other: "{{count, number}} columns",
   });

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { z } from "zod";
@@ -50,19 +51,21 @@ const ITEMS_SCHEMA = z.array(ITEM_SCHEMA);
 
 function read(key: string): ComposerContextItem[] {
   return (
-    readLocalJson(
-      STORAGE_PREFIX + key,
-      ITEMS_SCHEMA,
-      "Couldn't restore the context attached to this draft; it was reset.",
+    readLocalJson(STORAGE_PREFIX + key, ITEMS_SCHEMA, () =>
+      translateUi(
+        "conversation.composer.context.restoreError",
+        "Couldn't restore the context attached to this draft; it was reset.",
+      ),
     ) ?? EMPTY
   );
 }
 
 function write(key: string, items: ComposerContextItem[]): void {
-  writeLocalJson(
-    STORAGE_PREFIX + key,
-    items.length === 0 ? null : items,
-    "Couldn't save the attached context for after a reload",
+  writeLocalJson(STORAGE_PREFIX + key, items.length === 0 ? null : items, () =>
+    translateUi(
+      "conversation.composer.context.saveError",
+      "Couldn't save the attached context for after a reload",
+    ),
   );
 }
 

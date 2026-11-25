@@ -61,7 +61,9 @@ export function ForgeHostControls({
             <SelectContent>
               {Object.values(GitHost).map((value) => (
                 <SelectItem key={value} value={value}>
-                  {value}
+                  {value === GitHost.Other
+                    ? t("workspace.git.gitRemotesSettings.otherProvider", "Other")
+                    : value}
                 </SelectItem>
               ))}
             </SelectContent>

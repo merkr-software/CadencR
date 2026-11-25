@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,7 +17,11 @@ const idListSchema = z.array(z.number().int());
 type ParsedIdList = { ids: number[]; error: string | null };
 
 export function parseIdList(raw: string | null | undefined): ParsedIdList {
-  const { value, error } = parseJsonSetting(raw, idListSchema, "expected an array of ids");
+  const { value, error } = parseJsonSetting(
+    raw,
+    idListSchema,
+    translateUi("settings.data.expectedIds", "expected an array of ids"),
+  );
   return { ids: value ?? [], error };
 }
 
@@ -24,9 +29,16 @@ export function parseIdList(raw: string | null | undefined): ParsedIdList {
 export function useIdListError(key: string, error: string | null): void {
   useEffect(() => {
     if (error) {
-      toast.error(`Could not read setting "${key}": ${error}. Your next change will replace it.`, {
-        id: `setting-${key}`,
-      });
+      toast.error(
+        translateUi(
+          "settings.data.idListReadError",
+          'Could not read setting "{{key}}": {{error}}. Your next change will replace it.',
+          { key, error },
+        ),
+        {
+          id: `setting-${key}`,
+        },
+      );
     }
   }, [key, error]);
 }
@@ -40,9 +52,16 @@ export function readLoadedIdList(queryClient: QueryClient, key: string): number[
     getGetWorkspaceSettingQueryKey(key),
   );
   if (cached === undefined) {
-    toast.error(`Could not save setting "${key}": it has not loaded yet.`, {
-      id: `setting-${key}`,
-    });
+    toast.error(
+      translateUi(
+        "settings.data.idListPending",
+        'Could not save setting "{{key}}": it has not loaded yet.',
+        { key },
+      ),
+      {
+        id: `setting-${key}`,
+      },
+    );
     return null;
   }
   return parseIdList(cached.value).ids;

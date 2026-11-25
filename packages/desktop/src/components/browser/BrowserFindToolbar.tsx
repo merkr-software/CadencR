@@ -30,9 +30,8 @@ export const BrowserFindToolbar = memo(function BrowserFindToolbar({
     else find.next();
   }
 
-  const resultLabel = find.pending
-    ? "Searching"
-    : find.query.length === 0
+  const resultLabel =
+    find.query.length === 0
       ? t("workspace.tools.browserFindToolbar.typeToSearch", "Type to search")
       : t("workspace.tools.browserFindToolbar.matchCount", "{{match}} of {{total}}", {
           match: find.activeMatchOrdinal,

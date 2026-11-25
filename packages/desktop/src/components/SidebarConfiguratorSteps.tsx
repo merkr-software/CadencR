@@ -31,7 +31,7 @@ export function SidebarConfiguratorSteps({
           id={presetHeading}
           step={1}
           title={t("sidebar.configuratorSteps.preset", "Preset")}
-          detail="The base every option starts from"
+          detail={t("sidebar.configuratorSteps.baseDetail", "The base every option starts from")}
           wide={wide}
         />
         {wide ? <SettingsCard className="p-4">{picker}</SettingsCard> : picker}
@@ -47,7 +47,9 @@ export function SidebarConfiguratorSteps({
           id={adjustHeading}
           step={2}
           title={t("sidebar.configuratorSteps.adjust", "Adjust")}
-          detail={`On top of ${form.nearest.preset.label}`}
+          detail={t("sidebar.configuratorSteps.adjustDetail", "On top of {{preset}}", {
+            preset: form.nearest.preset.label,
+          })}
           wide={wide}
         />
         {children}

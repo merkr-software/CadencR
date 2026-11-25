@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 function formulaCount(count: number, t: UiTranslator): string {
   return t("workspace.editor.formulaRecalcNotice.formulaCount", {
     count,
+    defaultValue_zero: "{{count, number}} formulas",
     defaultValue_one: "{{count, number}} formula",
     defaultValue_other: "{{count, number}} formulas",
   });
@@ -27,13 +28,21 @@ function describe(
   detail: string;
   warn: boolean;
 } {
-  if (formulas.status === "failed") {
+  if (formulas.status !== "computed") {
+    const reason =
+      formulas.status === "failed"
+        ? formulas.reason
+        : t(
+            "workspace.editor.formulaRecalcNotice.unreadableSummary",
+            "Unreadable recalculation summary: {{header}}",
+            { header: formulas.header },
+          );
     return {
       label: t("workspace.editor.formulaRecalcNotice.failed", "Formulas not calculated"),
       detail: t(
         "workspace.editor.formulaRecalcNotice.failedDetail",
         "This workbook was saved without its formula results, as scripts like openpyxl write them. Cadencr couldn't calculate them: {{reason}}. Cells show what the file saved.",
-        { reason: formulas.reason },
+        { reason },
       ),
       warn: true,
     };

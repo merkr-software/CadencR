@@ -1,5 +1,6 @@
 import { themeAppearanceLabel, themeDisplayLabel } from "@/lib/themes/display";
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { localizedSearchKeywords } from "@/lib/i18n/search-keywords";
 import { useEffect, useMemo, useRef } from "react";
 import {
   BanIcon,
@@ -91,7 +92,11 @@ function worktreeModes(
           : t("palette.steps.worktree.new", "New worktree"),
       group: "Create",
       icon: <FolderGit2Icon />,
-      keywords: ["branch", "isolated", "fresh"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.steps.worktree.newKeywords",
+        "branch, isolated, fresh",
+      ),
       description: t(
         "palette.steps.worktree.newDescription",
         "A fresh branch in its own worktree: the agent's changes stay off your checkout.",
@@ -106,7 +111,11 @@ function worktreeModes(
           : t("palette.steps.worktree.directory", "Project directory"),
       group: "Create",
       icon: <BanIcon />,
-      keywords: ["no worktree", "in place", "checkout"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.steps.worktree.directoryKeywords",
+        "no worktree, in place, checkout",
+      ),
       description: t(
         "palette.steps.worktree.directoryDescription",
         "Runs in the project's own checkout, on whatever branch it is on.",
@@ -138,12 +147,17 @@ function useWorktreeStep(
       ops.createConversation({ projectId, worktree, projectDefault });
     const modes = worktreeModes(projectDefault, create, t);
     const local = (branches.data ?? []).filter((branch) => branch.is_local);
+    const branchKeywords = localizedSearchKeywords(
+      t,
+      "palette.steps.worktree.branchKeywords",
+      "reuse, existing, branch",
+    );
     const branchCommands: PaletteCommand[] = local.map((branch) => ({
       id: `wt-branch-${branch.name}`,
       title: branch.name,
       group: "Create",
       icon: <GitBranchIcon />,
-      keywords: ["reuse", "existing", "branch"],
+      keywords: branchKeywords,
       description:
         branch.attached_feature_id != null
           ? t(

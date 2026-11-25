@@ -53,11 +53,19 @@ export function installApplicationMenu(onQuit: () => void): void {
       ? {
           label: app.name,
           submenu: [
-            { role: "about" },
+            {
+              role: "about",
+              label: translateUi("native.menu.aboutApp", "About {{appName}}", {
+                appName: app.name,
+              }),
+            },
             { type: "separator" },
-            { role: "hide" },
-            { role: "hideOthers" },
-            { role: "unhide" },
+            {
+              role: "hide",
+              label: translateUi("native.menu.hideApp", "Hide {{appName}}", { appName: app.name }),
+            },
+            { role: "hideOthers", label: translateUi("native.menu.hideOthers", "Hide Others") },
+            { role: "unhide", label: translateUi("native.menu.showAll", "Show All") },
             { type: "separator" },
             {
               label: translateUi("native.menu.quitApp", "Quit {{appName}}", { appName: app.name }),
@@ -80,10 +88,24 @@ export function installApplicationMenu(onQuit: () => void): void {
   const devViewSubmenu = app.isPackaged
     ? []
     : ([
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
+        { role: "reload", label: translateUi("native.menu.reload", "Reload") },
+        { role: "forceReload", label: translateUi("native.menu.forceReload", "Force Reload") },
+        {
+          role: "toggleDevTools",
+          label: translateUi("native.menu.toggleDeveloperTools", "Toggle Developer Tools"),
+        },
       ] satisfies MenuItemConstructorOptions[]);
+  const windowSubmenu: MenuItemConstructorOptions[] = [
+    { role: "minimize", label: translateUi("native.menu.minimize", "Minimize") },
+    // `zoom` is the macOS title-bar zoom; it does nothing elsewhere.
+    ...(process.platform === "darwin"
+      ? ([{ role: "zoom", label: translateUi("native.menu.zoom", "Zoom") }] as const)
+      : []),
+    {
+      role: "togglefullscreen",
+      label: translateUi("native.menu.toggleFullScreen", "Toggle Full Screen"),
+    },
+  ];
 
   const template: MenuItemConstructorOptions[] = [
     appMenu,
@@ -93,11 +115,7 @@ export function installApplicationMenu(onQuit: () => void): void {
       : []),
     {
       label: translateUi("native.menu.window", "Window"),
-      // `zoom` is the macOS title-bar zoom; it does nothing elsewhere.
-      submenu:
-        process.platform === "darwin"
-          ? [{ role: "minimize" }, { role: "zoom" }, { role: "togglefullscreen" }]
-          : [{ role: "minimize" }, { role: "togglefullscreen" }],
+      submenu: windowSubmenu,
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

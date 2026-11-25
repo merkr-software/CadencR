@@ -292,7 +292,10 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         set(
           updateSession(get(), sessionId, {
             worktreeStatus: "setup_error",
-            worktreeError: "feature_id is required",
+            worktreeError: translateUi(
+              "conversation.worktree.featureIdRequired",
+              "feature_id is required",
+            ),
           }),
         );
         return;

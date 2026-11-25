@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { app } from "electron";
+import { browserLibraryErrors } from "./browser-library-errors";
 import type {
   BrowserBookmark,
   BrowserHistoryEntry,
@@ -164,7 +165,7 @@ export class BrowserLibraryStore {
         if (previous?.title === bookmark.title) return { next: current, result: previous };
         const bookmarks = [bookmark, ...current.bookmarks.filter((entry) => entry.url !== url)];
         if (bookmarks.length > MAX_BOOKMARKS) {
-          throw new Error(`Browser bookmarks are limited to ${MAX_BOOKMARKS} entries.`);
+          throw new Error(browserLibraryErrors.bookmarkLimit(MAX_BOOKMARKS));
         }
         return { next: bounded({ ...current, bookmarks }), result: bookmark };
       },
@@ -204,8 +205,7 @@ export class BrowserLibraryStore {
     let content: string;
     try {
       const stat = await fs.stat(this.filePath);
-      if (stat.size > MAX_STORED_BYTES)
-        throw new Error("Browser library file exceeds its size limit.");
+      if (stat.size > MAX_STORED_BYTES) throw new Error(browserLibraryErrors.fileTooLarge());
       content = await fs.readFile(this.filePath, "utf8");
     } catch (error) {
       if (isMissingFile(error)) return cloneLibrary(EMPTY_LIBRARY);
@@ -215,7 +215,7 @@ export class BrowserLibraryStore {
     try {
       parsed = JSON.parse(content);
     } catch (error) {
-      throw new Error("Browser history and bookmarks could not be read: invalid data.", {
+      throw new Error(browserLibraryErrors.invalidData(), {
         cause: error,
       });
     }
@@ -225,7 +225,7 @@ export class BrowserLibraryStore {
   private async write(data: BrowserLibraryData): Promise<void> {
     const serialized = JSON.stringify(data);
     if (Buffer.byteLength(serialized, "utf8") > MAX_STORED_BYTES) {
-      throw new Error("Browser history and bookmarks exceed their storage limit.");
+      throw new Error(browserLibraryErrors.storageLimit());
     }
     const directory = path.dirname(this.filePath);
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -274,7 +274,7 @@ function bounded(data: BrowserLibraryData): BrowserLibraryData {
   if (serializedBytes(candidate) <= MAX_STORED_BYTES) return candidate;
   const withoutHistory = { ...data, history: [] };
   if (serializedBytes(withoutHistory) > MAX_STORED_BYTES) {
-    throw new Error("Browser bookmark storage is full. Remove a bookmark before saving another.");
+    throw new Error(browserLibraryErrors.bookmarkStorageFull());
   }
   let low = 0;
   let high = history.length;
@@ -291,10 +291,10 @@ function bounded(data: BrowserLibraryData): BrowserLibraryData {
 
 function parseLibrary(value: unknown): BrowserLibraryData {
   if (!isRecord(value) || value.version !== 1) {
-    throw new Error("Browser history and bookmarks could not be read: unsupported data.");
+    throw new Error(browserLibraryErrors.unsupportedData());
   }
   if (!Array.isArray(value.history) || !Array.isArray(value.bookmarks)) {
-    throw new Error("Browser history and bookmarks could not be read: invalid data.");
+    throw new Error(browserLibraryErrors.invalidData());
   }
   const history = value.history.map(parseHistoryEntry).slice(0, MAX_HISTORY_ENTRIES);
   const bookmarks = value.bookmarks.map(parseBookmark).slice(0, MAX_BOOKMARKS);
@@ -327,14 +327,10 @@ function safeLibraryUrl(value: unknown, operation?: "history" | "bookmark"): str
   if (typeof value !== "string") throw invalidEntry();
   if (value.length > MAX_BROWSER_LIBRARY_URL_LENGTH) {
     if (operation === "history") {
-      throw new Error(
-        `Page could not be saved to recent history: address exceeds ${MAX_BROWSER_LIBRARY_URL_LENGTH} characters.`,
-      );
+      throw new Error(browserLibraryErrors.historyAddressTooLong(MAX_BROWSER_LIBRARY_URL_LENGTH));
     }
     if (operation === "bookmark") {
-      throw new Error(
-        `Page could not be bookmarked: address exceeds ${MAX_BROWSER_LIBRARY_URL_LENGTH} characters.`,
-      );
+      throw new Error(browserLibraryErrors.bookmarkAddressTooLong(MAX_BROWSER_LIBRARY_URL_LENGTH));
     }
     throw invalidEntry();
   }
@@ -342,10 +338,10 @@ function safeLibraryUrl(value: unknown, operation?: "history" | "bookmark"): str
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error("Only valid HTTP or HTTPS pages can be saved to browser history.");
+    throw new Error(browserLibraryErrors.invalidUrl());
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Only HTTP or HTTPS pages can be saved to browser history.");
+    throw new Error(browserLibraryErrors.unsupportedUrl());
   }
   parsed.username = "";
   parsed.password = "";
@@ -371,7 +367,7 @@ function safeDate(value: unknown): string {
 }
 
 function invalidEntry(): Error {
-  return new Error("Browser history and bookmarks could not be read: invalid entry.");
+  return new Error(browserLibraryErrors.invalidEntry());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

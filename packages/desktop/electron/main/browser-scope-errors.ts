@@ -1,3 +1,4 @@
+import type { BrowserScopeIssue } from "../../src/shared/browser-scope-error-copy";
 import { isViewportPageError } from "./browser-load-errors";
 import type { BrowserTabError } from "./browser-types";
 
@@ -17,7 +18,10 @@ interface TabErrorEntry {
  *   the whole feature until dismissed, navigated away, or the scope closes.
  */
 export class BrowserScopeErrors {
-  private readonly scopeErrors = new Map<number | null, string>();
+  private readonly scopeErrors = new Map<
+    number | null,
+    { message: string; issue?: BrowserScopeIssue }
+  >();
   private readonly tabErrors = new Map<string, TabErrorEntry>();
 
   /**
@@ -26,7 +30,12 @@ export class BrowserScopeErrors {
    */
   get(scopeId: number | null | undefined): string | null {
     if (scopeId === undefined) return null;
-    return this.scopeErrors.get(scopeId) ?? null;
+    return this.scopeErrors.get(scopeId)?.message ?? null;
+  }
+
+  getIssue(scopeId: number | null | undefined): BrowserScopeIssue | undefined {
+    if (scopeId === undefined) return undefined;
+    return this.scopeErrors.get(scopeId)?.issue;
   }
 
   /** The active tab's structured error when it belongs to `scopeId`, else null. */
@@ -49,10 +58,13 @@ export class BrowserScopeErrors {
     return isViewportPageError(this.tabErrors.get(tabId)?.error);
   }
 
-  /** Record a scope-wide error notice; false when the same message is already stored. */
-  report(scopeId: number | null, message: string): boolean {
-    if (this.scopeErrors.get(scopeId) === message) return false;
-    this.scopeErrors.set(scopeId, message);
+  /** Record a scope-wide error notice; false when the same issue is already stored. */
+  report(scopeId: number | null, message: string, issue?: BrowserScopeIssue): boolean {
+    const current = this.scopeErrors.get(scopeId);
+    if (current?.message === message && JSON.stringify(current.issue) === JSON.stringify(issue)) {
+      return false;
+    }
+    this.scopeErrors.set(scopeId, { message, issue });
     return true;
   }
 

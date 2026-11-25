@@ -524,6 +524,24 @@ describe("applyMutations", () => {
     expect(blocks[0].content).toContain(TRUNCATION_NOTICE);
   });
 
+  it("generates a neutral omission when streamed text crosses the budget", () => {
+    const literal = "… content truncated …";
+    const blocks = applyMutations(
+      [{ id: "text-1", type: "text", content: literal }],
+      [
+        {
+          action: "update",
+          block: { id: "text-1", type: "text", content: "x".repeat(2 * BLOCK_CONTENT_MAX_CHARS) },
+        },
+      ],
+      createStreamingState(),
+    );
+
+    expect(blocks[0].truncatedContent).toBe(true);
+    expect(blocks[0].content).toContain(TRUNCATION_NOTICE);
+    expect(blocks[0].content.split(literal)).toHaveLength(2);
+  });
+
   it("cleans up a complete stream without replacing an unchanged block", () => {
     const streamState = createStreamingState();
     let blocks: AgentBlockData[] = [

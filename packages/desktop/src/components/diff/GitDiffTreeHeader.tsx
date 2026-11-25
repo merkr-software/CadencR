@@ -80,6 +80,7 @@ export function GitDiffTreeHeader({
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {t("workspace.git.gitDiffFileTree.changedFiles", "{{count, number}} changed files", {
           count: fileCount,
+          defaultValue_zero: "{{count, number}} changed files",
           defaultValue_one: "{{count, number}} changed file",
         })}
       </span>

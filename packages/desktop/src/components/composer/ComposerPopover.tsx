@@ -1,5 +1,6 @@
 import { forwardRef, useId, type ReactNode } from "react";
 import { KbdShortcut } from "@/components/KbdShortcut";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 /** DOM id of option `index` inside the listbox `listId` (for aria-activedescendant). */
@@ -25,12 +26,6 @@ interface ComposerPopoverProps {
   children?: ReactNode;
 }
 
-const DEFAULT_HINTS = [
-  [["up", "down"], "navigate"],
-  [["enter"], "insert"],
-  [["escape"], "close"],
-] as const;
-
 /**
  * Shared shell for the composer's typeahead popovers (`@` files, `@@`
  * conversations, `/` commands). One look and one keyboard contract: it rises
@@ -42,17 +37,15 @@ const DEFAULT_HINTS = [
  */
 export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
   function ComposerPopover(
-    {
-      listId,
-      label,
-      maxHeight = COMPOSER_POPOVER_MAX_HEIGHT,
-      status,
-      notice,
-      hints = DEFAULT_HINTS,
-      children,
-    },
+    { listId, label, maxHeight = COMPOSER_POPOVER_MAX_HEIGHT, status, notice, hints, children },
     ref,
   ) {
+    const { t } = useUiTranslation();
+    const displayedHints = hints ?? [
+      [["up", "down"], t("conversation.composer.typeahead.navigate", "navigate")],
+      [["enter"], t("conversation.composer.typeahead.insert", "insert")],
+      [["escape"], t("conversation.composer.typeahead.close", "close")],
+    ];
     return (
       <div
         data-composer-popover
@@ -90,8 +83,8 @@ export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
           aria-hidden
           className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden"
         >
-          {hints.map(([keys, hintLabel]) => (
-            <span key={hintLabel} className="inline-flex items-center gap-1">
+          {displayedHints.map(([keys, hintLabel]) => (
+            <span key={keys.join("+")} className="inline-flex items-center gap-1">
               <KbdShortcut keys={[...keys]} variant="hint" />
               {hintLabel}
             </span>

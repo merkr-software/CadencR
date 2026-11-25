@@ -1,6 +1,6 @@
 import { forgeKindCapabilities } from "./forge-kind-capabilities";
 import { ForgeHostControls, ForgeHostActions } from "./ForgeHostControls";
-import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactElement } from "react";
 import { CheckCircle2Icon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   useGetForgeAuthStatus,
   usePutForgeToken,
   type ForgeAuthStatus,
+  type ForgeAuthStatusSource,
   type ForgeTokenRequest,
 } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,33 @@ function refreshForgeAuthStatus(): void {
   void queryClient.invalidateQueries({ queryKey: getGetForgeAuthStatusQueryKey() });
 }
 
+function forgeConnectionDescription(
+  username: string,
+  source: ForgeAuthStatusSource | undefined,
+  t: UiTranslator,
+): string {
+  switch (source) {
+    case "stored":
+      return t(
+        "workspace.git.gitRemotesSettings.connectedAsWithStoredToken",
+        "Connected as {{username}} via a stored token",
+        { username },
+      );
+    case "cli":
+      return t(
+        "workspace.git.gitRemotesSettings.connectedAsWithCli",
+        "Connected as {{username}} via the CLI",
+        { username },
+      );
+    default:
+      return t(
+        "workspace.git.gitRemotesSettings.connectedAsWithToken",
+        "Connected as {{username}} via a token",
+        { username },
+      );
+  }
+}
+
 function ForgeHostCard({
   status,
   pending,
@@ -180,7 +208,7 @@ function ForgeHostCard({
       title={status.hostname}
       description={
         status.validated_user
-          ? `Connected as ${status.validated_user.username} via ${status.source ?? "token"}`
+          ? forgeConnectionDescription(status.validated_user.username, status.source, t)
           : t(
               "workspace.git.gitRemotesSettings.connectToDetectPullRequestsAndMerge",
               "Connect to detect pull requests and merge requests on this host.",

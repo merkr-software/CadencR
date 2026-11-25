@@ -1,4 +1,4 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Shared chrome for the document renderers: the centered loading / error
  * states, the bottom status bar (same anatomy as `ImageFileViewer`'s) and
@@ -142,6 +142,15 @@ export function DocumentZoomControls({
 
 /** Message for a rejected parse/render promise, never empty. */
 export function documentErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return `${fallback}: ${error.message}`;
+  if (error instanceof Error && error.message) {
+    return translateUi(
+      "workspace.editor.documentChrome.errorWithDetail",
+      "{{summary}}: {{detail}}",
+      {
+        summary: fallback,
+        detail: error.message,
+      },
+    );
+  }
   return fallback;
 }

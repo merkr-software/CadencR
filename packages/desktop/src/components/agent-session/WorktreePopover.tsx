@@ -261,7 +261,8 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
     onPick: handlePick,
   });
 
-  const branchLabel = state.effectiveBranch ?? "branch";
+  const branchLabel =
+    state.effectiveBranch ?? t("conversation.stream.worktreePopover.branchFallback", "branch");
   const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch }, t);
   // The manifest reads "<mode> from <branch>"; the chip reads "<branch> | <mode>".
   const modePicker = (

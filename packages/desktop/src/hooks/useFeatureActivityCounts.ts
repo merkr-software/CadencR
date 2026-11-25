@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useListFeatureActivity } from "@/api/generated";
@@ -32,9 +33,15 @@ export function useFeatureActivityCounts(projectId: number): FeatureActivityCoun
 
   useEffect(() => {
     if (!activityQuery.error) return;
-    toast.error(apiErrorMessage(activityQuery.error, "Failed to load sidebar activity"), {
-      id: FEATURE_ACTIVITY_ERROR_TOAST_ID,
-    });
+    toast.error(
+      apiErrorMessage(
+        activityQuery.error,
+        translateUi("sidebar.activity.loadError", "Failed to load sidebar activity"),
+      ),
+      {
+        id: FEATURE_ACTIVITY_ERROR_TOAST_ID,
+      },
+    );
   }, [activityQuery.error]);
 
   const shellCountsByFeatureId = useMemo(() => {
@@ -67,7 +74,10 @@ export function useBrowserActivityBridge(): void {
         if (alive) useBrowserStore.getState().setCountsByScope(counts);
       })
       .catch((error: unknown) => {
-        showBrowserError(error, "Failed to load browser tab counts");
+        showBrowserError(
+          error,
+          translateUi("sidebar.activity.browserCountsError", "Failed to load browser tab counts"),
+        );
       });
     const unsubscribe = desktopBridge.onBrowserTabCounts((counts) => {
       useBrowserStore.getState().setCountsByScope(counts);
@@ -86,7 +96,13 @@ export function useBrowserActivityBridge(): void {
       })
       .catch((error: unknown) => {
         if (alive && downloadRevision === initialDownloadRevision) {
-          showBrowserError(error, "Failed to load browser download counts");
+          showBrowserError(
+            error,
+            translateUi(
+              "sidebar.activity.downloadCountsError",
+              "Failed to load browser download counts",
+            ),
+          );
         }
       });
     return () => {

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import type { CliInstallStatus } from "@/shared/cli-bridge";
+import { describeCliConflict, describeCliUnavailable } from "@/shared/cli-install-copy";
 
 export const CLI_INSTALL_STATUS_QUERY_KEY = ["desktop", "cli-install-status"] as const;
 
@@ -11,69 +12,11 @@ function directoryOf(target: string): string {
   return target.slice(0, target.lastIndexOf("/")) || "/";
 }
 
-function unavailableDescription(
-  status: Extract<CliInstallStatus, { state: "unavailable" }>,
-): string {
-  switch (status.code) {
-    case "development":
-      return translateUi(
-        "settings.general.commandLine.development",
-        "Development builds don't ship the cadencr command. From the repository, run it with: {{command}}",
-        { command: "pnpm rust -- run -p cadencr-cli --" },
-      );
-    case "unsupported-platform":
-      return translateUi(
-        "settings.general.commandLine.unsupportedPlatform",
-        "The cadencr command is available on macOS and Linux.",
-      );
-    case "unofficial-linux-package":
-      return translateUi(
-        "settings.general.commandLine.unofficialLinuxPackage",
-        "This Linux build is not an official AppImage, DEB or RPM package, so it can't install the cadencr command.",
-      );
-    case "temporary-macos-location":
-      return translateUi(
-        "settings.general.commandLine.temporaryMacLocation",
-        "Cadencr is running from a disk image or a temporary copy, so a link to it would break. Move Cadencr to Applications and open it from there to install the cadencr command.",
-      );
-    case "missing-command":
-      return translateUi(
-        "settings.general.commandLine.missingCommand",
-        "This build of Cadencr does not include the cadencr command.",
-      );
-    default:
-      return status.reason;
-  }
-}
-
-export function describeCliConflict(
-  status: Extract<CliInstallStatus, { state: "conflict" }>,
-): string {
-  switch (status.conflict?.kind) {
-    case "link":
-      return translateUi("settings.general.commandLine.conflictLink", "a link to {{path}}", {
-        path: status.conflict.path,
-      });
-    case "unmanaged-program":
-      return translateUi(
-        "settings.general.commandLine.conflictUnmanaged",
-        "a program not installed by Cadencr",
-      );
-    case "replaced-program":
-      return translateUi(
-        "settings.general.commandLine.conflictReplaced",
-        "a program that replaced Cadencr's",
-      );
-    default:
-      return status.existing;
-  }
-}
-
 /** One sentence on where the command stands. */
 export function describeCliInstall(status: CliInstallStatus): string {
   switch (status.state) {
     case "unavailable":
-      return unavailableDescription(status);
+      return describeCliUnavailable(status);
     case "package":
       return translateUi(
         "settings.general.commandLine.package",

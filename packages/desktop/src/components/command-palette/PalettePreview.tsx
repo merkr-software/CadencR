@@ -304,6 +304,7 @@ function MessagePreview({
 function conversationCount(count: number, t: UiTranslator): string {
   return t("palette.preview.conversationCount", {
     count,
+    defaultValue_zero: "{{count, number}} conversations",
     defaultValue_one: "{{count, number}} conversation",
     defaultValue_other: "{{count, number}} conversations",
   });

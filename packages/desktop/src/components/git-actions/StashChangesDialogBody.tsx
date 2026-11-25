@@ -176,10 +176,14 @@ function StashFiles({
 }): ReactElement {
   const { t } = useUiTranslation();
   const summary = loading
-    ? "Loading…"
+    ? t("workspace.git.stashChangesDialogBody.loading", "Loading…")
     : error
-      ? "Unavailable"
-      : `${includedFileCount} of ${files.length} included`;
+      ? t("workspace.git.stashChangesDialogBody.unavailable", "Unavailable")
+      : t(
+          "workspace.git.stashChangesDialogBody.includedCount",
+          "{{includedFileCount}} of {{totalFileCount}} included",
+          { includedFileCount, totalFileCount: files.length },
+        );
   return (
     <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
       <header className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-3 py-2.5">

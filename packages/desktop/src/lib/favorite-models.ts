@@ -1,3 +1,4 @@
+import { translateUi } from "@/shared/ui-i18n";
 /**
  * Favorite (starred) models.
  *
@@ -22,7 +23,12 @@ export function parseFavoriteModels(raw: string | null): string[] {
   if (!raw) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) {
-    throw new Error("Expected an array of model keys");
+    throw new Error(
+      translateUi(
+        "conversation.composer.favoriteModels.invalidList",
+        "Expected an array of model keys",
+      ),
+    );
   }
   return parsed.filter((entry): entry is string => typeof entry === "string");
 }

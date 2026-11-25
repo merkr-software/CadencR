@@ -31,10 +31,6 @@ export function isPersistableLiveTab(tab: ManagedTab): boolean {
   return tab.profile.mode === "persistent" && tab.automationAccess !== "agent" && !tab.temporary;
 }
 
-export function browserTabErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function workspaceMetadata(
   scopeId: BrowserTabScopeId | undefined,
   liveTabs: Map<string, ManagedTab>,

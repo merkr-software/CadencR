@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { DEFAULT_PROVIDER } from "../shared/models";
 import type { AgentType } from "../types/agent-types";
@@ -14,7 +15,13 @@ export function useResolvedModel(featureId: number) {
 
   useEffect(() => {
     if (selectionQuery.error) {
-      toastError(selectionQuery.error, "Failed to resolve the runtime selection");
+      toastError(
+        selectionQuery.error,
+        translateUi(
+          "conversation.runtime.selectionError",
+          "Failed to resolve the runtime selection",
+        ),
+      );
     }
   }, [selectionQuery.error]);
 

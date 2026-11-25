@@ -22,6 +22,7 @@ export function LightboxCanvas({
   onLoad,
   onDismiss,
 }: LightboxCanvasProps): ReactElement {
+  const { t } = useUiTranslation();
   // A cached payload can be evicted (and its URL revoked) while still on
   // screen; the load error is the only signal that reaches us.
   const [failed, setFailed] = useState(false);
@@ -38,7 +39,7 @@ export function LightboxCanvas({
       {image.src && !failed ? (
         <img
           src={image.src}
-          alt={image.alt}
+          alt={image.alt || t("conversation.stream.markdownImage.image", "image")}
           onLoad={onLoad}
           onError={() => setFailed(true)}
           onClick={zoom.onClick}

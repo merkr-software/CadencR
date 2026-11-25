@@ -64,6 +64,7 @@ export function IgnoredLspSuggestions({ projectId }: { projectId: number }) {
       <p className="text-xs text-muted-foreground">
         {t("workspace.editor.ignoredLspSuggestions.summary", {
           count: ignored.languages.length,
+          defaultValue_zero: "Suggestions ignored for {{count, number}} languages in this project.",
           defaultValue_one: "Suggestions ignored for {{count, number}} language in this project.",
           defaultValue_other:
             "Suggestions ignored for {{count, number}} languages in this project.",

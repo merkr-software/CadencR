@@ -1,6 +1,7 @@
-import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
+import { translateUi } from "../../src/shared/ui-i18n";
+import { browserTabSaveFailure, type BrowserScopeFailure } from "./browser-scope-failure";
 import type { ManagedTab } from "./browser-tab-events";
 import { BrowserTabPersistenceController } from "./browser-tab-persistence-controller";
 import {
@@ -10,7 +11,6 @@ import {
 } from "./browser-tab-session-store";
 import type { BrowserTabSessionStore } from "./browser-tab-session-store";
 import {
-  browserTabErrorMessage,
   insertOrderedTab,
   isPersistableLiveTab,
   isPersistentMetadata,
@@ -38,7 +38,7 @@ export class BrowserTabWorkspaceController {
 
   constructor(
     store: BrowserTabSessionStore,
-    private readonly reportError: (message: string, scopeId: number) => void,
+    private readonly reportError: (error: BrowserScopeFailure, scopeId: number) => void,
   ) {
     this.persistence = new BrowserTabPersistenceController(store, reportError);
   }
@@ -265,12 +265,7 @@ export class BrowserTabWorkspaceController {
     try {
       this.persistence.schedule(scopeId, this.persistableScope(scopeId, liveTabs, activeId));
     } catch (error) {
-      this.reportError(
-        translateUi("workspace.browser.tab.saveFailed", "Could not save Browser tabs: {{detail}}", {
-          detail: browserTabErrorMessage(error),
-        }),
-        scopeId,
-      );
+      this.reportError(browserTabSaveFailure(error), scopeId);
     }
   }
 

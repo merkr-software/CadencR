@@ -1,3 +1,4 @@
+import { translateUi } from "@/shared/ui-i18n";
 import { create } from "zustand";
 import { z } from "zod";
 import { readLocalJson, writeLocalJson } from "@/lib/local-json";
@@ -19,16 +20,19 @@ interface PromptStashStore {
 
 function read(projectId: number): StashedDraft[] {
   return (
-    readLocalJson(
-      STORAGE_PREFIX + projectId,
-      STASH_SCHEMA,
-      "Couldn't read the stashed drafts; they were reset.",
+    readLocalJson(STORAGE_PREFIX + projectId, STASH_SCHEMA, () =>
+      translateUi(
+        "conversation.composer.stash.restoreError",
+        "Couldn't read the stashed drafts; they were reset.",
+      ),
     ) ?? []
   );
 }
 
 function write(projectId: number, drafts: StashedDraft[]): void {
-  writeLocalJson(STORAGE_PREFIX + projectId, drafts, "Couldn't stash the draft");
+  writeLocalJson(STORAGE_PREFIX + projectId, drafts, () =>
+    translateUi("conversation.composer.stash.saveError", "Couldn't stash the draft"),
+  );
 }
 
 /**

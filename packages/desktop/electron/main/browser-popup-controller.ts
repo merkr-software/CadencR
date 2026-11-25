@@ -350,7 +350,12 @@ function isSafePopupExternalUrl(rawUrl: string): boolean {
 function assertSafePopupExternalUrl(rawUrl: string): void {
   const parsed = new URL(rawUrl);
   if (parsed.username || parsed.password)
-    throw new Error("Popup URLs with credentials are blocked.");
+    throw new Error(
+      translateUi(
+        "workspace.browser.popup.externalCredentialsBlocked",
+        "Popup URLs with credentials are blocked.",
+      ),
+    );
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
     throw new Error(

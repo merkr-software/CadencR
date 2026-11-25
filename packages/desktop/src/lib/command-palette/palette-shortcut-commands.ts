@@ -1,3 +1,4 @@
+import { localizedSearchKeywords } from "@/lib/i18n/search-keywords";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 
 /**
@@ -21,144 +22,219 @@ type LabelTranslator = (key: string, defaultValue: string) => string;
 interface PaletteShortcutMeta {
   title: (t: LabelTranslator) => string;
   group: PaletteCommandGroup;
-  keywords?: readonly string[];
+  keywords: (t: LabelTranslator) => readonly string[];
 }
 
 export const PALETTE_SHORTCUT_COMMANDS = {
   "navigate-back": {
     title: (t) => t("palette.shortcuts.navigate-back", "Go back"),
     group: "Navigate",
-    keywords: ["history", "previous"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.navigate-back", "history, previous"),
   },
   "navigate-forward": {
     title: (t) => t("palette.shortcuts.navigate-forward", "Go forward"),
     group: "Navigate",
-    keywords: ["history", "next"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.navigate-forward", "history, next"),
   },
   "toggle-sidebar": {
     title: (t) => t("palette.shortcuts.toggle-sidebar", "Toggle sidebar"),
     group: "View",
-    keywords: ["hide", "show", "panel"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.toggle-sidebar", "hide, show, panel"),
   },
   "zoom-in": {
     title: (t) => t("palette.shortcuts.zoom-in", "Zoom in"),
     group: "View",
-    keywords: ["bigger", "font", "scale"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.zoom-in", "bigger, font, scale"),
   },
   "zoom-out": {
     title: (t) => t("palette.shortcuts.zoom-out", "Zoom out"),
     group: "View",
-    keywords: ["smaller", "font", "scale"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.zoom-out", "smaller, font, scale"),
   },
   "zoom-reset": {
     title: (t) => t("palette.shortcuts.zoom-reset", "Reset zoom"),
     group: "View",
-    keywords: ["actual size", "100%"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.zoom-reset", "actual size, 100%"),
   },
   "shortcuts-help": {
     title: (t) => t("palette.shortcuts.shortcuts-help", "Keyboard shortcuts"),
     group: "View",
-    keywords: ["help", "cheatsheet", "keys", "hotkeys"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.shortcuts-help",
+        "help, cheatsheet, keys, hotkeys",
+      ),
   },
   "stop-all-agents": {
     title: (t) => t("palette.shortcuts.stop-all-agents", "Stop all running agents"),
     group: "Agent",
-    keywords: ["interrupt", "cancel", "halt", "kill"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.stop-all-agents",
+        "interrupt, cancel, halt, kill",
+      ),
   },
   "delete-feature": {
     title: (t) => t("palette.shortcuts.delete-feature", "Archive conversation…"),
     group: "Conversation",
-    keywords: ["delete", "remove", "close", "done"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.delete-feature",
+        "delete, remove, close, done",
+      ),
   },
   "edit-label": {
     title: (t) => t("palette.shortcuts.edit-label", "Edit label…"),
     group: "Conversation",
-    keywords: ["tag", "status"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.edit-label", "tag, status"),
   },
   "feature-settings": {
     title: (t) => t("palette.shortcuts.feature-settings", "Conversation settings…"),
     group: "Conversation",
-    keywords: ["worktree", "branch", "preferences"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.feature-settings",
+        "worktree, branch, preferences",
+      ),
   },
   "for-me-done": {
     title: (t) => t("palette.shortcuts.for-me-done", "Mark as done"),
     group: "Conversation",
-    keywords: ["for me", "handled", "dismiss", "review"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.for-me-done",
+        "for me, handled, dismiss, review",
+      ),
   },
   "content-search": {
     title: (t) => t("palette.shortcuts.content-search", "Search in files…"),
     group: "Conversation",
-    keywords: ["grep", "find", "content", "text", "ripgrep"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.content-search",
+        "grep, find, content, text, ripgrep",
+      ),
   },
   "pane-agent": {
     title: (t) => t("palette.shortcuts.pane-agent", "Show Agent tab"),
     group: "Conversation",
-    keywords: ["chat", "pane"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.pane-agent", "chat, pane"),
   },
   "pane-terminal": {
     title: (t) => t("palette.shortcuts.pane-terminal", "Show Terminal tab"),
     group: "Conversation",
-    keywords: ["shell", "pane"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.pane-terminal", "shell, pane"),
   },
   "pane-git": {
     title: (t) => t("palette.shortcuts.pane-git", "Show Git tab"),
     group: "Conversation",
-    keywords: ["diff", "changes", "pane"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.pane-git", "diff, changes, pane"),
   },
   "pane-editor": {
     title: (t) => t("palette.shortcuts.pane-editor", "Show Editor tab"),
     group: "Conversation",
-    keywords: ["code", "files", "pane"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.pane-editor", "code, files, pane"),
   },
   "pane-browser": {
     title: (t) => t("palette.shortcuts.pane-browser", "Show Browser tab"),
     group: "Conversation",
-    keywords: ["web", "preview", "pane"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.pane-browser", "web, preview, pane"),
   },
   "layout-auto-toggle": {
     title: (t) => t("palette.shortcuts.layout-auto-toggle", "Toggle auto layout"),
     group: "View",
-    keywords: ["split", "panes", "reveal"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.layout-auto-toggle",
+        "split, panes, reveal",
+      ),
   },
   "conversation-search": {
     title: (t) => t("palette.shortcuts.conversation-search", "Find in conversation…"),
     group: "Conversation",
-    keywords: ["search", "transcript", "messages"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.conversation-search",
+        "search, transcript, messages",
+      ),
   },
   "git-actions": {
     title: (t) => t("palette.shortcuts.git-actions", "Git actions…"),
     group: "Git",
-    keywords: ["git", "menu"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.git-actions", "git, menu"),
   },
   "custom-actions": {
     title: (t) => t("palette.shortcuts.custom-actions", "Custom actions…"),
     group: "Conversation",
-    keywords: ["run", "task", "script", "command", "runs"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.custom-actions",
+        "run, task, script, command, runs",
+      ),
   },
   "git-commit": {
     title: (t) => t("palette.shortcuts.git-commit", "Commit…"),
     group: "Git",
-    keywords: ["git", "save", "stage"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.git-commit", "git, save, stage"),
   },
   "git-push": {
     title: (t) => t("palette.shortcuts.git-push", "Push…"),
     group: "Git",
-    keywords: ["git", "upload", "remote"],
+    keywords: (t) =>
+      localizedSearchKeywords(t, "palette.shortcutKeywords.git-push", "git, upload, remote"),
   },
   "git-pr": {
     title: (t) => t("palette.shortcuts.git-pr", "Create pull request…"),
     group: "Git",
-    keywords: ["git", "pr", "compare", "merge request", "review"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.git-pr",
+        "git, pr, compare, merge request, review",
+      ),
   },
   "agent-model-picker": {
     title: (t) => t("palette.shortcuts.agent-model-picker", "Change model…"),
     group: "Agent",
-    keywords: ["provider", "claude", "codex", "llm"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.agent-model-picker",
+        "provider, claude, codex, llm",
+      ),
   },
   "agent-permission-mode": {
     title: (t) => t("palette.shortcuts.agent-permission-mode", "Cycle permission mode"),
     group: "Agent",
-    keywords: ["plan", "auto", "accept edits", "bypass"],
+    keywords: (t) =>
+      localizedSearchKeywords(
+        t,
+        "palette.shortcutKeywords.agent-permission-mode",
+        "plan, auto, accept edits, bypass",
+      ),
   },
 } satisfies Partial<Record<ShortcutId, PaletteShortcutMeta>>;
 

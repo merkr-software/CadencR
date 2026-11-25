@@ -9,6 +9,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import path from "node:path";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 
 const MAX_FILENAME_BYTES = 180;
 const MAX_EXTENSION_BYTES = 32;
@@ -41,7 +42,12 @@ export function reserveBrowserDownloadPath(
   const fallback = withSuffix(filename, `-${randomUUID()}`);
   const reservation = tryReserve(directory, fallback);
   if (reservation) return reservation;
-  throw new Error("Could not reserve a unique download destination.");
+  throw new Error(
+    t(
+      "workspace.browser.downloads.reserveFailed",
+      "Could not reserve a unique download destination.",
+    ),
+  );
 }
 
 /** Remove only the exact, still-empty inode created by this reservation. */

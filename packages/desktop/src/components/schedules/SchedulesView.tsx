@@ -226,6 +226,7 @@ function summaryLine(t: UiTranslator, count: number, nextRun: Date | null, local
       })
     : t("schedule.list.schedulesView.noneUpcoming", "{{count, number}} schedules · none upcoming", {
         count,
+        defaultValue_zero: "{{count, number}} schedules · none upcoming",
         defaultValue_one: "{{count, number}} schedule · none upcoming",
       });
 }

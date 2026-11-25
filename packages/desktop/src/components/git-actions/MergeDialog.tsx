@@ -320,7 +320,7 @@ function formatMergeError(err: unknown): string {
 // in …" and are passed through unchanged.
 function formatMergeErrorText(message: string | null | undefined): string {
   const cleaned = message?.replace(/^Bad request:\s*/i, "").trim();
-  if (!cleaned) return "Merge failed.";
+  if (!cleaned) return translateUi("workspace.git.mergeDialog.mergeFailed", "Merge failed.");
 
   const normalized = cleaned.toLowerCase();
   if (normalized.includes("target branch worktree") && normalized.includes("uncommitted changes")) {

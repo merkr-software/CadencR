@@ -2,7 +2,6 @@ import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { providerAccessModeConfig } from "@/lib/provider-access-modes";
-import { findProviderMode } from "@/lib/provider-modes";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata, PROVIDER_IDS, type ProviderId } from "@/lib/providers";
 import { CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY } from "@/shared/permission-mode-settings";
@@ -102,8 +101,7 @@ export function ProvidersSection(): React.JSX.Element {
 
 function ClaudeProviderPanel(): React.JSX.Element {
   const { t } = useUiTranslation();
-  const bypassLabel =
-    findProviderMode(PROVIDER_IDS.CLAUDE_CODE, "bypassPermissions")?.label ?? "Bypass";
+  const bypassLabel = t("agents.modes.claude.bypassPermissions.label", "Bypass");
   const bypassPermission = "BypassPermissions";
   return (
     <>

@@ -1,3 +1,4 @@
+import { translateUi } from "@/shared/ui-i18n";
 import { z } from "zod";
 import type { Feature, Project } from "@/api/generated";
 import {
@@ -43,7 +44,11 @@ export function parseSidebarViews(raw: string | null | undefined): {
   views: SidebarView[];
   error: string | null;
 } {
-  const parsed = parseJsonSetting(raw, z.array(viewSchema), "expected a list of {id, name, query}");
+  const parsed = parseJsonSetting(
+    raw,
+    z.array(viewSchema),
+    translateUi("sidebar.views.invalidList", "expected a list of {id, name, query}"),
+  );
   return { views: parsed.value ?? [], error: parsed.error };
 }
 

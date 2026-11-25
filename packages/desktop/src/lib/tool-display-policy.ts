@@ -1,9 +1,19 @@
 import type { AgentBlockData } from "@/types/agent-block";
+import type { UiTranslator } from "@/lib/i18n/ui";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 
 export interface SkillPresentation {
   name: string;
   args: string;
+}
+
+export function displayToolName(
+  normalizedName: string | undefined,
+  isSkill: boolean,
+  t: UiTranslator,
+): string {
+  if (isSkill) return t("conversation.stream.compactToolLine.skill", "Skill");
+  return normalizedName ?? t("conversation.stream.toolCallBlock.unknown", "unknown");
 }
 
 /**

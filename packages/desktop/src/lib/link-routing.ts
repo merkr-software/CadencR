@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
 import { showBrowserError } from "@/components/browser/browser-errors";
 import { PROFILE_ID, type CookieMode } from "@/lib/browser-settings";
@@ -105,7 +106,7 @@ async function openInDefaultBrowser(url: string): Promise<void> {
   try {
     await desktopBridge.openExternalLink(url);
   } catch (error) {
-    showBrowserError(error, "Could not open link");
+    showBrowserError(error, translateUi("shell.links.openError", "Could not open link"));
   }
 }
 
@@ -121,7 +122,10 @@ async function openInCadencrBrowser(url: string, options: OpenLinkOptions): Prom
     // it beside the agent; otherwise it's activated in place.
     revealOrActivateFeatureTab(options.scopeId, "browser", "user-link");
   } catch (error) {
-    showBrowserError(error, "Could not open in Cadencr browser");
+    showBrowserError(
+      error,
+      translateUi("shell.links.openInBrowserError", "Could not open in Cadencr browser"),
+    );
   }
 }
 

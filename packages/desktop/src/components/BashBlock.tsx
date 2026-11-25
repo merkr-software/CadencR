@@ -33,6 +33,7 @@ function formatShellCommand(cmd: string): string {
 export interface BashBlockProps {
   command?: string;
   content?: string;
+  previewContent?: string;
   running?: boolean;
   isError?: boolean;
   maxLines?: number;
@@ -162,6 +163,7 @@ function BashContextMenuItems({
 export const BashBlock = memo(function BashBlock({
   command,
   content,
+  previewContent,
   running,
   isError,
   maxLines = DEFAULT_BASH_LINES,
@@ -201,7 +203,13 @@ export const BashBlock = memo(function BashBlock({
             totalCount={totalLines}
             visibleCount={maxLines}
             hasMore={truncatedContent}
-            unit="lines"
+            formatHiddenCount={(count) =>
+              t("conversation.stream.bashBlock.hiddenLines", {
+                count,
+                defaultValue_one: "... ({{count, number}} line above)",
+                defaultValue_other: "... ({{count, number}} lines above)",
+              })
+            }
             onHeaderClick={toggleBodyOpen}
             className={isError ? "border-destructive/40" : "border-border"}
             headerClassName={cn(
@@ -230,7 +238,7 @@ export const BashBlock = memo(function BashBlock({
             {({ showAll }) =>
               hasOutput || truncatedContent ? (
                 <BashBodyContent
-                  content={content ?? ""}
+                  content={previewContent ?? content ?? ""}
                   maxLines={maxLines}
                   showAll={showAll}
                   running={running}

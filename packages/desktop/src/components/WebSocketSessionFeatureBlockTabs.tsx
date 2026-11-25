@@ -168,7 +168,7 @@ function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
       content: terminalReady ? (
         <FeatureTerminalTab ref={refs.terminal} featureId={featureId} projectId={projectId} />
       ) : (
-        <DeferredTabContent label="Terminal" />
+        <DeferredTabContent label={label} />
       ),
     }),
     [label, featureId, terminalReady, projectId, refs.terminal],
@@ -203,7 +203,7 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
           onSendComments={handleSendComments}
         />
       ) : (
-        <DeferredTabContent label="Git" />
+        <DeferredTabContent label={label} />
       ),
     }),
     [label, data.gitBranch, featureId, gitReady, handleSendComments, projectId],
@@ -242,7 +242,7 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />
         </Suspense>
       ) : (
-        <DeferredTabContent label="Browser" />
+        <DeferredTabContent label={label} />
       ),
     }),
     [label, featureId, browserReady, sendContext],
@@ -263,7 +263,7 @@ function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
           <FeaturePreviewTab featureId={featureId} projectId={projectId} />
         </Suspense>
       ) : (
-        <DeferredTabContent label="Preview" />
+        <DeferredTabContent label={label} />
       ),
     }),
     [label, featureId, previewReady, projectId],
@@ -282,7 +282,7 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
       Icon: CodeIcon,
       shortcutId: "pane-editor",
       content: !editorReady ? (
-        <DeferredTabContent label="Editor" />
+        <DeferredTabContent label={label} />
       ) : projectPathOrCwd ? (
         <Suspense fallback={null}>
           <FeatureEditorTab

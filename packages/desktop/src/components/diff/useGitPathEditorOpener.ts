@@ -25,13 +25,20 @@ export function useGitPathEditorOpener(
         .then(({ prefix }) => {
           const featurePath = gitPathToFeaturePath(gitPath, prefix ?? "");
           if (featurePath == null) {
-            toast.error(`${gitPath} is outside this project's folder`, {
-              description: translateUi(
-                "workspace.git.useGitPathEditorOpener.theEditorOnlyOpensFilesUnderPath",
-                "The Editor only opens files under {{path}}.",
-                { path: prefix },
+            toast.error(
+              translateUi(
+                "workspace.git.useGitPathEditorOpener.outsideProject",
+                "{{path}} is outside this project's folder",
+                { path: gitPath },
               ),
-            });
+              {
+                description: translateUi(
+                  "workspace.git.useGitPathEditorOpener.theEditorOnlyOpensFilesUnderPath",
+                  "The Editor only opens files under {{path}}.",
+                  { path: prefix },
+                ),
+              },
+            );
             return;
           }
           open(featurePath, lineNumber, column);

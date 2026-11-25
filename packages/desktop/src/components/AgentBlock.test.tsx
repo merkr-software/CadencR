@@ -3,6 +3,12 @@ import { render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { AgentBlock } from "./AgentBlock";
 import type { AgentBlockData } from "@/types/agent-block";
+import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState-merge";
+import {
+  applyBlockContentBudget,
+  TRUNCATION_NOTICE,
+  WIRE_TRUNCATION_NOTICE,
+} from "@/lib/block-content-budget";
 
 // Mock InlineDiffBlock to avoid complex diff rendering
 vi.mock("./InlineDiffBlock", () => ({
@@ -46,6 +52,63 @@ describe("AgentBlock", () => {
   });
 
   describe("truncated persisted content", () => {
+    it("uses a neutral budget marker and keeps literal prompt text", () => {
+      const oldMarker = "… content truncated …";
+      const literal = `${oldMarker} (literal)`;
+      const block = applyBlockContentBudget(
+        makeBlock({ type: "user_message", content: `${literal}\n\n${"x".repeat(800)}` }),
+        150,
+      );
+      const { container, rerender } = render(<AgentBlock block={block} />);
+
+      expect(screen.getByText(literal)).toBeInTheDocument();
+      expect(container.textContent).toContain(TRUNCATION_NOTICE);
+      expect(block.content.split(oldMarker)).toHaveLength(2);
+      expect(JSON.parse(JSON.stringify(block))).toEqual({
+        id: "block-1",
+        type: "user_message",
+        content: block.content,
+        truncatedContent: true,
+      });
+
+      const updated = `A new prompt saying ${oldMarker}`;
+      rerender(<AgentBlock block={{ ...block, content: updated }} />);
+      expect(screen.getByText(updated)).toBeInTheDocument();
+    });
+
+    it("omits only the root wire suffix and keeps a matching literal earlier in the preview", () => {
+      const literal = `Literal example ${WIRE_TRUNCATION_NOTICE}`;
+      const content = `${literal}\n\n${"x".repeat(64_000)}${WIRE_TRUNCATION_NOTICE}`;
+      const [block] = serverBlocksToAgentBlocks([
+        { id: "msg-42", type: "code", content, truncatedContent: true, fullContentBytes: 70_000 },
+      ]);
+      const { container } = render(<AgentBlock block={block} />);
+
+      expect(container.textContent).toContain(literal);
+      expect(container.textContent?.split(WIRE_TRUNCATION_NOTICE)).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
+      expect(block.content).toBe(content);
+      expect(JSON.stringify(block).split(WIRE_TRUNCATION_NOTICE)).toHaveLength(3);
+    });
+
+    it("keeps matching wire suffixes inside a structured prompt preview", () => {
+      const literal = `What does ${WIRE_TRUNCATION_NOTICE}`;
+      const content = JSON.stringify([{ type: "text", text: literal }]);
+      const [block] = serverBlocksToAgentBlocks([
+        {
+          id: "msg-42",
+          type: "user_message",
+          content,
+          truncatedContent: true,
+          fullContentBytes: 70_000,
+        },
+      ]);
+      render(<AgentBlock block={block} />);
+
+      expect(screen.getByText(literal)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
+    });
+
     it("renders a text preview through its renderer without fetching automatically", () => {
       render(
         <AgentBlock

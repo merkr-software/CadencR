@@ -213,6 +213,7 @@ function NextRunLine({
           {" · "}
           {t("schedule.list.scheduleRow.runCount", "ran {{count, number}} times", {
             count: schedule.run_count,
+            defaultValue_zero: "ran {{count, number}} times",
             defaultValue_one: "ran {{count, number}} time",
           })}
         </span>

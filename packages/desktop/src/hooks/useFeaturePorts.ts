@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -65,9 +66,15 @@ export function useFeaturePorts(): Map<number, readonly AllocatedPort[]> {
 
   useEffect(() => {
     if (!portsQuery.error) return;
-    toast.error(apiErrorMessage(portsQuery.error, "Failed to detect allocated ports"), {
-      id: "sidebar-ports-load-error",
-    });
+    toast.error(
+      apiErrorMessage(
+        portsQuery.error,
+        translateUi("sidebar.ports.detectError", "Failed to detect allocated ports"),
+      ),
+      {
+        id: "sidebar-ports-load-error",
+      },
+    );
   }, [portsQuery.error]);
 
   // Query retains its last successful data on errors and while reconnecting.

@@ -78,9 +78,7 @@ export interface BrowserManagerWiringDeps {
 export function createBrowserManagerControllers(
   deps: BrowserManagerWiringDeps,
 ): BrowserManagerControllers {
-  const workspace = new BrowserTabWorkspaceController(deps.sessionStore, (message, scopeId) =>
-    deps.reportError(message, scopeId),
-  );
+  const workspace = new BrowserTabWorkspaceController(deps.sessionStore, deps.reportError);
   const stateAuthority = new BrowserManagerState(deps.tabs, deps.scopes, workspace, deps.getWindow);
   const closer = createTabCloser(deps, stateAuthority);
   const network = createNetworkCollector(deps.tabs);

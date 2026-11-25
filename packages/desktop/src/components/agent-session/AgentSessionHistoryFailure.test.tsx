@@ -1,7 +1,8 @@
 import { createRef } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { AgentIcon } from "@/components/AgentIcon";
-import { fireEvent, render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import { act, fireEvent, render, screen } from "@/test-utils";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry } from "@/stores/ws-session-types";
 import { AgentSessionFrame } from "./AgentSessionFrame";
@@ -36,6 +37,28 @@ function seedFailure(retrying = false) {
 
 describe("AgentSessionHistoryFailure", () => {
   beforeEach(() => useWsSessionStore.setState({ sessions: {} }));
+
+  it("updates a stored history issue in place and preserves the focused retry button", async () => {
+    useWsSessionStore.setState({ sessions: { s1: createSessionEntry() } });
+    useWsSessionStore.getState().failPersistedLoad("s1", { issue: "missing" });
+    renderEmptyFrame();
+    const retry = screen.getByRole("button", { name: "Retry" });
+    retry.focus();
+    uiI18n.addResource("fr", "ui", "conversation.history.missing", "Historique indisponible");
+    try {
+      await act(() => uiI18n.changeLanguage("fr-CA"));
+      expect(screen.getByRole("alert")).toHaveTextContent("Historique indisponible");
+      expect(retry).toHaveFocus();
+      await act(() => uiI18n.changeLanguage("en"));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The service didn't return this conversation's history.",
+      );
+      expect(retry).toHaveFocus();
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
 
   it("replaces the empty-conversation hint with the failure and a retry", () => {
     seedFailure();

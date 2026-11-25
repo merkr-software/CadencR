@@ -1,3 +1,4 @@
+import { historyReadText } from "@/lib/history-read-error";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Loader2Icon, TriangleAlert } from "lucide-react";
@@ -87,7 +88,9 @@ export const AgentSessionHistoryFailure = memo(function AgentSessionHistoryFailu
                 "Could not refresh conversation history",
               )}
         </p>
-        <p className="mt-0.5 break-words text-muted-foreground">{failure.message}</p>
+        <p className="mt-0.5 break-words text-muted-foreground">
+          {historyReadText(failure.message, t)}
+        </p>
       </div>
       <RetryButton sessionId={sessionId} retrying={failure.retrying} />
     </div>

@@ -9,12 +9,12 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import {
   CLI_INSTALL_STATUS_QUERY_KEY,
   cliPathHint,
-  describeCliConflict,
   describeCliInstall,
   reportCliInstalled,
 } from "@/lib/cli/cli-install";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import type { CliInstallStatus } from "@/shared/cli-bridge";
+import { describeCliConflict } from "@/shared/cli-install-copy";
 import { SettingsRow } from "./SettingsRow";
 
 type Action = "install" | "replace" | "uninstall";

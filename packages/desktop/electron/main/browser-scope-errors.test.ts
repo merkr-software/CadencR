@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BrowserScopeErrors } from "./browser-scope-errors";
+import { BrowserScopeState } from "./browser-scope-state";
 import type { BrowserTabError } from "./browser-types";
 
 function tabError(overrides: Partial<BrowserTabError> = {}): BrowserTabError {
@@ -15,6 +16,21 @@ function tabError(overrides: Partial<BrowserTabError> = {}): BrowserTabError {
 }
 
 describe("BrowserScopeErrors", () => {
+  it("publishes the scope issue and its human-readable fallback together", () => {
+    const scopes = new BrowserScopeState();
+    const issue = { kind: "saveTabs", detail: "filesystem diagnostic" } as const;
+    scopes.errors.report(1, "Could not save Browser tabs: filesystem diagnostic", issue);
+
+    const snapshot = structuredClone(scopes.snapshot(1, new Map()));
+    expect(snapshot.scopeIssue).toEqual(issue);
+    expect(snapshot.error).toBe("Could not save Browser tabs: filesystem diagnostic");
+    expect(scopes.snapshot(2, new Map()).scopeIssue).toBeUndefined();
+    expect(scopes.errors.report(1, snapshot.error ?? "", { ...issue })).toBe(false);
+
+    scopes.errors.dismiss(1);
+    expect(scopes.snapshot(1, new Map())).not.toHaveProperty("scopeIssue");
+  });
+
   it("shows a tab's structured error only while that tab is active in its scope", () => {
     const errors = new BrowserScopeErrors();
     const err = tabError();

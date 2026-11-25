@@ -1,10 +1,10 @@
 import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState } from "react";
-import { format } from "date-fns";
 import { Pencil, Trash2 } from "lucide-react";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseUTCDateTime } from "@/lib/date-utils";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { cn } from "@/lib/utils";
 
 export interface DiffComment {
@@ -25,7 +25,7 @@ export function CommentForm({
   onSubmit,
   onClose,
   initialContent = "",
-  submitLabel = "Comment",
+  submitLabel,
 }: {
   onSubmit: (content: string) => void;
   onClose: () => void;
@@ -98,7 +98,7 @@ export function CommentForm({
             disabled={!trimmed}
             onClick={submit}
           >
-            {submitLabel}
+            {submitLabel ?? t("workspace.git.diffCommentWidget.comment", "Comment")}
           </button>
         </div>
       </div>
@@ -118,7 +118,7 @@ export function CommentDisplay({
   onEdit: (id: number, content: string) => void;
   onDelete: (id: number) => void;
 }) {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
   const [isEditing, setIsEditing] = useState(false);
 
   if (isEditing) {
@@ -169,10 +169,17 @@ export function CommentDisplay({
                 : "bg-[var(--editor-selection-bg)] !text-[var(--editor-comment)]",
           )}
         >
-          {comment.status}
+          {comment.status === "pending"
+            ? t("workspace.git.diffCommentWidget.pending", "pending")
+            : comment.status === "sent"
+              ? t("workspace.git.diffCommentWidget.sent", "sent")
+              : t("workspace.git.diffCommentWidget.resolved", "resolved")}
         </span>
         <span className="!text-[var(--editor-comment)]">
-          {format(parseUTCDateTime(comment.created_at), "MMM d, yyyy h:mm a")}
+          {parseUTCDateTime(comment.created_at).toLocaleString(formattingLocale(i18n.language), {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}
         </span>
       </div>
     </div>

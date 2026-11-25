@@ -71,11 +71,13 @@ CommandInput.displayName = CommandPrimitive.Input.displayName;
 const CommandList = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
->(function CommandList({ className, ...props }, ref) {
+>(function CommandList({ className, label, ...props }, ref) {
+  const { t } = useUiTranslation();
   return (
     <CommandPrimitive.List
       ref={ref}
       data-slot="command-list"
+      label={label ?? t("common.command.suggestions", "Suggestions")}
       className={cn("max-h-[300px] overflow-x-hidden overflow-y-auto", className)}
       {...props}
     />

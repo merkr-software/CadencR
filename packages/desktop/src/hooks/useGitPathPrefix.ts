@@ -1,4 +1,3 @@
-import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { hashKey, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -10,6 +9,7 @@ import {
 import { scopedToastDescription } from "@/components/ToastScope";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { gitPathForAgent, keepGitPath, type AgentPathMapper } from "@/lib/git-paths";
+import { localizedToastText } from "@/lib/i18n/toast-text";
 
 function updateGitPathPrefixToast(queryClient: QueryClient, featureId: number): void {
   const options = getGetGitPathPrefixQueryOptions({ feature_id: featureId });
@@ -20,22 +20,38 @@ function updateGitPathPrefixToast(queryClient: QueryClient, featureId: number): 
   if (current?.status === "success") {
     if (toast.getToasts().some((item) => item.id === id)) toast.dismiss(id);
   } else if (current?.status === "error") {
-    toast.error("Could not resolve the project's Git paths", {
-      id,
-      description: scopedToastDescription(
-        { featureId },
-        apiErrorMessage(current.error, "The project's Git root is unavailable"),
+    toast.error(
+      localizedToastText((t) =>
+        t(
+          "workspace.git.useGitPathPrefix.couldNotResolveTheProjectSGitPaths",
+          "Could not resolve the project's Git paths",
+        ),
       ),
-      duration: Infinity,
-      action: {
-        label: "Retry",
-        onClick: (event) => {
-          event.preventDefault();
-          const updateToast = () => updateGitPathPrefixToast(queryClient, featureId);
-          void queryClient.fetchQuery({ ...options, staleTime: 0 }).then(updateToast, updateToast);
+      {
+        id,
+        description: scopedToastDescription(
+          { featureId },
+          localizedToastText((t) =>
+            apiErrorMessage(
+              current.error,
+              t(
+                "workspace.git.useGitPathPrefix.theProjectSGitRootIsUnavailable",
+                "The project's Git root is unavailable",
+              ),
+            ),
+          ),
+        ),
+        duration: Infinity,
+        action: {
+          label: localizedToastText((t) => t("common.retry", "Retry")),
+          onClick: (event) => {
+            event.preventDefault();
+            const updateToast = () => updateGitPathPrefixToast(queryClient, featureId);
+            void queryClient.fetchQuery({ ...options, staleTime: 0 }).then(updateToast, updateToast);
+          },
         },
       },
-    });
+    );
   }
 }
 

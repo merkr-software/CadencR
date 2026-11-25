@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { useGetFeatureAgentState } from "@/api/generated";
 import type { UseWebSocketSessionOptions } from "@/hooks/useWebSocketSession";
@@ -6,8 +7,6 @@ import { CONVERSATION_SNAPSHOT_PARAMS, takeSnapshotHydration } from "@/lib/conve
 import { conversationSnapshot } from "@/lib/conversation-snapshot";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import type { SessionEntry } from "@/stores/ws-session-types";
-
-const HISTORY_FAILURE_FALLBACK = "The service didn't return this conversation's history.";
 
 /**
  * Loads the conversation's saved history once per session entry. A failed
@@ -44,7 +43,7 @@ export function usePersistedSessionLoader(
     if (isError) {
       // A retry's refetch still reports the previous error until it settles.
       if (isFetching) return;
-      store.failPersistedLoad(sessionId, apiErrorMessage(error, HISTORY_FAILURE_FALLBACK));
+      store.failPersistedLoad(sessionId, apiErrorMessage(error, "") || { issue: "missing" });
       return;
     }
     if (!data) return;
@@ -67,6 +66,11 @@ function useSnapshotCatchUp(sessionId: string, isLive: boolean): void {
     useWsSessionStore
       .getState()
       .refreshSessionMessages(sessionId)
-      .catch((error: unknown) => toastError(error, "Could not refresh this conversation"));
+      .catch((error: unknown) =>
+        toastError(
+          error,
+          translateUi("conversation.history.refreshError", "Could not refresh this conversation"),
+        ),
+      );
   }, [isLive, sessionId]);
 }

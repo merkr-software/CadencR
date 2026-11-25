@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * The `/` and `$` catalog for a provider in a directory, without a session.
  *
@@ -32,6 +33,7 @@ export function usePromptCommands(
   cwd: string | undefined,
   providerId: string | undefined,
 ): PromptCommandCatalog {
+  const { t } = useUiTranslation();
   const enabled = !!cwd && !!providerId;
   const query = useGetPromptCommands(
     { cwd: cwd ?? "", provider: providerId ?? "" },
@@ -49,16 +51,18 @@ export function usePromptCommands(
           }))
         : EMPTY_COMMANDS,
       isLoading: enabled && query.isLoading,
-      error: payload?.error ?? catalogRequestError(query.error),
+      error: payload?.error ?? catalogRequestError(query.error, t),
       policy: payload
         ? promptCommandPolicyFromPayload(payload.prompt_command_policy)
         : DEFAULT_PROMPT_COMMAND_POLICY,
     };
-  }, [enabled, query.data, query.error, query.isLoading]);
+  }, [enabled, query.data, query.error, query.isLoading, t]);
 }
 
-function catalogRequestError(error: unknown): string | null {
+function catalogRequestError(error: unknown, t: UiTranslator): string | null {
   if (!error) return null;
   const detail = error instanceof Error ? error.message : String(error);
-  return `Commands could not be loaded: ${detail}`;
+  return t("conversation.composer.commands.loadError", "Commands could not be loaded: {{detail}}", {
+    detail,
+  });
 }

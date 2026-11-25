@@ -93,7 +93,9 @@ export function FeatureRenameForm({
           {t("conversation.featureRenamePopover.cancel", "Cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={!canSubmit}>
-          {mutation.isPending ? t("conversation.featureRenamePopover.saving", "Saving…") : "Save"}
+          {mutation.isPending
+            ? t("conversation.featureRenamePopover.saving", "Saving…")
+            : t("common.save", "Save")}
         </Button>
       </div>
     </form>

@@ -157,6 +157,7 @@ function GroupMark({ group }: { group: ModelGroupSpec }): React.ReactElement {
 function modelCountLabel(t: UiTranslator, count: number): string {
   return t("conversation.composer.runtimeModelPickerChrome.modelCount", "{{count}} models", {
     count,
+    defaultValue_zero: "{{count}} models",
     defaultValue_one: "{{count}} model",
     defaultValue_other: "{{count}} models",
   });

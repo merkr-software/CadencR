@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -46,7 +47,15 @@ export function useOpenFeaturePr(
       if (viewMode === "pr") return;
       setFeatureSetting(feature.id, { key: GIT_VIEW_MODE_SETTING, value: "pr" })
         .then(() => queryClient.invalidateQueries({ queryKey: settingsKey }))
-        .catch((error: unknown) => toastError(error, "Could not open the pull request view."));
+        .catch((error: unknown) =>
+          toastError(
+            error,
+            translateUi(
+              "workspace.git.openPullRequestError",
+              "Could not open the pull request view.",
+            ),
+          ),
+        );
     },
     [feature, onNavigate, queryClient],
   );

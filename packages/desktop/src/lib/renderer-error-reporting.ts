@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { desktopBridge, type RendererErrorReportPayload } from "./desktop-bridge";
 
 import { relayBrowserDiagnostic } from "./telemetry-relay";
@@ -119,9 +120,19 @@ async function defaultReportRendererError(payload: RendererErrorReportPayload): 
 function reportSafely(report: ReportRendererError, payload: RendererErrorReportPayload): void {
   void report(payload).catch((error: unknown) => {
     console.error("Failed to persist renderer error:", error);
-    toast.error("Could not save diagnostic report", {
+    toast.error(translateUi("system.diagnostics.saveError", "Could not save diagnostic report"), {
       id: "renderer-diagnostics-persistence",
-      description: `Copy the error details before reloading.${error instanceof Error ? ` ${error.message}` : ""}`,
+      description:
+        error instanceof Error && error.message
+          ? translateUi(
+              "system.diagnostics.copyBeforeReloadDetail",
+              "Copy the error details before reloading. {{detail}}",
+              { detail: error.message },
+            )
+          : translateUi(
+              "system.diagnostics.copyBeforeReload",
+              "Copy the error details before reloading.",
+            ),
     });
   });
 }

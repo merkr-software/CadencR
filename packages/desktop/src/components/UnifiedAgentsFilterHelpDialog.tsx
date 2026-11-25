@@ -1,4 +1,4 @@
-import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
+import { UiTrans, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import type { Project } from "@/api/generated";
 import {
@@ -21,7 +21,7 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
   children,
 }: UnifiedAgentsFilterHelpDialogProps): ReactElement {
   const { t } = useUiTranslation();
-  const examples = buildExamples(projects);
+  const examples = buildExamples(projects, t);
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -84,7 +84,7 @@ function HelpRows(): ReactElement {
       />
       <HelpRow code="/last:all" detail={t("agents.filter.help.all", "Every agent. The default.")} />
       <HelpRow
-        code='/project:"My Project"'
+        code={`/project:${quoteFilterValue(t("agents.filter.help.exampleProject", "My Project"))}`}
         detail={t(
           "agents.filter.help.project",
           "Filter by project. Use {{separator}} for multiple projects.",
@@ -136,12 +136,14 @@ function HelpRow({ code, detail }: { code: string; detail: string }): ReactEleme
   );
 }
 
-function buildExamples(projects: Project[]): string[] {
-  const firstProject = projects[0]?.name ?? "My Project";
-  const secondProject = projects[1]?.name ?? "Another Project";
+function buildExamples(projects: Project[], t: UiTranslator): string[] {
+  const firstProject = projects[0]?.name ?? t("agents.filter.help.exampleProject", "My Project");
+  const secondProject =
+    projects[1]?.name ?? t("agents.filter.help.anotherExampleProject", "Another Project");
+  const query = t("agents.filter.help.exampleQuery", "auth bug");
   return [
     `/last:5 /sort:created /project:${quoteFilterValue(firstProject)}`,
-    `auth bug /last:60 /sort:message /project:${quoteFilterValue(firstProject)}`,
+    `${query} /last:60 /sort:message /project:${quoteFilterValue(firstProject)}`,
     `/last:all /sort:-created /project:${quoteFilterValue(firstProject)}|${quoteFilterValue(secondProject)}`,
   ];
 }

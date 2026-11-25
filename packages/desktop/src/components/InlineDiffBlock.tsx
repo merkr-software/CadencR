@@ -17,6 +17,7 @@ interface InlineDiffBlockProps {
   filePath: string;
   oldContent: string;
   newContent: string;
+  emptyFileAction?: "created" | "deleted";
   /** Base path to strip from filePath for display (e.g. project or worktree root) */
   basePath?: string;
   /** Tool name (Edit or Write) — shown as a label in the header */
@@ -122,8 +123,9 @@ function InlineDiffHeader({
  */
 export function InlineDiffBlock({
   filePath,
-  oldContent,
-  newContent,
+  oldContent: originalContent,
+  newContent: updatedContent,
+  emptyFileAction,
   basePath,
   toolName,
   onOpenFileInEditor,
@@ -131,6 +133,14 @@ export function InlineDiffBlock({
   onExpandedChange,
 }: InlineDiffBlockProps) {
   const { t } = useUiTranslation();
+  const oldContent =
+    emptyFileAction === "deleted"
+      ? t("workspace.git.inlineDiff.fileDeleted", "(file deleted)")
+      : originalContent;
+  const newContent =
+    emptyFileAction === "created"
+      ? t("workspace.git.inlineDiff.fileCreated", "(file created)")
+      : updatedContent;
   const { theme } = useTheme();
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;

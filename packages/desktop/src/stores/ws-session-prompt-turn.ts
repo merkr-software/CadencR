@@ -1,3 +1,4 @@
+import { translateUi } from "@/shared/ui-i18n";
 import type { DisplayRowMode } from "@/types/agent-stream";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId } from "./ws-message-identity";
@@ -7,7 +8,6 @@ import { mergeHistoryBlocks } from "./ws-session-prepend";
 
 /** Fetches tried when other loads keep moving the prompt's gap meanwhile. */
 const MAX_TURN_ATTEMPTS = 3;
-const KEPT_MOVING = "The conversation kept changing while that message loaded.";
 
 function gapHolding(gaps: readonly HistoryGap[], messageDbId: number): HistoryGap | undefined {
   return gaps.find(
@@ -72,5 +72,10 @@ export async function loadSessionPromptTurn(
     return merged !== null;
   }
   if (holdsPrompt(ctx, sessionId, messageDbId)) return true;
-  throw new Error(KEPT_MOVING);
+  throw new Error(
+    translateUi(
+      "conversation.history.promptMoved",
+      "The conversation kept changing while that message loaded.",
+    ),
+  );
 }

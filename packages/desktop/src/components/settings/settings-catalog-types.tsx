@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Palette } from "lucide-react";
+export { localizedSearchKeywords as settingsKeywords } from "@/lib/i18n/search-keywords";
 
 export type SettingsTranslator = (key: string, defaultValue: string) => string;
 
@@ -70,10 +71,4 @@ export const settingsIcon = (Glyph: typeof Palette): ReactNode => (
 export function settingsLabel(t: SettingsTranslator, key: string, englishLabel: string) {
   const label = t(key, englishLabel);
   return label === englishLabel ? { label } : { label, englishLabel };
-}
-
-export function settingsKeywords(t: SettingsTranslator, key: string, english: string): string[] {
-  const translated = t(key, english);
-  const original = english.split(", ");
-  return translated === english ? original : [...original, ...translated.split(/[,，、]/u)];
 }

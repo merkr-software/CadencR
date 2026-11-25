@@ -1,3 +1,4 @@
+import type { HistoryReadDetail } from "@/lib/history-read-error";
 /**
  * Types and helpers for WebSocket session state.
  */
@@ -138,7 +139,7 @@ export function createStreamHealth(): StreamHealth {
 export interface HistoryLoadFailure {
   /** A reconnect retries the unread range of this session, keeping its loaded history. */
   resyncSessionDbId?: number;
-  message: string;
+  message: HistoryReadDetail;
   retrying: boolean;
 }
 

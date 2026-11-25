@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import { act, render, screen } from "@/test-utils";
 import { getDiffRenderDiagnostics } from "@/lib/diff-render-diagnostics";
 import { InlineDiffBlock } from "./InlineDiffBlock";
 
@@ -37,6 +38,30 @@ vi.mock("@/hooks/useTheme", () => ({
 }));
 
 describe("InlineDiffBlock", () => {
+  it("translates only the placeholder for an empty patch, preserving matching literal file content", async () => {
+    const diff = {
+      filePath: "empty.txt",
+      oldContent: "",
+      newContent: "(file created)",
+      expanded: true,
+    };
+    const { rerender } = render(<InlineDiffBlock {...diff} emptyFileAction="created" />);
+    uiI18n.addResource("fr", "ui", "workspace.git.inlineDiff.fileCreated", "(fichier créé)");
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(screen.getByTestId("diff-view").getAttribute("data-patch")).toContain(
+        "+(fichier créé)",
+      );
+      rerender(<InlineDiffBlock {...diff} />);
+      expect(screen.getByTestId("diff-view").getAttribute("data-patch")).toContain(
+        "+(file created)",
+      );
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
+
   it("shows 'No changes' when content is identical", () => {
     render(
       <InlineDiffBlock filePath="src/foo.ts" oldContent="const x = 1;" newContent="const x = 1;" />,

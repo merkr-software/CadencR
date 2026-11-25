@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useListFeatures, useUpdateFeatureLabel, type Feature } from "@/api/generated";
@@ -32,7 +33,16 @@ export function useRowLabelEditor(feature: Feature): {
         setEditing(false);
         invalidateFeatureQueries(variables.id, ["label"]);
       },
-      onError: (error) => toast.error(apiErrorMessage(error, "Failed to update feature label")),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "project.featuresController.labelUpdateFailed",
+              "Failed to update feature label",
+            ),
+          ),
+        ),
     },
   });
   const currentLabel = feature.label ?? "";

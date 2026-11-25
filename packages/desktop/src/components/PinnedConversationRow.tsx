@@ -1,4 +1,5 @@
 import type { FeatureNavigate } from "@/lib/feature-focus-handoff";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -275,6 +276,7 @@ function CrossProjectRowMenu({
 }
 
 function UnpinAction({ onUnpin }: { onUnpin: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span className="sidebar-row-actions">
       <Button
@@ -288,7 +290,7 @@ function UnpinAction({ onUnpin }: { onUnpin: () => void }): ReactElement {
         }}
       >
         <PinOffIcon className="size-3.5" />
-        <span className="sr-only">Unpin</span>
+        <span className="sr-only">{t("sidebar.row.unpin", "Unpin")}</span>
       </Button>
     </span>
   );

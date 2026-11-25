@@ -1,9 +1,10 @@
-import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
+import { translateUi } from "../../src/shared/ui-i18n";
 import type { BrowserScopeState } from "./browser-scope-state";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserTabCloseController } from "./browser-tab-close-controller";
+import { unknownBrowserTab } from "./browser-tab-errors";
 import type { BrowserTabWorkspaceController } from "./browser-tab-workspace-controller";
 import type { RestorableBrowserTab } from "./browser-tab-session-store";
 import type { BrowserProfile } from "./browser-profiles";
@@ -37,7 +38,7 @@ export class BrowserTabOrganizationController {
   async close(tabId: string): Promise<BrowserStateSnapshot> {
     const live = this.tabs.get(tabId);
     const metadata = live?.metadata ?? this.workspace.dormantTab(tabId)?.metadata;
-    if (!metadata) throw unknownTab(tabId);
+    if (!metadata) throw unknownBrowserTab(tabId);
     const wasActive = this.scopes.activeTabId(metadata.scopeId) === tabId;
     const removal = this.workspace.remove(tabId, this.tabs, true);
     const cleanup = live ? this.closer.close(live, false) : this.removeDormant(metadata);
@@ -62,7 +63,7 @@ export class BrowserTabOrganizationController {
   duplicate(tabId: string): BrowserTabMetadata {
     const live = this.tabs.get(tabId);
     const source = live?.metadata ?? this.workspace.dormantTab(tabId)?.metadata;
-    if (!source) throw unknownTab(tabId);
+    if (!source) throw unknownBrowserTab(tabId);
     if (live?.temporary) {
       throw new Error(
         translateUi(
@@ -124,7 +125,7 @@ export class BrowserTabOrganizationController {
 
   private metadata(tabId: string): BrowserTabMetadata {
     const metadata = this.tabs.get(tabId)?.metadata ?? this.workspace.dormantTab(tabId)?.metadata;
-    if (!metadata) throw unknownTab(tabId);
+    if (!metadata) throw unknownBrowserTab(tabId);
     return metadata;
   }
 
@@ -192,8 +193,4 @@ function throwRejected(...results: PromiseSettledResult<unknown>[]): void {
       errors,
       translateUi("workspace.browser.tab.closeFailed", "Browser tab close failed"),
     );
-}
-
-function unknownTab(tabId: string): Error {
-  return new Error(`Unknown browser tab: ${tabId}`);
 }

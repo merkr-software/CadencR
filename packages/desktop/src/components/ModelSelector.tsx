@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { AGENT_ICONS } from "@/components/agent-icons";
 import { ModelSelectorRow } from "@/components/ModelSelectorRow";
 import { useModelSelectorState } from "@/hooks/useModelSelectorState";
-import { MODEL_SELECTOR_AGENT_LABELS, type ModelSelectorLevel } from "@/hooks/modelSelectorShared";
+import { modelSelectorAgentLabel, type ModelSelectorLevel } from "@/hooks/modelSelectorShared";
 import type { AgentTypeSetting } from "@/shared/models";
 
 interface ModelSelectorProps {
@@ -55,7 +55,7 @@ export function ModelSelector({ level, featureId, agentTypes }: ModelSelectorPro
       {rows.map((row) => (
         <ModelSelectorRow
           key={row.agentType}
-          agentLabel={MODEL_SELECTOR_AGENT_LABELS[row.agentType] ?? row.agentType}
+          agentLabel={modelSelectorAgentLabel(row.agentType, t)}
           stateLabel={row.stateLabel}
           level={level}
           selectedProviderId={row.selectedProviderId}

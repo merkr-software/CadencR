@@ -1,3 +1,4 @@
+import type { HistoryReadDetail } from "@/lib/history-read-error";
 import type { AgentQuestionAnswers } from "@/types/agent-question";
 import type { PermissionDecisionValue } from "@/types/agent-permission";
 import type { DisplayRowMode } from "@/types/agent-stream";
@@ -150,7 +151,7 @@ export interface WsSessionStore {
   /** Settle the history gate: there is no saved history to apply. */
   markPersistedLoaded: (sessionId: string) => void;
   /** Settle the history gate with a visible failure (`historyLoadFailure`). */
-  failPersistedLoad: (sessionId: string, message: string) => void;
+  failPersistedLoad: (sessionId: string, message: HistoryReadDetail) => void;
   /** Re-open the history gate so the snapshot is fetched again. */
   retryPersistedLoad: (sessionId: string) => void;
   setPersistedState: (sessionId: string, options: PersistedStatePayload) => void;

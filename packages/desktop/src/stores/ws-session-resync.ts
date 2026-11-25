@@ -1,3 +1,4 @@
+import { HistoryReadError } from "@/lib/history-read-error";
 /**
  * Stream-loss recovery. Separate persistence recovery replaces captured unsaved
  * copies only after confirmed repair and a complete, unchanged, idle snapshot.
@@ -109,12 +110,12 @@ async function performMessageResync(
     fullSnapshot: !persistenceRepair && !target && fetchCursor === 0,
   });
   if (!pages) {
-    if (connection?.isOpen()) throw new Error("The service could not find this session’s history.");
+    if (connection?.isOpen()) throw new HistoryReadError("notFound");
     return;
   }
   if (connection && pages.stalled) {
     if (!connection.isOpen()) return;
-    throw new Error("The service returned an incomplete history page. Please retry.");
+    throw new HistoryReadError("stalled");
   }
   const current = ctx.get().sessions[sessionId];
   if (!current || (!target && current.sessionDbId !== sessionDbId)) return;

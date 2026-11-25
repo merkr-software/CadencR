@@ -6,8 +6,17 @@
  */
 
 import type { AgentBlock } from "../api/generated";
-import type { AgentBlockData } from "@/types/agent-block";
-import { applyBlockContentBudget, clampJsonText, clampText } from "@/lib/block-content-budget";
+import {
+  bashPreviewMayOmitMetadata,
+  blockPreviewOmission,
+  type AgentBlockData,
+} from "@/types/agent-block";
+import {
+  applyBlockContentBudget,
+  clampJsonText,
+  clampText,
+  withWirePreviewOmission,
+} from "@/lib/block-content-budget";
 import { isSubagentToolName } from "@/lib/tool-display-policy";
 import {
   mergeCanonicalUserBlock,
@@ -27,28 +36,34 @@ export function serverBlocksToAgentBlocks(serverBlocks: AgentBlock[]): AgentBloc
       : undefined;
     // Clamp before the block is retained: this is the only choke point every
     // hydrated and paginated block passes through. See `block-content-budget`.
-    return applyBlockContentBudget({
-      id: sb.id,
-      messageUuid: nullToUndefined(sb.messageUuid),
-      promptDeliveryState: nullToUndefined(sb.promptDeliveryState),
-      messageDbId: messageDbIdFromBlockId(sb.id) ?? undefined,
-      type: sb.type as AgentBlockData["type"],
-      content: sb.content,
-      toolName: nullToUndefined(sb.toolName),
-      toolArgs: nullToUndefined(sb.toolArgs),
-      isError: nullToUndefined(sb.isError),
-      toolUseId: nullToUndefined(sb.toolUseId),
-      parentToolUseId: sb.parentToolUseId ?? null,
-      childBlocks,
-      sourceToolName: nullToUndefined(sb.sourceToolName),
-      createdAt: nullToUndefined(sb.createdAt),
-      model: nullToUndefined(sb.model),
-      origin: sb.origin ?? null,
-      truncatedContent: sb.truncatedContent === true,
-      fullContentBytes: nullToUndefined(sb.fullContentBytes),
-      // DB-loaded sub-agents are always complete (streaming state handles the active one)
-      ...(isSubagent ? { taskComplete: true } : {}),
-    });
+    return applyBlockContentBudget(
+      withWirePreviewOmission({
+        id: sb.id,
+        messageUuid: nullToUndefined(sb.messageUuid),
+        promptDeliveryState: nullToUndefined(sb.promptDeliveryState),
+        messageDbId: messageDbIdFromBlockId(sb.id) ?? undefined,
+        type: sb.type as AgentBlockData["type"],
+        content: sb.content,
+        toolName: nullToUndefined(sb.toolName),
+        toolArgs: nullToUndefined(sb.toolArgs),
+        isError: nullToUndefined(sb.isError),
+        toolUseId: nullToUndefined(sb.toolUseId),
+        parentToolUseId: sb.parentToolUseId ?? null,
+        childBlocks,
+        sourceToolName: nullToUndefined(sb.sourceToolName),
+        createdAt: nullToUndefined(sb.createdAt),
+        model: nullToUndefined(sb.model),
+        origin: sb.origin ?? null,
+        truncatedContent: sb.truncatedContent === true,
+        fullContentBytes: nullToUndefined(sb.fullContentBytes),
+        // The wire can clip Bash metadata after output was already tail-capped.
+        // In that case it cannot report the original size.
+        [bashPreviewMayOmitMetadata]:
+          sb.toolName === "Bash" && sb.truncatedContent === true ? true : undefined,
+        // DB-loaded sub-agents are always complete (streaming state handles the active one)
+        ...(isSubagent ? { taskComplete: true } : {}),
+      }),
+    );
   });
 }
 
@@ -99,6 +114,10 @@ export function mergeIncrementalBlocks(acc: AccumulatedSession, newBlocks: Agent
       if (existing) {
         existing.content = block.content;
         existing.toolArgs = block.toolArgs;
+        existing.truncatedContent = block.truncatedContent;
+        existing.fullContentBytes = block.fullContentBytes;
+        existing[blockPreviewOmission] = block[blockPreviewOmission];
+        existing[bashPreviewMayOmitMetadata] = block[bashPreviewMayOmitMetadata];
         existing.toolName = block.toolName;
         existing.parentToolUseId = block.parentToolUseId;
         existing.createdAt = block.createdAt;
@@ -173,7 +192,7 @@ export function applyToolCallUpdates(
 ): AgentBlockData[] {
   if (!updates || Object.keys(updates).length === 0) return blocks;
   let changed = false;
-  const mapped = blocks.map((block) => {
+  const mapped = blocks.map<AgentBlockData>((block) => {
     const children = block.childBlocks
       ? applyToolCallUpdates(block.childBlocks, updates, truncatedIds)
       : block.childBlocks;
@@ -198,6 +217,8 @@ export function applyToolCallUpdates(
             toolArgs: clamped.text,
             truncatedContent: truncated,
             fullContentBytes: undefined,
+            [blockPreviewOmission]: undefined,
+            [bashPreviewMayOmitMetadata]: block.toolName === "Bash" && truncated ? true : undefined,
           }
         : {}),
       ...(children === block.childBlocks ? {} : { childBlocks: children }),

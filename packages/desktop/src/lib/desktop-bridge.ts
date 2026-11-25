@@ -1,3 +1,5 @@
+import { translateUi } from "@/lib/i18n/ui";
+import { unavailableCliStatus } from "@/shared/cli-install-copy";
 import { browserTelemetryRelayStatus } from "./telemetry-relay";
 import { persistBrowserDiagnostic, exportBrowserDiagnostics } from "./renderer-diagnostics-browser";
 import { isSafeExternalUrl, isUserOpenableUrl } from "@/lib/safe-url";
@@ -101,7 +103,12 @@ const browserBridge: CadencrBrowserBridge = {
     if (typeof window === "undefined") return Promise.resolve();
     if (!isSafeExternalUrl(url)) {
       return Promise.reject(
-        new Error("Only https:// URLs without credentials or loopback hosts can be opened."),
+        new Error(
+          translateUi(
+            "shell.links.externalAddressRequired",
+            "Only https:// URLs without credentials or loopback hosts can be opened.",
+          ),
+        ),
       );
     }
     window.open(url, "_blank", "noopener,noreferrer");
@@ -111,7 +118,12 @@ const browserBridge: CadencrBrowserBridge = {
     if (typeof window === "undefined") return Promise.resolve();
     if (!isUserOpenableUrl(url)) {
       return Promise.reject(
-        new Error("Only http:// and https:// links without credentials can be opened."),
+        new Error(
+          translateUi(
+            "shell.links.webAddressRequired",
+            "Only http:// and https:// links without credentials can be opened.",
+          ),
+        ),
       );
     }
     window.open(url, "_blank", "noopener,noreferrer");
@@ -160,11 +172,7 @@ const browserBridge: CadencrBrowserBridge = {
   onNotchDismissed: () => () => undefined,
   drainCliRequests: () => Promise.resolve([]),
   onCliRequestsPending: () => () => undefined,
-  cliInstallStatus: () =>
-    Promise.resolve({
-      state: "unavailable",
-      reason: "The cadencr command is installed from the desktop app.",
-    }),
+  cliInstallStatus: () => Promise.resolve(unavailableCliStatus("desktop-required")),
   installCli: () => unavailable("installCli"),
   uninstallCli: () => unavailable("uninstallCli"),
 

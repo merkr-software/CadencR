@@ -3,6 +3,10 @@ import {
   isValidBrowserResponsiveState,
   responsiveStateFromRequest,
 } from "../../src/shared/browser-responsive";
+import type {
+  BrowserResponsiveRecovery,
+  BrowserScopeIssue,
+} from "../../src/shared/browser-scope-error-copy";
 import type { ManagedTab } from "./browser-tab-events";
 import type {
   BrowserResponsiveRequest,
@@ -15,6 +19,12 @@ import {
   clearResponsiveOverrides,
 } from "./browser-responsive-emulation";
 import { BrowserResponsiveMediaGuardCoordinator } from "./browser-responsive-media-guard";
+import { responsiveErrors } from "./browser-responsive-errors";
+import {
+  BrowserScopeAggregateFailure,
+  BrowserScopeFailure,
+  browserErrorMessage,
+} from "./browser-scope-failure";
 
 interface ResponsiveRuntime {
   revision: number;
@@ -43,16 +53,14 @@ export class BrowserResponsiveController {
 
   constructor(private readonly host: BrowserResponsiveHost) {
     this.mediaGuards = new BrowserResponsiveMediaGuardCoordinator({
-      refresh: (tab) => this.scheduleRefresh(tab, "DevTools reset responsive appearance"),
+      refresh: (tab) => this.scheduleRefresh(tab, "appearanceReset"),
       reportError: (error, scopeId) => this.host.reportError(error, scopeId),
     });
   }
 
   watch(tab: ManagedTab): void {
     const runtime = this.runtime(tab);
-    tab.webContents.on("devtools-opened", () =>
-      this.scheduleRefresh(tab, "DevTools reset responsive overrides"),
-    );
+    tab.webContents.on("devtools-opened", () => this.scheduleRefresh(tab, "overridesReset"));
     tab.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
       if (mainFrame && !inPlace) this.mediaGuards.cancel(tab);
     });
@@ -66,7 +74,7 @@ export class BrowserResponsiveController {
 
   /** Custom DevTools WebContents do not reliably emit `devtools-opened` on their guest. */
   devToolsLoaded(tab: ManagedTab): void {
-    this.scheduleRefresh(tab, "DevTools reset responsive overrides");
+    this.scheduleRefresh(tab, "overridesReset");
     this.mediaGuards.loaded(tab, this.runtime(tab).queue);
   }
 
@@ -105,7 +113,7 @@ export class BrowserResponsiveController {
         this.host.emitState(tab.metadata.scopeId);
         this.mediaGuards.applied(tab);
         if (!applied.settled || !approximatelyEqual(runtime.appliedScale, runtime.desiredScale)) {
-          this.scheduleRefresh(tab, "Responsive viewport could not follow the Browser size");
+          this.scheduleRefresh(tab, "viewportSize");
         }
       });
     } finally {
@@ -124,7 +132,7 @@ export class BrowserResponsiveController {
       runtime.inputRevision += 1;
     }
     if (!approximatelyEqual(runtime.appliedScale, nextScale)) {
-      this.scheduleRefresh(tab, "Responsive viewport could not follow the Browser size");
+      this.scheduleRefresh(tab, "viewportSize");
     }
   }
 
@@ -133,7 +141,7 @@ export class BrowserResponsiveController {
     const runtime = this.runtime(tab);
     runtime.geometryRevision += 1;
     runtime.inputRevision += 1;
-    this.scheduleRefresh(tab, "Responsive viewport could not preserve page zoom");
+    this.scheduleRefresh(tab, "pageZoom");
   }
 
   inputScaleGuard(tab: ManagedTab): () => number {
@@ -182,7 +190,7 @@ export class BrowserResponsiveController {
     return result;
   }
 
-  private scheduleRefresh(tab: ManagedTab, context: string): void {
+  private scheduleRefresh(tab: ManagedTab, context: BrowserResponsiveRecovery): void {
     const runtime = this.runtime(tab);
     if (!tab.metadata.responsive.enabled || runtime.destroyed || runtime.refreshQueued) return;
     runtime.refreshQueued = true;
@@ -196,7 +204,7 @@ export class BrowserResponsiveController {
         if (!applied) return;
         runtime.appliedScale = applied.scale;
         if (!applied.settled) {
-          this.scheduleRefresh(tab, "Responsive viewport could not follow the Browser size");
+          this.scheduleRefresh(tab, "viewportSize");
         }
       } catch (error) {
         if (!this.isCurrent(tab, runtime, revision)) return;
@@ -223,12 +231,7 @@ export class BrowserResponsiveController {
         );
       } catch (error) {
         if (!this.isCurrent(tab, runtime, revision)) return;
-        await this.failClosed(
-          tab,
-          runtime,
-          error,
-          "Responsive touch and appearance were interrupted",
-        );
+        await this.failClosed(tab, runtime, error, "touchInterrupted");
       } finally {
         runtime.recoveryQueued = false;
       }
@@ -252,16 +255,19 @@ export class BrowserResponsiveController {
       runtime.appliedScale = restored.scale;
       this.host.applyLayout();
       if (!restored.settled) {
-        this.scheduleRefresh(tab, "The restored responsive viewport is still settling");
+        this.scheduleRefresh(tab, "restoreSettling");
       }
-      return responsiveSetError(originalError, "The previous settings were restored.");
+      return new Error(responsiveErrors.setFailedRestored(browserErrorMessage(originalError)));
     } catch (restoreError) {
       if (!this.isCurrent(tab, runtime, revision)) return null;
       const cleanupError = await clearResponsiveOverrides(tab.webContents);
       if (!this.isCurrent(tab, runtime, revision)) return null;
       const errors = [originalError, restoreError];
       if (cleanupError) errors.push(cleanupError);
-      const failed = new AggregateError(errors, "Responsive update and rollback failed.");
+      const failed = new BrowserScopeAggregateFailure(
+        { kind: "responsiveRollback", diagnostics: errors.flatMap(responsiveDiagnostics) },
+        errors,
+      );
       if (!runtime.destroyed && !tab.webContents.isDestroyed()) {
         tab.metadata = {
           ...tab.metadata,
@@ -304,7 +310,7 @@ export class BrowserResponsiveController {
     tab: ManagedTab,
     runtime: ResponsiveRuntime,
     error: unknown,
-    context: string,
+    context: BrowserResponsiveRecovery,
   ): Promise<void> {
     if (runtime.destroyed || tab.webContents.isDestroyed()) return;
     this.mediaGuards.cancel(tab);
@@ -312,9 +318,15 @@ export class BrowserResponsiveController {
     runtime.inputRevision += 1;
     const cleanupError = await clearResponsiveOverrides(tab.webContents);
     if (!this.isCurrent(tab, runtime, revision)) return;
+    const issue: BrowserScopeIssue = {
+      kind: "responsiveRecovery",
+      context,
+      detail: responsiveDiagnostics(error).join("\n"),
+      ...(cleanupError ? { cleanupDetail: responsiveDiagnostics(cleanupError).join("\n") } : {}),
+    };
     const failure = cleanupError
-      ? new AggregateError([error, cleanupError], `${context}; cleanup also failed.`)
-      : new Error(`${context}: ${errorMessage(error)}`);
+      ? new BrowserScopeAggregateFailure(issue, [error, cleanupError])
+      : new BrowserScopeFailure(issue, { cause: error });
     tab.metadata = {
       ...tab.metadata,
       responsive: cleanupError
@@ -356,7 +368,7 @@ export class BrowserResponsiveController {
 
 function assertResponsiveRequest(request: BrowserResponsiveRequest): void {
   if (!isValidBrowserResponsiveState(request)) {
-    throw new Error("Invalid Browser responsive viewport configuration.");
+    throw new Error(responsiveErrors.invalidConfiguration());
   }
 }
 
@@ -368,10 +380,8 @@ function approximatelyEqual(left: number, right: number): boolean {
   return Math.abs(left - right) < 0.000_1;
 }
 
-function responsiveSetError(error: unknown, outcome: string): Error {
-  return new Error(`Could not update responsive mode. ${outcome} ${errorMessage(error)}`);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function responsiveDiagnostics(error: unknown): string[] {
+  if (!(error instanceof AggregateError)) return [browserErrorMessage(error)];
+  const errors: unknown[] = error.errors;
+  return errors.flatMap(responsiveDiagnostics);
 }

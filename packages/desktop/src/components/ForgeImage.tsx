@@ -1,4 +1,4 @@
-import { translateUi } from "@/lib/i18n/ui";
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Images that belong to a pull request: the authors' faces, and whatever a
  * reviewer pasted into a comment.
@@ -96,6 +96,7 @@ function useForgeImage(
   kind: ForgeImageKind,
   enabled: boolean,
 ): ForgeImageState {
+  const { t } = useUiTranslation();
   const scope = useContext(ForgeImageFeature);
   const direct = !src || isDirectSource(src);
   const scoped = scope !== null;
@@ -120,10 +121,7 @@ function useForgeImage(
     errorMessage: query.error
       ? apiErrorMessage(
           query.error,
-          translateUi(
-            "workspace.git.forgeImage.couldNotLoadThisImage",
-            "Could not load this image",
-          ),
+          t("workspace.git.forgeImage.couldNotLoadThisImage", "Could not load this image"),
         )
       : null,
     direct,
@@ -163,11 +161,12 @@ function DeferredForgeMarkdownImage({
   scope,
   ...props
 }: MarkdownImageProps & { scope: ForgeImageScopeState }): ReactElement {
+  const { t } = useUiTranslation();
   const viewportRootRef = useRef<HTMLElement | null>(null);
   const { setRef, inView } = useInViewport(viewportRootRef, "300px 0px");
   const [manualLoad, setManualLoad] = useState(false);
   const [automaticLoad] = useState(() => claimAutomaticImage(scope, props.src ?? "", "content"));
-  const label = props.alt || props.src || "image";
+  const label = props.alt || props.src || t("conversation.stream.markdownImage.image", "image");
   if (!automaticLoad && !manualLoad) {
     return (
       <span ref={setRef}>
@@ -180,7 +179,9 @@ function DeferredForgeMarkdownImage({
           )}
         >
           <ImageIcon className="size-3.5 shrink-0" aria-hidden />
-          <span className="truncate">Load {label}</span>
+          <span className="truncate">
+            {t("workspace.git.forgeImage.loadImage", "Load {{label}}", { label })}
+          </span>
         </button>
       </span>
     );

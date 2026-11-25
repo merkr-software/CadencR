@@ -1,6 +1,7 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { AgentResultBlock, CodeBlock, TextBlock } from "@/components/AgentTextBlocks";
 import { toRelativePath } from "@/lib/utils";
+import { displayBlockPreview } from "@/lib/block-content-budget";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import {
   extractBashCommand,
@@ -192,9 +193,11 @@ function TruncatedBlockBody({
       return { ...block, content, toolArgs, truncatedContent: false };
     }
     const prose = block.type === "text" || block.type === "thinking";
+    const preview = displayBlockPreview(block);
     return {
       ...block,
-      content: prose ? sliceUtf16(block.content, PROSE_PREVIEW_CHARS) : block.content,
+      content: prose ? sliceUtf16(preview, PROSE_PREVIEW_CHARS) : preview,
+      toolArgs: block.toolArgs === block.content ? preview : block.toolArgs,
       truncatedContent: false,
     };
   }, [block, content, mode]);
@@ -239,7 +242,7 @@ function ToolCallContent({
 }: ToolCallContentProps): ReactNode {
   if (!rendersToolCall(block)) return null;
   const skill = semanticSkillPresentation(block.toolName, block.toolArgs);
-  if (skill) return <ToolCallBlock name="Skill" args={skill.args} basePath={basePath} />;
+  if (skill) return <ToolCallBlock name="Skill" skill args={skill.args} basePath={basePath} />;
   if (isSubagentCarrier(block)) {
     return <TaskAgentBlock block={block} basePath={basePath} compact={compact} />;
   }
@@ -262,6 +265,9 @@ function ToolCallContent({
       <BashBlock
         command={rawCommand ? toRelativePath(rawCommand, basePath) : rawCommand}
         content={resultOutput ?? extractBashOutput(block.toolArgs)}
+        previewContent={
+          result && resultOutput === result.content ? displayBlockPreview(result) : undefined
+        }
         running={!result && isToolCallRunning(block.toolArgs)}
         isError={result?.isError ?? isToolCallError(block.toolArgs)}
         messageId={blockMessageDbId(outputBlock) ?? undefined}
@@ -287,10 +293,10 @@ function ToolCallContent({
   const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
   return (
     <ToolCallBlock
-      name={block.toolName ?? "unknown"}
+      name={block.toolName}
       args={block.toolArgs}
       basePath={basePath}
-      error={result?.isError ? result.content : undefined}
+      error={result?.isError ? displayBlockPreview(result) : undefined}
     />
   );
 }

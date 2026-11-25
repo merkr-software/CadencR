@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BrowserTabPersistenceController } from "./browser-tab-persistence-controller";
 import { BrowserTabSessionStore } from "./browser-tab-session-store";
 
 const temporaryDirectories: string[] = [];
@@ -64,10 +65,14 @@ describe("BrowserTabSessionStore", () => {
       sessionProfileId: "default",
       pinned: false,
     };
-    await store.replaceScope(1, { tabs: [{ ...page, defaultTitle: true }, page], activeIndex: 0 });
+    await store.replaceScope(1, {
+      tabs: [{ ...page, defaultTitle: true }, page, { ...page, title: " " }],
+      activeIndex: 0,
+    });
     expect((await new BrowserTabSessionStore(filePath).loadScope(1))?.tabs).toEqual([
       { ...page, defaultTitle: true },
       page,
+      { ...page, defaultTitle: true },
     ]);
   });
 
@@ -180,6 +185,32 @@ describe("BrowserTabSessionStore", () => {
       }),
     ).rejects.toThrow("corrupt");
     expect(await fs.readFile(filePath, "utf8")).toBe("keep this corrupt payload");
+  });
+
+  it("reports typed restoration and save failures with native diagnostics", async () => {
+    const corrupt = await storeAt();
+    await fs.writeFile(corrupt.filePath, "not json");
+    const reportError = vi.fn();
+    const restoring = new BrowserTabPersistenceController(corrupt.store, reportError);
+    await expect(restoring.restoreScope(1)).resolves.toBeNull();
+    expect(restoring.isEnabled(1)).toBe(false);
+    expect(reportError).toHaveBeenLastCalledWith(
+      expect.objectContaining({ issue: { kind: "tabSession", reason: "corrupt" } }),
+      1,
+    );
+
+    const unwritable = await storeAt();
+    const saving = new BrowserTabPersistenceController(unwritable.store, reportError);
+    await expect(saving.restoreScope(2)).resolves.toBeNull();
+    await fs.mkdir(unwritable.filePath);
+    saving.schedule(2, null);
+    await expect(saving.flush()).rejects.toThrow("could not be saved");
+    expect(reportError).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        issue: { kind: "saveTabs", detail: expect.stringContaining(unwritable.filePath) },
+      }),
+      2,
+    );
   });
 
   it("keeps the confirmed snapshot and recovers its serialized queue after write failure", async () => {

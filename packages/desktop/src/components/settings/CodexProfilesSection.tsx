@@ -293,6 +293,7 @@ function CodexProfileRow({
         <p className="text-xs text-muted-foreground">
           {t("settings.providers.codexProfilesSection.envCount", "{{count}} env vars", {
             count: profile.env_keys.length,
+            defaultValue_zero: "{{count}} env vars",
             defaultValue_one: "{{count}} env var",
           })}
           {profile.env_unset.length > 0 &&

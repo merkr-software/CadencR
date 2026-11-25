@@ -1,5 +1,5 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { format, isThisYear, isToday } from "date-fns";
+import { isThisYear, isToday } from "date-fns";
 import { ImageIcon, Loader2Icon, MessageSquareTextIcon, PaperclipIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -7,6 +7,7 @@ import type { UserMessageMark } from "@/lib/agent-message-navigator";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { Badge } from "@/components/ui/badge";
 import { parseUTCDateTime } from "@/lib/date-utils";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 
 export interface RailBox {
   /** Rail box in viewport coordinates. */
@@ -31,11 +32,29 @@ const PREVIEW_GAP_PX = 10;
 /** Space kept between the card and the top of the stream. */
 const PREVIEW_CEILING_GAP_PX = 8;
 
+function previewDateFormats(locale: string) {
+  const time = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } as const;
+  const day = { month: "short", day: "numeric" } as const;
+  return {
+    today: new Intl.DateTimeFormat(locale, time),
+    thisYear: new Intl.DateTimeFormat(locale, { ...day, ...time }),
+    earlier: new Intl.DateTimeFormat(locale, { ...day, year: "numeric" }),
+  };
+}
+
+const formatsByLocale = new Map<string, ReturnType<typeof previewDateFormats>>();
+
 /** "14:32" today, "Sep 20, 23:13" this year, "Sep 20, 2025" before. */
-function formatSentAt(iso: string): string {
+function formatSentAt(iso: string, locale: string): string {
+  let formats = formatsByLocale.get(locale);
+  if (!formats) {
+    formats = previewDateFormats(locale);
+    formatsByLocale.set(locale, formats);
+  }
   const date = parseUTCDateTime(iso);
-  if (isToday(date)) return format(date, "HH:mm");
-  return format(date, isThisYear(date) ? "MMM d, HH:mm" : "MMM d, yyyy");
+  return (
+    isToday(date) ? formats.today : isThisYear(date) ? formats.thisYear : formats.earlier
+  ).format(date);
 }
 
 function Extra({ icon, children }: { icon: ReactNode; children: ReactNode }): ReactElement {
@@ -157,7 +176,7 @@ export function MessageNavigatorPreview({
   rail,
   loading,
 }: MessageNavigatorPreviewProps): ReactElement {
-  const { t } = useUiTranslation();
+  const { t, i18n } = useUiTranslation();
   const cardRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   // Re-measured after every render (the hovered prompt or the loading row
@@ -193,7 +212,7 @@ export function MessageNavigatorPreview({
           </span>
           {mark.createdAt && (
             <span className="ml-auto font-mono text-muted-foreground tabular-nums">
-              {formatSentAt(mark.createdAt)}
+              {formatSentAt(mark.createdAt, formattingLocale(i18n.language))}
             </span>
           )}
         </div>

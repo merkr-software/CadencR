@@ -1,4 +1,5 @@
 import type { BrowserResponsiveState } from "./browser-responsive";
+import type { BrowserScopeIssue } from "./browser-scope-error-copy";
 
 export interface BrowserProfileMetadata {
   id: string;
@@ -317,7 +318,9 @@ export interface BrowserStateSnapshot {
   scopeId?: number | null;
   tabs: BrowserTabMetadata[];
   activeTabId: string | null;
+  /** Human-readable fallback for clients that do not translate scope notices. */
   error: string | null;
+  scopeIssue?: BrowserScopeIssue;
   tabError?: BrowserTabError | null;
 }
 

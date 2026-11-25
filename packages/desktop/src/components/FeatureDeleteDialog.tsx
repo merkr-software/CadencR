@@ -48,6 +48,7 @@ export function FeatureDeleteDialog({
       success: (res) =>
         translateUi("conversation.featureDeleteDialog.killedTerminals", {
           count: res.killed,
+          defaultValue_zero: "Killed {{count}} terminals.",
           defaultValue_one: "Killed {{count}} terminal.",
           defaultValue_other: "Killed {{count}} terminals.",
         }),

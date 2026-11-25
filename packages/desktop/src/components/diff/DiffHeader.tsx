@@ -26,6 +26,7 @@ export function DiffHeader({
       <span>
         {t("workspace.git.diffHeader.filesChanged", "{{count, number}} files changed", {
           count: fileCount,
+          defaultValue_zero: "{{count, number}} files changed",
           defaultValue_one: "{{count, number}} file changed",
         })}
       </span>

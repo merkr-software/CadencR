@@ -165,6 +165,7 @@ function ProfileRow({
             ? t("settings.providers.profilesSection.noEnv", "No env vars injected")
             : t("settings.providers.profilesSection.envCount", "{{count}} env vars", {
                 count: envCount,
+                defaultValue_zero: "{{count}} env vars",
                 defaultValue_one: "{{count}} env var",
               })}
         </span>

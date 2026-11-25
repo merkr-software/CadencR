@@ -95,7 +95,7 @@ function DirectAgentImage(props: MarkdownImageProps & { src: string }): ReactEle
         {
           id: `agent-direct-image:${id}`,
           src: props.src,
-          alt: props.alt || "image",
+          alt: props.alt ?? "",
           mediaType: dataUrlMediaType(props.src),
         },
       ],
@@ -152,7 +152,7 @@ function LocalAgentImage({
           id: `agent-image:${featureId}:${props.src}`,
           src: null,
           blob,
-          alt: props.alt || fileName || "image",
+          alt: props.alt || fileName || "",
           fileName,
           mediaType: blob.type || undefined,
         },

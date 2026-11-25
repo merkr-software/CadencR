@@ -198,10 +198,12 @@ function checkSummary(state: CiState, checks: readonly CiCheck[], t: UiTranslato
   if (state === "passing")
     return t("workspace.git.prStatusBandChecks.checksPassing", "{{count, number}} checks passing", {
       count: total,
+      defaultValue_zero: "{{count, number}} checks passing",
       defaultValue_one: "{{count, number}} check passing",
     });
   return t("workspace.git.prStatusBandChecks.checksCount", "{{count, number}} checks", {
     count: total,
+    defaultValue_zero: "{{count, number}} checks",
     defaultValue_one: "{{count, number}} check",
   });
 }

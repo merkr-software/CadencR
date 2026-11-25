@@ -291,6 +291,7 @@ function ConversationRowInner({ conversation, checked, disabled, onToggle }: Con
           <div className="text-[11px] text-muted-foreground">
             {t("conversation.importConversationList.messageCount", {
               count: conversation.message_count,
+              defaultValue_zero: "{{count}} messages",
               defaultValue_one: "{{count}} message",
               defaultValue_other: "{{count}} messages",
             })}

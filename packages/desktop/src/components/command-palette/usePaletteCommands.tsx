@@ -22,6 +22,7 @@ import {
   currentSettingsPlatform,
 } from "@/components/settings/settings-availability";
 import { settingsNavGroups } from "@/components/settings/settings-catalog";
+import { localizedSearchKeywords } from "@/lib/i18n/search-keywords";
 import { isMobileViewport } from "@/hooks/useIsMobile";
 import { PALETTE_SHORTCUT_ICONS } from "@/components/command-palette/palette-shortcut-icons";
 import {
@@ -54,7 +55,11 @@ function navigationCommands(navigate: Navigate, t: UiTranslator): PaletteCommand
       title: t("palette.commands.go-agents.title", "Agents"),
       group: "Navigate",
       icon: <LayoutGridIcon />,
-      keywords: ["unified", "grid", "all agents", "overview"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-agents.keywords",
+        "unified, grid, all agents, overview",
+      ),
       shortcutId: "open-unified-agents",
       description: t(
         "palette.commands.go-agents.description",
@@ -67,7 +72,11 @@ function navigationCommands(navigate: Navigate, t: UiTranslator): PaletteCommand
       title: t("palette.commands.go-schedules.title", "Schedules"),
       group: "Navigate",
       icon: <CalendarClockIcon />,
-      keywords: ["cron", "recurring", "automation", "timer"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-schedules.keywords",
+        "cron, recurring, automation, timer",
+      ),
       shortcutId: "open-schedules",
       description: t(
         "palette.commands.go-schedules.description",
@@ -80,7 +89,11 @@ function navigationCommands(navigate: Navigate, t: UiTranslator): PaletteCommand
       title: t("palette.commands.go-settings.title", "Settings"),
       group: "Navigate",
       icon: <SettingsIcon />,
-      keywords: ["preferences", "options", "config"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-settings.keywords",
+        "preferences, options, config",
+      ),
       shortcutId: "open-settings",
       description: t("palette.commands.go-settings.description", "Global settings."),
       run: () => navigate({ to: "/settings" }),
@@ -90,7 +103,11 @@ function navigationCommands(navigate: Navigate, t: UiTranslator): PaletteCommand
       title: t("palette.commands.go-marketplace.title", "Marketplace"),
       group: "Navigate",
       icon: <BlocksIcon />,
-      keywords: ["plugins", "themes", "providers", "extensions"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-marketplace.keywords",
+        "plugins, themes, providers, extensions",
+      ),
       description: t(
         "palette.commands.go-marketplace.description",
         "Themes and provider connectors from the signed catalog.",
@@ -168,7 +185,11 @@ function createCommands(context: PaletteCommandContext, t: UiTranslator): Palett
       }),
       group: "Create",
       icon: <SquarePenIcon />,
-      keywords: ["session", "feature", "chat", "agent", "start"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.new-conversation-here.keywords",
+        "session, feature, chat, agent, start",
+      ),
       shortcutId: "new-session",
       description: t(
         "palette.commands.new-conversation-here.description",
@@ -182,7 +203,11 @@ function createCommands(context: PaletteCommandContext, t: UiTranslator): Palett
     title: t("palette.commands.new-conversation.title", "New conversation…"),
     group: "Create",
     icon: <MessageSquarePlusIcon />,
-    keywords: ["session", "feature", "worktree", "branch", "project"],
+    keywords: localizedSearchKeywords(
+      t,
+      "palette.commands.new-conversation.keywords",
+      "session, feature, worktree, branch, project",
+    ),
     description: t(
       "palette.commands.new-conversation.description",
       "Pick the project, then a new worktree, the project directory or an existing branch.",
@@ -195,7 +220,11 @@ function createCommands(context: PaletteCommandContext, t: UiTranslator): Palett
       title: t("palette.commands.add-project.title", "Add project…"),
       group: "Create",
       icon: <FolderPlusIcon />,
-      keywords: ["new project", "folder", "repository", "open"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.add-project.keywords",
+        "new project, folder, repository, open",
+      ),
       description: t(
         "palette.commands.add-project.description",
         "Choose a folder to add as a project.",
@@ -207,7 +236,11 @@ function createCommands(context: PaletteCommandContext, t: UiTranslator): Palett
       title: t("palette.commands.install-cli.title", "Install the cadencr command"),
       group: "Settings",
       icon: <SquareTerminalIcon />,
-      keywords: ["cli", "shell command", "path", "terminal", "open from terminal"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.install-cli.keywords",
+        "cli, shell command, path, terminal, open from terminal",
+      ),
       description: t(
         "palette.commands.install-cli.description",
         "Run cadencr open, add, update and serve from a terminal.",
@@ -226,7 +259,11 @@ function modeCommands(context: PaletteCommandContext, t: UiTranslator): PaletteC
       title: t("palette.commands.go-to-file.title", "Go to file…"),
       group: "Navigate",
       icon: <AtSignIcon />,
-      keywords: ["open", "find file", "fuzzy", "quick open"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-to-file.keywords",
+        "open, find file, fuzzy, quick open",
+      ),
       description: t(
         "palette.commands.go-to-file.description",
         "Search this conversation's worktree by file name. Type @ anywhere to start.",
@@ -240,7 +277,11 @@ function modeCommands(context: PaletteCommandContext, t: UiTranslator): PaletteC
       title: t("palette.commands.search-messages.title", "Search messages…"),
       group: "Navigate",
       icon: <HashIcon />,
-      keywords: ["full text", "history", "find", "said", "transcript"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.search-messages.keywords",
+        "full text, history, find, said, transcript",
+      ),
       description: t(
         "palette.commands.search-messages.description",
         "Find the conversation where something was said. Type # anywhere to start.",
@@ -252,7 +293,11 @@ function modeCommands(context: PaletteCommandContext, t: UiTranslator): PaletteC
       title: t("palette.commands.change-theme.title", "Change theme…"),
       group: "View",
       icon: <PaletteIcon />,
-      keywords: ["appearance", "dark", "light", "colors"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.change-theme.keywords",
+        "appearance, dark, light, colors",
+      ),
       description: t(
         "palette.commands.change-theme.description",
         "Preview each theme as you move through the list.",
@@ -286,7 +331,7 @@ function shortcutCommand(id: PaletteShortcutId, t: UiTranslator): PaletteCommand
     title: meta.title(t),
     group: meta.group,
     icon: PALETTE_SHORTCUT_ICONS[id],
-    keywords: [meta.title((_key, defaultValue) => defaultValue), ...meta.keywords],
+    keywords: [meta.title((_key, defaultValue) => defaultValue), ...meta.keywords(t)],
     shortcutId: id,
     run: () => {
       // The handler unmounted between opening the palette and picking.

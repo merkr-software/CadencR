@@ -8,6 +8,8 @@ import {
 } from "@/lib/desktop-bridge";
 import { useBrowserDefaultMode, type CookieMode } from "@/lib/browser-settings";
 import { useSuppressBrowserView } from "@/lib/browser-suppression";
+import { localizedBrowserError } from "@/shared/browser-error-copy";
+import { browserScopeErrorText } from "@/shared/browser-scope-error-copy";
 import { BrowserAddressBar } from "./browser/BrowserAddressBar";
 import { BrowserAgentAccessBanner } from "./browser/BrowserAgentAccessBanner";
 import { BrowserCommentDock } from "./browser/BrowserCommentDock";
@@ -103,6 +105,7 @@ function BrowserWorkspaceView({
   model: BrowserWorkspaceModel;
   comments: CommentsController;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const newTab = useCallback((): void => void model.newTab(), [model.newTab]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -126,7 +129,11 @@ function BrowserWorkspaceView({
     responsiveMenuOpen ||
     comments.draft !== null;
   const pageError = resolvePageError(model.state.tabError);
-  const chromeError = model.state.tabError && !pageError ? model.state.tabError : null;
+  const chromeError =
+    model.state.tabError && !pageError ? localizedBrowserError(model.state.tabError, t) : null;
+  const scopeError = model.state.scopeIssue
+    ? browserScopeErrorText(model.state.scopeIssue, t)
+    : model.state.error;
   const retryPageError = useCallback((): void => {
     if (pageError?.url) {
       void model.navigate(pageError.url);
@@ -158,8 +165,8 @@ function BrowserWorkspaceView({
           message={chromeError.description}
           onDismiss={() => model.clearError("tab")}
         />
-      ) : model.state.error ? (
-        <BrowserError message={model.state.error} onDismiss={() => model.clearError("scope")} />
+      ) : scopeError ? (
+        <BrowserError message={scopeError} onDismiss={() => model.clearError("scope")} />
       ) : null}
       <BrowserAgentAccessBanner
         scopeId={scopeId}

@@ -28,7 +28,7 @@ export function createHistoryActions(ctx: StoreAccessors): HistoryActions {
       set(updateSession(get(), sessionId, { persistedLoaded: true, historyLoadFailure: null }));
     },
 
-    failPersistedLoad(sessionId: string, message: string) {
+    failPersistedLoad(sessionId, message) {
       set(
         updateSession(get(), sessionId, {
           persistedLoaded: true,

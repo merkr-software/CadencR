@@ -108,6 +108,7 @@ export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorR
       toast.success(
         translateUi("workspace.editor.renameSymbol.renamedInFiles", {
           count: fileCount,
+          defaultValue_zero: "Renamed in {{count, number}} files.",
           defaultValue_one: "Renamed in {{count, number}} file.",
           defaultValue_other: "Renamed in {{count, number}} files.",
         }),

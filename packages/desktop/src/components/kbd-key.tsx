@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 
 /** Keys drawn as a glyph on every platform. */
 type GlyphKey = "backspace" | "up" | "down" | "left" | "right";
@@ -80,19 +81,23 @@ const GLYPHS: Record<GlyphKey, KeyGlyph> = {
   right: { Icon: ArrowRightIcon, label: "Right" },
 };
 
-const WORDS: Record<ModifierKey | WordKey, string> = {
-  mod: "Ctrl",
-  alt: "Alt",
-  ctrl: "Ctrl",
-  shift: "Shift",
-  enter: "Enter",
-  escape: "Esc",
-  tab: "Tab",
-  space: "Space",
+type KeyWord = (t: UiTranslator) => string;
+
+const controlWord: KeyWord = (t) => t("shortcuts.keyCap.ctrl", "Ctrl");
+
+const WORDS: Record<ModifierKey | WordKey, KeyWord> = {
+  mod: controlWord,
+  alt: (t) => t("shortcuts.keyCap.alt", "Alt"),
+  ctrl: controlWord,
+  shift: (t) => t("shortcuts.keyCap.shift", "Shift"),
+  enter: (t) => t("shortcuts.keyCap.enter", "Enter"),
+  escape: (t) => t("shortcuts.keyCap.escape", "Esc"),
+  tab: (t) => t("shortcuts.keyCap.tab", "Tab"),
+  space: (t) => t("shortcuts.keyCap.space", "Space"),
 };
 
 /** How each named key renders: a glyph, or the word to write. */
-type KeyRendering = Record<NamedKey, KeyGlyph | string>;
+type KeyRendering = Record<NamedKey, KeyGlyph | KeyWord>;
 
 const LINUX_KEYS: KeyRendering = { ...GLYPHS, ...WORDS };
 
@@ -110,12 +115,13 @@ const MAC_KEYS: KeyRendering = {
 export function resolveKbdKey(
   key: string,
   isMac: boolean,
+  t: UiTranslator = translateUi,
 ): { kind: "glyph"; glyph: KeyGlyph } | { kind: "text"; text: string } {
   const named = ALIASES.get(key.toLowerCase());
   if (named) {
     const rendering = (isMac ? MAC_KEYS : LINUX_KEYS)[named];
-    return typeof rendering === "string"
-      ? { kind: "text", text: rendering }
+    return typeof rendering === "function"
+      ? { kind: "text", text: rendering(t) }
       : { kind: "glyph", glyph: rendering };
   }
   // Letter mnemonics ("p") and F-keys read as printed key caps.
@@ -124,7 +130,8 @@ export function resolveKbdKey(
 }
 
 export function KbdKeyContent({ keyName, isMac }: { keyName: string; isMac: boolean }): ReactNode {
-  const resolved = resolveKbdKey(keyName, isMac);
+  const { t } = useUiTranslation();
+  const resolved = resolveKbdKey(keyName, isMac, t);
   if (resolved.kind === "text") {
     return <span className="inline-flex h-[1em] items-center leading-none">{resolved.text}</span>;
   }

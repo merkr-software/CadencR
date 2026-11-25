@@ -5,6 +5,7 @@ import { cn, formatJson, toRelativePath } from "@/lib/utils";
 import { parseToolCall } from "@/lib/tool-call-parser";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
 import { parseMcpTool } from "@/lib/mcp-tool-parser";
+import { displayToolName } from "@/lib/tool-display-policy";
 import { McpToolBlock } from "@/components/McpToolBlock";
 
 /**
@@ -14,23 +15,26 @@ import { McpToolBlock } from "@/components/McpToolBlock";
  */
 export function ToolCallBlock({
   name,
+  skill,
   args,
   basePath,
   error,
 }: {
-  name: string;
+  name?: string;
+  skill?: boolean;
   args?: string;
   basePath?: string;
   /** The message of the call's error result; set only when the call failed. */
   error?: string;
 }) {
   const { t } = useUiTranslation();
-  const canonicalName = normalizeToolName(name);
+  const canonicalName = normalizeToolName(name ?? "unknown");
   const mcp = parseMcpTool(canonicalName, args, t);
   if (mcp) return <McpToolBlock mcp={mcp} />;
   return (
     <GenericToolCallBlock
       name={canonicalName}
+      label={displayToolName(name == null ? undefined : canonicalName, Boolean(skill), t)}
       args={args}
       basePath={basePath}
       error={error}
@@ -41,12 +45,14 @@ export function ToolCallBlock({
 
 function GenericToolCallBlock({
   name: canonicalName,
+  label,
   args,
   basePath,
   error,
   t,
 }: {
   name: string;
+  label: string;
   args?: string;
   basePath?: string;
   error?: string;
@@ -86,7 +92,7 @@ function GenericToolCallBlock({
         onClick={() => setExpanded(!expanded)}
       >
         <WrenchIcon className={cn("size-3", toolColorClass)} />
-        <span className={cn("font-medium", toolColorClass)}>{canonicalName}</span>
+        <span className={cn("font-medium", toolColorClass)}>{label}</span>
         {detail && <span className="truncate text-muted-foreground">{detail}</span>}
         <ChevronRightIcon
           className={cn(

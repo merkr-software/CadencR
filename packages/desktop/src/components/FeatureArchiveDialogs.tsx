@@ -56,7 +56,7 @@ export const FeatureArchiveDialogs = memo(function FeatureArchiveDialogs({
           "conversation.featureArchiveDialogs.thisCannotBeUndone",
           "This cannot be undone.",
         )}
-        confirmText="Delete"
+        confirmText={t("common.delete", "Delete")}
         variant="destructive"
         onConfirm={() => {
           if (confirmFeatureId != null) onDelete(confirmFeatureId);

@@ -1,4 +1,5 @@
 import type { DownloadItem } from "electron";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import {
   releaseBrowserDownloadReservation,
   removeEmptyBrowserDownloadReservation,
@@ -83,13 +84,19 @@ export class BrowserDownloadRecord {
   }
 
   pause(now: number): void {
-    if (!this.item || !this.public.canPause) throw new Error("This download cannot be paused.");
+    if (!this.item || !this.public.canPause)
+      throw new Error(
+        t("workspace.browser.downloads.cannotPause", "This download cannot be paused."),
+      );
     this.item.pause();
     this.refresh("paused", now);
   }
 
   resume(now: number): void {
-    if (!this.item?.canResume()) throw new Error("This download cannot be resumed.");
+    if (!this.item?.canResume())
+      throw new Error(
+        t("workspace.browser.downloads.cannotResume", "This download cannot be resumed."),
+      );
     this.item.resume();
     this.refresh("progressing", now);
   }

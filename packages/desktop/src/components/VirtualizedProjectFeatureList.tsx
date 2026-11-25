@@ -1,4 +1,4 @@
-import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -163,7 +163,7 @@ export function VirtualizedProjectFeatureList(
           increaseViewportBy={144}
           itemContent={(index, entry) => (
             <div data-project-feature-index={index}>
-              {renderEntry(entry, props, collapsed, toggleNode)}
+              {renderEntry(entry, props, collapsed, toggleNode, t)}
             </div>
           )}
         />
@@ -177,6 +177,7 @@ function renderEntry(
   props: VirtualizedProjectFeatureListProps,
   collapsed: ReadonlySet<number>,
   toggleNode: (id: number) => void,
+  t: UiTranslator,
 ): ReactNode {
   if (entry.kind === "group") {
     return (
@@ -195,11 +196,8 @@ function renderEntry(
       className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
       aria-label={
         collapsed.has(entry.feature.id)
-          ? translateUi(
-              "project.virtualizedProjectFeatureList.expandChildSessions",
-              "Expand child sessions",
-            )
-          : translateUi(
+          ? t("project.virtualizedProjectFeatureList.expandChildSessions", "Expand child sessions")
+          : t(
               "project.virtualizedProjectFeatureList.collapseChildSessions",
               "Collapse child sessions",
             )

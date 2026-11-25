@@ -219,7 +219,15 @@ function ToolActionLine({
     );
   }
   return (
-    <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} t={t} />
+    <GenericActionLine
+      toolName={toolName}
+      label={
+        block.toolName == null ? t("conversation.stream.compactToolLine.tool", "Tool") : toolName
+      }
+      toolArgs={block.toolArgs}
+      basePath={basePath}
+      t={t}
+    />
   );
 }
 
@@ -276,11 +284,13 @@ function FileChangeActionLine({
 
 function GenericActionLine({
   toolName,
+  label: toolLabel,
   toolArgs,
   basePath,
   t,
 }: {
   toolName: string;
+  label: string;
   toolArgs: string | undefined;
   basePath: string | undefined;
   t: UiTranslator;
@@ -292,11 +302,11 @@ function GenericActionLine({
     }
     const summary = parseToolCall(toolName, toolArgs, t);
     return {
-      label: toolName,
+      label: toolLabel,
       detail: summary?.detail === toolName ? undefined : oneLineDetail(summary?.detail, basePath),
       accent: "tool" as const,
     };
-  }, [toolName, toolArgs, basePath, t]);
+  }, [toolName, toolLabel, toolArgs, basePath, t]);
   return (
     <ActionLine
       icon={WrenchIcon}

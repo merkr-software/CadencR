@@ -28,9 +28,10 @@ export type CliInstallUnavailableCode =
   | "unsupported-platform"
   | "unofficial-linux-package"
   | "temporary-macos-location"
-  | "missing-command";
+  | "missing-command"
+  | "desktop-required";
 
-type CliInstallConflict =
+export type CliInstallConflict =
   | { kind: "link"; path: string }
   | { kind: "unmanaged-program" }
   | { kind: "replaced-program" };

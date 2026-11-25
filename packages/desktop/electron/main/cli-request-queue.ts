@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import type { CliRendererItem } from "../../src/shared/cli-bridge";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { parseCliRequestArgv } from "./cli-request";
 
 /** At most this many unhandled requests wait for the renderer; older ones drop. */
@@ -41,7 +42,11 @@ export class CliRequestQueue {
     if (this.dropped === 0) return items;
     const dropped = this.dropped;
     this.dropped = 0;
-    const message = `Cadencr skipped the ${dropped} oldest cadencr command request(s): more than ${MAX_PENDING} arrived before it could act on them.`;
+    const message = t(
+      "cli.request.queueOverflow",
+      "Cadencr skipped the {{dropped}} oldest cadencr command request(s): more than {{limit}} arrived before it could act on them.",
+      { dropped, limit: MAX_PENDING },
+    );
     return [{ kind: "error", id: randomUUID(), message }, ...items];
   }
 }
@@ -53,10 +58,19 @@ async function statPathKind(target: string): Promise<PathKind | { error: string 
     const stats = await fs.stat(target);
     if (stats.isDirectory()) return "directory";
     if (stats.isFile()) return "file";
-    return { error: `${target} is neither a file nor a folder.` };
+    return {
+      error: t("cli.request.unsupportedPath", "{{path}} is neither a file nor a folder.", {
+        path: target,
+      }),
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { error: `Cadencr could not read ${target}: ${detail}` };
+    return {
+      error: t("cli.request.pathUnreadable", "Cadencr could not read {{path}}: {{detail}}", {
+        path: target,
+        detail,
+      }),
+    };
   }
 }
 
@@ -94,7 +108,10 @@ export async function handleCliArgv(
       const kind = await statPathKind(request.path);
       if (typeof kind === "object") queue.push({ kind: "error", message: kind.error });
       else if (kind !== "directory")
-        queue.push({ kind: "error", message: `${request.path} is not a folder.` });
+        queue.push({
+          kind: "error",
+          message: t("cli.request.notAFolder", "{{path}} is not a folder.", { path: request.path }),
+        });
       else queue.push({ kind: "add", path: request.path });
       return true;
     }
