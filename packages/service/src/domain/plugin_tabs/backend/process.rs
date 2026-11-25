@@ -26,6 +26,7 @@ use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::plugin_tabs::grants::GrantStore;
 use crate::domain::plugin_tabs::managed::storage::{ManagedFacts, RevisionLease};
 use crate::error::AppError;
+use crate::shared::discard::{KeepFirst, SendIgnoreClosed};
 
 mod spawn;
 pub(super) use spawn::spawn;
@@ -78,7 +79,7 @@ impl Running {
     /// Ask the process to stop. `reason` ends up in its Activity ("why it
     /// last stopped"); the first reason given wins.
     pub fn request_stop(&self, reason: StopReason) {
-        let _ = self.stop_reason.set(reason);
+        self.stop_reason.keep_first(reason);
         self.stop.cancel();
     }
 
@@ -262,7 +263,7 @@ async fn supervise(
     running.exited.cancel();
     grants.revoke_key(&running.grant_key);
     for (_, waiter) in lock(&running.pending).drain() {
-        let _ = waiter.send(Reply::Exited(reason.clone()));
+        waiter.send_ignore_closed(Reply::Exited(reason.clone()));
     }
 }
 
