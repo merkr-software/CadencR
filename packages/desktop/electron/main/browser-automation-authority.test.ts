@@ -116,9 +116,9 @@ describe("BrowserAutomationAuthority", () => {
     expect(guard).toThrow("not shared");
   });
 
-  it("lists user, shared, agent, and dormant tabs with compact metadata while hiding forbidden URLs", () => {
+  it("keeps user and restored tab page details private until sharing is approved", () => {
     const userHttp = managed("user-http", 7, "user", {
-      url: "http://staging.internal/app",
+      url: "http://staging.internal/app?private=detail#fragment",
       mode: "persistent",
       pinned: true,
       faviconUrl: "data:image/png;base64,secret",
@@ -137,8 +137,8 @@ describe("BrowserAutomationAuthority", () => {
     const dormantWeb: BrowserTabMetadata = {
       ...userHttp.metadata,
       id: "dormant-web",
-      title: "Restored",
-      url: "https://restored.example.com/",
+      title: "Private restored page",
+      url: "https://restored.example.com/private?state=value",
       sessionProfileId: "default",
       isActive: false,
       pinned: false,
@@ -180,8 +180,8 @@ describe("BrowserAutomationAuthority", () => {
     expect(listed.tabs).toEqual([
       {
         id: "user-http",
-        title: "user-http",
-        url: "http://staging.internal/app",
+        title: "staging.internal",
+        url: "http://staging.internal",
         loading: false,
         isActive: true,
         pinned: true,
@@ -192,8 +192,8 @@ describe("BrowserAutomationAuthority", () => {
       },
       {
         id: "user-private",
-        title: "user-private",
-        url: "https://private.example.com/",
+        title: "private.example.com",
+        url: "https://private.example.com",
         loading: false,
         isActive: true,
         pinned: false,
@@ -216,8 +216,8 @@ describe("BrowserAutomationAuthority", () => {
       },
       {
         id: "dormant-web",
-        title: "Restored",
-        url: "https://restored.example.com/",
+        title: "restored.example.com",
+        url: "https://restored.example.com",
         loading: false,
         isActive: false,
         pinned: false,
@@ -228,6 +228,12 @@ describe("BrowserAutomationAuthority", () => {
       },
     ]);
     expect(listed.tabs[0]).not.toHaveProperty("faviconUrl");
+    userHttp.automationAccess = "shared";
+    expect(authority.listTabs(7).tabs[0]).toMatchObject({
+      title: "user-http",
+      url: userHttp.metadata.url,
+      requiresApproval: false,
+    });
   });
 
   it("fails closed in listTabs and assertApprovable when origin policy is not ready", () => {

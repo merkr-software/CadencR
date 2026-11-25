@@ -250,10 +250,6 @@ pub(crate) async fn make_test_app_state() -> AppState {
              status TEXT, error TEXT, created_at TEXT, message_uuid TEXT,
              source_session_id INTEGER, attempt_count INTEGER, claim_token TEXT,
              claimed_at TEXT);",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/migrations/20261122010000_unified_session_queue.sql"
-        )),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await.unwrap();
     }
@@ -274,6 +270,27 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"#,
     )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // The unified queue upgrade can match receipts already stored in these
+    // transcript tables, so it must run after both are created.
+    sqlx::raw_sql(concat!(
+        "CREATE TABLE agent_message_origins (
+            message_id INTEGER PRIMARY KEY REFERENCES agent_messages(id) ON DELETE CASCADE,
+            origin_kind TEXT NOT NULL,
+            source_session_id INTEGER REFERENCES agent_sessions(id) ON DELETE SET NULL,
+            source_feature_id INTEGER,
+            source_project_id INTEGER,
+            source_message_id INTEGER REFERENCES agent_messages(id) ON DELETE SET NULL,
+            note TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/migrations/20261122010000_unified_session_queue.sql"
+        ))
+    ))
     .execute(&pool)
     .await
     .unwrap();

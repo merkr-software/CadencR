@@ -48,17 +48,29 @@ async fn open_agent_messages_move_into_the_session_queue() {
     ] {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }
+    seed_applied_migrations_before(&pool, 20261122010000).await;
+    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
     sqlx::raw_sql(
-        "INSERT INTO agent_session_prompt_queue (id, session_id, content, message_uuid)
-         VALUES (1, 1, 'user prompt', 'u-1');
+        "INSERT INTO agent_session_prompt_queue
+             (id, session_id, content, source_message_uuid, message_uuid)
+         VALUES (1, 1, 'user prompt', '6168c375-ab33-46b2-b597-0a317dddd85d',
+                 '6168c375-ab33-46b2-b597-0a317dddd85d'),
+                (8, 1, 'another user prompt', 'c34fe5ab-4f1e-4538-93d0-cf6cc0a39b02',
+                 'c34fe5ab-4f1e-4538-93d0-cf6cc0a39b02');
          INSERT INTO agent_session_message_queue
              (id, target_session_id, source_session_id, content, status, error, message_uuid,
               claim_token, attempt_count)
-         VALUES (1, 1, 2, 'pending from 2', 'pending', NULL, 'a-1', NULL, 0),
-                (2, 1, 3, 'in flight from 3', 'delivering', NULL, 'a-2', 'tok', 1),
+         VALUES (1, 1, 2, 'pending from 2', 'pending', NULL,
+                 '6168c375-ab33-46b2-b597-0a317dddd85d', NULL, 0),
+                (2, 1, 3, 'in flight from 3', 'delivering', NULL,
+                 'c34fe5ab-4f1e-4538-93d0-cf6cc0a39b02', 'tok', 1),
                 (3, 1, 2, 'failed from 2', 'error', 'offline', 'a-3', NULL, 1),
                 (4, 1, 2, 'delivered', 'delivered', NULL, 'a-4', NULL, 1),
                 (5, 2, NULL, 'legacy event', 'pending', NULL, NULL, NULL, 0);
+         INSERT INTO agent_messages (id, session_id, role, content, message_uuid)
+         VALUES (1, 1, 'user', 'in flight from 3', 'c34fe5ab-4f1e-4538-93d0-cf6cc0a39b02');
+         INSERT INTO agent_message_origins (message_id, origin_kind, source_session_id, note)
+         VALUES (1, 'session_generated', 3, 'delivered from queued session message');
          PRAGMA foreign_keys=OFF;
          INSERT INTO agent_session_message_queue
              (id, target_session_id, source_session_id, content, status, message_uuid)
@@ -69,9 +81,6 @@ async fn open_agent_messages_move_into_the_session_queue() {
     .execute(&pool)
     .await
     .unwrap();
-    seed_applied_migrations_before(&pool, 20261122010000).await;
-    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
-
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();
@@ -98,27 +107,40 @@ async fn open_agent_messages_move_into_the_session_queue() {
                 i64::from(status == "delivering"),
             )
         };
-    let mut user = row(1, "user prompt", "pending", "user", None, None);
-    user.6 = Some("u-1".into());
+    let shared_uuid = Some("6168c375-ab33-46b2-b597-0a317dddd85d");
+    let sent_uuid = Some("c34fe5ab-4f1e-4538-93d0-cf6cc0a39b02");
+    let user = row(1, "user prompt", "pending", "user", None, shared_uuid);
+    let mut agent = row(
+        1,
+        "pending from 2",
+        "pending",
+        "session",
+        Some(2),
+        shared_uuid,
+    );
+    let mut other_user = row(1, "another user prompt", "pending", "user", None, sent_uuid);
+    for (expected, actual) in [(&mut other_user, &rows[1]), (&mut agent, &rows[2])] {
+        let replacement = actual.6.as_deref().unwrap();
+        assert_ne!(Some(replacement), expected.5.as_deref());
+        assert_eq!(
+            uuid::Uuid::parse_str(replacement).unwrap().to_string(),
+            replacement
+        );
+        expected.6 = actual.6.clone();
+    }
     assert_eq!(
         rows,
         vec![
             user,
-            row(
-                1,
-                "pending from 2",
-                "pending",
-                "session",
-                Some(2),
-                Some("a-1")
-            ),
+            other_user,
+            agent,
             row(
                 1,
                 "in flight from 3",
                 "delivering",
                 "session",
                 Some(3),
-                Some("a-2")
+                sent_uuid
             ),
             row(2, "legacy event", "pending", "session", None, None),
             row(

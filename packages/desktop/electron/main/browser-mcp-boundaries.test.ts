@@ -221,8 +221,8 @@ describe("user-tab discovery and explicit approval boundaries", () => {
       tabs: [
         {
           id: "tab",
-          title: "Private title",
-          url: "https://docs.example.com/",
+          title: "docs.example.com",
+          url: "https://docs.example.com",
           loading: false,
           isActive: false,
           pinned: false,

@@ -18,6 +18,7 @@ use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::mcp::send_message_tool::SendMessageTool;
 use crate::domain::prompt_queue::acceptance::enqueue_agent_message;
+use crate::domain::prompt_queue::store::{has_source, QueueOrigin};
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
 use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::PersistedUserMessage;
@@ -117,7 +118,16 @@ async fn send_message(
         tool,
         started_at,
     };
-    if target_is_active && delivery == DeliveryMode::NextTurn {
+    if delivery == DeliveryMode::NextTurn
+        && (target_is_active
+            || has_source(
+                &state.read_pool,
+                target.session_id,
+                QueueOrigin::Session,
+                &message_uuid.to_string(),
+            )
+            .await?)
+    {
         return queue_busy_message(request).await;
     }
     send_immediate_message(request).await

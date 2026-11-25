@@ -1,4 +1,4 @@
-import { isHttpBrowserUrl } from "../../src/shared/browser-url";
+import { httpBrowserOrigin, isHttpBrowserUrl } from "../../src/shared/browser-url";
 import { browserDocumentRevision } from "./browser-document-security";
 import { externalAutomationMatches } from "./browser-manager-utils";
 import { browserAutomationAccess } from "./browser-policy";
@@ -190,18 +190,21 @@ function toTabSummary(
   tab: BrowserTabMetadata,
   privacy: BrowserTabPrivacy,
   agentAccess: BrowserAgentAccess,
-): BrowserAgentTabSummary {
+): BrowserAgentTabSummary | null {
+  const requiresApproval = agentAccess === "user";
+  const url = requiresApproval ? httpBrowserOrigin(tab.url) : tab.url;
+  if (!url) return null;
   return {
     id: tab.id,
-    title: tab.title,
-    url: tab.url,
+    title: requiresApproval ? new URL(url).host : tab.title,
+    url,
     loading: tab.loading,
     isActive: tab.isActive,
     pinned: tab.pinned,
     suspended: tab.suspended,
     privacy,
     agentAccess,
-    requiresApproval: agentAccess === "user",
+    requiresApproval,
   };
 }
 

@@ -142,6 +142,7 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
     .await;
     for (column, ddl_type) in [
         ("role", "TEXT NOT NULL DEFAULT 'assistant'"),
+        ("content", "TEXT NOT NULL DEFAULT ''"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
         ("tool_name", "TEXT"),
         ("tool_use_id", "TEXT"),
@@ -149,6 +150,29 @@ pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
         ("created_at", "TEXT"),
     ] {
         ensure_column(pool, "agent_messages", column, ddl_type).await;
+    }
+    if migration_applied(pool, 20260712200000).await {
+        ensure_column(pool, "agent_messages", "message_uuid", "TEXT").await;
+    }
+    if migration_applied(pool, 20260618120000).await {
+        // The unified queue migration matches already-persisted agent receipts.
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS agent_message_origins (
+                message_id INTEGER PRIMARY KEY,
+                origin_kind TEXT NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        ensure_column(
+            pool,
+            "agent_message_origins",
+            "source_session_id",
+            "INTEGER",
+        )
+        .await;
+        ensure_column(pool, "agent_message_origins", "note", "TEXT").await;
     }
 }
 
