@@ -248,18 +248,16 @@ mod tests {
     async fn a_failed_write_keeps_its_cause_for_later_writes() {
         let queue = PtyWriteQueue::spawn_with_limits("test-eio", Box::new(FailingWriter), 4, 4)
             .expect("spawn writer");
-        queue.write(b"first".to_vec()).await.expect("queued");
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let error = loop {
-            match queue.write(b"next".to_vec()).await {
-                Err(error) => break error,
-                Ok(()) if std::time::Instant::now() < deadline => {
-                    tokio::time::sleep(Duration::from_millis(5)).await;
-                }
-                Ok(()) => panic!("the writer thread never reported its failure"),
-            }
-        };
+        // One chunk can be queued before the writer reports the error. A
+        // multi-chunk write can see the first chunk fail before queuing the next.
+        queue.write(b"init".to_vec()).await.expect("queued");
+        tokio::time::timeout(Duration::from_secs(2), queue.closed.cancelled())
+            .await
+            .expect("the writer thread must report its failure");
+        let error = queue
+            .write(b"next".to_vec())
+            .await
+            .expect_err("writes after a failure must fail");
         let message = error.to_string();
         assert!(
             message.contains("writing to the terminal failed"),
