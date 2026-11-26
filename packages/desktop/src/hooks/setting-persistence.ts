@@ -82,6 +82,8 @@ async function sendSetting(
     const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
     if (value === null) return true;
     const saved = await setWorkspaceSetting(key, { value });
+    // A read begun before the write could replace its confirmed value.
+    await queryClient.cancelQueries({ queryKey: getGetWorkspaceSettingQueryKey(key), exact: true });
     seedConfirmedSetting(queryClient, key, saved.value ?? null);
     return true;
   } catch (error: unknown) {
