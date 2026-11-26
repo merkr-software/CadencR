@@ -1,70 +1,74 @@
-use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::shared::discard::IgnoreClosed;
 
-use std::path::PathBuf;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use axum::extract::ws::Message;
-use regex_lite::Regex;
+use axum::http::StatusCode;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
-use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimePurpose, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{
+    AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimePermissionMode, RuntimePurpose,
+    RuntimeSpawnConfig,
+};
 use crate::domain::agents::providers::runtime_adapter;
-use crate::domain::features::repository::update_generated_title;
-use crate::domain::features::title::GeneratedTitlePolicy;
+use crate::domain::agents::{resolve_selection, SelectionError};
+use crate::domain::features::run_registry::FeatureRunPermit;
+use crate::domain::features::title::{lock_title_updates, GeneratedTitlePolicy};
+use crate::domain::settings_store::file::{SETTINGS_INVALID, SETTINGS_READ_FAILED};
+use crate::domain::workflow::ws_sender::{
+    send_feature_renamed_envelope, send_feature_updated_envelope,
+};
 use crate::error::AppError;
 
 use super::protocol::{
-    FeatureAutoNamingPayload, FeatureRenamedPayload, FeatureUpdatedPayload, WsEnvelope,
+    FeatureAutoNamingPayload, SessionWarningPayload, WsEnvelope, WsSessionEvent,
 };
 
 mod drain;
-use drain::{drain_text, report_close_error, truncate_for_log};
+use drain::drain_title;
 mod prompt;
-use prompt::{build_prompt, resolve_system_prompt, NAME_END, NAME_START};
+use prompt::{build_prompt, resolve_system_prompt};
 pub use prompt::{AUTO_NAME_USER_PROMPT_PREFIX, DEFAULT_AUTO_NAME_SYSTEM_PROMPT};
 mod title_state;
-pub use title_state::has_default_title;
+use title_state::{has_default_title, persist_title, TitleOutcome};
 
-/// Send a `feature.updated` envelope over the given WebSocket sender.
-fn send_feature_updated(
-    senders: &[mpsc::UnboundedSender<Message>],
-    feature_id: i64,
-    changed: &[&str],
-) {
-    let payload = FeatureUpdatedPayload {
-        feature_id,
-        changed: changed.iter().map(|s| s.to_string()).collect(),
-    };
-    let envelope = WsEnvelope::new(
-        "feature",
-        "updated",
-        serde_json::to_value(&payload).unwrap(),
-    );
-    let json: String = envelope.into();
-    send_to_all(senders, json);
-}
+const AUTO_NAME_PREPARATION_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Send a `feature.autonaming` envelope so the frontend can toggle the
-/// title-skeleton while naming is in flight.
-fn send_autonaming(senders: &[mpsc::UnboundedSender<Message>], feature_id: i64, in_progress: bool) {
-    let payload = FeatureAutoNamingPayload {
-        feature_id,
-        in_progress,
-    };
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureAutonaming(payload.clone()))
-        .expect("session event payload should serialize");
-    let json: String = envelope.into();
-    send_to_all(senders, json);
-}
-
-fn send_to_all(senders: &[mpsc::UnboundedSender<Message>], json: String) {
+fn send_session_event(senders: &[mpsc::UnboundedSender<Message>], event: WsSessionEvent) {
+    let envelope =
+        WsEnvelope::session_event(&event).expect("session event payload should serialize");
+    let frame = Message::Text(String::from(envelope).into());
     for sender in senders {
-        sender
-            .send(Message::Text(json.clone().into()))
-            .ignore_closed();
+        sender.send(frame.clone()).ignore_closed();
+    }
+}
+
+/// Leaves the header usable when an attempt returns early or is cancelled.
+struct NamingProgress<'a> {
+    feature_id: i64,
+    senders: &'a [mpsc::UnboundedSender<Message>],
+}
+
+impl NamingProgress<'_> {
+    fn send(&self, in_progress: bool) {
+        send_session_event(
+            self.senders,
+            WsSessionEvent::FeatureAutonaming(FeatureAutoNamingPayload {
+                feature_id: self.feature_id,
+                in_progress,
+            }),
+        );
+    }
+}
+
+impl Drop for NamingProgress<'_> {
+    fn drop(&mut self) {
+        self.send(false);
     }
 }
 
@@ -86,224 +90,256 @@ pub async fn get_last_user_message(
     Ok(row.map(|(content,)| content))
 }
 
-/// Auto-name a feature using the user-selected provider + model.
-///
-/// Emits `feature.autonaming { in_progress: true }` before spawning and
-/// `in_progress: false` on every exit path so the UI skeleton resolves even
-/// on failure. Returns the generated name, or `None` if naming failed.
-pub async fn auto_name_feature(
-    pool: SqlitePool,
-    feature_id: i64,
-    user_input: String,
-    cwd: String,
-    ws_sender: mpsc::UnboundedSender<Message>,
-) -> Option<String> {
-    auto_name_feature_with_policy(
-        pool,
-        feature_id,
-        user_input,
-        cwd,
-        vec![ws_sender],
-        GeneratedTitlePolicy::PreserveManualTitle,
-    )
-    .await
-}
-
-pub async fn force_auto_name_feature_for_senders(
-    pool: SqlitePool,
-    feature_id: i64,
-    user_input: String,
-    cwd: String,
-    ws_senders: Vec<mpsc::UnboundedSender<Message>>,
-) -> Option<String> {
-    auto_name_feature_with_policy(
-        pool,
-        feature_id,
-        user_input,
-        cwd,
-        ws_senders,
-        GeneratedTitlePolicy::ReplaceManualTitle,
-    )
-    .await
-}
-
-async fn auto_name_feature_with_policy(
-    pool: SqlitePool,
-    feature_id: i64,
-    user_input: String,
-    cwd: String,
-    ws_senders: Vec<mpsc::UnboundedSender<Message>>,
-    title_policy: GeneratedTitlePolicy,
-) -> Option<String> {
-    send_autonaming(&ws_senders, feature_id, true);
-    let result = run_auto_name(
-        &pool,
-        feature_id,
-        user_input,
-        cwd,
-        &ws_senders,
-        title_policy,
-    )
-    .await;
-    send_autonaming(&ws_senders, feature_id, false);
-    result
-}
-
-async fn run_auto_name(
+/// Name an eligible feature and tell its viewers about any failure. Returns
+/// whether the title changed, so the caller can refresh the global sidebar.
+pub(in crate::domain::ws_session) async fn auto_name_feature(
     pool: &SqlitePool,
     feature_id: i64,
-    user_input: String,
-    cwd: String,
-    ws_senders: &[mpsc::UnboundedSender<Message>],
-    title_policy: GeneratedTitlePolicy,
-) -> Option<String> {
-    info!(feature_id, "auto-name: starting");
-    // Same resolution the settings UI displays, so the auto-naming row never
-    // shows a provider/model the spawn would not actually use.
-    let selection = match crate::domain::agents::resolve_selection(
+    user_input: &str,
+    cwd: &str,
+    ws_sender: &mpsc::UnboundedSender<Message>,
+    _permit: FeatureRunPermit,
+) -> bool {
+    auto_name_eligible_feature(
         pool,
-        Some(std::path::Path::new(&cwd)),
-        "auto_name",
-        None,
-        None,
+        feature_id,
+        ws_sender,
+        generate_title(pool, feature_id, user_input, cwd),
     )
     .await
-    {
-        Ok(selection) => selection,
-        Err(error) => {
-            error!(feature_id, %error, "auto-name: no usable provider/model");
-            return None;
-        }
-    };
-    let provider_id = selection.provider_id;
-    let model_id = selection.model_id;
+}
 
-    debug!(
-        feature_id,
-        provider = %provider_id,
-        model = %model_id,
-        cwd = %cwd,
-        "auto-name: resolved settings"
-    );
-
-    let adapter = match runtime_adapter(&provider_id) {
-        Some(a) => a,
-        None => {
-            error!(
+async fn auto_name_eligible_feature(
+    pool: &SqlitePool,
+    feature_id: i64,
+    ws_sender: &mpsc::UnboundedSender<Message>,
+    title: impl Future<Output = Result<String, AppError>>,
+) -> bool {
+    let senders = std::slice::from_ref(ws_sender);
+    let (result, database_message) = match has_default_title(pool, feature_id).await {
+        Ok(false) => return false,
+        Ok(true) => (
+            rename_with_progress(
+                pool,
                 feature_id,
-                provider = %provider_id,
-                "auto-name: no adapter registered for configured provider"
-            );
-            return None;
-        }
+                senders,
+                GeneratedTitlePolicy::PreserveManualTitle,
+                title,
+            )
+            .await,
+            "Cadencr could not save the conversation title. Try again.",
+        ),
+        Err(error) => (
+            Err(error),
+            "Cadencr could not read the conversation title. Try again.",
+        ),
     };
+    match result {
+        Ok(outcome) => outcome == TitleOutcome::Renamed,
+        Err(error) => {
+            report_automatic_failure(senders, feature_id, &error, database_message);
+            false
+        }
+    }
+}
 
-    let system_prompt = resolve_system_prompt();
-    let prompt = build_prompt(&user_input, &system_prompt);
-    let config = match build_spawn_config(adapter.as_adapter(), &model_id, &cwd, system_prompt)
+pub(crate) async fn auto_name_on_request(
+    pool: &SqlitePool,
+    feature_id: i64,
+    user_input: &str,
+    cwd: &str,
+    ws_senders: &[mpsc::UnboundedSender<Message>],
+    revision: Option<&str>,
+) -> Result<(), AppError> {
+    rename_with_progress(
+        pool,
+        feature_id,
+        ws_senders,
+        GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged { revision },
+        generate_title(pool, feature_id, user_input, cwd),
+    )
+    .await
+    .map(drop)
+}
+
+async fn rename_with_progress(
+    pool: &SqlitePool,
+    feature_id: i64,
+    senders: &[mpsc::UnboundedSender<Message>],
+    title_policy: GeneratedTitlePolicy<'_>,
+    title: impl Future<Output = Result<String, AppError>>,
+) -> Result<TitleOutcome, AppError> {
+    let progress = NamingProgress {
+        feature_id,
+        senders,
+    };
+    progress.send(true);
+    let title = title.await?;
+    let _title_update = lock_title_updates(feature_id).await;
+    let outcome = persist_title(pool, feature_id, &title, title_policy).await?;
+    if outcome == TitleOutcome::Renamed {
+        for sender in senders {
+            send_feature_renamed_envelope(sender, feature_id, &title);
+            send_feature_updated_envelope(sender, feature_id, &["title"]);
+        }
+        info!(feature_id, "auto-named feature");
+    }
+    Ok(outcome)
+}
+
+fn report_automatic_failure(
+    senders: &[mpsc::UnboundedSender<Message>],
+    feature_id: i64,
+    error: &AppError,
+    database_message: &str,
+) {
+    let code = error.code();
+    warn!(feature_id, code, "auto-name: attempt failed");
+    let detail = match error {
+        AppError::Coded { message, .. } => message,
+        AppError::DatabaseBusy(_) => "The database is busy. Try again in a moment.",
+        AppError::DatabaseError(_) | AppError::ConstraintViolation(_) => database_message,
+        AppError::NotFound(_) => "The conversation no longer exists.",
+        _ => "Try again from the conversation title menu.",
+    };
+    // Naming runs alongside the agent's turn. The existing warning channel
+    // surfaces the problem without failing the turn or its pending prompts.
+    send_session_event(
+        senders,
+        WsSessionEvent::Warning(SessionWarningPayload {
+            code: code.into(),
+            message: format!("Could not auto-name this conversation. {detail}"),
+        }),
+    );
+}
+
+async fn generate_title(
+    pool: &SqlitePool,
+    feature_id: i64,
+    user_input: &str,
+    cwd: &str,
+) -> Result<String, AppError> {
+    let (provider_id, session) = with_preparation_timeout(async {
+        // Use the same provider and model resolution as the settings UI.
+        let selection = resolve_selection(pool, Some(Path::new(cwd)), "auto_name", None, None)
+            .await
+            .map_err(selection_failure)?;
+        let adapter = runtime_adapter(&selection.provider_id).ok_or_else(|| {
+            AppError::coded(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "AUTO_NAME_PROVIDER_UNAVAILABLE",
+                "The auto-naming provider is unavailable. Check the provider in workspace settings.",
+            )
+        })?;
+        let session = launch_naming_session(adapter.as_adapter(), &selection.model_id, cwd, user_input).await?;
+        Ok((selection.provider_id, session))
+    }).await?;
+    drain_title(feature_id, &provider_id, session).await
+}
+
+async fn with_preparation_timeout<T>(
+    prepare: impl Future<Output = Result<T, AppError>>,
+) -> Result<T, AppError> {
+    tokio::time::timeout(AUTO_NAME_PREPARATION_TIMEOUT, prepare)
         .await
-    {
-        Ok(config) => config,
-        Err(error) => {
-            error!(feature_id, provider = %provider_id, %error, "auto-name: profile resolution failed");
-            return None;
-        }
-    };
-    debug!(
-        feature_id,
-        prompt_len = prompt.len(),
-        "auto-name: dispatching prompt to adapter"
-    );
+        .map_err(|_| AppError::coded(
+            StatusCode::GATEWAY_TIMEOUT,
+            "AUTO_NAME_START_TIMEOUT",
+            "The auto-naming provider did not start in time. Check its installation and active profile, then try again.",
+        ))?
+}
 
-    let session = match adapter.spawn(Value::String(prompt), config).await {
-        Ok(s) => s,
-        Err(e) => {
-            error!(feature_id, error = %e, "auto-name: adapter spawn failed");
-            return None;
-        }
-    };
+async fn launch_naming_session(
+    adapter: &dyn AgentRuntimeAdapter,
+    model_id: &str,
+    cwd: &str,
+    user_input: &str,
+) -> Result<Box<dyn AgentRuntimeSession>, AppError> {
+    let system_prompt = resolve_system_prompt()?;
+    let prompt = build_prompt(user_input, &system_prompt);
+    let config = build_spawn_config(adapter, model_id, cwd, system_prompt)
+        .await
+        .map_err(|error| {
+            runtime_failure(
+                error,
+                "AUTO_NAME_PROFILE_FAILED",
+                "Could not load the auto-naming provider profile. Check its configuration and try again.",
+            )
+        })?;
+    adapter.spawn(Value::String(prompt), config).await.map_err(|error| {
+        runtime_failure(
+            error,
+            "AUTO_NAME_SPAWN_FAILED",
+            "Could not start the auto-naming provider. Check its installation and active profile, then try again.",
+        )
+    })
+}
 
-    let accumulated_text = match drain_text(feature_id, &provider_id, session).await {
-        Ok(text) => text,
-        Err(error) => {
-            report_close_error(ws_senders, error);
-            return None;
-        }
-    };
-    debug!(
-        feature_id,
-        text_len = accumulated_text.len(),
-        "auto-name: stream drain finished"
-    );
-
-    let name = extract_name(&accumulated_text);
-    if name.is_empty() {
-        warn!(
-            feature_id,
-            text_len = accumulated_text.len(),
-            raw = %truncate_for_log(&accumulated_text, 200),
-            "auto-name: empty name extracted from stream text"
-        );
-        return None;
-    }
-    debug!(feature_id, name = %name, "auto-name: extracted name, updating DB");
-
-    match update_generated_title(pool, feature_id, &name, title_policy).await {
-        Ok(false) => {
-            info!(
-                feature_id,
-                "auto-name: skipped generated title because the feature was manually renamed"
-            );
-            return None;
-        }
-        Ok(true) => {}
-        Err(error) => {
-            error!(feature_id, %error, "auto-name: DB update failed");
-            return None;
+fn selection_failure(error: SelectionError) -> AppError {
+    match error {
+        SelectionError::NoModelAvailable { .. } => AppError::coded(
+            StatusCode::BAD_REQUEST,
+            error.code(),
+            "The auto-naming provider exposes no usable models. Check that its CLI is installed and authenticated, or select another provider.",
+        ),
+        SelectionError::Settings(error) => {
+            settings_failure(error, "the auto-naming provider, model or active profile")
         }
     }
+}
 
-    let payload = FeatureRenamedPayload {
-        feature_id,
-        title: name.clone(),
-    };
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureRenamed(payload.clone()))
-        .expect("session event payload should serialize");
-    let json: String = envelope.into();
-    send_to_all(ws_senders, json);
-    send_feature_updated(ws_senders, feature_id, &["title"]);
+fn settings_failure(error: AppError, setting: &str) -> AppError {
+    match error {
+        // Profile validation can name stored values. Keep the status and code,
+        // and describe the setting to repair without quoting its contents.
+        AppError::Coded { status, code, .. } => {
+            let reason = match code {
+                SETTINGS_READ_FAILED => "could not be read",
+                SETTINGS_INVALID => "are invalid",
+                _ => "could not be loaded",
+            };
+            AppError::coded(
+                status,
+                code,
+                format!("The settings for {setting} {reason}. Check them in workspace settings via Edit JSON."),
+            )
+        }
+        AppError::BadRequest(_) | AppError::NotFound(_) => AppError::coded(
+            StatusCode::BAD_REQUEST,
+            "AUTO_NAME_PROFILE_FAILED",
+            "The auto-naming provider profile is invalid. Check its configuration and try again.",
+        ),
+        other => other,
+    }
+}
 
-    info!(
-        feature_id,
-        provider = %provider_id,
-        model = %model_id,
-        name = %name,
-        "auto-named feature"
-    );
-    Some(name)
+fn runtime_failure(error: RuntimeError, code: &'static str, message: &'static str) -> AppError {
+    // Provider stderr and RPC errors can echo configuration or credentials.
+    match error {
+        RuntimeError::Profile(error) => settings_failure(error, "the active auto-naming profile"),
+        RuntimeError::CliNotFound { .. } => AppError::coded(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AUTO_NAME_CLI_NOT_FOUND",
+            "The auto-naming provider's CLI could not be found. Check its installation and try again.",
+        ),
+        _ => AppError::coded(StatusCode::BAD_GATEWAY, code, message),
+    }
 }
 
 async fn build_spawn_config(
-    adapter: &dyn crate::domain::agents::adapter::AgentRuntimeAdapter,
+    adapter: &dyn AgentRuntimeAdapter,
     model_id: &str,
     cwd: &str,
     system_prompt: String,
-) -> Result<RuntimeSpawnConfig, crate::domain::agents::adapter::RuntimeError> {
-    let resolved_profile = adapter
-        .resolve_profile(None, std::path::Path::new(cwd))
-        .await?;
+) -> Result<RuntimeSpawnConfig, RuntimeError> {
+    let resolved_profile = adapter.resolve_profile(None, Path::new(cwd)).await?;
     let env = resolved_profile
         .as_ref()
         .map(|profile| profile.env.clone())
         .filter(|env| !env.is_empty())
         .or_else(|| adapter.environment_for_new_session());
-    // Auto-naming is a tiny "produce 3-7 words" task — extended thinking adds
-    // latency and is a known silent-failure mode here: the 30s drain deadline
-    // (drain::AUTO_NAME_DEADLINE) can fire mid-thinking before any text block
-    // is emitted, leaving `accumulated_text` empty and the feature stuck on
-    // its default "Session N" title. Force thinking off regardless of the
-    // user's per-model preference for the naming spawn only.
-
+    // Extended thinking can exhaust the title deadline before producing text.
+    // Disable it for the short naming run regardless of the model preference.
     Ok(RuntimeSpawnConfig {
         cwd: PathBuf::from(cwd),
         permission_mode: Some(RuntimePermissionMode::Plan),
@@ -339,50 +375,361 @@ async fn build_spawn_config(
     })
 }
 
-fn extract_name(accumulated_text: &str) -> String {
-    let re = Regex::new(&format!(
-        "{}(.+?){}",
-        regex_lite::escape(NAME_START),
-        regex_lite::escape(NAME_END)
-    ))
-    .unwrap();
-    let raw_name = match re.captures(accumulated_text) {
-        Some(caps) => caps.get(1).unwrap().as_str().to_string(),
-        None => accumulated_text.to_string(),
-    };
-    raw_name
-        .trim()
-        .trim_matches(|c| c == '"' || c == '\'')
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::agents::{adapter::ResolvedRuntimeProfile, runtime::ProviderCatalogEntry};
+    use crate::domain::features::repository::{manual_title_revision, update_title_manually};
+    use crate::domain::features::run_registry::FeatureRunRegistry;
+    use crate::domain::settings_store;
+    use axum::response::IntoResponse;
+    use title_state::title_pool;
 
-    #[test]
-    fn extract_name_pulls_from_delimiters() {
-        let text = "noise __FEATURE_NAME_START__Fix Login Bug__FEATURE_NAME_END__ trailing";
-        assert_eq!(extract_name(text), "Fix Login Bug");
+    enum RejectingAdapter {
+        Profile,
+        Spawn,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeAdapter for RejectingAdapter {
+        fn catalog_entry(&self) -> ProviderCatalogEntry {
+            unreachable!("the provider has already been selected")
+        }
+
+        async fn resolve_profile(
+            &self,
+            _selection: Option<&str>,
+            _cwd: &Path,
+        ) -> Result<Option<ResolvedRuntimeProfile>, RuntimeError> {
+            match self {
+                Self::Profile => Err(RuntimeError::Profile(AppError::coded(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    SETTINGS_READ_FAILED,
+                    "profile read failed: synthetic-private-value",
+                ))),
+                Self::Spawn => Ok(None),
+            }
+        }
+
+        async fn spawn(
+            &self,
+            _prompt: Value,
+            _config: RuntimeSpawnConfig,
+        ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
+            assert!(
+                matches!(self, Self::Spawn),
+                "profile failure must stop launch"
+            );
+            Err(RuntimeError::new("provider said synthetic-private-value"))
+        }
+    }
+
+    fn collect_frames(rx: &mut mpsc::UnboundedReceiver<Message>) -> Vec<WsEnvelope> {
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|message| WsEnvelope::try_from(message.into_text().unwrap().to_string()).unwrap())
+            .collect()
+    }
+
+    fn assert_progress(frames: &[WsEnvelope]) {
+        for (frame, in_progress) in [
+            (frames.first().unwrap(), true),
+            (frames.last().unwrap(), false),
+        ] {
+            assert_eq!(
+                (frame.domain.as_str(), frame.action.as_str()),
+                ("session", "feature.autonaming")
+            );
+            assert_eq!(
+                frame.payload,
+                serde_json::json!({"feature_id": 1, "in_progress": in_progress})
+            );
+        }
+    }
+
+    fn assert_single_warning(
+        rx: &mut mpsc::UnboundedReceiver<Message>,
+        expected_code: &str,
+        expected_message: &str,
+        progress: bool,
+    ) {
+        let frames = collect_frames(rx);
+        assert_eq!(frames.len(), if progress { 3 } else { 1 });
+        if progress {
+            assert_progress(&frames[..2]);
+        }
+        let warning = frames.last().unwrap();
+        assert_eq!(
+            (warning.domain.as_str(), warning.action.as_str()),
+            ("session", "warning")
+        );
+        assert!(warning.r#ref.is_none());
+        assert_eq!(warning.payload["code"], expected_code);
+        let message = warning.payload["message"].as_str().unwrap();
+        assert!(message.starts_with("Could not auto-name this conversation."));
+        assert!(message.contains(expected_message), "{message}");
+        assert!(!message.contains("synthetic-private-value"));
+    }
+
+    async fn read_stored_title(pool: &SqlitePool) -> String {
+        sqlx::query_scalar("SELECT title FROM features WHERE id = 1")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn refuse_title_writes(pool: &SqlitePool) {
+        sqlx::query("CREATE TRIGGER refuse_title BEFORE UPDATE OF title ON features BEGIN SELECT RAISE(ABORT, 'synthetic-private-value'); END")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn automatic_selection_failure_clears_progress_and_warns_once() {
+        let pool = title_pool("Session 1").await;
+        let path = settings_store::paths::global_file(&settings_store::global_dir());
+        settings_store::file::write_atomic(
+            &path,
+            r#"{"agent_runtime_auto_name":["synthetic-private-value"]}"#,
+        )
+        .unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let runs = FeatureRunRegistry::new();
+
+        let permit = runs.try_acquire(1).unwrap();
+        assert!(!auto_name_feature(&pool, 1, "Fix login", "/tmp", &tx, permit).await);
+        assert!(
+            runs.try_acquire(1).is_some(),
+            "a failure allows the explicit retry"
+        );
+
+        assert_single_warning(
+            &mut rx,
+            SETTINGS_INVALID,
+            "provider, model or active profile",
+            true,
+        );
+        assert_eq!(read_stored_title(&pool).await, "Session 1");
     }
 
     #[test]
-    fn extract_name_falls_back_to_trimmed_text() {
-        assert_eq!(extract_name("  \"Add Dark Mode\"  "), "Add Dark Mode");
+    fn selection_without_models_keeps_its_code() {
+        let error = selection_failure(SelectionError::NoModelAvailable {
+            provider_id: "test-provider".into(),
+        });
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                status: StatusCode::BAD_REQUEST,
+                code: "NO_MODEL_AVAILABLE",
+                ..
+            }
+        ));
     }
 
-    #[test]
-    fn extract_name_returns_empty_for_whitespace() {
-        assert_eq!(extract_name("   "), "");
+    #[tokio::test(start_paused = true)]
+    async fn stalled_provider_preparation_has_its_own_timeout() {
+        let error = with_preparation_timeout::<()>(std::future::pending())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                status: StatusCode::GATEWAY_TIMEOUT,
+                code: "AUTO_NAME_START_TIMEOUT",
+                ..
+            }
+        ));
     }
 
-    #[test]
-    fn truncate_for_log_clamps_at_char_boundary() {
-        // 'é' is a 2-byte UTF-8 char; truncation must not split it.
-        let input = "héllo world";
-        assert_eq!(truncate_for_log(input, 100), input);
-        let truncated = truncate_for_log(input, 3);
-        assert!(truncated.ends_with('…'));
-        assert!(truncated.is_char_boundary(truncated.len() - '…'.len_utf8()));
+    #[tokio::test]
+    async fn profile_and_spawn_failures_are_safe_and_each_warn_once() {
+        let pool = title_pool("Session 1").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        for (adapter, expected_code, expected_message) in [
+            (
+                RejectingAdapter::Profile,
+                SETTINGS_READ_FAILED,
+                "active auto-naming profile",
+            ),
+            (
+                RejectingAdapter::Spawn,
+                "AUTO_NAME_SPAWN_FAILED",
+                "Could not start",
+            ),
+        ] {
+            let title = async {
+                match launch_naming_session(&adapter, "model", "/tmp", "Fix login").await {
+                    Err(error) => Err(error),
+                    Ok(_) => panic!("the naming provider should fail before returning a session"),
+                }
+            };
+            assert!(!auto_name_eligible_feature(&pool, 1, &tx, title).await);
+            assert_single_warning(&mut rx, expected_code, expected_message, true);
+        }
+        assert_eq!(read_stored_title(&pool).await, "Session 1");
+    }
+
+    #[tokio::test]
+    async fn automatic_database_failures_warn_at_the_read_and_write_boundaries() {
+        let pool = title_pool("Session 1").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        refuse_title_writes(&pool).await;
+        assert!(!auto_name_eligible_feature(&pool, 1, &tx, async { Ok("Fix Login".into()) }).await);
+        assert_single_warning(
+            &mut rx,
+            "DATABASE_ERROR",
+            "could not save the conversation title",
+            true,
+        );
+        assert_eq!(read_stored_title(&pool).await, "Session 1");
+
+        sqlx::query("DROP TABLE feature_settings")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            !auto_name_eligible_feature(&pool, 1, &tx, async { panic!("eligibility failed") })
+                .await
+        );
+        assert_single_warning(
+            &mut rx,
+            "DATABASE_ERROR",
+            "could not read the conversation title",
+            false,
+        );
+    }
+
+    #[tokio::test]
+    async fn a_manual_rename_during_generation_is_preserved_without_a_warning() {
+        let pool = title_pool("Session 1").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let title = async {
+            let started = collect_frames(&mut rx);
+            assert_eq!(started.len(), 1);
+            assert_eq!(started[0].payload["in_progress"], true);
+            update_title_manually(&pool, 1, "Session 42").await.unwrap();
+            Ok("Generated Title".into())
+        };
+
+        assert!(!auto_name_eligible_feature(&pool, 1, &tx, title).await);
+        assert_eq!(read_stored_title(&pool).await, "Session 42");
+        let frames = collect_frames(&mut rx);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].action, "feature.autonaming");
+        assert_eq!(frames[0].payload["in_progress"], false);
+    }
+
+    #[tokio::test]
+    async fn successful_automatic_naming_emits_the_persisted_title() {
+        let pool = title_pool("Session 1").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        assert!(auto_name_eligible_feature(&pool, 1, &tx, async { Ok("Fix Login".into()) }).await);
+
+        assert_eq!(read_stored_title(&pool).await, "Fix Login");
+        let frames = collect_frames(&mut rx);
+        assert_eq!(frames.len(), 4);
+        assert_progress(&frames);
+        assert_eq!(frames[1].action, "feature.renamed");
+        assert_eq!(frames[1].payload["title"], "Fix Login");
+        assert_eq!(
+            (frames[2].domain.as_str(), frames[2].action.as_str()),
+            ("feature", "updated")
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_naming_can_retry_a_failed_write_without_viewers() {
+        let pool = title_pool("Session 1").await;
+        update_title_manually(&pool, 1, "Manual Title")
+            .await
+            .unwrap();
+        let revision = manual_title_revision(&pool, 1).await.unwrap();
+        refuse_title_writes(&pool).await;
+        let attempt = || {
+            rename_with_progress(
+                &pool,
+                1,
+                &[],
+                GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged {
+                    revision: revision.as_deref(),
+                },
+                async { Ok("Generated Title".into()) },
+            )
+        };
+
+        let response = attempt().await.unwrap_err().into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::json!({
+                "code": "DATABASE_ERROR",
+                "error": "Internal server error",
+            })
+        );
+        assert_eq!(read_stored_title(&pool).await, "Manual Title");
+
+        sqlx::query("DROP TRIGGER refuse_title")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(attempt().await.unwrap(), TitleOutcome::Renamed);
+        assert_eq!(read_stored_title(&pool).await, "Generated Title");
+    }
+
+    #[tokio::test]
+    async fn explicit_auto_name_preserves_a_manual_title_reentered_during_generation() {
+        let pool = title_pool("Session 1").await;
+        update_title_manually(&pool, 1, "Session 42").await.unwrap();
+        let revision = manual_title_revision(&pool, 1).await.unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let outcome = rename_with_progress(
+            &pool,
+            1,
+            &[tx],
+            GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged {
+                revision: revision.as_deref(),
+            },
+            async {
+                assert_eq!(collect_frames(&mut rx)[0].payload["in_progress"], true);
+                update_title_manually(&pool, 1, "Session 43").await.unwrap();
+                update_title_manually(&pool, 1, "Session 42").await.unwrap();
+                Ok("Generated Title".into())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, TitleOutcome::ManualTitlePreserved);
+        assert_eq!(read_stored_title(&pool).await, "Session 42");
+        let frames = collect_frames(&mut rx);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].action, "feature.autonaming");
+        assert_eq!(frames[0].payload["in_progress"], false);
+    }
+
+    #[tokio::test]
+    async fn cancelling_an_attempt_clears_the_skeleton() {
+        let pool = title_pool("Session 1").await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let senders = [tx];
+        let mut attempt = Box::pin(rename_with_progress(
+            &pool,
+            1,
+            &senders,
+            GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged { revision: None },
+            std::future::pending(),
+        ));
+        assert!(futures::poll!(attempt.as_mut()).is_pending());
+        drop(attempt);
+
+        let frames = collect_frames(&mut rx);
+        assert_eq!(frames.len(), 2);
+        assert_progress(&frames);
     }
 }

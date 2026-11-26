@@ -10,6 +10,7 @@ import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote
 import {
   agentExtensionOperationTimeout,
   archiveOperationTimeout,
+  autoNameOperationTimeout,
   isNoTimeoutPath,
   managedProviderOperationTimeout,
   neovimOperationTimeout,
@@ -171,6 +172,7 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
       neovimOperationTimeout(config) ??
       agentExtensionOperationTimeout(config) ??
       archiveOperationTimeout(config) ??
+      autoNameOperationTimeout(config) ??
       projectUpdateOperationTimeout(config);
     finalConfig =
       operationTimeout === undefined ? config : { ...config, timeout: operationTimeout };

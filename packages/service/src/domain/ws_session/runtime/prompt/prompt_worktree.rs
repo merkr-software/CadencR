@@ -1,26 +1,27 @@
 use crate::domain::ws_session::runtime::output::OutputTarget;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
-use crate::domain::feature_events::{FeatureEventAction, FeatureEventBroadcaster};
+use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::workflow::worktree;
+use crate::domain::ws_session::auto_name::auto_name_feature;
 use crate::domain::ws_session::permissions;
 use crate::domain::ws_session::protocol::PromptSendPayload;
 
 use super::super::{SessionConfig, WsSender};
 
-/// First-prompt branch provisioning. Two mutually-exclusive paths, both of
-/// which auto-name the feature *first* so the branch name reflects the prompt:
+/// First-prompt branch provisioning. Either path can name the feature first
+/// so a newly derived branch name reflects the prompt:
 ///
-///   - `use_worktree` → auto-name, then `ensure_worktree` (worktree subsystem).
-///   - `new_project_branch` → auto-name, then fork a project-path branch named
-///     after the feature (no worktree, no setup) — the "From branch" flow.
+/// - `use_worktree` provisions the selected worktree.
+/// - `new_project_branch` forks a branch named after the feature in the
+///   project directory (the "From branch" flow).
 ///
-/// Returns `Ok(true)` when auto-naming was performed synchronously (so the
-/// async fallback in `spawn_auto_name_if_needed` is skipped), `Ok(false)` when
-/// neither path applies. Both paths return `Err` to abort the prompt with a
-/// user-visible message: a failed `git checkout -b` (project-branch path) or a
+/// Returns `Ok(true)` when provisioning handles naming, including when an
+/// existing naming run owns it. The async fallback then skips this prompt.
+/// Returns `Ok(false)` when neither path applies. Both paths return `Err`
+/// with a user-visible message: a failed `git checkout -b` (project-branch path) or a
 /// failed worktree provisioning (worktree path) must never let the agent run in
 /// the project root on the project branch instead of the requested worktree.
 pub(in crate::domain::ws_session) async fn prepare_branch_provisioning(
@@ -46,11 +47,10 @@ pub(in crate::domain::ws_session) async fn prepare_branch_provisioning(
     let progress_sender = app_state
         .ws_feature_senders
         .feature_output_sender(feature_id, sender);
-    // Both provisioning paths auto-name the feature first, so the branch/worktree
-    // created right after carries a prompt-derived name.
+    // Give a new branch a prompt-derived name when the naming slot is free.
     auto_name_first_prompt(
+        app_state,
         write_pool,
-        &app_state.feature_events_tx,
         &progress_sender,
         payload,
         feature_id,
@@ -112,72 +112,60 @@ async fn create_project_branch_for_feature(
 
 pub(in crate::domain::ws_session) fn spawn_auto_name_if_needed(
     auto_name_handled: bool,
-    write_pool: sqlx::SqlitePool,
-    feature_events: FeatureEventBroadcaster,
-    sender: WsSender,
+    app_state: &AppState,
+    owner: &impl OutputTarget,
     feature_id: i64,
     prompt_text: String,
     cwd: String,
 ) {
-    // The branch-provisioning paths already auto-named synchronously; only the
-    // plain (no worktree, no new branch) path needs the async fallback.
+    // Branch provisioning already made the naming decision. Only the plain
+    // path (no worktree or new branch) needs the async fallback.
     if auto_name_handled {
         return;
     }
+    let Some(permit) = app_state.auto_name_runs.try_acquire(feature_id) else {
+        return;
+    };
+    let write_pool = app_state.write_pool.clone();
+    let feature_events = app_state.feature_events_tx.clone();
+    let sender = app_state
+        .ws_feature_senders
+        .feature_output_sender(feature_id, owner);
     tokio::spawn(async move {
-        match super::super::super::auto_name::has_default_title(&write_pool, feature_id).await {
-            Ok(true) => {
-                let result = super::super::super::auto_name::auto_name_feature(
-                    write_pool,
-                    feature_id,
-                    prompt_text,
-                    cwd,
-                    sender,
-                )
-                .await;
-                // The live `feature.renamed` envelope only reached devices with
-                // this conversation open; broadcast a global feature_event so
-                // every connected client's sidebar (and any open header)
-                // refetches the new title.
-                if result.is_some() {
-                    feature_events.emit(feature_id, None, FeatureEventAction::Updated);
-                }
-                info!(feature_id, name = ?result, "auto-named feature");
-            }
-            Ok(false) => {}
-            Err(error) => warn!(feature_id, %error, "auto-name: failed to check title"),
+        if auto_name_feature(&write_pool, feature_id, &prompt_text, &cwd, &sender, permit).await {
+            // Refresh sidebars even on clients that aren't viewing this conversation.
+            feature_events.emit(feature_id, None, FeatureEventAction::Updated);
         }
     });
 }
 
-/// Synchronously auto-name the feature from the first prompt, so a branch/
-/// worktree created right after carries a meaningful, prompt-derived name.
-/// No-op when the title is already user-set (`has_default_title` → false).
+/// Give a new branch a prompt-derived title when naming can start here.
 async fn auto_name_first_prompt(
+    app_state: &AppState,
     write_pool: &sqlx::SqlitePool,
-    feature_events: &FeatureEventBroadcaster,
     sender: &WsSender,
     payload: &PromptSendPayload,
     feature_id: i64,
     config: &SessionConfig,
 ) {
-    match super::super::super::auto_name::has_default_title(write_pool, feature_id).await {
-        Ok(true) => {
-            let result = super::super::super::auto_name::auto_name_feature(
-                write_pool.clone(),
-                feature_id,
-                payload.text.clone(),
-                config.cwd.to_string_lossy().to_string(),
-                sender.clone(),
-            )
-            .await;
-            if result.is_some() {
-                feature_events.emit(feature_id, None, FeatureEventAction::Updated);
-            }
-            info!(feature_id, name = ?result, "auto-named feature before branch setup");
-        }
-        Ok(false) => {}
-        Err(error) => warn!(feature_id, %error, "auto-name: failed to check title"),
+    // Provisioning can use the reserved branch or derive one from the current
+    // title while a separate naming request finishes.
+    let Some(permit) = app_state.auto_name_runs.try_acquire(feature_id) else {
+        return;
+    };
+    if auto_name_feature(
+        write_pool,
+        feature_id,
+        &payload.text,
+        &config.cwd.to_string_lossy(),
+        sender,
+        permit,
+    )
+    .await
+    {
+        app_state
+            .feature_events_tx
+            .emit(feature_id, None, FeatureEventAction::Updated);
     }
 }
 
