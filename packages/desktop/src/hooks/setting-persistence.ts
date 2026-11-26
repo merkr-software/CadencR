@@ -101,8 +101,18 @@ async function sendSetting(
  * the read failed, leaving the key unreconciled.
  */
 async function reconcileConfirmedSetting(queryClient: QueryClient, key: string): Promise<boolean> {
+  const queryKey = getGetWorkspaceSettingQueryKey(key);
   try {
-    const fresh = await getWorkspaceSetting(key);
+    // A read already in flight may have captured the value before the write.
+    await queryClient.cancelQueries({ queryKey, exact: true });
+    const fresh = await queryClient.fetchQuery({
+      queryKey,
+      // The queue needs this read even if the last settings observer unmounts.
+      queryFn: () => getWorkspaceSetting(key),
+      staleTime: 0,
+      retry: false,
+      networkMode: "always",
+    });
     seedConfirmedSetting(queryClient, key, fresh.value ?? null);
     return true;
   } catch (error: unknown) {

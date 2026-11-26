@@ -144,8 +144,7 @@ describe("writeSetting", () => {
 
     readError = null;
     const third = writeSetting(queryClient, "k", "d");
-    await settle();
-    expect(pending.map((write) => write.value)).toEqual(["b", "d"]);
+    await vi.waitFor(() => expect(pending.map((write) => write.value)).toEqual(["b", "d"]));
     pending[1]!.resolve();
     await expect(third).resolves.toBe(true);
   });

@@ -37,9 +37,10 @@ vi.mock("@/api/client", () => ({
   customInstance: (config: AxiosRequestConfig) => {
     if (config.method === "GET") {
       if (readError) return Promise.reject(readError);
-      if (!holdReads) return Promise.resolve({ value: serverValue });
+      const value = serverValue;
+      if (!holdReads) return Promise.resolve({ value });
       return new Promise((resolve, reject) => {
-        reads.push({ resolve: () => resolve({ value: serverValue }), reject });
+        reads.push({ resolve: () => resolve({ value }), reject });
       });
     }
     return new Promise((resolve, reject) => {
@@ -148,6 +149,34 @@ describe("haloOverrideDraft", () => {
     expect(written(1)).toEqual({
       "frost-dark": expect.objectContaining({ intensity: 1.5 }),
       "frost-light": expect.objectContaining({ rotation: 90 }),
+    });
+  });
+
+  it("does not let an older settings read replace the reconciled halo map", async () => {
+    const { queryClient, store } = await setup({ "frost-dark": { intensity: 1.25 } });
+    holdReads = true;
+    const previousRead = queryClient.refetchQueries({ queryKey, exact: true });
+    await tick();
+    expect(reads).toHaveLength(1);
+
+    store.setDraft("frost-dark", { ...DEFAULT_HALO_OVERRIDE, intensity: 1.5 });
+    await tick(150);
+    serverValue = writes[0]!.value;
+    writes[0]!.reject(new Error("response lost"));
+    await tick();
+    expect(reads).toHaveLength(2);
+    reads[1]!.resolve();
+    await tick();
+    expect(queryClient.getQueryData(queryKey)).toEqual({ value: serverValue });
+
+    reads[0]!.resolve();
+    await previousRead;
+    store.setDraft("frost-light", { ...DEFAULT_HALO_OVERRIDE, rotation: 45 });
+    await tick(150);
+
+    expect(written(1)).toEqual({
+      "frost-dark": expect.objectContaining({ intensity: 1.5 }),
+      "frost-light": expect.objectContaining({ rotation: 45 }),
     });
   });
 });
