@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { openImageLightbox, useImageLightboxStore } from "@/stores/image-lightbox-store";
 import { ImageLightboxHost } from "./ImageLightbox";
 
@@ -48,8 +49,13 @@ describe("ImageLightboxHost", () => {
       await act(() => uiI18n.changeLanguage("fr"));
       expect(screen.getByRole("dialog", { name: "illustration" })).toBe(dialog);
       expect(screen.getByRole("img", { name: "illustration" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Show illustration" })).toBeVisible();
-      expect(screen.getByRole("button", { name: "Show Attached image b" })).toBeVisible();
+      const show = frFR.ui.conversation.stream.lightboxRail.show;
+      expect(
+        screen.getByRole("button", { name: show.replace("{{image}}", "illustration") }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: show.replace("{{image}}", "Attached image b") }),
+      ).toBeVisible();
     } finally {
       await act(() => uiI18n.changeLanguage("en"));
       uiI18n.removeResourceBundle("fr", "ui");

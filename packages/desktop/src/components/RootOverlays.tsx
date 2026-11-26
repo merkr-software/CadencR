@@ -10,7 +10,6 @@ import { ImageLightboxHost } from "@/components/ImageLightbox";
 import { MermaidFullscreenHost } from "@/components/MermaidFullscreen";
 import { VisualFullscreenHost } from "@/components/visuals/VisualFullscreen";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
-import { Toaster } from "@/components/ui/sonner";
 import { SchedulesShortcut } from "@/components/SchedulesShortcut";
 import { UnifiedAgentsShortcut } from "@/components/UnifiedAgentsShortcut";
 import { PostUpdateChangelogDialog } from "@/components/PostUpdateChangelogDialog";
@@ -83,7 +82,6 @@ export const RootOverlays = memo(function RootOverlays({
       <PluginTabPresenceKeeper />
       <PluginTabShortcutRelay />
       <ShortcutsHelpHost />
-      <Toaster />
       <ServiceStatusNotifier />
       <PostUpdateChangelogDialog />
       <ThemeDrawer />

@@ -8,6 +8,8 @@
 import { isToday, isTomorrow } from "date-fns";
 import type { Recurrence, Schedule } from "@/api/generated";
 import { formatRelativeDistance } from "@/lib/date-utils";
+import { formatExactNumber } from "@/lib/format-number";
+import { catalogLanguage, DEFAULT_LANGUAGE } from "@/lib/i18n/languages";
 import { translateUi, uiI18n } from "@/lib/i18n/ui";
 import { parseTimeOfDay } from "./recurrence";
 
@@ -100,10 +102,23 @@ function describeInterval(seconds: number): string {
   });
 }
 
-function englishOrdinal(day: number): string {
-  const suffix =
-    day % 100 >= 11 && day % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][day % 10] ?? "th");
-  return `${day}${suffix}`;
+function formatMonthlyDay(day: number, language: string): string {
+  const number = formatExactNumber(day, language);
+  switch (catalogLanguage(uiI18n.resolvedLanguage ?? language)) {
+    case DEFAULT_LANGUAGE: {
+      const suffix =
+        day % 100 >= 11 && day % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][day % 10] ?? "th");
+      return `${number}${suffix}`;
+    }
+    case "fr-FR":
+      return day === 1 ? `${number}er` : number;
+    case "de-DE":
+      return `${number}.`;
+    case "ja-JP":
+      return `${number}日`;
+    default:
+      return number;
+  }
 }
 
 /** The rule as a sentence, e.g. `On weekdays at 9:00 AM`. */
@@ -130,7 +145,7 @@ export function describeRecurrence(recurrence: Recurrence, language = uiI18n.lan
         "Monthly on the {{dayOrdinal}} at {{time}}",
         {
           day,
-          dayOrdinal: englishOrdinal(day),
+          dayOrdinal: formatMonthlyDay(day, language),
           time: formatTimeOfDay(recurrence.time_of_day ?? "09:00", language),
         },
       );

@@ -12,8 +12,8 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-import { isLanguage } from "../../src/lib/i18n/languages";
-import { translateUi, uiI18n } from "../../src/shared/ui-i18n";
+import { supportedLocale } from "../../src/lib/i18n/languages";
+import { changeUiLanguage, translateUi } from "../../src/shared/ui-i18n";
 import { getRendererRuntimeConfig } from "./runtime-config";
 import { isMainRendererFrame, type RendererTarget } from "./renderer-trust";
 import { rendererLoadTarget } from "./renderer-window-security";
@@ -44,15 +44,14 @@ export interface IpcOptions {
 export function registerIpc({ getMainWindow }: IpcOptions): void {
   ipcMain.handle("app:set-interface-language", async (event, language: unknown) => {
     assertTrustedSender(event, getMainWindow);
-    if (!isLanguage(language)) throw new Error("Unsupported interface language");
-    if (uiI18n.language !== language) await uiI18n.changeLanguage(language);
+    const locale = supportedLocale(language);
+    if (!locale) throw new Error("Unsupported interface language");
+    await changeUiLanguage(locale);
   });
   ipcMain.handle("runtime-config", (event) => {
     assertTrustedSender(event, getMainWindow);
     const config = getRendererRuntimeConfig();
-    return !app.isPackaged && process.env.ELECTRON_RENDERER_URL
-      ? { ...config, preferredLanguages: app.getPreferredSystemLanguages() }
-      : config;
+    return { ...config, preferredLanguages: app.getPreferredSystemLanguages() };
   });
   ipcMain.handle("fs:register-file-paths", (event, rawPaths: unknown) => {
     assertTrustedSender(event, getMainWindow);

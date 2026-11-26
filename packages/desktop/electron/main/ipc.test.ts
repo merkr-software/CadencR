@@ -51,6 +51,7 @@ vi.mock("electron", () => ({
 }));
 
 import { uiI18n } from "../../src/shared/ui-i18n";
+import frFR from "../../src/lib/i18n/catalogs/fr-FR.json";
 import {
   assertTrustedSender,
   canonicalFilePath,
@@ -112,43 +113,37 @@ describe("ipc validators", () => {
   });
 
   it.each([false, true])(
-    "exposes native languages only to the development renderer (packaged=%s)",
+    "exposes system locale preferences to the trusted renderer (packaged=%s)",
     (packaged) => {
       electronState.isPackaged = packaged;
       electronState.preferredLanguages.mockClear();
-      vi.stubEnv("ELECTRON_RENDERER_URL", "http://127.0.0.1:1420");
-      try {
-        registerIpc({ getMainWindow: mainWindow });
-        const config = ipcHandler("runtime-config")(trustedEvent());
-        expect(config).not.toHaveProperty("authToken");
-        if (packaged) {
-          expect(config).not.toHaveProperty("preferredLanguages");
-          expect(electronState.preferredLanguages).not.toHaveBeenCalled();
-        } else {
-          expect(config).toHaveProperty("preferredLanguages", ["fr-CA", "en-US"]);
-        }
-      } finally {
-        vi.unstubAllEnvs();
-      }
+      registerIpc({ getMainWindow: mainWindow });
+      const config = ipcHandler("runtime-config")(trustedEvent());
+      expect(config).not.toHaveProperty("authToken");
+      expect(config).toHaveProperty("preferredLanguages", ["fr-CA", "en-US"]);
+      expect(electronState.preferredLanguages).toHaveBeenCalledOnce();
     },
   );
 
   describe("interface language", () => {
     afterEach(async () => {
-      await uiI18n.changeLanguage("en");
+      await uiI18n.changeLanguage("en-US");
     });
 
     it("changes language only for a trusted renderer and supported locale", async () => {
       registerIpc({ getMainWindow: mainWindow });
       const setLanguage = ipcHandler("app:set-interface-language");
       await expect(setLanguage(ipcEvent(8, "http://127.0.0.1:1420/"), "fr")).rejects.toThrow();
-      await expect(setLanguage(trustedEvent(), "de")).rejects.toThrow(
+      await expect(setLanguage(trustedEvent(), "it-IT")).rejects.toThrow(
         "Unsupported interface language",
       );
-      expect(uiI18n.language).toBe("en");
+      expect(uiI18n.language).toBe("en-US");
 
       await expect(setLanguage(trustedEvent(), "fr")).resolves.toBeUndefined();
-      expect(uiI18n.language).toBe("fr");
+      expect(uiI18n.language).toBe("fr-FR");
+      await expect(setLanguage(trustedEvent(), "pt-PT")).resolves.toBeUndefined();
+      expect(uiI18n.language).toBe("pt-PT");
+      expect(uiI18n.resolvedLanguage).toBe("pt-BR");
     });
   });
 
@@ -156,10 +151,6 @@ describe("ipc validators", () => {
     registerIpc({ getMainWindow: mainWindow });
     const pickImageFile = ipcHandler("dialog:pick-image-file");
     const setLanguage = ipcHandler("app:set-interface-language");
-    uiI18n.addResourceBundle("fr", "ui", {
-      "project.iconField.chooseProjectIcon": "Choisir une icône de projet",
-      "project.iconField.images": "Fichiers image",
-    });
     vi.mocked(dialog.showOpenDialog)
       .mockResolvedValueOnce({
         canceled: false,
@@ -170,9 +161,14 @@ describe("ipc validators", () => {
       await setLanguage(trustedEvent(), "fr");
       await expect(pickImageFile(trustedEvent())).resolves.toBe("/project/icon.svg");
       expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({
-        title: "Choisir une icône de projet",
+        title: frFR.ui.project.iconField.chooseProjectIcon,
         properties: ["openFile"],
-        filters: [{ name: "Fichiers image", extensions: expect.arrayContaining(["svg", "png"]) }],
+        filters: [
+          {
+            name: frFR.ui.project.iconField.images,
+            extensions: expect.arrayContaining(["svg", "png"]),
+          },
+        ],
       });
 
       await setLanguage(trustedEvent(), "en");
@@ -183,8 +179,7 @@ describe("ipc validators", () => {
         filters: [{ name: "Images", extensions: expect.arrayContaining(["svg", "png"]) }],
       });
     } finally {
-      await uiI18n.changeLanguage("en");
-      uiI18n.removeResourceBundle("fr", "ui");
+      await uiI18n.changeLanguage("en-US");
     }
   });
 

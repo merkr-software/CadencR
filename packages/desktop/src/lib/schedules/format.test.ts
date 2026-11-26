@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import {
   describeRecurrence,
   formatAbsolute,
@@ -12,18 +13,23 @@ import { draftToInput, emptyDraft, nextOccurrences } from "./recurrence";
 afterEach(async () => {
   vi.useRealTimers();
   await uiI18n.changeLanguage("en");
-  uiI18n.removeResourceBundle("fr", "ui");
+  if (uiI18n.hasResourceBundle("fr", "ui")) {
+    uiI18n.removeResourceBundle("fr", "ui");
+    await uiI18n.loadNamespaces("ui");
+  }
 });
 
 describe("schedule formatting", () => {
+  const { recurrence, date } = frFR.ui.schedules;
+
   it.each([
-    [0, "Every 0 hours"],
-    [5, "Every 0 minutes"],
-    [60, "Every minute"],
-    [120, "Every 2 minutes"],
-    [3600, "Every hour"],
-    [7200, "Every 2 hours"],
-  ])("keeps the English interval fallback for %s seconds in French", async (seconds, expected) => {
+    [0, recurrence.everyHour_zero],
+    [5, recurrence.everyMinute_zero],
+    [60, recurrence.everyMinute_one],
+    [120, recurrence.everyMinute_other.replace("{{count, number}}", "2")],
+    [3600, recurrence.everyHour_one],
+    [7200, recurrence.everyHour_other.replace("{{count, number}}", "2")],
+  ])("uses the French interval form for %s seconds", async (seconds, expected) => {
     await uiI18n.changeLanguage("fr-CA");
     expect(
       describeRecurrence({ kind: "interval", timezone: "UTC", interval_seconds: seconds }),
@@ -36,9 +42,15 @@ describe("schedule formatting", () => {
     await uiI18n.changeLanguage("fr-CA");
     expect(formatTimeOfDay("09:30")).toBe("9 h 30");
     expect(formatTimeOfDay("09:30", "fr")).toBe("9:30");
-    expect(formatAbsolute(new Date(2027, 0, 4, 9, 30))).toBe("Today at 9 h 30");
-    expect(formatAbsolute(new Date(2027, 0, 5, 9, 30))).toBe("Tomorrow at 9 h 30");
-    expect(formatAbsolute(new Date(2027, 0, 6, 9, 30))).toBe("mer. 6 janv. at 9 h 30");
+    expect(formatAbsolute(new Date(2027, 0, 4, 9, 30))).toBe(
+      date.todayAt.replace("{{time}}", "9 h 30"),
+    );
+    expect(formatAbsolute(new Date(2027, 0, 5, 9, 30))).toBe(
+      date.tomorrowAt.replace("{{time}}", "9 h 30"),
+    );
+    expect(formatAbsolute(new Date(2027, 0, 6, 9, 30))).toBe(
+      date.dayAt.replace("{{day}}", "mer. 6 janv.").replace("{{time}}", "9 h 30"),
+    );
     expect(formatRelative(new Date(2027, 0, 4, 11))).toBe("dans 2 heures");
     expect(weekdayLabels("long", "fr-CA")[0]).toBe("lundi");
     expect(weekdayLabels("long", "fr-CA")[6]).toBe("dimanche");
@@ -82,5 +94,28 @@ describe("schedule formatting", () => {
       new Date(2027, 1, 28, 9),
       new Date(2027, 2, 31, 9),
     ]);
+  });
+
+  it.each([
+    ["en-US", 31, "31st"],
+    ["fr-FR", 1, "1er"],
+    ["fr-CA", 31, "31"],
+    ["de-DE", 31, "31."],
+    ["ja-JP", 31, "31日"],
+    ["es-MX", 31, "31"],
+    ["pt-PT", 31, "31"],
+  ])("uses the %s ordinal for monthly day %i", async (locale, day, display) => {
+    await uiI18n.changeLanguage(locale);
+    const rule = { kind: "monthly", day_of_month: day, timezone: "UTC" } as const;
+    const time = formatTimeOfDay("09:00", locale);
+    const template: unknown = uiI18n.getResource(
+      uiI18n.resolvedLanguage ?? locale,
+      "ui",
+      "schedules.recurrence.monthlyAt",
+    );
+    if (typeof template !== "string") throw new Error(`Missing monthly recurrence for ${locale}`);
+    expect(describeRecurrence(rule)).toBe(
+      template.replace("{{dayOrdinal}}", display).replace("{{time}}", time),
+    );
   });
 });

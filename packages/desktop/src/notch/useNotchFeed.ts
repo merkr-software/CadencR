@@ -8,7 +8,7 @@ import {
   type NotchSnapshot,
 } from "@/shared/notch";
 import { notchBridge } from "./notch-bridge";
-import { uiI18n } from "@/shared/ui-i18n";
+import { changeUiLanguage } from "@/shared/ui-i18n";
 
 const MAX_QUEUED_PEEKS = 4;
 /** Hover must settle this long before the island opens — passing through the menu bar shouldn't. */
@@ -67,8 +67,7 @@ export function useNotchFeed(): NotchFeed {
     let active = true;
     let receivedLocale = false;
     const applyLocale = (locale: string) => {
-      if (uiI18n.language === locale) return;
-      void uiI18n.changeLanguage(locale).catch((error: unknown) => {
+      void changeUiLanguage(locale).catch((error: unknown) => {
         if (active) reportError(error);
       });
     };

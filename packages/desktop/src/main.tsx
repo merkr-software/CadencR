@@ -14,8 +14,9 @@ import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
 import { detectStandalone } from "./hooks/useFullscreen";
 import { initializeStandaloneViewport } from "./lib/standalone-viewport";
 import { mountSessionApplication } from "./lib/session-integration";
-import { readBrowserUiLocale, translateUi } from "./lib/i18n/ui";
-import { isBrowserRemote } from "./lib/remote/device-token";
+import { translateUi } from "./lib/i18n/ui";
+import { readSystemLocale } from "./lib/i18n/renderer-language";
+import { applyRendererLanguage } from "./lib/i18n/language-document";
 import "./index.css";
 
 // iOS caches the status-bar mode when installing a PWA. Seed its viewport
@@ -59,14 +60,16 @@ async function bootstrap(): Promise<void> {
 bootstrap().catch((err) => {
   console.error("Cadencr bootstrap failed:", err);
   const root = document.getElementById("root");
-  if (root) {
+  if (!root) return;
+  const showFailure = () => {
     root.textContent = translateUi(
       "shell.errors.bootstrapFailed",
       "Failed to start Cadencr: {{detail}}",
-      {
-        detail: apiErrorMessage(err, String(err)),
-        lng: isBrowserRemote() ? readBrowserUiLocale() : undefined,
-      },
+      { detail: apiErrorMessage(err, String(err)) },
     );
-  }
+  };
+  showFailure();
+  void applyRendererLanguage(readSystemLocale()).then(showFailure, (languageError: unknown) => {
+    console.error("Could not localize the startup error", languageError);
+  });
 });

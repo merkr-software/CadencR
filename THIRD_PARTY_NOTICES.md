@@ -68,6 +68,14 @@ Files under `packages/desktop/assets/`:
 
 If you own one of these marks and want the asset removed or replaced, please open an issue or email **raphael.leminor@gmail.com** and it will be addressed promptly.
 
+## Bundled country flags
+
+The six 4:3 SVG files in `packages/desktop/assets/flags/` come from flag-icons 7.5.0, copyright © 2013 Panayiotis Lipiridis. [Upstream revision](https://github.com/lipis/flag-icons/tree/7aa5b2bdddd570ece62c812c0cb588ccdc099e2e/flags/4x3), [bundled MIT license](./packages/desktop/public/flag-icons-LICENSE.txt).
+
+## Bundled Japanese font
+
+The renderer includes Noto Sans JP from Google through the Fontsource package. [Bundled SIL Open Font License 1.1](./packages/desktop/public/noto-sans-jp-LICENSE.txt).
+
 ## Cadencr-original assets
 
 The Cadencr name, the Cadencr "Index Dots" logo (`packages/desktop/assets/cadencr-mark-{dark,light}.svg` and `packages/desktop/icons/{128x128.png,icon.icns,icon.ico}`), and the marketing content under `packages/landing/` are original works © 2026 Raphael Le Minor, released under the Apache License 2.0 together with the rest of this repository.

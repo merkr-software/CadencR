@@ -18,7 +18,8 @@ import {
   subscribeToDeviceRevocation,
 } from "@/lib/remote/device-token";
 import { extractPairingCode, pairRemoteDevice, takePairingError } from "@/api/remote-pairing";
-import { UiTrans, useBrowserUiLocale, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { useBrowserInterfaceLanguage } from "@/lib/i18n/language-document";
+import { UiTrans, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   formatPairingError,
   pairingIssueFromError,
@@ -94,8 +95,8 @@ function PairingInstructions({ t }: { t: UiTranslator }): ReactNode {
 }
 
 function PairingScreen(): ReactNode {
-  const locale = useBrowserUiLocale();
-  const { t } = useUiTranslation(locale);
+  useBrowserInterfaceLanguage();
+  const { t } = useUiTranslation();
   const [value, setValue] = useState("");
   const [pairing, setPairing] = useState(false);
   const [error, setError] = useState<PairingIssue | null>(null);

@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { readFileSync } from "node:fs";
 import {
   EMERALD,
@@ -13,7 +13,7 @@ import {
 import { type StartupRecoveryAction, type StartupRecoveryActionId } from "./startup-recovery";
 import { splashProgressDetail } from "./splash-progress";
 import { matchSystemLocale } from "../../src/lib/i18n/languages";
-import { uiI18n } from "../../src/shared/ui-i18n";
+import { changeUiLanguage, uiI18n } from "../../src/shared/ui-i18n";
 import { splashCopyForPhase, type SplashPhase } from "./splash-copy";
 import { windowIconOption } from "./app-icon";
 import { secureSplashWebContents } from "./splash-security";
@@ -97,8 +97,10 @@ function createSplashBrowserWindow(): BrowserWindow {
 
 /** Before the service and its saved preference are available, use the OS preference. */
 export async function initializeStartupLanguage(): Promise<void> {
-  if (import.meta.env.DEV && !app.isPackaged) {
-    await uiI18n.changeLanguage(matchSystemLocale(app.getPreferredSystemLanguages()));
+  try {
+    await changeUiLanguage(matchSystemLocale(app.getPreferredSystemLanguages()));
+  } catch (error) {
+    dialog.showErrorBox(app.getName(), error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -310,7 +312,7 @@ function renderLogoSvg(): string {
 export function renderSplashHtml(version: string, initialError?: SplashErrorState): string {
   const copy = initialError ?? splashCopyForPhase("starting");
   return `<!doctype html>
-<html lang="${escapeHtml(uiI18n.language)}">
+<html lang="${escapeHtml(uiI18n.resolvedLanguage ?? uiI18n.language)}">
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; base-uri 'none'; form-action 'none'" />

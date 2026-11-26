@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_LANGUAGE } from "@/lib/i18n/languages";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { uiI18n, type UiTranslator } from "@/lib/i18n/ui";
 
@@ -66,7 +67,7 @@ export function formatPairingError(issue: PairingIssue, t: UiTranslator): string
   }
 }
 
-const englishText = uiI18n.getFixedT("en", "ui");
+const englishText = uiI18n.getFixedT(DEFAULT_LANGUAGE, "ui");
 
 export class PairingError extends Error {
   constructor(readonly issue: PairingIssue) {

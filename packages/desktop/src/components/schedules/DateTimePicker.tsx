@@ -1,10 +1,6 @@
 import { useCallback, useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { startOfDay } from "date-fns";
-import { enCA } from "react-day-picker/locale/en-CA";
-import { enGB } from "react-day-picker/locale/en-GB";
-import { frCA } from "react-day-picker/locale/fr-CA";
-import { fr } from "react-day-picker/locale/fr";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,24 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { dateLocale } from "@/lib/i18n/date-locale";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
-
-function calendarLocale(language: string) {
-  switch (language) {
-    case "en-CA":
-      return enCA;
-    case "en-GB":
-      return enGB;
-    case "fr-CA":
-      return frCA;
-    default:
-      return language.startsWith("fr") ? fr : undefined;
-  }
-}
 
 export interface DateTimePickerProps {
   value: Date;
@@ -50,7 +35,7 @@ export interface DateTimePickerProps {
  */
 export function DateTimePicker({ value, onChange, min, invalid }: DateTimePickerProps) {
   const { t, i18n } = useUiTranslation();
-  const language = i18n.language;
+  const language = formattingLocale(i18n.language);
   const [open, setOpen] = useState(false);
   const label = new Intl.DateTimeFormat(language, {
     weekday: "short",
@@ -107,7 +92,7 @@ export function DateTimePicker({ value, onChange, min, invalid }: DateTimePicker
         <PopoverContent className="w-auto p-0" align="start">
           <Calendar
             mode="single"
-            locale={calendarLocale(language)}
+            locale={dateLocale(language)}
             selected={value}
             onSelect={setDay}
             defaultMonth={value}

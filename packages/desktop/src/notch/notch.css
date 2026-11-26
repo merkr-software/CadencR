@@ -1,5 +1,6 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/figtree";
+@import "@fontsource-variable/noto-sans-jp";
 @import "./notch-activity.css";
 
 /*
@@ -44,8 +45,10 @@
   --n-question: #2db47d;
   --n-done: #8bcf67;
   --n-error: #ec707b;
-  --n-font: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --n-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --n-font:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Noto Sans JP Variable", sans-serif;
+  --n-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace, "Noto Sans JP Variable";
   /* A spring with a single, small overshoot — the island's one signature. */
   --n-spring: linear(
     0,

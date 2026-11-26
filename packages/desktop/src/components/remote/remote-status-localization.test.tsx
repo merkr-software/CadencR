@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useRemotePairingToast } from "@/hooks/useRemotePairingToast";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
 import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { showRemoteConnectedToast } from "@/lib/remote/connection-toast";
 import * as deviceToken from "@/lib/remote/device-token";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
@@ -65,14 +66,20 @@ it("formats the host badge and paired-device count for the display language", as
     expect(badge.textContent).toBe(english);
     expect(badge).toHaveAttribute("aria-label", `Remote access ON — ${english} devices connected`);
 
-    await switchLanguage("fr");
-    const french = new Intl.NumberFormat("fr").format(count);
+    await switchLanguage("fr-FR");
+    const french = new Intl.NumberFormat("fr-FR").format(count);
     expect(badge.textContent).toBe(french);
-    expect(badge).toHaveAttribute("aria-label", `Remote access ON — ${french} devices connected`);
+    expect(badge).toHaveAttribute(
+      "aria-label",
+      frFR.ui.remote.host.connected_other.replace("{{count, number}}", french),
+    );
 
     await view.user.click(badge);
-    const devices = await screen.findByRole("button", { name: /^Paired devices/ });
-    expect(devices.textContent).toBe(`Paired devices (${french})`);
+    const frenchDevices = frFR.ui.remote.host.sections.devices.replace("{{deviceCount}}", french);
+    const devices = await screen.findByRole("button", {
+      name: (label) => label.replace(/\s+/gu, " ") === frenchDevices.replace(/\s+/gu, " "),
+    });
+    expect(devices.textContent).toBe(frenchDevices);
     await switchLanguage("en");
     expect(devices.textContent).toBe(`Paired devices (${english})`);
   } finally {

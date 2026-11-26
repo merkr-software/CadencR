@@ -1,6 +1,7 @@
 import { memo, type ComponentType, type ReactNode, useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test-utils";
+import App from "@/App";
 import { installSessionIntegration } from "@/lib/session-integration";
 
 /**
@@ -43,6 +44,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@tanstack/react-router", () => ({
   createRootRoute: (opts: { component: unknown }) => ({ options: opts }),
+  RouterProvider: () => <RootLayout />,
   Outlet: () => <div data-testid="outlet" />,
   useMatch: () => undefined,
   useNavigate: () => mocks.navigate,
@@ -53,6 +55,12 @@ vi.mock("@tanstack/react-router", () => ({
       return options?.select ? options.select(state) : state;
     }),
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
+}));
+
+// Mount the application shell, including its global notification host, on an onboarded workspace.
+vi.mock("@/router", () => ({ router: {} }));
+vi.mock("@/components/onboarding/OnboardingGate", () => ({
+  OnboardingGate: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
@@ -141,7 +149,7 @@ function resetRenders(): void {
 
 describe("root layout on a conversation switch", () => {
   it("renders the root once and leaves the sidebar and the toaster alone", () => {
-    render(<RootLayout />);
+    render(<App />);
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
     expect(mocks.renders.sonner).toBeGreaterThan(0);
     resetRenders();
@@ -154,7 +162,7 @@ describe("root layout on a conversation switch", () => {
   });
 
   it("ignores router updates that keep the location", () => {
-    render(<RootLayout />);
+    render(<App />);
     openConversation(3);
     resetRenders();
 

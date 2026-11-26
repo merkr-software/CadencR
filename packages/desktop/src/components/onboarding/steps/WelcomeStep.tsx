@@ -62,7 +62,7 @@ export function WelcomeStep({
           </p>
         </div>
 
-        {import.meta.env.DEV && <LanguageSetting />}
+        <LanguageSetting />
         <label
           htmlFor="onboarding-animations-toggle"
           className="flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-border bg-card/40 p-4"

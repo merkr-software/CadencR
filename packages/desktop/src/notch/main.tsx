@@ -8,7 +8,7 @@ import "./notch-snooze.css";
 
 function NotchRenderer() {
   const { t, i18n } = useUiTranslation();
-  const locale = i18n.language;
+  const locale = i18n.resolvedLanguage ?? i18n.language;
   useLayoutEffect(() => {
     document.documentElement.lang = locale;
     document.title = t("notch.windowTitle", "Cadencr Notch");

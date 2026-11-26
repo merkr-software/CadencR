@@ -4,29 +4,32 @@ import {
   useLayoutEffect,
   useMemo,
   useSyncExternalStore,
+  useState,
   type ReactNode,
 } from "react";
 import { I18nextProvider } from "react-i18next";
 import { getRuntimeConfigSync } from "@/api/client";
 import { useGetWorkspaceSetting } from "@/api/generated";
-import { translateUi, uiI18n } from "./ui";
 import { toastError } from "@/lib/api-errors";
-import { desktopBridge } from "@/lib/desktop-bridge";
+import { uiI18n, useUiTranslation } from "./ui";
 import {
+  catalogLanguage,
   languagePreference,
   LANGUAGE_SETTING,
-  isLanguage,
-  matchSystemLocale,
-  readBrowserLocale,
   subscribeToBrowserLanguage,
   type Language,
 } from "./languages";
+import { applyRendererLanguage } from "./language-document";
+import { readSystemLocale, syncNativeLanguage } from "./renderer-language";
 
 interface LanguageSettingState {
   preference: Language | "system";
   system: Language;
   loading: boolean;
+  applying: boolean;
   error: unknown;
+  loadError: Error | undefined;
+  retry: () => void;
 }
 
 const SettingContext = createContext<LanguageSettingState | null>(null);
@@ -43,34 +46,48 @@ function subscribeToLanguageChange(notify: () => void) {
   return subscribeToBrowserLanguage(notify);
 }
 
-function readSystemLocale() {
-  const preferredLanguages = getRuntimeConfigSync().preferredLanguages;
-  return preferredLanguages ? matchSystemLocale(preferredLanguages) : readBrowserLocale();
-}
-
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const systemLocale = useSyncExternalStore(subscribeToLanguageChange, readSystemLocale);
-  const [base] = systemLocale.split("-");
-  const system = isLanguage(base) ? base : "en";
+  const system = catalogLanguage(systemLocale);
   const { data, isPending, error } = useGetWorkspaceSetting(LANGUAGE_SETTING);
+  const { i18n } = useUiTranslation();
   const preference = languagePreference(data?.value);
-  const language = preference === "system" ? system : preference;
   const locale = preference === "system" ? systemLocale : preference;
+  const [failure, setFailure] = useState<{ locale: string; error: Error }>();
+  const [attempt, setAttempt] = useState(0);
+  const loadError = failure?.locale === locale ? failure.error : undefined;
+  const applying = i18n.language !== locale && !loadError;
   const state = useMemo(
-    () => ({ preference, system, loading: isPending, error }),
-    [preference, system, isPending, error],
+    () => ({
+      preference,
+      system,
+      loading: isPending,
+      applying,
+      error,
+      loadError,
+      retry: () => setAttempt((n) => n + 1),
+    }),
+    [preference, system, isPending, applying, error, loadError],
   );
   useLayoutEffect(() => {
-    if (uiI18n.language !== locale) void uiI18n.changeLanguage(locale);
-  }, [locale]);
-  useLayoutEffect(() => {
-    void desktopBridge.setInterfaceLanguage(language).catch((error: unknown) => {
-      toastError(
-        error,
-        translateUi("shell.language.nativeError", "Could not update the native menu language"),
-      );
-    });
-  }, [language]);
+    let current = true;
+    setFailure(undefined);
+    void applyRendererLanguage(locale).then(
+      () => {
+        if (current) void syncNativeLanguage(locale);
+      },
+      (error: unknown) => {
+        if (current) {
+          const reason = error instanceof Error ? error : new Error(String(error));
+          setFailure({ locale, error: reason });
+          toastError(reason, "");
+        }
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [locale, attempt]);
 
   return (
     <SettingContext.Provider value={state}>

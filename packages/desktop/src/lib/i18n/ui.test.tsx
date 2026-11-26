@@ -14,7 +14,7 @@ afterEach(async () => {
   uiI18n.removeResourceBundle("fr", "ui");
 });
 
-it("renders English defaults outside the preview and updates mounted text and actions together", async () => {
+it("renders English defaults and updates mounted text and actions together", async () => {
   render(
     <>
       <ItemCount />

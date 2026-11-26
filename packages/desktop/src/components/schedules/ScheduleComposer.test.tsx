@@ -4,6 +4,7 @@ import { act, render, screen } from "@/test-utils";
 import type { ScheduleTarget } from "@/api/generated";
 import type { PromptEditorHandle } from "@/components/prompt-editor/PromptEditor";
 import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { ScheduleComposer } from "./ScheduleComposer";
 
 const {
@@ -165,7 +166,11 @@ describe("ScheduleComposer", () => {
       });
 
       expect(lastEditorProps.placeholder).toBe("Décrivez la tâche");
-      expect(screen.getByRole("textbox", { name: "Message to the agent" })).toBe(editor);
+      expect(
+        screen.getByRole("textbox", {
+          name: frFR.ui.conversation.composer.promptEditor.messageToTheAgent,
+        }),
+      ).toBe(editor);
       expect(editor).toHaveFocus();
       expect(editor).toHaveTextContent("Review the report");
     } finally {

@@ -1,4 +1,3 @@
-import type { Language } from "./i18n/languages";
 import type { DiagnosticContext } from "@/shared/renderer-diagnostics";
 import type {
   NotchCapabilities,
@@ -93,7 +92,7 @@ export interface CadencrDesktopBridge {
   isElectron: boolean;
   usesCustomWindowControls?: boolean;
   runtimeConfig: () => Promise<RuntimeConfig>;
-  setInterfaceLanguage: (language: Language) => Promise<void>;
+  setInterfaceLanguage: (locale: string) => Promise<void>;
   readFileBase64: (handle: string) => Promise<string>;
   suppressNextNativeContextMenu?: () => void;
   onFileDrop: (cb: (payload: FileDropPayload) => void) => () => void;

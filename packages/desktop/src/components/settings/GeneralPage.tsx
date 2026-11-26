@@ -23,7 +23,7 @@ export function GeneralPage(): React.JSX.Element {
         id={SETTINGS_ANCHORS.interface}
         title={t("settings.general.interface.title", "Interface")}
       >
-        {import.meta.env.DEV && <LanguageSetting />}
+        <LanguageSetting />
         <ZoomRow />
       </SettingsGroup>
       <SettingsGroup

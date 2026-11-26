@@ -1,10 +1,11 @@
 import type { BrowserFailure } from "../../src/shared/browser-types";
 import { browserFailureCopy } from "../../src/shared/browser-error-copy";
+import { DEFAULT_LANGUAGE } from "../../src/lib/i18n/languages";
 import { uiI18n } from "../../src/shared/ui-i18n";
 import { isLoopbackHost } from "./loopback-host";
 import type { BrowserTabError, BrowserTabErrorKind } from "./browser-types";
 
-const fallbackText = uiI18n.getFixedT("en", "ui");
+const fallbackText = uiI18n.getFixedT(DEFAULT_LANGUAGE, "ui");
 const ERR_ABORTED_CODE = -3;
 const ERR_ABORTED_PATTERN = /\bERR_ABORTED\b/;
 const CHROMIUM_LOAD_ERROR_PATTERN = /\bERR_[A-Z0-9_]+\s*\(-\d+\)\s+loading\b/;

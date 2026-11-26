@@ -1,10 +1,12 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSettingWriter } from "@/hooks/useSetting";
-import { apiErrorMessage } from "@/lib/api-errors";
-import { languageNames, LANGUAGE_SETTING } from "@/lib/i18n/languages";
+import { Button } from "@/components/ui/button";
+import { loadUiCatalog } from "@/shared/ui-i18n";
+import { apiErrorMessage, toastError } from "@/lib/api-errors";
+import { languageOptions, LANGUAGE_SETTING } from "@/lib/i18n/languages";
 import { useLanguageSettingState } from "@/lib/i18n/LanguageProvider";
 import {
   Select,
@@ -14,13 +16,41 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SettingsRow } from "./SettingsRow";
+import brFlag from "../../../assets/flags/br.svg?no-inline";
+import deFlag from "../../../assets/flags/de.svg?no-inline";
+import esFlag from "../../../assets/flags/es.svg?no-inline";
+import frFlag from "../../../assets/flags/fr.svg?no-inline";
+import jpFlag from "../../../assets/flags/jp.svg?no-inline";
+import usFlag from "../../../assets/flags/us.svg?no-inline";
+
+const flagSources = {
+  br: brFlag,
+  de: deFlag,
+  es: esFlag,
+  fr: frFlag,
+  jp: jpFlag,
+  us: usFlag,
+};
 
 export function LanguageSetting() {
   const id = useId();
   const { t } = useUiTranslation();
   const { t: tLanguage, i18n } = useTranslation("language");
-  const { preference, system, loading, error } = useLanguageSettingState();
+  const { preference, system, loading, applying, error, loadError, retry } =
+    useLanguageSettingState();
   const { setValue, isSaving } = useSettingWriter(LANGUAGE_SETTING);
+  const [preparing, setPreparing] = useState(false);
+  async function selectLanguage(value: string) {
+    setPreparing(true);
+    try {
+      await loadUiCatalog(value === "system" ? system : value);
+      await setValue(value);
+    } catch (cause) {
+      toastError(cause, "");
+    } finally {
+      setPreparing(false);
+    }
+  }
   if (loading) {
     return (
       <div
@@ -33,15 +63,14 @@ export function LanguageSetting() {
     );
   }
   const errorMessage = error ? apiErrorMessage(error, "") : "";
-  const description = error ? (
-    errorMessage ? (
-      <span lang="en">{errorMessage}</span>
-    ) : (
-      t("settings.general.language.readError", "Could not read the language setting.")
-    )
+  const description = errorMessage ? (
+    <span lang="en-US">{errorMessage}</span>
+  ) : error ? (
+    t("settings.general.language.readError", "Could not read the language setting.")
   ) : (
-    tLanguage("preview")
+    loadError?.message
   );
+  const busy = preparing || isSaving || applying;
   return (
     <div lang={i18n.resolvedLanguage}>
       <SettingsRow
@@ -49,27 +78,48 @@ export function LanguageSetting() {
         label={tLanguage("label")}
         description={description}
         control={
-          <Select value={preference} onValueChange={setValue} disabled={isSaving || Boolean(error)}>
-            <SelectTrigger id={id} size="sm" aria-busy={isSaving}>
-              {isSaving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent
-              lang={i18n.resolvedLanguage}
-              position="popper"
-              align="end"
-              className="z-[60] animate-none! bg-[oklch(from_var(--popover)_l_c_h/1)]"
+          <>
+            {loadError && (
+              <Button variant="outline" size="sm" onClick={retry}>
+                {t("common.retry", "Retry")}
+              </Button>
+            )}
+            <Select
+              value={preference}
+              onValueChange={selectLanguage}
+              disabled={busy || Boolean(error)}
             >
-              <SelectItem value="system">
-                {tLanguage("system", { language: languageNames[system] })}
-              </SelectItem>
-              {Object.entries(languageNames).map(([value, name]) => (
-                <SelectItem key={value} value={value}>
-                  <span lang={value}>{name}</span>
+              <SelectTrigger id={id} size="sm" aria-busy={busy}>
+                {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent
+                lang={i18n.resolvedLanguage}
+                position="popper"
+                align="end"
+                className="z-[60] animate-none! bg-[oklch(from_var(--popover)_l_c_h/1)]"
+              >
+                <SelectItem value="system">
+                  {tLanguage("system", { language: languageOptions[system].name })}
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                {Object.entries(languageOptions).map(([value, { name, region, flag }]) => (
+                  <SelectItem key={value} value={value}>
+                    <span className="inline-flex items-center gap-2" lang={value}>
+                      <img
+                        src={flagSources[flag]}
+                        alt=""
+                        aria-hidden="true"
+                        width={20}
+                        height={15}
+                        className="shrink-0 rounded-xs"
+                      />
+                      <span>{`${name} (${region})`}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
         }
       />
     </div>

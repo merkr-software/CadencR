@@ -1,8 +1,34 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
+import { dateLocale } from "@/lib/i18n/date-locale";
 import { uiI18n } from "@/lib/i18n/ui";
-import { formatCompactAge, parseUTCDateTime } from "./date-utils";
+import { formatCompactAge, formatRelativeDistance, parseUTCDateTime } from "./date-utils";
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each([
+  ["en-US", "2 days ago"],
+  ["es-ES", "hace 2 días"],
+  ["de-DE", "vor 2 Tagen"],
+  ["ja-JP", "2日前"],
+  ["fr-FR", "il y a 2 jours"],
+  ["pt-BR", "há 2 dias"],
+  ["fr-CA", "il y a 2 jours"],
+  ["pt-PT", "há 2 dias"],
+  ["es-MX", "hace 2 días"],
+])("formats relative dates for %s", (language, expected) => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 10, 25, 12));
+  expect(formatRelativeDistance(new Date(Date.UTC(2026, 10, 23, 12)), language)).toBe(expected);
+});
+
+it.each([
+  ["en-CA", "en-CA"],
+  ["en-GB", "en-GB"],
+  ["fr-CA", "fr-CA"],
+  ["pt-PT", "pt"],
+  ["es-MX", "es"],
+])("resolves the date locale for %s to %s", (language, expected) => {
+  expect(dateLocale(language).code).toBe(expected);
+});
 
 describe("parseUTCDateTime", () => {
   it("parses SQLite datetime string as UTC", () => {

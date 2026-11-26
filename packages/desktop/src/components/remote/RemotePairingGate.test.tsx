@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { act, render, screen } from "@/test-utils";
+import { act, render, screen, waitFor } from "@/test-utils";
 import { extractPairingCode, RemotePairingGate } from "./RemotePairingGate";
 import * as deviceToken from "@/lib/remote/device-token";
 import * as pairing from "@/api/remote-pairing";
@@ -48,8 +48,9 @@ describe("extractPairingCode", () => {
 });
 
 describe("RemotePairingGate", () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await uiI18n.changeLanguage("en-US");
     uiI18n.removeResourceBundle("fr", "ui");
   });
 
@@ -164,7 +165,8 @@ describe("RemotePairingGate", () => {
     sessionStorage.setItem("cadencr.remotePairingError", JSON.stringify({ kind: "expired" }));
     const { user } = render(<RemotePairingGate>app-content</RemotePairingGate>);
 
-    expect(screen.getByRole("heading", { name: "Associer cet appareil" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Associer cet appareil" })).toBeVisible();
+    expect(document.documentElement).toHaveAttribute("lang", "fr");
     expect(screen.getByText("Accès à distance")).toHaveClass("font-medium");
     expect(screen.getByRole("alert")).toHaveTextContent("Ce code a expiré.");
     expect(pairing.takePairingError()).toBeNull();
@@ -176,7 +178,7 @@ describe("RemotePairingGate", () => {
       languages.mockReturnValue(["en-GB"]);
       window.dispatchEvent(new Event("languagechange"));
     });
-    expect(screen.getByRole("heading", { name: "Pair this device" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Pair this device" })).toBeVisible();
     expect(screen.getByText("Remote access")).toHaveClass("font-medium");
     expect(screen.getByRole("alert")).toHaveTextContent("This pairing code has expired.");
     expect(screen.getByRole("textbox", { name: "Pairing link or code" })).toBe(input);
@@ -186,8 +188,9 @@ describe("RemotePairingGate", () => {
       languages.mockReturnValue(["fr-FR"]);
       window.dispatchEvent(new Event("languagechange"));
     });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ce code a expiré.");
-    expect(screen.getByRole("textbox", { name: "Lien ou code d’association" })).toBe(input);
+    await waitFor(() => expect(uiI18n.language).toBe("fr-FR"));
+    expect(document.documentElement).toHaveAttribute("lang", "fr-FR");
+    expect(screen.getByRole("textbox")).toBe(input);
     expect(input).toHaveValue(link);
   });
 });

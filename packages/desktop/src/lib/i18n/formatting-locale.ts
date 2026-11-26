@@ -1,8 +1,6 @@
 const systemLocale = new Intl.NumberFormat().resolvedOptions().locale;
 
-/** Release builds keep the system's regional formats while UI language selection is in preview. */
+/** System preferences provide their regional tag. Explicit preferences use the selected catalog's tag. */
 export function formattingLocale(interfaceLanguage: string): string {
-  return import.meta.env.DEV && interfaceLanguage && interfaceLanguage !== "cimode"
-    ? interfaceLanguage
-    : systemLocale;
+  return interfaceLanguage && interfaceLanguage !== "cimode" ? interfaceLanguage : systemLocale;
 }

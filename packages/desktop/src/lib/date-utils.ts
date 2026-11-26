@@ -1,8 +1,8 @@
 import { formatExactNumber } from "@/lib/format-number";
+import { dateLocale } from "@/lib/i18n/date-locale";
 import type { UiTranslator } from "@/lib/i18n/ui";
 import { translateUi, uiI18n } from "@/shared/ui-i18n";
 import { format, formatDistanceToNowStrict, isToday } from "date-fns";
-import { fr } from "date-fns/locale/fr";
 
 /**
  * Parse a UTC datetime string from SQLite.
@@ -53,7 +53,7 @@ export function formatCompactAge(
 export function formatRelativeDistance(date: Date, language: string): string {
   return formatDistanceToNowStrict(date, {
     addSuffix: true,
-    locale: language.split("-", 1)[0] === "fr" ? fr : undefined,
+    locale: dateLocale(language),
   });
 }
 

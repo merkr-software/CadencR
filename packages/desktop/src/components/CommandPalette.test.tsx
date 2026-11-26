@@ -5,6 +5,7 @@ import { act, render, screen, waitFor, within } from "@/test-utils";
 import type { ConversationIndexEntry, MessageSearchHit } from "@/api/generated";
 import { registerShortcutAction } from "@/lib/command-palette/shortcut-actions";
 import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { CommandPalette } from "./CommandPalette";
 
 const mockNavigate = vi.fn();
@@ -184,9 +185,9 @@ describe("CommandPalette", () => {
     try {
       await act(() => uiI18n.changeLanguage("fr"));
       for (const [query, title] of [
-        [">tableau collectif", "Agents"],
-        ["préparer révision", "Commit…"],
-        ["stage", "Commit…"],
+        [">tableau collectif", frFR.ui.palette.commands["go-agents"].title],
+        ["préparer révision", frFR.ui.palette.shortcuts["git-commit"]],
+        ["stage", frFR.ui.palette.shortcuts["git-commit"]],
       ] as const) {
         await user.clear(input());
         await user.type(input(), query);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import jsQR from "jsqr";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useBrowserUiLocale, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 
 /**
  * Full-screen camera viewfinder that decodes a pairing QR code. Used by the
@@ -132,8 +132,7 @@ function useQrCamera(
 }
 
 export function QrPairingScanner({ onDetect, onCancel }: QrPairingScannerProps): ReactElement {
-  const locale = useBrowserUiLocale();
-  const { t } = useUiTranslation(locale);
+  const { t } = useUiTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const error = useQrCamera(videoRef, onDetect);
 
