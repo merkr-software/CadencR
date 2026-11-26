@@ -17,8 +17,8 @@ import {
   type ServiceProcess,
   type SidecarStatusUpdate,
 } from "./sidecar-process";
-import { sendShutdownIntent } from "./shutdown-intent";
-import type { AppCloseChoice } from "../../src/shared/app-close";
+import { stopLiveWorkForQuit } from "./shutdown-intent";
+import { createExitedSidecarQuit } from "./sidecar-quit-cleanup";
 
 export { ensureLinuxSidecarExecutable } from "./sidecar-executable";
 export { describeStartupFailure, parsePhaseLine } from "./sidecar-process";
@@ -40,12 +40,8 @@ export interface SidecarHandle {
   baseUrl: string;
   authToken: string | null;
   stop: () => Promise<void>;
-  /**
-   * Before `stop`: whether the agents it cuts off resume on the next start
-   * (they do unless told otherwise). A no-op for the dev service, which
-   * outlives the app.
-   */
-  setShutdownIntent: (choice: AppCloseChoice) => Promise<void>;
+  /** Confirm that the sidecar's owned work has stopped. */
+  prepareQuit: () => Promise<void>;
 }
 
 export interface BrowserBridgeSidecarEnv {
@@ -59,6 +55,8 @@ export interface SpawnProductionSidecarOptions {
   onStatus?: (update: SidecarStatusUpdate) => void;
   /** The service exited after startup while nobody had asked it to stop. */
   onUnexpectedExit?: (exit: SidecarExit) => void;
+  onRecoveryArmed?: (handle: SidecarHandle) => void;
+  onSpawn?: (quitBeforeAttachment: () => Promise<boolean>) => void;
 }
 
 function normalizeBaseUrl(key: string, value: string): string {
@@ -77,11 +75,12 @@ function normalizeBaseUrl(key: string, value: string): string {
 export function createDevSidecarHandle(): SidecarHandle {
   const rawBaseUrl = process.env.VITE_API_URL ?? DEFAULT_DEV_API_BASE_URL;
   const authToken = process.env.VITE_API_TOKEN?.trim() || null;
+  const baseUrl = normalizeBaseUrl("VITE_API_URL", rawBaseUrl);
   return {
-    baseUrl: normalizeBaseUrl("VITE_API_URL", rawBaseUrl),
+    baseUrl,
     authToken,
     stop: () => Promise.resolve(),
-    setShutdownIntent: () => Promise.resolve(),
+    prepareQuit: () => stopLiveWorkForQuit(baseUrl, authToken),
   };
 }
 
@@ -164,16 +163,49 @@ export async function spawnProductionSidecar(
 
   const binary = productionBinaryPath();
   ensureLinuxSidecarExecutable(binary, process.platform);
+  const dbPath = productionDbPath();
+  const epoch = crypto.randomUUID();
+  const quitAfterExit = createExitedSidecarQuit(binary, dbPath, epoch);
   const child = spawnService(
     binary,
-    productionDbPath(),
+    dbPath,
     authToken,
     options.appVersion,
     productionRendererDir(),
     options.browserBridge,
+    epoch,
   );
   const watch = watchServiceProcess(child);
-  pumpLogs(child, reportStatus, watch.stderrTail);
+  let stopRequested = false;
+  const handle: SidecarHandle = {
+    baseUrl,
+    authToken,
+    stop: () => {
+      stopRequested = true;
+      return stopChild(child);
+    },
+    prepareQuit: () =>
+      preparePackagedQuit(
+        watch,
+        () => stopLiveWorkForQuit(baseUrl, authToken),
+        async () => {
+          await quitAfterExit();
+        },
+      ),
+  };
+  options.onSpawn?.(() => {
+    if (!watch.exited) {
+      throw new Error(
+        "Cadencr could not confirm that its starting service stopped. Try quitting again when it is ready.",
+      );
+    }
+    // The previous service may have armed the slot just before dying,
+    // before Electron saw the startup phase or the health response.
+    return quitAfterExit(true);
+  });
+  pumpLogs(child, reportStatus, watch.stderrTail, (line) => {
+    if (line === "CADENCR_PHASE desktop_quit_armed") options.onRecoveryArmed?.(handle);
+  });
 
   try {
     await waitForHealthy(baseUrl, authToken, () => watch.exited, watchdog);
@@ -182,20 +214,26 @@ export async function spawnProductionSidecar(
     const failure = new Error(
       describeStartupFailure(baseMessage, watch.stderrTail, watch.exitCode, watch.exitSignal),
     );
-    return rethrowAfterCleanup(failure, () => stopChild(child));
+    return rethrowAfterCleanup(failure, handle.stop);
   }
   reportStatus({ phase: "loading_app" });
-  let stopRequested = false;
   superviseServiceProcess(child, watch, () => stopRequested, options.onUnexpectedExit);
-  return {
-    baseUrl,
-    authToken,
-    stop: () => {
-      stopRequested = true;
-      return stopChild(child);
-    },
-    setShutdownIntent: (choice) => sendShutdownIntent(baseUrl, authToken, choice),
-  };
+  return handle;
+}
+
+/** The watched child, rather than a failed HTTP probe, proves the service is gone. */
+export async function preparePackagedQuit(
+  watch: Pick<ServiceProcessWatch, "exited">,
+  sendIntent: () => Promise<void>,
+  finishAfterExit: () => Promise<void>,
+): Promise<void> {
+  if (watch.exited) return finishAfterExit();
+  try {
+    await sendIntent();
+  } catch (error: unknown) {
+    if (watch.exited) return finishAfterExit();
+    throw error;
+  }
 }
 
 export interface ServiceProcessWatch {
@@ -219,8 +257,8 @@ function watchServiceProcess(child: ServiceProcess): ServiceProcessWatch {
     console.info(`[cadencr-service] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
   });
   child.on("error", (error) => {
-    watch.exited = true;
-    recordStderrLine(watch.stderrTail, `Failed to start cadencr-service: ${error.message}`);
+    if (child.pid === undefined) watch.exited = true;
+    recordStderrLine(watch.stderrTail, `cadencr-service process error: ${error.message}`);
   });
   // Nothing is ever written, so an error here only means the service end of
   // the pipe is gone: the exit that follows is what gets reported.
@@ -285,9 +323,10 @@ function spawnService(
   authToken: string,
   appVersion: string | undefined,
   rendererDir: string | null,
-  browserBridge?: BrowserBridgeSidecarEnv,
+  browserBridge: BrowserBridgeSidecarEnv | undefined,
+  epoch: string,
 ): ServiceProcess {
-  return spawn(binary, serviceArgs(dbPath, appVersion, rendererDir), {
+  return spawn(binary, serviceArgs(dbPath, appVersion, rendererDir, epoch), {
     env: serviceEnv(authToken, browserBridge),
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -313,6 +352,7 @@ export function serviceArgs(
   dbPath: string,
   appVersion?: string,
   rendererDir?: string | null,
+  epoch?: string,
 ): string[] {
   const settingsDir = resolveSettingsDir(dbPath);
 
@@ -326,6 +366,7 @@ export function serviceArgs(
     EXIT_WITH_PARENT_FLAG,
   ];
   if (appVersion) args.push("--app-version", appVersion);
+  if (epoch) args.push("--desktop-quit-epoch", epoch);
   // Enables remote-access serving; the local window still loads file://.
   if (rendererDir) args.push("--renderer-dir", rendererDir);
   return args;

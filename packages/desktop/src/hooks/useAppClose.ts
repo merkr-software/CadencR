@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { QueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useWsSessionStore } from "@/stores/ws-session-store";
-import { stopUnloadedAgents } from "@/stores/unloaded-agent-control";
-import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
 import { useEditorStore } from "@/stores/editor-store";
 import { browserTabCount } from "@/stores/browser-store";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
 import { isReplacementShown } from "@/lib/plugin-tabs/builtin-fallback";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
-import { getListFeaturesQueryKey } from "@/api/generated";
+import { getActiveCloseWork, type ActiveCloseWork } from "@/api/generated";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { QUIT_WITHOUT_ASKING, type AppCloseChoice, type AppCloseRequest } from "@/shared/app-close";
-import { useSessionStatusStore } from "@/stores/session-status-store";
+import type { AppCloseRequest } from "@/shared/app-close";
 
 const CLOSE_ERROR_TOAST_ID = "app-close:error";
+const CLOSE_LOADING_TOAST_ID = "app-close:loading";
+const CLOSE_CONFIRM_TOAST_ID = "app-close:confirm";
 
 function reportCloseFailure(error: unknown): void {
   toast.error("Could not close Cadencr", {
@@ -24,15 +21,14 @@ function reportCloseFailure(error: unknown): void {
   });
 }
 
-function lookupFeatureTitle(featureId: number | null, queryClient: QueryClient): string | null {
-  if (!featureId) return null;
-  for (const [, data] of queryClient.getQueriesData<{ id: number; title: string }[]>({
-    queryKey: getListFeaturesQueryKey(),
-  })) {
-    const feature = data?.find((f) => f.id === featureId);
-    if (feature) return feature.title;
-  }
-  return null;
+function confirmClose(request: AppCloseRequest): Promise<void> {
+  toast.loading(request.quitting ? "Stopping agents…" : "Closing the window…", {
+    id: CLOSE_CONFIRM_TOAST_ID,
+  });
+  return desktopBridge
+    .confirmClose(request.id)
+    .catch(reportCloseFailure)
+    .finally(() => toast.dismiss(CLOSE_CONFIRM_TOAST_ID));
 }
 
 // True when the focused tab in `featureId` still owns ⌘W — i.e. there's
@@ -59,94 +55,67 @@ export function shouldBypassAppClose(featureId: number | null): boolean {
   return false;
 }
 
-/** An agent mid-turn when the user asked to close, on any device. */
-export interface WorkingAgent {
-  sessionId: number;
-  label: string;
-  /** Mid-turn but blocked on a question or permission request. */
-  waitingOnYou: boolean;
-}
-
-function getWorkingAgents(queryClient: QueryClient): WorkingAgent[] {
-  const agents: WorkingAgent[] = [];
-  for (const [sessionId, entry] of Object.entries(useSessionStatusStore.getState().bySession)) {
-    if (entry.status === "idle") continue;
-    agents.push({
-      sessionId: Number(sessionId),
-      label: lookupFeatureTitle(entry.featureId, queryClient) ?? "Untitled conversation",
-      waitingOnYou: entry.status === "question",
-    });
-  }
-  return agents;
-}
-
-/**
- * The dev service outlives the app, so quitting cannot leave its agents
- * stopped the way a packaged build does (`setShutdownIntent`): stop them
- * instead. Which agents are working comes from the backend's status book, so
- * one started by a schedule, MCP or another device counts too: those with a
- * conversation open here are stopped over its socket, the others over HTTP.
- */
-export function interruptDevAgents(isDev: boolean = import.meta.env.DEV): boolean {
-  if (!isDev) return false;
-  const wsStore = useWsSessionStore.getState();
-  const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
-  for (const sessionId of loaded) wsStore.interrupt(sessionId);
-  void stopUnloadedAgents(unreachable);
-  return loaded.length > 0 || unreachable.length > 0;
-}
-
 export interface AppCloseState {
   /** The close waiting on the user's confirmation, or `null`. */
   request: AppCloseRequest | null;
-  agents: WorkingAgent[];
+  /** Null when the service could not list the active work. */
+  agents: ActiveCloseWork[] | null;
   cancel: () => void;
-  close: (choice: AppCloseChoice) => void;
+  close: () => void;
 }
 
-export function useAppClose(queryClient: QueryClient, activeFeatureId: number | null) {
+export function useAppClose(activeFeatureId: number | null) {
   const [request, setRequest] = useState<AppCloseRequest | null>(null);
-  const [agents, setAgents] = useState<WorkingAgent[]>([]);
+  const [agents, setAgents] = useState<ActiveCloseWork[] | null>(null);
+  const lookup = useRef<AbortController | null>(null);
 
-  // X button, ⌘Q, ⌘W, the Dock: the main process asks, and owns whether the
-  // answer closes the window or quits. It waits on the user only once told
-  // the confirmation is on screen; otherwise it closes without it.
-  const requestClose = useCallback(
-    (next: AppCloseRequest) => {
-      const working = getWorkingAgents(queryClient);
-      if (working.length === 0) {
-        // Nothing was asked, so nothing comes back on its own: background
-        // work the quit stops stays stopped, with a Resume button.
-        desktopBridge.confirmClose(QUIT_WITHOUT_ASKING).catch(reportCloseFailure);
-        return;
-      }
+  const requestClose = useCallback((next: AppCloseRequest) => {
+    lookup.current?.abort();
+    const controller = new AbortController();
+    lookup.current = controller;
+    setRequest(null);
+    toast.loading("Checking for active agents…", { id: CLOSE_LOADING_TOAST_ID });
+    const showDialog = (working: ActiveCloseWork[] | null): void => {
+      if (controller.signal.aborted) return;
       setAgents(working);
       setRequest(next);
-      desktopBridge.acknowledgeCloseRequest().catch(reportCloseFailure);
-    },
-    [queryClient],
-  );
+      desktopBridge.acknowledgeCloseRequest(next.id).catch(reportCloseFailure);
+    };
+    void getActiveCloseWork(AbortSignal.any([controller.signal, AbortSignal.timeout(2_000)]))
+      .then(
+        (working) => {
+          if (controller.signal.aborted) return;
+          if (working.length > 0) showDialog(working);
+          else return confirmClose(next);
+        },
+        () => showDialog(null),
+      )
+      .finally(() => {
+        if (lookup.current === controller) {
+          lookup.current = null;
+          toast.dismiss(CLOSE_LOADING_TOAST_ID);
+        }
+      });
+  }, []);
 
   const cancel = useCallback(() => {
+    if (!request) return;
     setRequest(null);
-    desktopBridge.cancelClose().catch(reportCloseFailure);
-  }, []);
+    desktopBridge.cancelClose(request.id).catch(reportCloseFailure);
+  }, [request]);
 
-  const close = useCallback((choice: AppCloseChoice) => {
+  const close = useCallback(() => {
+    if (!request) return;
     setRequest(null);
-    const confirm = (): void => {
-      desktopBridge.confirmClose(choice).catch(reportCloseFailure);
-    };
-    if (!choice.resumeAgents && interruptDevAgents()) {
-      // Let the interrupts reach the service before the window goes away.
-      setTimeout(confirm, 300);
-      return;
-    }
-    confirm();
-  }, []);
+    void confirmClose(request);
+  }, [request]);
 
   useEffect(() => {
-    return desktopBridge.onCloseRequested(requestClose);
+    const unsubscribe = desktopBridge.onCloseRequested(requestClose);
+    return () => {
+      unsubscribe();
+      lookup.current?.abort();
+    };
   }, [requestClose]);
 
   // CMD+Q → quit the app. This must go through Electron's quit path so

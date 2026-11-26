@@ -1,7 +1,7 @@
 use tracing::{error, info};
 
 use crate::domain::agents::adapter::{BackgroundAgentSignal, RuntimeError, RuntimeEvent};
-use crate::domain::restart_continuations::forget_user_stop;
+use crate::domain::restart_continuations::{mark_running_after_stop, TurnHandoff};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::runtime::helpers::{report_if_unsaved, AGENT_STOP_ESCALATED};
 
@@ -92,12 +92,14 @@ impl StreamReaderTask {
             self.db_session_id,
             "agent turn ended by service shutdown; the next start resumes it"
         );
-        crate::domain::restart_continuations::capture_cut_off_turn(
+        let captured = crate::domain::restart_continuations::capture_cut_off_turn(
             &self.write_pool,
             self.db_session_id,
         )
         .await;
-        self.fail_receipts_and_pause("at shutdown").await;
+        if captured {
+            self.fail_receipts_and_pause("at shutdown").await;
+        }
         true
     }
 
@@ -138,13 +140,20 @@ impl StreamReaderTask {
     }
 
     pub(in crate::domain::ws_session) async fn record_running(&self) {
-        // A turn the runtime started: the user's last Stop is over, and
-        // forgotten before `running` is written (see `forget_user_stop`).
-        let unstopped = forget_user_stop(&self.write_pool, self.db_session_id).await;
         let written =
             WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
-        self.check_write(written.and(unstopped), "that the agent is working")
-            .await;
+        self.finish_record_running(written).await;
+    }
+
+    pub(super) async fn record_running_after_result(&self) {
+        let written =
+            mark_running_after_stop(&self.write_pool, self.db_session_id, TurnHandoff::Provider)
+                .await;
+        self.finish_record_running(written).await;
+    }
+
+    async fn finish_record_running(&self, written: Result<(), sqlx::Error>) {
+        self.check_write(written, "that the agent is working").await;
         self.app_state
             .active_turns
             .resume_turn(self.db_session_id)
@@ -213,14 +222,18 @@ impl StreamReaderTask {
     }
 
     pub(super) async fn runtime_is_current(&self) -> bool {
+        if self.runtime_session_handle.is_none() {
+            return true;
+        }
+        let sessions = self.sdk_sessions.lock().await;
+        self.owns_runtime(sessions.get(&self.db_session_id))
+    }
+
+    pub(super) fn owns_runtime(&self, handle: Option<&super::super::SdkHandle>) -> bool {
         let Some(runtime) = self.runtime_session_handle.as_ref() else {
             return true;
         };
-        let sessions = self.sdk_sessions.lock().await;
-        let Some(handle) = sessions.get(&self.db_session_id) else {
-            return false;
-        };
-        let QueryState::Active { query, .. } = &handle.state else {
+        let Some(QueryState::Active { query, .. }) = handle.map(|handle| &handle.state) else {
             return false;
         };
         std::sync::Weak::ptr_eq(&std::sync::Arc::downgrade(query), runtime)

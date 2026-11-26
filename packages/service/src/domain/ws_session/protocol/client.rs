@@ -95,6 +95,7 @@ pub struct PermissionRespondPayload {
 pub enum GateCloseReason {
     Sleep,
     Escape,
+    Quit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

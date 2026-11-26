@@ -13,6 +13,7 @@ pub(crate) use registry::SessionRuntimeRegistry;
 
 pub(crate) mod access;
 pub(crate) mod control_policy;
+pub(crate) mod desktop_quit;
 pub(crate) mod detached_closes;
 pub(crate) mod detached_runtime;
 pub(crate) mod followup_stops;

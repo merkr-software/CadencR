@@ -48,6 +48,8 @@ pub(in crate::domain::ws_session) struct RuntimeHold {
     /// The user stopped the agent: until a new turn starts, the runtime owes
     /// it no resume, whatever it still runs.
     stopped_by_user: bool,
+    /// Do not change persisted work while a durable Stop can still be refused.
+    stop_pending: bool,
     /// The agent's pending wake-up. A newer one replaces it, like the timer.
     wakeup: Option<PendingWakeup>,
 }
@@ -59,8 +61,10 @@ impl RuntimeHold {
         &mut self,
         event: &RuntimeEvent,
         turn_in_progress: bool,
-    ) {
+    ) -> bool {
+        let stopped = self.stopped_by_user;
         self.observe_at(event, turn_in_progress, Instant::now());
+        stopped && !self.stopped_by_user
     }
 
     fn observe_at(&mut self, event: &RuntimeEvent, turn_in_progress: bool, now: Instant) {
@@ -125,12 +129,16 @@ impl RuntimeHold {
     /// The user stopped the agent: a restart must not bring back work it was
     /// going to resume for (see [`Self::owes_resume`]).
     pub(in crate::domain::ws_session) fn stop_by_user(&mut self) {
+        self.stop_pending = false;
         self.stopped_by_user = true;
     }
 
-    /// The Stop did not go through.
-    pub(in crate::domain::ws_session) fn cancel_stop_by_user(&mut self) {
-        self.stopped_by_user = false;
+    pub(super) fn set_stop_pending(&mut self, pending: bool) {
+        self.stop_pending = pending;
+    }
+
+    pub(super) fn stop_pending(&self) -> bool {
+        self.stop_pending
     }
 
     /// Whether a restart now would cut off a resume the runtime owes the

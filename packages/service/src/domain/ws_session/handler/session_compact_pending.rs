@@ -23,7 +23,15 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     db_session_id: i64,
     app_state: &AppState,
 ) -> Option<RuntimeSessionHandle> {
-    let _launch = app_state.session_runtimes.claim_spawn(db_session_id).await;
+    let Some(_launch) = app_state.session_runtimes.claim_spawn(db_session_id).await else {
+        send_error(
+            sender,
+            envelope_id,
+            "APP_QUITTING",
+            crate::domain::ws_session::runtime::registry::APP_QUITTING,
+        );
+        return None;
+    };
     let row = match WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await
     {
         Ok(row) => row,

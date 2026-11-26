@@ -1197,6 +1197,7 @@ version = "0.16.4"
 dependencies = [
  "bon",
  "futures 0.3.34",
+ "libc",
  "once_cell",
  "regex-lite",
  "tempfile",

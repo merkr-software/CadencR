@@ -25,6 +25,15 @@ use crate::app_state::AppState;
 use crate::config::Config;
 use crate::{dev_env, domain, remote, shared, shutdown, startup_lock};
 
+/// Drain the confirmed crashed sidecar's owned processes without opening
+/// SQLite, loading settings, starting listeners or consuming its quit slot.
+pub async fn run_desktop_quit_cleanup(database: &Path, epoch: uuid::Uuid) -> anyhow::Result<()> {
+    domain::restart_continuations::finish_cold_quit(database, epoch, |database, key| async move {
+        domain::agents::process_sessions::reap_for_quit(&database, &key).await
+    })
+    .await
+}
+
 /// Run the HTTP/WS service until it is asked to stop.
 pub async fn run_server(
     config: Config,
@@ -40,16 +49,23 @@ pub async fn run_server(
     // Before login_env, migrations or VACUUM: a second instance on the same
     // database fails here instead of racing this one's startup.
     let db_lock = startup_lock::acquire_db_lock(Path::new(&db_path))?;
+    let database = db_lock
+        .database()
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("the resolved database path must be UTF-8"))?;
     // Probe the port before slow startup work, then drop so `/api/health` gets
     // ECONNREFUSED until ready: the real listener is bound in `serve`.
     let addr = format!("127.0.0.1:{}", config.port);
     drop(serve::bind_listener(&addr).await?);
 
-    let pools = database::prepare(&config, &db_path).await?;
+    let pools = database::prepare(&config, database).await?;
     let settings_dir = settings::prepare(&config, &db_path, &pools).await?;
-    recovery::recover_interrupted_work(&pools.write, config.app_version.as_deref()).await?;
+    recovery::recover_interrupted_work(&pools.write, &config, db_lock.database()).await?;
 
-    let state = build_state(&config, pools, db_path)?;
+    let state = build_state(&config, pools, database.to_owned())?;
+    if config.desktop_quit_epoch.is_some() {
+        state.session_runtimes.set_desktop_owned();
+    }
     // Stale `running` rows were reset above; restore the status book
     // every client reads before any of them can connect.
     domain::session_status::restore_at_boot(&state).await?;

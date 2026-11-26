@@ -30,9 +30,13 @@ use crate::domain::agents::adapter::{
 pub(in crate::domain::agents::opencode) fn acp_command(
     binary: &Path,
     cwd: &Path,
+    session: Option<&cli_discovery::ChildSession>,
 ) -> tokio::process::Command {
-    let mut command =
-        cli_discovery::login_shell_exec_command(binary.as_os_str(), [OsString::from("acp")]);
+    let mut command = cli_discovery::login_shell_session_command(
+        binary.as_os_str(),
+        [OsString::from("acp")],
+        session,
+    );
     command.current_dir(cwd);
     command
 }
@@ -44,7 +48,8 @@ pub(in crate::domain::agents::opencode) async fn spawn_session(
 ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
     let enable_todos = !matches!(config.purpose, Some(RuntimePurpose::AutoName));
     let instructions_dir = apply_instruction_config(&mut config, enable_todos)?;
-    let mut command = acp_command(&binary, &config.cwd);
+    let child_session = crate::domain::agents::process_sessions::for_runtime(&config);
+    let mut command = acp_command(&binary, &config.cwd, child_session.as_ref());
     if let Some(env) = config.env.as_ref() {
         for (key, value) in env {
             command.env(key, value);
@@ -59,6 +64,7 @@ pub(in crate::domain::agents::opencode) async fn spawn_session(
     let wire = OpenCodeV2Wire::new(config.cwd.clone(), session_database());
     spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
         command,
+        child_session,
         // Keep any instructions file alive for the process lifetime via hooks.
         spawn_guard: None,
         client_info: AcpClientInfo::default(),

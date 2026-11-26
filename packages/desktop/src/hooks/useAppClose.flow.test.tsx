@@ -1,155 +1,104 @@
-// @vitest-environment happy-dom
-import { act, renderHook } from "@testing-library/react";
-import { QueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ActiveCloseWork } from "@/api/generated";
 import type { AppCloseRequest } from "@/shared/app-close";
-import {
-  clearDesktopBridgeOverrideForTests,
-  setDesktopBridgeOverrideForTests,
-  type CadencrBrowserBridge,
-} from "@/lib/desktop-bridge";
-import { useSessionStatusStore, type SessionStatusEntry } from "@/stores/session-status-store";
+import { useAppClose } from "./useAppClose";
 
-const shortcuts = vi.hoisted(() => new Map<string, (event: KeyboardEvent) => void>());
-vi.mock("@/hooks/useShortcut", () => ({
-  useGlobalShortcutById: (id: string, callback: (event: KeyboardEvent) => void) => {
-    shortcuts.set(id, callback);
+const mock = vi.hoisted(() => ({
+  receive: { current: undefined as ((request: AppCloseRequest) => void) | undefined },
+  list: vi.fn<() => Promise<ActiveCloseWork[]>>(),
+  confirm: vi.fn(async () => {}),
+  acknowledge: vi.fn(async () => {}),
+  cancel: vi.fn(async () => {}),
+  error: vi.fn(),
+}));
+
+vi.mock("@/api/generated", () => ({ getActiveCloseWork: mock.list }));
+vi.mock("@/hooks/useShortcut", () => ({ useGlobalShortcutById: vi.fn() }));
+vi.mock("sonner", () => ({
+  toast: { error: mock.error, loading: vi.fn(), dismiss: vi.fn() },
+}));
+vi.mock("@/lib/desktop-bridge", () => ({
+  desktopBridge: {
+    confirmClose: mock.confirm,
+    acknowledgeCloseRequest: mock.acknowledge,
+    cancelClose: mock.cancel,
+    onCloseRequested: (cb: (request: AppCloseRequest) => void) => {
+      mock.receive.current = cb;
+      return () => {
+        mock.receive.current = undefined;
+      };
+    },
   },
 }));
 
-const targets = vi.hoisted(() => ({ loaded: [] as string[], unreachable: [] as number[] }));
-vi.mock("@/stores/busy-session-targets", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/stores/busy-session-targets")>()),
-  busySessionTargets: () => targets,
-}));
+const QUIT = { id: 1, quitting: true };
+const BACKGROUND: ActiveCloseWork = {
+  session_id: 9,
+  feature_id: 4,
+  label: "Unopened conversation",
+  waiting_on_you: false,
+  background_only: true,
+};
 
-const stopUnloadedAgents = vi.hoisted(() => vi.fn(() => Promise.resolve()));
-vi.mock("@/stores/unloaded-agent-control", () => ({ stopUnloadedAgents }));
-
-const interrupt = vi.hoisted(() => vi.fn());
-vi.mock("@/stores/ws-session-store", () => ({
-  useWsSessionStore: { getState: () => ({ interrupt, sessions: {} }) },
-}));
-
-const { interruptDevAgents, useAppClose } = await import("@/hooks/useAppClose");
-
-function working(status: SessionStatusEntry["status"]): SessionStatusEntry {
-  return { status, kind: null, featureId: 3, seq: 1 };
-}
-
-function bridge() {
-  let onCloseRequested: (request: AppCloseRequest) => void = () => undefined;
-  const mock = {
-    isElectron: true,
-    onCloseRequested: vi.fn((callback: (request: AppCloseRequest) => void) => {
-      onCloseRequested = callback;
-      return () => undefined;
-    }),
-    confirmClose: vi.fn(() => Promise.resolve()),
-    acknowledgeCloseRequest: vi.fn(() => Promise.resolve()),
-    cancelClose: vi.fn(() => Promise.resolve()),
-    requestQuit: vi.fn(() => Promise.resolve()),
-    windowClose: vi.fn(() => Promise.resolve()),
-  } satisfies Partial<CadencrBrowserBridge>;
-  setDesktopBridgeOverrideForTests(mock);
-  return { mock, ask: (request: AppCloseRequest) => act(() => onCloseRequested(request)) };
-}
-
-function shortcut(id: string): void {
-  shortcuts.get(id)?.(new KeyboardEvent("keydown"));
+function ask(request = QUIT) {
+  act(() => mock.receive.current?.(request));
 }
 
 beforeEach(() => {
-  shortcuts.clear();
-  targets.loaded = [];
-  targets.unreachable = [];
-  interrupt.mockClear();
-  useSessionStatusStore.setState({ bySession: {} });
-});
-
-afterEach(() => {
-  clearDesktopBridgeOverrideForTests();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  mock.list.mockReset();
 });
 
 describe("useAppClose", () => {
-  it("confirms at once when no agent is working", () => {
-    const { mock, ask } = bridge();
-    const { result } = renderHook(() => useAppClose(new QueryClient(), null));
+  it("confirms without asking when the service lists no work", async () => {
+    mock.list.mockResolvedValue([]);
+    const { result } = renderHook(() => useAppClose(null));
+    ask();
 
-    ask({ quitting: true });
-
-    // Nothing was asked: background work the quit stops stays stopped.
-    expect(mock.confirmClose).toHaveBeenCalledWith({
-      resumeAgents: true,
-      resumeBackgroundWork: false,
-    });
-    expect(mock.acknowledgeCloseRequest).not.toHaveBeenCalled();
+    await waitFor(() => expect(mock.confirm).toHaveBeenCalledWith(QUIT.id));
     expect(result.current.request).toBeNull();
+    expect(mock.acknowledge).not.toHaveBeenCalled();
   });
 
-  it("tells main the confirmation is shown, then that it was cancelled", () => {
-    useSessionStatusStore.setState({ bySession: { 9: working("agent") } });
-    const { mock, ask } = bridge();
-    const { result } = renderHook(() => useAppClose(new QueryClient(), null));
+  it("asks about a conversation with background work even when no conversation is open", async () => {
+    mock.list.mockResolvedValue([BACKGROUND]);
+    const { result } = renderHook(() => useAppClose(null));
+    ask();
 
-    ask({ quitting: true });
-    expect(result.current.request).toEqual({ quitting: true });
-    expect(mock.acknowledgeCloseRequest).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.request).toEqual(QUIT));
+    expect(result.current.agents).toEqual([BACKGROUND]);
+    expect(mock.acknowledge).toHaveBeenCalledWith(QUIT.id);
 
-    act(() => result.current.cancel());
-
+    act(result.current.cancel);
     expect(result.current.request).toBeNull();
-    expect(mock.cancelClose).toHaveBeenCalledTimes(1);
-    expect(mock.confirmClose).not.toHaveBeenCalled();
+    expect(mock.cancel).toHaveBeenCalledWith(QUIT.id);
+    expect(mock.confirm).not.toHaveBeenCalled();
   });
 
-  it("closes the window through main on ⌘W instead of deciding what it does", () => {
-    const { mock } = bridge();
-    renderHook(() => useAppClose(new QueryClient(), null));
+  it("uses the matching request id when the user confirms after a failed lookup", async () => {
+    mock.list.mockRejectedValue(new Error("Service unavailable"));
+    const { result } = renderHook(() => useAppClose(null));
+    ask();
 
-    shortcut("app-close");
-
-    expect(mock.windowClose).toHaveBeenCalledTimes(1);
-    expect(mock.confirmClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.request).toEqual(QUIT));
+    expect(result.current.agents).toBeNull();
+    act(result.current.close);
+    expect(mock.confirm).toHaveBeenCalledExactlyOnceWith(QUIT.id);
   });
 
-  it("surfaces a confirmation main rejected", async () => {
-    const { mock, ask } = bridge();
-    mock.confirmClose.mockRejectedValueOnce(new Error("No close is waiting for confirmation."));
-    const error = vi.spyOn(toast, "error");
-    renderHook(() => useAppClose(new QueryClient(), null));
+  it("discards a late work lookup when quitting replaces a window close", async () => {
+    const lookup = Promise.withResolvers<ActiveCloseWork[]>();
+    mock.list.mockReturnValueOnce(lookup.promise).mockResolvedValueOnce([BACKGROUND]);
+    const { result } = renderHook(() => useAppClose(null));
 
-    ask({ quitting: false });
-    await act(() => Promise.resolve());
+    ask({ id: 1, quitting: false });
+    const quit = { id: 2, quitting: true };
+    ask(quit);
+    await waitFor(() => expect(result.current.request).toEqual(quit));
+    await act(async () => lookup.resolve([]));
 
-    expect(error).toHaveBeenCalledWith(
-      "Could not close Cadencr",
-      expect.objectContaining({ description: "No close is waiting for confirmation." }),
-    );
-  });
-});
-
-describe("interruptDevAgents", () => {
-  it("does nothing outside a dev build", () => {
-    targets.loaded = ["ws-1"];
-
-    expect(interruptDevAgents(false)).toBe(false);
-    expect(interrupt).not.toHaveBeenCalled();
-  });
-
-  it("interrupts every working agent the backend reports that this window can reach", () => {
-    targets.loaded = ["ws-1", "ws-2"];
-
-    expect(interruptDevAgents(true)).toBe(true);
-    expect(interrupt.mock.calls).toEqual([["ws-1"], ["ws-2"]]);
-  });
-
-  it("stops the agents this window has no conversation for over HTTP", () => {
-    targets.unreachable = [7, 8];
-
-    expect(interruptDevAgents(true)).toBe(true);
-    expect(stopUnloadedAgents).toHaveBeenCalledWith([7, 8]);
+    expect(result.current.request).toEqual(quit);
+    expect(mock.confirm).not.toHaveBeenCalled();
   });
 });

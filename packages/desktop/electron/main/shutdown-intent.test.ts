@@ -1,215 +1,127 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QUIT_WITHOUT_ASKING, RESUME_AGENTS } from "../../src/shared/app-close";
-import {
-  beforeQuitStep,
-  QuitIntentRecording,
-  recordQuitIntent,
-  sendShutdownIntent,
-} from "./shutdown-intent";
+import { stopLiveWorkForQuit, VoluntaryQuit, waitForStartupBeforeQuit } from "./shutdown-intent";
 
-const STOP_AGENTS = { resumeAgents: false, resumeBackgroundWork: false };
+const BASE_URL = "http://127.0.0.1:5004";
 
-describe("sendShutdownIntent", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
-  it("tells the service to keep the agents it stops stopped", async () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
-    vi.stubGlobal("fetch", fetch);
+describe("shutdown intent", () => {
+  it("asks the service to confirm the processes stopped", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", request);
 
-    await sendShutdownIntent("http://127.0.0.1:5004", "token", STOP_AGENTS);
+    await stopLiveWorkForQuit(BASE_URL, "isolated-test-token");
 
-    expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:5004/api/restart-continuations/shutdown-intent",
+    expect(request).toHaveBeenCalledExactlyOnceWith(
+      `${BASE_URL}/api/restart-continuations/prepare-desktop-quit`,
       expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({ resume_agents: false, resume_background_work: false }),
-        headers: expect.objectContaining({ "x-cadencr-token": "token" }),
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-cadencr-token": "isolated-test-token",
+        },
+        signal: expect.any(AbortSignal),
       }),
     );
   });
 
-  it("keeps only background work stopped after a quit nobody was asked about", async () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
-    vi.stubGlobal("fetch", fetch);
-
-    await sendShutdownIntent("http://127.0.0.1:5004", "token", QUIT_WITHOUT_ASKING);
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: JSON.stringify({ resume_agents: true, resume_background_work: false }),
-      }),
+  it("refuses a quit if an older service cannot verify a live stop", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", request);
+    await expect(stopLiveWorkForQuit(BASE_URL, null)).rejects.toThrow("returned 404");
+    expect(request).toHaveBeenCalledExactlyOnceWith(
+      `${BASE_URL}/api/restart-continuations/prepare-desktop-quit`,
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
-  it("sets resuming back when a quit fails after stopping was recorded", async () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
-    vi.stubGlobal("fetch", fetch);
-
-    await sendShutdownIntent("http://127.0.0.1:5004", "token", RESUME_AGENTS);
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: JSON.stringify({ resume_agents: true, resume_background_work: true }),
-      }),
+  it("bounds the wait for a booting service and allows a retry once ready", async () => {
+    vi.useFakeTimers();
+    const startup = Promise.withResolvers<void>();
+    const rejected = expect(waitForStartupBeforeQuit(startup.promise)).rejects.toThrow(
+      "still starting",
     );
+    await vi.runAllTimersAsync();
+    await rejected;
+    startup.resolve();
+    await expect(waitForStartupBeforeQuit(startup.promise)).resolves.toBeUndefined();
   });
 
-  it("fails loudly when the service does not record it", async () => {
+  it("reports a failed intent recording", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(new Response(null, { status: 401 }))),
+      vi.fn().mockResolvedValue(Response.json({ error: "Database unavailable" }, { status: 500 })),
     );
+    await expect(stopLiveWorkForQuit(BASE_URL, null)).rejects.toThrow(
+      "could not confirm that your agents stopped: Database unavailable",
+    );
+  });
+
+  it("restores Browser persistence if the service cannot confirm the stop", async () => {
+    const attempt = new VoluntaryQuit();
+    const prepareQuit = vi.fn().mockRejectedValueOnce(new Error("reply lost"));
+    const prepareBrowser = vi.fn(async () => {});
+    const resumeBrowser = vi.fn();
     await expect(
-      sendShutdownIntent("http://127.0.0.1:5004", null, QUIT_WITHOUT_ASKING),
-    ).rejects.toThrow(
-      "could not record that your agents should stay stopped: the service returned 401",
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("ECONNREFUSED"))),
-    );
-    await expect(sendShutdownIntent("http://127.0.0.1:5004", null, STOP_AGENTS)).rejects.toThrow(
-      "ECONNREFUSED",
-    );
-  });
-});
-
-describe("recordQuitIntent", () => {
-  const quitting = { quitting: true };
-  const recorder = (outcome: Promise<void> = Promise.resolve()) => ({
-    setShutdownIntent: vi.fn(() => outcome),
-  });
-
-  it("records nothing when everything resumes or the service keeps running", async () => {
-    const service = recorder();
-    const report = vi.fn();
-
-    expect(await recordQuitIntent(service, quitting, RESUME_AGENTS, report)).toBe(false);
-    // Closing the window on macOS leaves the service up: a later update must resume.
-    expect(await recordQuitIntent(service, { quitting: false }, QUIT_WITHOUT_ASKING, report)).toBe(
-      false,
-    );
-    expect(await recordQuitIntent(null, quitting, STOP_AGENTS, report)).toBe(false);
-    expect(service.setShutdownIntent).not.toHaveBeenCalled();
-  });
-
-  it("records a quit that keeps background work stopped", async () => {
-    const service = recorder();
-
-    expect(await recordQuitIntent(service, quitting, QUIT_WITHOUT_ASKING, vi.fn())).toBe(true);
-    expect(service.setShutdownIntent).toHaveBeenCalledWith(QUIT_WITHOUT_ASKING);
-  });
-
-  it("blocks the quit only over an answer the user gave", async () => {
-    const failure = () => recorder(Promise.reject(new Error("ECONNREFUSED")));
-    const report = vi.fn();
-
-    await expect(recordQuitIntent(failure(), quitting, STOP_AGENTS, report)).rejects.toThrow(
-      "ECONNREFUSED",
-    );
-    expect(await recordQuitIntent(failure(), quitting, QUIT_WITHOUT_ASKING, report)).toBe(false);
-    expect(report).toHaveBeenCalledWith("ECONNREFUSED");
-  });
-});
-
-describe("beforeQuitStep", () => {
-  type Flags = Parameters<typeof beforeQuitStep>[0];
-  const flags = ["allowClose", "hasWindow", "quitAnswered", "shutdownReady"] as const;
-  const every: Flags[] = Array.from({ length: 16 }, (_, bits) => ({
-    allowClose: Boolean(bits & 1),
-    hasWindow: Boolean(bits & 2),
-    quitAnswered: Boolean(bits & 4),
-    shutdownReady: Boolean(bits & 8),
-  }));
-  const label = (state: Flags) => flags.filter((flag) => state[flag]).join("+") || "none";
-
-  it.each(every.map((state) => [label(state), state] as const))("%s", (_, state) => {
-    const step = beforeQuitStep(state);
-    if (!state.allowClose && state.hasWindow) {
-      // The window asks the user first.
-      expect(step).toBe("ask-window");
-    } else if (state.shutdownReady) {
-      expect(step).toBe("quit");
-    } else if (state.quitAnswered) {
-      // The dialog's (or an update's) intent is already recorded.
-      expect(step).toBe("stop");
-    } else {
-      // Nobody was asked, whatever allowClose and the window say.
-      expect(step).toBe("stop-unasked");
-    }
-  });
-
-  it("records the Dock quit after a window closed normally on macOS", () => {
-    expect(
-      beforeQuitStep({
-        allowClose: true,
-        hasWindow: false,
-        quitAnswered: false,
-        shutdownReady: false,
+      attempt.prepare({
+        service: { prepareQuit },
+        prepareBrowser,
+        resumeBrowser,
       }),
-    ).toBe("stop-unasked");
+    ).rejects.toThrow("reply lost");
+    expect(prepareBrowser).toHaveBeenCalledBefore(prepareQuit);
+    expect(resumeBrowser).toHaveBeenCalledOnce();
   });
-});
 
-describe("QuitIntentRecording", () => {
-  const recorder = (outcome: Promise<void>) => ({ setShutdownIntent: vi.fn(() => outcome) });
-  function held() {
-    let release: () => void = () => undefined;
-    let fail: (error: Error) => void = () => undefined;
-    const promise = new Promise<void>((resolve, reject) => {
-      release = resolve;
-      fail = reject;
+  it("does not start an agent stop if the Browser cannot save", async () => {
+    const prepareQuit = vi.fn();
+    await expect(
+      new VoluntaryQuit().prepare({
+        service: { prepareQuit },
+        prepareBrowser: vi.fn().mockRejectedValue(new Error("Browser write failed")),
+        resumeBrowser: vi.fn(),
+      }),
+    ).rejects.toThrow("Browser write failed");
+    expect(prepareQuit).not.toHaveBeenCalled();
+  });
+
+  it("can prepare the browser for exit when no live service is attached", async () => {
+    const prepareBrowser = vi.fn(async () => {});
+    await new VoluntaryQuit().prepare({
+      service: null,
+      prepareBrowser,
+      resumeBrowser: vi.fn(),
     });
-    return { promise, release, fail };
-  }
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    expect(prepareBrowser).toHaveBeenCalledTimes(1);
+  });
 
-  it("makes a second quit wait for the PUT still in flight before stopping", async () => {
-    const recording = new QuitIntentRecording();
-    const put = held();
-    const service = recorder(put.promise);
-    void recording.track(
-      recordQuitIntent(service, { quitting: true }, STOP_AGENTS, vi.fn()).then(),
-    );
-    const stop = vi.fn(() => Promise.resolve());
+  it("waits for one durable decision, refuses the quit on error, and allows a retry", async () => {
+    const attempt = new VoluntaryQuit();
+    const checkpoint = Promise.withResolvers<void>();
+    const record = vi.fn().mockReturnValueOnce(checkpoint.promise).mockResolvedValueOnce(undefined);
+    const stop = vi.fn();
+    const quit = async () => {
+      await record();
+      stop();
+    };
 
-    const second = recording.stopWhenReady("stop", vi.fn(), stop);
-    await settle();
-    expect(service.setShutdownIntent).toHaveBeenCalledTimes(1);
+    const first = attempt.run(quit);
+    const second = attempt.run(quit);
+    await Promise.resolve();
+    expect(first).toBe(second);
+    expect(attempt.inProgress).toBe(true);
+    expect(record).toHaveBeenCalledTimes(1);
     expect(stop).not.toHaveBeenCalled();
 
-    put.release();
-    await second;
+    checkpoint.reject(new Error("disk unavailable"));
+    await expect(first).rejects.toThrow("disk unavailable");
+    expect(attempt.inProgress).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
+
+    await attempt.run(quit);
     expect(stop).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops nothing after a recording that failed: the first quit reports it", async () => {
-    const recording = new QuitIntentRecording();
-    const put = held();
-    const first = recording.track(
-      recordQuitIntent(recorder(put.promise), { quitting: true }, STOP_AGENTS, vi.fn()).then(),
-    );
-    const stop = vi.fn(() => Promise.resolve());
-    const second = recording.stopWhenReady("stop", vi.fn(), stop);
-
-    put.fail(new Error("ECONNREFUSED"));
-    await expect(first).rejects.toThrow("ECONNREFUSED");
-    await second;
-    expect(stop).not.toHaveBeenCalled();
-  });
-
-  it("records a quit nobody answered before stopping", async () => {
-    const recording = new QuitIntentRecording();
-    const order: string[] = [];
-    await recording.stopWhenReady(
-      "stop-unasked",
-      async () => void order.push("record"),
-      async () => void order.push("stop"),
-    );
-    expect(order).toEqual(["record", "stop"]);
   });
 });

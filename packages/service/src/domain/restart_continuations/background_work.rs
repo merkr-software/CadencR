@@ -7,105 +7,58 @@
 //! the conversation waits forever. The stream reader records here when its
 //! runtime starts and stops owing a resume; the restart capture reads it.
 //!
-//! A user's Stop ends that resume for good: [`record_user_stop`] forgets the
-//! record and remembers when, so a record written by a reader that decided
-//! before the Stop is never resumed either.
-
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 
 /// The form timestamps here are stored and compared in.
-fn stamp(at: DateTime<Utc>) -> String {
+pub(super) fn stamp(at: DateTime<Utc>) -> String {
     at.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
 }
 
-/// Record that the runtime of `session_id` owes the conversation a resume,
-/// as decided at `owed_since`, or (`None`) that it no longer does.
-pub async fn record_background_work(
+/// Publish work on behalf of the current reader, or forget only that reader's
+/// work. A stopped turn's reader may already be writing when Stop arrives.
+pub(crate) async fn write_background_work(
     pool: &SqlitePool,
     session_id: i64,
+    reader_id: &str,
     owed_since: Option<DateTime<Utc>>,
-) -> Result<(), sqlx::Error> {
-    match owed_since {
+) -> Result<bool, sqlx::Error> {
+    let result = match owed_since {
         Some(since) => {
             sqlx::query(
-                "INSERT OR IGNORE INTO agent_background_work (session_id, since) VALUES (?, ?)",
+                "INSERT INTO agent_background_work (session_id, since, reader_id)
+             SELECT ?1, ?2, ?3 WHERE NOT EXISTS (
+                 SELECT 1 FROM agent_user_stops WHERE session_id = ?1
+             )
+             ON CONFLICT(session_id) DO UPDATE SET
+                 since = excluded.since, reader_id = excluded.reader_id",
             )
             .bind(session_id)
             .bind(stamp(since))
+            .bind(reader_id)
             .execute(pool)
             .await?
         }
         None => {
-            sqlx::query("DELETE FROM agent_background_work WHERE session_id = ?")
+            sqlx::query("DELETE FROM agent_background_work WHERE session_id = ? AND reader_id = ?")
                 .bind(session_id)
+                .bind(reader_id)
                 .execute(pool)
                 .await?
         }
     };
-    Ok(())
+    Ok(owed_since.is_some() && result.rows_affected() == 1)
 }
 
-/// The user is stopping `session_id`'s agent: forget the resume its runtime
-/// owed, and remember the Stop so the restart capture skips any record from
-/// before it. Both in one write, before the runtime is told to stop: the
-/// marker that shows the stop comes later.
-pub async fn record_user_stop(
-    pool: &SqlitePool,
-    session_id: i64,
-    at: DateTime<Utc>,
-) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM agent_background_work WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query(
-        "INSERT INTO agent_user_stops (session_id, stopped_at) VALUES (?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET stopped_at = excluded.stopped_at",
-    )
-    .bind(session_id)
-    .bind(stamp(at))
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await
-}
-
-/// The runtime refused the user's Stop: the turn goes on. Undo
-/// [`record_user_stop`] in one write: forget the Stop (a crash must still
-/// resume the turn) and, when the runtime still owes it (`owed_since`), the
-/// resume of its background work.
-pub async fn undo_user_stop(
+#[cfg(test)]
+pub(crate) async fn record_background_work(
     pool: &SqlitePool,
     session_id: i64,
     owed_since: Option<DateTime<Utc>>,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM agent_user_stops WHERE session_id = ?")
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await?;
-    if let Some(since) = owed_since {
-        sqlx::query(
-            "INSERT OR IGNORE INTO agent_background_work (session_id, since) VALUES (?, ?)",
-        )
-        .bind(session_id)
-        .bind(stamp(since))
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await
-}
-
-/// A new turn starts in `session_id`: the user's last Stop no longer applies
-/// to it. Called before the turn is marked `running`, so a restart in between
-/// finds no running turn rather than this one marked stopped.
-pub async fn forget_user_stop(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM agent_user_stops WHERE session_id = ?")
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    Ok(())
+    write_background_work(pool, session_id, "test-reader", owed_since)
+        .await
+        .map(|_| ())
 }
 
 /// Forget every record once the restart capture has read them: the runtimes
@@ -150,23 +103,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_user_stop_forgets_the_record_and_remembers_when() {
+    async fn an_older_reader_cannot_clear_its_successors_work() {
         let (pool, _, feature_id) = fixture().await;
-        let stopped = session(&pool, feature_id, "running").await;
-        record_background_work(&pool, stopped, Some(Utc::now()))
+        let session_id = session(&pool, feature_id, "completed").await;
+        let since = Some(Utc::now());
+        write_background_work(&pool, session_id, "old", since)
             .await
             .unwrap();
-        let at = Utc::now();
+        write_background_work(&pool, session_id, "new", since)
+            .await
+            .unwrap();
 
-        record_user_stop(&pool, stopped, at).await.unwrap();
-        record_user_stop(&pool, stopped, at).await.unwrap();
+        write_background_work(&pool, session_id, "old", None)
+            .await
+            .unwrap();
 
+        assert_eq!(recorded(&pool).await, vec![session_id]);
+        write_background_work(&pool, session_id, "new", None)
+            .await
+            .unwrap();
         assert!(recorded(&pool).await.is_empty());
-        let stops: Vec<(i64, String)> =
-            sqlx::query_as("SELECT session_id, stopped_at FROM agent_user_stops")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
-        assert_eq!(stops, vec![(stopped, stamp(at))]);
     }
 }

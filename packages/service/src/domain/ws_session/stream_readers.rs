@@ -6,10 +6,11 @@
 use crate::shared::discard::SendIgnoreClosed;
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::panic::AssertUnwindSafe;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
+use futures::FutureExt;
 use tokio::task::JoinHandle;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
@@ -21,10 +22,9 @@ pub(crate) use signals::{ReaderSignals, TRANSCRIPT_SETTLE_TIMEOUT};
 
 #[allow(dead_code)] // Called by the service binary's shutdown module.
 pub(crate) const READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Cancelled once shutdown starts closing the runtimes.
 static CLOSING: LazyLock<CancellationToken> = LazyLock::new(CancellationToken::new);
-static READERS: LazyLock<Mutex<HashMap<u64, RegisteredReader>>> =
+static READERS: LazyLock<Mutex<HashMap<uuid::Uuid, RegisteredReader>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 struct RegisteredReader {
@@ -37,7 +37,7 @@ struct RegisteredReader {
     task: JoinHandle<()>,
 }
 
-fn readers() -> std::sync::MutexGuard<'static, HashMap<u64, RegisteredReader>> {
+fn readers() -> std::sync::MutexGuard<'static, HashMap<uuid::Uuid, RegisteredReader>> {
     READERS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -47,11 +47,12 @@ pub(crate) fn spawn<F>(
     db_session_id: i64,
     runtime: Option<RuntimeSessionWeakHandle>,
     signals: ReaderSignals,
+    write_pool: sqlx::SqlitePool,
     reader: F,
 ) where
     F: Future<Output = ()> + Send + 'static,
 {
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let id = signals.reader_id;
     let (start_tx, start_rx) = tokio::sync::oneshot::channel();
     let ledger_runtime = runtime.clone();
     let settle_guard = signals.settle_on_drop();
@@ -64,12 +65,18 @@ pub(crate) fn spawn<F>(
         // after a hard kill stops the agent process if it outlived us. Off the
         // reader's path, so the first event is not held behind the write.
         let ledger_entry = tokio::spawn(record_agent_process(db_session_id, ledger_runtime));
-        reader.await;
+        let panicked = AssertUnwindSafe(reader).catch_unwind().await.is_err();
         let ledger_entry = ledger_entry.await.unwrap_or_else(|error| {
             tracing::warn!(db_session_id, %error, "recording an agent process failed");
             None
         });
-        crate::domain::restart_continuations::forget_agent_process(ledger_entry).await;
+        if panicked {
+            tracing::error!(db_session_id, reader_id = %id, "agent stream reader panicked");
+            clean_up_panicked_reader(&write_pool, db_session_id, id).await;
+            // The runtime may still be alive. Keep its ledger entry for startup.
+        } else {
+            crate::domain::restart_continuations::forget_agent_process(ledger_entry).await;
+        }
         readers().remove(&id);
     });
     readers().insert(
@@ -84,12 +91,30 @@ pub(crate) fn spawn<F>(
     start_tx.send_ignore_closed(());
 }
 
+async fn clean_up_panicked_reader(pool: &sqlx::SqlitePool, session_id: i64, id: uuid::Uuid) {
+    use crate::domain::restart_continuations::{end_background_work, is_shutting_down};
+
+    if let Err(error) =
+        end_background_work(pool, session_id, &id.to_string(), is_shutting_down()).await
+    {
+        tracing::error!(session_id, reader_id = %id, %error, "could not clear the panicked reader's background work");
+    }
+}
+
 fn session_signals(db_session_id: i64) -> Vec<ReaderSignals> {
     readers()
         .values()
         .filter(|entry| entry.db_session_id == db_session_id)
         .map(|entry| entry.signals.clone())
         .collect()
+}
+
+pub(crate) async fn wait_for_session_transcript(session_id: i64) -> bool {
+    let tokens = session_signals(session_id)
+        .into_iter()
+        .map(|signals| signals.settled_token())
+        .collect();
+    signals::wait_all_settled(tokens, TRANSCRIPT_SETTLE_TIMEOUT).await
 }
 
 /// A viewer attached to `db_session_id`: ask its readers to re-send the full
@@ -291,7 +316,7 @@ fn report_join_result(result: Result<(), tokio::task::JoinError>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{close_failure_is_benign, join_within, report_close_failure};
+    use super::{close_failure_is_benign, join_within, report_close_failure, spawn, ReaderSignals};
     use std::time::Duration;
 
     use crate::domain::ws_session::handler::tests::support::{
@@ -357,5 +382,54 @@ mod tests {
             join_within(vec![blocked], Duration::from_millis(1)).await,
             1
         );
+    }
+
+    #[tokio::test]
+    async fn a_panicked_reader_only_removes_the_work_it_owned() {
+        use crate::domain::restart_continuations::write_background_work;
+
+        let state = make_test_app_state().await;
+        for has_successor in [false, true] {
+            let session_id = if has_successor { 92 } else { 91 };
+            insert_running_session(&state, session_id, 1).await;
+            let signals = ReaderSignals::default();
+            let settled = signals.settled_token();
+            let reader_id = signals.reader_id.to_string();
+            let (ready, reached) = tokio::sync::oneshot::channel();
+            let (fail, failing) = tokio::sync::oneshot::channel();
+            let pool = state.write_pool.clone();
+            spawn(session_id, None, signals, pool.clone(), async move {
+                write_background_work(&pool, session_id, &reader_id, Some(chrono::Utc::now()))
+                    .await
+                    .unwrap();
+                ready.send(()).unwrap();
+                failing.await.unwrap();
+                panic!("reader failed after recording background work");
+            });
+            reached.await.unwrap();
+            if has_successor {
+                write_background_work(
+                    &state.write_pool,
+                    session_id,
+                    "successor",
+                    Some(chrono::Utc::now()),
+                )
+                .await
+                .unwrap();
+            }
+            fail.send(()).unwrap();
+            tokio::time::timeout(Duration::from_secs(2), settled.cancelled())
+                .await
+                .unwrap();
+
+            let owner: Option<String> = sqlx::query_scalar(
+                "SELECT reader_id FROM agent_background_work WHERE session_id = ?",
+            )
+            .bind(session_id)
+            .fetch_optional(&state.write_pool)
+            .await
+            .unwrap();
+            assert_eq!(owner.as_deref(), has_successor.then_some("successor"));
+        }
     }
 }

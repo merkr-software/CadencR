@@ -89,7 +89,7 @@ fn exited_meanwhile(child: &mut Child, error: std::io::Error) -> Result<(), Stri
 /// Let the pumps capture the output still buffered in the pipes, but stop
 /// waiting (and reading) for a descendant that keeps them open after the
 /// command exited. The descendant itself keeps running.
-async fn drain_pumps(mut pumps: Vec<JoinHandle<()>>) {
+pub(super) async fn drain_pumps(mut pumps: Vec<JoinHandle<()>>) {
     let drained = timeout(PUMP_DRAIN_TIMEOUT, async {
         for pump in &mut pumps {
             if let Err(error) = pump.await {

@@ -6,12 +6,13 @@ pub(crate) fn profile_aware_command(
     args: &[String],
     env: Option<&HashMap<String, String>>,
     env_unset: &[String],
+    session: Option<&cli_discovery::ChildSession>,
 ) -> tokio::process::Command {
     // The service environment is hydrated from the user's login shell at
     // startup. Execute directly so profile secrets never appear in `sh -c`
     // argv, then apply the per-process overlay/removals without mutating the
     // service's global environment.
-    let mut command = tokio::process::Command::new(program);
+    let mut command = cli_discovery::session_command(program, session);
     command.args(args);
     if let Some(env) = env {
         command.envs(env);
@@ -39,6 +40,7 @@ mod tests {
             &["app-server".to_string()],
             Some(&env),
             &["OPENAI_API_KEY".to_string()],
+            None,
         );
         let args = command
             .as_std()

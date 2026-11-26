@@ -75,7 +75,7 @@ async fn init_during_launch_preserves_pending_options_for_cancelled_retry() {
         };
         options.clone()
     };
-    let launch = state.session_runtimes.claim_spawn(id).await;
+    let launch = state.session_runtimes.claim_spawn(id).await.unwrap();
     let (viewer, mut viewer_rx) = mpsc::unbounded_channel();
     let response = init_session_and_get_response(
         &viewer,
@@ -95,7 +95,7 @@ async fn init_during_launch_preserves_pending_options_for_cancelled_retry() {
     .await;
     assert_eq!(response.model, expected.model);
     drop(launch); // Cancellation must release ownership without consuming config.
-    let _retry = state.session_runtimes.claim_spawn(id).await;
+    let _retry = state.session_runtimes.claim_spawn(id).await.unwrap();
     let handles = cell.lock().await;
     let QueryState::Pending(options) = &handles.get(&id).unwrap().state else {
         unreachable!()

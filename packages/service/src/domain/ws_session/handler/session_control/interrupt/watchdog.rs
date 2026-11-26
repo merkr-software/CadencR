@@ -243,9 +243,16 @@ impl StopWatch {
             .active_turns
             .end_turn(self.db_session_id)
             .await;
-        WsSessionPersistence::persist_turn_interrupted_static(
-            &self.app_state.write_pool,
+        report_if_unsaved(
+            &self.app_state.ws_feature_senders,
+            self.feature_id,
             self.db_session_id,
+            "the interruption marker",
+            crate::domain::restart_continuations::write_stop_marker(
+                &self.app_state.write_pool,
+                self.db_session_id,
+            )
+            .await,
         )
         .await;
         WsSessionPersistence::persist_error_message_static(

@@ -264,7 +264,7 @@ mod tests {
             }
             current.desired_model = Some("existing-model".into());
             let claim = if spawning {
-                Some(state.session_runtimes.claim_spawn(11).await)
+                state.session_runtimes.claim_spawn(11).await
             } else {
                 None
             };

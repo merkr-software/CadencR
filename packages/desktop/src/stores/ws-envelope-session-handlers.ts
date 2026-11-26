@@ -89,7 +89,7 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
       ...gatePatch,
       lifecycle: transitionTurn(session.lifecycle, {
         type: "turn_ended",
-        reason: p.reason === "sleep" ? "streamClosed" : "denied",
+        reason: p.reason === "escape" ? "denied" : "streamClosed",
       }),
     }),
   );

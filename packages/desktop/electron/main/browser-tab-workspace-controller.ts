@@ -295,6 +295,10 @@ export class BrowserTabWorkspaceController {
     }
   }
 
+  resumeAfterShutdownAbort(): void {
+    this.persistence.unfreeze();
+  }
+
   private scheduleCurrentScopes(
     liveTabs: Map<string, ManagedTab>,
     activeByScope: Map<number | null, string>,

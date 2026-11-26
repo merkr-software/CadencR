@@ -5,7 +5,7 @@
 //! `terminal/release` act even while a `terminal/wait_for_exit` is pending,
 //! and any number of waiters observe the same published exit status.
 //!
-//! A kill stops the command's whole process group: SIGTERM first, then, once
+//! A kill stops the command's owned processes: SIGTERM first, then, once
 //! `KILL_GRACE` passes, SIGKILL for whatever is left (the leader included).
 //! Output capture after the exit is bounded by `PUMP_DRAIN_TIMEOUT`, so a
 //! descendant that keeps the pipes open cannot hold the exit status back. A
@@ -13,6 +13,7 @@
 //! with `&`) lives on until a kill, a release, the session closing or the
 //! service shutting down.
 
+mod owned;
 mod supervisor;
 
 use serde_json::{json, Value};
@@ -34,7 +35,7 @@ pub(super) struct TerminalProcess {
     kill_tx: mpsc::UnboundedSender<KillReply>,
     exit_rx: watch::Receiver<Option<ExitOutcome>>,
     pump_aborts: Vec<AbortHandle>,
-    group: TerminalGroup,
+    group: Option<TerminalGroup>,
     /// `None` once released: the supervisor is left to reap the killed child.
     supervisor: Option<JoinHandle<()>>,
 }
@@ -46,14 +47,28 @@ pub(super) struct TerminalExitWaiter(watch::Receiver<Option<ExitOutcome>>);
 impl TerminalProcess {
     /// `pumps` drain the child's stdout/stderr; the exit status is published
     /// only after they finish (or `PUMP_DRAIN_TIMEOUT` passes) so
-    /// `terminal/output` is complete by then. The child must have been spawned
-    /// after `terminal_group::isolate`.
-    pub(super) fn start(child: Child, pumps: Vec<JoinHandle<()>>) -> Self {
+    /// `terminal/output` is complete by then. The child must be isolated by
+    /// its session owner or `terminal_group::isolate` before spawn.
+    pub(super) fn start(
+        child: Child,
+        pumps: Vec<JoinHandle<()>>,
+        owner: Option<cli_discovery::ChildSession>,
+    ) -> Self {
         let (kill_tx, kill_rx) = mpsc::unbounded_channel();
         let (exit_tx, exit_rx) = watch::channel(None);
         let pump_aborts = pumps.iter().map(JoinHandle::abort_handle).collect();
-        let group = TerminalGroup::of(&child);
-        let supervisor = tokio::spawn(supervise(child, group, kill_rx, pumps, exit_tx));
+        let (group, supervisor) = if let Some(owner) = owner {
+            (
+                None,
+                tokio::spawn(owned::supervise(child, owner, kill_rx, pumps, exit_tx)),
+            )
+        } else {
+            let group = TerminalGroup::of(&child);
+            (
+                Some(group),
+                tokio::spawn(supervise(child, group, kill_rx, pumps, exit_tx)),
+            )
+        };
         Self {
             kill_tx,
             exit_rx,
@@ -74,24 +89,31 @@ impl TerminalProcess {
         TerminalExitWaiter(self.exit_rx.clone())
     }
 
-    pub(super) fn group(&self) -> TerminalGroup {
+    pub(super) fn group(&self) -> Option<TerminalGroup> {
         self.group
     }
 
-    /// Kill the command's process group: the running command and everything
-    /// it started, or, once the command exited, whatever it left running.
+    /// Kill the command and the owned work it left running.
     pub(super) async fn kill(&self) -> Result<(), String> {
         let (reply_tx, reply_rx) = oneshot::channel();
         if self.kill_tx.send(reply_tx).is_ok() {
-            if let Ok(killed) = reply_rx.await {
-                return killed;
+            match tokio::time::timeout(Duration::from_secs(8), reply_rx).await {
+                Ok(Ok(killed)) => return killed,
+                Err(_) => return Err("the terminal processes have not stopped yet".into()),
+                Ok(Err(_)) => {}
             }
         }
         // The supervisor already observed the exit (a dropped reply means the
         // child exited before the request was read).
-        self.group
-            .stop_after_exit(KILL_GRACE)
-            .map_err(|error| error.to_string())
+        match self.group {
+            Some(group) => group
+                .stop_after_exit(KILL_GRACE)
+                .map_err(|error| error.to_string()),
+            None => match self.exit_rx.borrow().as_ref() {
+                Some(Err(error)) => Err(error.clone()),
+                _ => Ok(()),
+            },
+        }
     }
 
     /// Kill, stop capturing output, and let the supervisor reap the child in
@@ -108,12 +130,10 @@ impl TerminalProcess {
 
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
-        // Registry dropped with the session: dropping the child kills it
-        // (`kill_on_drop`) and the runtime reaps it; its group, including what
-        // an exited command left running, goes with it. A released process
-        // already stopped its group.
-        if let Some(supervisor) = self.supervisor.take() {
-            self.group.kill_on_drop();
+        // The owned supervisor drains on channel close. The legacy supervisor
+        // is cancelled after stopping its process group.
+        if let (Some(supervisor), Some(group)) = (self.supervisor.take(), self.group) {
+            group.kill_on_drop();
             supervisor.abort();
         }
         for pump in &self.pump_aborts {
@@ -177,7 +197,7 @@ mod tests {
             child.stderr.take(),
             Arc::clone(&output),
         );
-        (TerminalProcess::start(child, pumps), output)
+        (TerminalProcess::start(child, pumps, None), output)
     }
 
     /// The descendant is reparented to init once the shell is gone, which
@@ -295,7 +315,7 @@ mod tests {
             .0
             .starts_with(&descendant.to_string()));
         assert!(alive(descendant), "a natural exit kills nothing");
-        assert!(process.group().is_tracked());
+        assert!(process.group().unwrap().is_tracked());
 
         within(process.release()).await.expect("release succeeds");
         for _ in 0..150 {
@@ -316,7 +336,7 @@ mod tests {
         within(process.kill()).await.expect("kill succeeds");
         // The group is forgotten once the background escalation sees it empty.
         for _ in 0..150 {
-            if !alive(descendant) && !process.group().is_tracked() {
+            if !alive(descendant) && !process.group().unwrap().is_tracked() {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -330,7 +350,7 @@ mod tests {
         let exit = within(process.exit_waiter().wait()).await.unwrap();
         assert_eq!(exit["exitCode"], 3);
         assert!(
-            !process.group().is_tracked(),
+            !process.group().unwrap().is_tracked(),
             "an empty group is forgotten at the exit"
         );
         assert_eq!(process.exit_info().unwrap().exit_code, Some(3));

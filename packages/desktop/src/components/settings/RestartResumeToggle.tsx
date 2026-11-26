@@ -12,7 +12,7 @@ export function RestartResumeToggle(): React.JSX.Element {
   return (
     <SettingsSwitchRow
       label="Resume agents after a restart"
-      description="Updating or restarting Cadencr stops the agents that are working. When it starts again, Cadencr continues each interrupted conversation, asks the agent to redo what was cut off, and tells you which agents it resumed."
+      description="After an update, a service restart, or a crash, Cadencr resumes interrupted agents and asks them to redo what was cut off. If you quit Cadencr, you can resume stopped work from its conversation."
       checked={enabled}
       onCheckedChange={setEnabled}
       disabled={isLoading}

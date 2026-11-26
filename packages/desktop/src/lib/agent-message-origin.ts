@@ -19,6 +19,7 @@ export const RESTART_INTERRUPTION = "restart";
  * had left running after its turn ended.
  */
 export const RESTART_BACKGROUND_INTERRUPTION = "restart_background";
+export const QUIT_BACKGROUND_INTERRUPTION = "quit_background";
 
 /** `turn_interrupted` content for a turn the user stopped by quitting Cadencr. */
 export const QUIT_INTERRUPTION = "quit";
@@ -36,7 +37,9 @@ export function isServiceStopMarker(block: AgentBlockData): boolean {
   return (
     isRestartInterruptionMarker(block) ||
     (block.type === "turn_interrupted" &&
-      (block.content === QUIT_INTERRUPTION || block.content === RESTART_BACKGROUND_INTERRUPTION))
+      (block.content === QUIT_INTERRUPTION ||
+        block.content === RESTART_BACKGROUND_INTERRUPTION ||
+        block.content === QUIT_BACKGROUND_INTERRUPTION))
   );
 }
 

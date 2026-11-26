@@ -57,6 +57,7 @@ impl WsSessionPersistence {
             crate::domain::sessions::user_messages::PersistUserMessageError::MissingSessionId,
         )?;
         let mut tx = self.write_pool.begin().await?;
+        crate::domain::restart_continuations::settle_before_prompt(&mut tx, session_id).await?;
         let message = crate::domain::sessions::user_messages::persist_user_message(
             &mut tx,
             crate::domain::sessions::user_messages::NewUserMessage {

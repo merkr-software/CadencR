@@ -66,8 +66,9 @@ pub(in crate::domain::agents::opencode) fn acp_command(
     binary: &Path,
     cwd: &OsStr,
     port: u16,
+    session: Option<&cli_discovery::ChildSession>,
 ) -> tokio::process::Command {
-    cli_discovery::login_shell_exec_command(
+    cli_discovery::login_shell_session_command(
         binary.as_os_str(),
         [
             OsString::from("acp"),
@@ -78,6 +79,7 @@ pub(in crate::domain::agents::opencode) fn acp_command(
             OsString::from("--port"),
             OsString::from(port.to_string()),
         ],
+        session,
     )
 }
 
@@ -92,7 +94,7 @@ pub(in crate::domain::agents::opencode) async fn spawn_acp_probe(
     }
     AcpClient::spawn(
         AcpSpawnOptions::builder()
-            .command(v2::acp_command(&installation.path, Path::new(cwd)))
+            .command(v2::acp_command(&installation.path, Path::new(cwd), None))
             .client_info(AcpClientInfo::default())
             .build(),
     )
@@ -108,7 +110,7 @@ pub(in crate::domain::agents::opencode) async fn spawn_headless_acp(
     let port_reservation = reserve_local_port()?;
     let port = port_reservation.port();
     let binary = opencode_sdk_rs::process::resolve_binary().await?;
-    let mut command = acp_command(&binary, cwd, port);
+    let mut command = acp_command(&binary, cwd, port, None);
     command.env("OPENCODE_ENABLE_QUESTION_TOOL", "0");
 
     let client = AcpClient::spawn(
@@ -144,7 +146,13 @@ async fn spawn_v1_session(
     let reserved_question_port = reserve_local_port()?;
     let question_port = reserved_question_port.port();
     let instructions_dir = apply_instruction_config(&mut config, false)?;
-    let mut command = acp_command(&binary, config.cwd.as_os_str(), question_port);
+    let child_session = crate::domain::agents::process_sessions::for_runtime(&config);
+    let mut command = acp_command(
+        &binary,
+        config.cwd.as_os_str(),
+        question_port,
+        child_session.as_ref(),
+    );
     // Opt into OpenCode's interactive `question` tool. Disabled by default
     // in ACP mode (PR opencode#11379) because some clients can't render
     // multi-option prompts. Cadencr DOES — we route the tool_call through
@@ -182,6 +190,7 @@ async fn spawn_v1_session(
     ));
     spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
         command,
+        child_session,
         spawn_guard: Some(Box::new(reserved_question_port)),
         client_info: AcpClientInfo::default(),
         stderr_policy: AcpStderrPolicy::Log,

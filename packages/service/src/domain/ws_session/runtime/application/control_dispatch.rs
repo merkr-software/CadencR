@@ -50,6 +50,9 @@ async fn dispatch_control_prompt_inner(
     origin: PromptOrigin,
     sender: &SessionOutput,
 ) -> Result<(), AppError> {
+    if !app_state.session_runtimes.accepting_prompts() {
+        return Err(super::super::registry::quit_conflict());
+    }
     require_session_row(&app_state.read_pool, feature_id, session_id).await?;
     McpSettings::read()?;
     if dispatch_to_active_owner(app_state, sender, session_id, payload.clone(), origin).await? {
@@ -164,7 +167,11 @@ async fn dispatch_control_pending(
     payload: PromptSendPayload,
     origin: PromptOrigin,
 ) -> Result<(), AppError> {
-    let spawn_claim = app_state.session_runtimes.claim_spawn(session_id).await;
+    let spawn_claim = app_state
+        .session_runtimes
+        .claim_spawn(session_id)
+        .await
+        .ok_or_else(super::super::registry::quit_conflict)?;
     let feature_id = {
         let guard = sessions.lock().await;
         guard
@@ -358,7 +365,7 @@ mod tests {
         sessions.lock().await.insert(7, handle);
         state.session_runtimes.bind(7, &sessions).await;
         for _ in 0..2 {
-            let claim = state.session_runtimes.claim_spawn(7).await;
+            let claim = state.session_runtimes.claim_spawn(7).await.unwrap();
             let context = pending_context_from_handle(
                 &state,
                 &SessionOutput::headless(),

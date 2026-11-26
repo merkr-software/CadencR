@@ -353,7 +353,7 @@ pub(crate) async fn handle_clear(
 mod tests {
     use super::*;
     use crate::domain::ws_session::handler::tests::support::{
-        make_active_handle, make_test_app_state,
+        insert_running_session, make_active_handle, make_test_app_state,
     };
     use crate::domain::ws_session::handler::types::new_sdk_sessions;
 
@@ -362,12 +362,13 @@ mod tests {
     #[tokio::test]
     async fn a_stop_during_a_launch_stops_the_turn_it_starts() {
         let app_state = make_test_app_state().await;
+        insert_running_session(&app_state, 51, 1).await;
         let sessions = new_sdk_sessions();
         let mut pending = make_active_handle(1, None);
         pending.state = QueryState::Pending(RuntimeSpawnConfig::default());
         sessions.lock().await.insert(51, pending);
         app_state.session_status_tx.broadcast_running(51, 1);
-        let launch = app_state.session_runtimes.claim_spawn(51).await;
+        let launch = app_state.session_runtimes.claim_spawn(51).await.unwrap();
 
         let stop = tokio::spawn({
             let app_state = app_state.clone();
@@ -398,7 +399,7 @@ mod tests {
         pending.state = QueryState::Pending(RuntimeSpawnConfig::default());
         sessions.lock().await.insert(52, pending);
         app_state.session_status_tx.broadcast_running(52, 1);
-        let launch = app_state.session_runtimes.claim_spawn(52).await;
+        let launch = app_state.session_runtimes.claim_spawn(52).await.unwrap();
 
         let stop = tokio::spawn({
             let app_state = app_state.clone();

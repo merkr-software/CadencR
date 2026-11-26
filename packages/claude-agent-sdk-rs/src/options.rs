@@ -75,6 +75,8 @@ pub struct Options {
     /// [`Query::pid`](crate::Query::pid) once it has exited.
     #[builder(default)]
     pub own_process_group: bool,
+    /// A host-owned POSIX session, with cleanup before its leader is reaped.
+    pub child_session: Option<cli_discovery::ChildSession>,
     /// Extra environment variables layered on top of the inherited parent env
     /// before spawning the CLI. Use this to switch Claude Code between
     /// Anthropic / Bedrock / Vertex / custom proxies without relaunching the

@@ -37,6 +37,7 @@ pub struct AcpSpawnOptions {
     /// Opt-in process-tree ownership. Built-ins preserve their current behavior.
     #[builder(default)]
     pub process_tree_policy: AcpProcessTreePolicy,
+    pub child_session: Option<cli_discovery::ChildSession>,
     #[builder(default)]
     pub exclude_launcher_ports: bool,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,

@@ -11,8 +11,10 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 /// buffered text before it rewrites the transcript anyway.
 pub(crate) const TRANSCRIPT_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct ReaderSignals {
+    /// Stable across the reader and its supervisor, unique across service starts.
+    pub reader_id: uuid::Uuid,
     /// A viewer attached to the session: the reader re-sends the full text of
     /// its live blocks (see `StreamReaderTask::send_live_catch_up`). `Notify`
     /// keeps one permit, so a request made while the reader is busy with an
@@ -21,6 +23,16 @@ pub(crate) struct ReaderSignals {
     /// Cancelled once the reader wrote its last transcript row, so nothing it
     /// buffered can land after a caller rewrites the transcript.
     settled: CancellationToken,
+}
+
+impl Default for ReaderSignals {
+    fn default() -> Self {
+        Self {
+            reader_id: uuid::Uuid::new_v4(),
+            catch_up: Arc::default(),
+            settled: CancellationToken::new(),
+        }
+    }
 }
 
 impl ReaderSignals {

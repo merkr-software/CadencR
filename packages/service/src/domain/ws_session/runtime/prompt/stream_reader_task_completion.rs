@@ -172,6 +172,17 @@ impl StreamReaderTask {
         interrupted_generation: u64,
         detached_reply: bool,
     ) -> Option<WsEnvelope> {
+        // Detached results already hold this lock across their dispatch.
+        let _generation_guard = if detached_reply {
+            None
+        } else {
+            Some(
+                self.app_state
+                    .active_turns
+                    .lock_turn_generation(self.db_session_id)
+                    .await,
+            )
+        };
         if !self
             .app_state
             .active_turns
@@ -195,8 +206,15 @@ impl StreamReaderTask {
         }
         // Both ways a stopped turn ends (its runtime's interrupted result, or
         // the runtime closing mid-interrupt) pass here exactly once.
-        WsSessionPersistence::persist_turn_interrupted_static(&self.write_pool, self.db_session_id)
-            .await;
+        self.check_write(
+            crate::domain::restart_continuations::write_stop_marker(
+                &self.write_pool,
+                self.db_session_id,
+            )
+            .await,
+            "the interruption marker",
+        )
+        .await;
         if let Some(gate) = self.gate_left_pending().await {
             self.show_gate_left_pending(gate);
         } else {

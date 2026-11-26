@@ -5,19 +5,21 @@ import { CONTINUE_PROMPT } from "@/lib/agent-error-presentation";
 import { formatStreamTimestamp } from "@/lib/date-utils";
 import {
   COMPACTION_STOPPED_INTERRUPTION,
+  QUIT_BACKGROUND_INTERRUPTION,
   QUIT_INTERRUPTION,
   RESTART_BACKGROUND_INTERRUPTION,
   RESTART_INTERRUPTION,
 } from "@/lib/agent-message-origin";
 import { useAgentSessionContext } from "./agent-session/agent-session-context";
 
-type InterruptionKind = "restart" | "background" | "quit" | "compact" | "user";
+type InterruptionKind = "restart" | "background" | "quit" | "quit-background" | "compact" | "user";
 
 /** Marker content → what stopped the work; anything else is a user stop. */
 const INTERRUPTION_KINDS = new Map<string, InterruptionKind>([
   [RESTART_INTERRUPTION, "restart"],
   [RESTART_BACKGROUND_INTERRUPTION, "background"],
   [QUIT_INTERRUPTION, "quit"],
+  [QUIT_BACKGROUND_INTERRUPTION, "quit-background"],
   [COMPACTION_STOPPED_INTERRUPTION, "compact"],
 ]);
 
@@ -28,6 +30,8 @@ const INTERRUPTION_KINDS = new Map<string, InterruptionKind>([
  */
 const BACKGROUND_STOPPED_PROMPT =
   "Cadencr restarted and stopped the background work you had left running, so you will not be notified about it. Check what it managed to do, re-run what is still needed, and continue where you left off.";
+const QUIT_BACKGROUND_STOPPED_PROMPT =
+  "The user quit Cadencr, which stopped the background work you had left running and cancelled any scheduled wake-up. Check what the work managed to do, re-run what is still needed, and continue where you left off.";
 
 const INTERRUPTIONS: Record<
   InterruptionKind,
@@ -44,6 +48,12 @@ const INTERRUPTIONS: Record<
     Icon: TimerOff,
     iconClassName: "size-3",
     resumePrompt: BACKGROUND_STOPPED_PROMPT,
+  },
+  "quit-background": {
+    label: "Background tasks stopped when you quit Cadencr",
+    Icon: Power,
+    iconClassName: "size-3",
+    resumePrompt: QUIT_BACKGROUND_STOPPED_PROMPT,
   },
   quit: {
     label: "Stopped when you quit Cadencr",
@@ -67,8 +77,8 @@ const INTERRUPTIONS: Record<
 };
 
 /**
- * Where a turn was cut short — by the user, by quitting Cadencr and choosing
- * to stop the agents, or by a Cadencr restart (an app update, a rebuild, a
+ * Where a turn was cut short — by the user, by quitting Cadencr, or by a
+ * Cadencr restart (an app update, a rebuild, a
  * crash) — where a restart stopped the background work an agent had left
  * running after its turn, or where the user stopped a manual compaction
  * before it began.

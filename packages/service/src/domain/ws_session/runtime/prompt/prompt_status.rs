@@ -1,7 +1,7 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 
-use crate::domain::restart_continuations::forget_user_stop;
+use crate::domain::restart_continuations::{mark_running_after_stop, TurnHandoff};
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
 use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::{
@@ -386,13 +386,9 @@ pub(crate) async fn mark_agent_running(
 ) {
     // The owner pointer lets a remote device answer a gate against this turn.
     active_turns.begin_turn(db_session_id, owner).await;
-    // A new turn: the user's last Stop is forgotten first (see `forget_user_stop`).
-    let unstopped = forget_user_stop(write_pool, db_session_id).await;
     // The reader reads this status to tell a crash from a deliberate close;
     // without it an unexpected stop would end the turn silently.
-    let running = WsSessionPersistence::mark_running_static(write_pool, db_session_id)
-        .await
-        .and(unstopped);
+    let running = mark_running_after_stop(write_pool, db_session_id, TurnHandoff::Prompt).await;
     let what = "that the agent is working";
     super::super::helpers::report_if_unsaved(
         feature_senders,
@@ -696,6 +692,10 @@ mod tests {
         let app_state =
             crate::domain::ws_session::handler::tests::support::make_test_app_state().await;
         let id = 4401;
+        crate::domain::ws_session::handler::tests::support::insert_running_session(
+            &app_state, id, 1,
+        )
+        .await;
         crate::domain::restart_continuations::record_user_stop(
             &app_state.write_pool,
             id,

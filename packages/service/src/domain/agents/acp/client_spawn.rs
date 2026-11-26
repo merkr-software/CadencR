@@ -14,7 +14,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::domain::agents::acp::client::{AcpClient, AcpSpawnOptions};
+use crate::domain::agents::acp::client::{AcpClient, AcpSpawnOptions, AcpStderrPolicy};
 use crate::domain::agents::acp::client_dispatch::{EventDispatchHandler, ServerResponders};
 use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::event_hub::AcpEventHub;
@@ -88,30 +88,45 @@ struct SpawnedProcess {
     port_exclusion: Option<ProviderProcess>,
 }
 
-pub(super) async fn spawn_acp_subprocess(
-    mut options: AcpSpawnOptions,
-) -> Result<AcpClient, AcpError> {
-    options
-        .command
+struct ConnectionOptions {
+    client_info: AcpClientInfo,
+    max_line_bytes: Option<usize>,
+    stderr_policy: AcpStderrPolicy,
+}
+
+pub(super) async fn spawn_acp_subprocess(options: AcpSpawnOptions) -> Result<AcpClient, AcpError> {
+    let AcpSpawnOptions {
+        mut command,
+        client_info,
+        max_line_bytes,
+        stderr_policy,
+        process_tree_policy,
+        child_session,
+        exclude_launcher_ports,
+        spawn_guard,
+        wire_transform,
+    } = options;
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    drop(options.spawn_guard.take());
+    drop(spawn_guard);
 
     let process_tree =
-        ProcessTreeControl::prepare(&mut options.command, options.process_tree_policy).map_err(
-            |error| AcpError::Spawn(format!("process containment unavailable: {error}")),
-        )?;
+        ProcessTreeControl::prepare_with_session(&mut command, process_tree_policy, child_session)
+            .map_err(|error| {
+                AcpError::Spawn(format!("process containment unavailable: {error}"))
+            })?;
 
-    let mut child = options
-        .command
-        .spawn()
+    let mut child = process_tree
+        .spawn(command)
+        .await
         .map_err(|error| AcpError::Spawn(error.to_string()))?;
     let port_exclusion = child
         .id()
-        .filter(|_| options.exclude_launcher_ports)
+        .filter(|_| exclude_launcher_ports)
         .and_then(|pid| ProviderProcess::register(pid, ProviderProcessScope::Launcher));
     if let Err(error) = process_tree.attach(&child) {
         cleanup(child.start_kill(), "kill the uncontained ACP agent");
@@ -138,12 +153,17 @@ pub(super) async fn spawn_acp_subprocess(
         control: process_tree,
         port_exclusion,
     });
-    match options.wire_transform.take() {
+    let connection = ConnectionOptions {
+        client_info,
+        max_line_bytes,
+        stderr_policy,
+    };
+    match wire_transform {
         Some(transform) => {
             let wire = interpose(stdin, stdout, transform);
-            assemble(wire.stdin, wire.stdout, stderr, process, options).await
+            assemble(wire.stdin, wire.stdout, stderr, process, connection).await
         }
-        None => assemble(stdin, stdout, stderr, process, options).await,
+        None => assemble(stdin, stdout, stderr, process, connection).await,
     }
 }
 
@@ -158,10 +178,11 @@ where
     R: AsyncRead + Send + Unpin + 'static,
     E: AsyncRead + Send + Unpin + 'static,
 {
-    let options = AcpSpawnOptions::builder()
-        .command(tokio::process::Command::new("/bin/false"))
-        .client_info(client_info)
-        .build();
+    let options = ConnectionOptions {
+        client_info,
+        max_line_bytes: None,
+        stderr_policy: AcpStderrPolicy::default(),
+    };
     assemble(stdin, stdout, stderr, None, options).await
 }
 
@@ -170,7 +191,7 @@ async fn assemble<W, R, E>(
     stdout: R,
     stderr: E,
     process: Option<SpawnedProcess>,
-    options: AcpSpawnOptions,
+    options: ConnectionOptions,
 ) -> Result<AcpClient, AcpError>
 where
     W: AsyncWrite + Send + Unpin + 'static,
@@ -186,21 +207,8 @@ where
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (kill_tx, kill_rx) = oneshot::channel();
 
-    let (connection, connection_task) = spawn_connection(
-        stdin,
-        stdout,
-        events.clone(),
-        Arc::clone(&server_responders),
-        shutdown_rx,
-        Arc::clone(&stopping),
-    )
-    .await?;
-
-    let stderr_task = spawn_stderr_reader(
-        stderr,
-        max_line_bytes,
-        options.stderr_policy.exposes_contents(),
-    );
+    // Install the reaper before any fallible await: a failed or cancelled
+    // connection still closes the launcher and verifies its children.
     let pid = process.as_ref().and_then(|process| process.child.id());
     let reaper_task = if let Some(process) = process {
         Some(spawn_reaper(
@@ -215,6 +223,20 @@ where
         drop(kill_rx);
         None
     };
+    let (connection, connection_task) = spawn_connection(
+        stdin,
+        stdout,
+        events.clone(),
+        Arc::clone(&server_responders),
+        shutdown_rx,
+        Arc::clone(&stopping),
+    )
+    .await?;
+    let stderr_task = spawn_stderr_reader(
+        stderr,
+        max_line_bytes,
+        options.stderr_policy.exposes_contents(),
+    );
 
     let inner = Arc::new(Inner {
         connection,
@@ -298,9 +320,9 @@ fn spawn_reaper(
         } = process;
         let pid = child.id();
         let status = tokio::select! {
-            status = child.wait() => {
-                let cleanup = process_tree.cleanup_after_exit(pid).await;
-                status.and_then(|status| cleanup.map(|()| status))
+            result = process_tree.observe(&mut child) => match result {
+                Ok(observed) => process_tree.reap(&mut child, pid, observed).await,
+                Err(error) => Err(error),
             },
             _ = &mut kill_rx => process_tree
                 .terminate(&mut child, Duration::from_secs(1))

@@ -35,7 +35,8 @@ async fn open_agent_messages_move_into_the_session_queue() {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     sqlx::raw_sql(
         "PRAGMA foreign_keys=ON;
-         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL DEFAULT 1);
+         CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL DEFAULT 1,
+                                      status TEXT NOT NULL DEFAULT 'idle');
          INSERT INTO agent_sessions (id) VALUES (1), (2), (3);",
     )
     .execute(&pool)
@@ -45,6 +46,9 @@ async fn open_agent_messages_move_into_the_session_queue() {
         OLD_AGENT_QUEUE,
         include_str!("../../../migrations/20261024210000_session_prompt_queue.sql"),
         include_str!("../../../migrations/20261026210000_prompt_queue_message_identity.sql"),
+        include_str!("../../../migrations/20261026230000_restart_continuations.sql"),
+        include_str!("../../../migrations/20261120143700_restart_background_work.sql"),
+        include_str!("../../../migrations/20261120183000_restart_stop_and_quit_intent.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }

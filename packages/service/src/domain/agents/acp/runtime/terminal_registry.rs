@@ -16,8 +16,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tokio::process::Command;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use super::terminal_group::stop_groups;
 use super::terminal_io::{
@@ -29,6 +28,7 @@ use super::terminal_sandbox::{apply_restricted_env, parse_acp_env, resolve_sandb
 #[derive(Default)]
 pub struct TerminalRegistry {
     inner: Mutex<Inner>,
+    launches: RwLock<()>,
     /// Tracks whether we've already logged the "deprecated env-as-object"
     /// warning for this session. The schema-correct shape is
     /// `[{name, value}, ...]`; we still accept the legacy object form for
@@ -40,6 +40,7 @@ pub struct TerminalRegistry {
 struct Inner {
     next_id: u64,
     terminals: HashMap<String, TerminalEntry>,
+    closed: bool,
 }
 
 struct TerminalEntry {
@@ -89,8 +90,11 @@ impl TerminalRegistry {
         } else {
             format!("{command} {}", args.join(" "))
         };
-        let mut cmd = Command::new(command);
-        super::terminal_group::isolate(&mut cmd);
+        let owner = crate::domain::agents::process_sessions::new();
+        let mut cmd = cli_discovery::session_command(command, owner.as_ref());
+        if owner.is_none() {
+            super::terminal_group::isolate(&mut cmd);
+        }
         cmd.args(&args).current_dir(&cwd);
         apply_restricted_env(&mut cmd, &env);
         cmd.stdout(Stdio::piped())
@@ -98,14 +102,23 @@ impl TerminalRegistry {
             .stdin(Stdio::null())
             .kill_on_drop(true);
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| (-32000, format!("terminal/create: spawn failed: {e}")))?;
+        let _launch = self.launches.read().await;
+        if self.inner.lock().await.closed {
+            return Err((-32000, "terminal/create: session is closing".into()));
+        }
+        let mut child = match &owner {
+            Some(owner) => owner.spawn(cmd).await,
+            None => cmd.spawn(),
+        }
+        .map_err(|e| (-32000, format!("terminal/create: spawn failed: {e}")))?;
+        // The managed launcher needed stdin for its gate. The terminal
+        // command keeps its established no-input behavior once authorized.
+        drop(child.stdin.take());
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let output = Arc::new(Mutex::new(TerminalOutput::new(limit)));
         let pumps = spawn_pumps(stdout, stderr, Arc::clone(&output));
-        let process = TerminalProcess::start(child, pumps);
+        let process = TerminalProcess::start(child, pumps, owner);
 
         let mut inner = self.inner.lock().await;
         inner.next_id += 1;
@@ -201,16 +214,33 @@ impl TerminalRegistry {
     /// SIGKILL for what is left after the grace), including what exited
     /// commands left running, and drop the entries.
     pub async fn shutdown(&self) {
-        let entries: Vec<TerminalEntry> = self
-            .inner
-            .lock()
-            .await
-            .terminals
-            .drain()
-            .map(|(_, entry)| entry)
+        let entries = {
+            let _launch = self.launches.write().await;
+            let mut inner = self.inner.lock().await;
+            inner.closed = true;
+            std::mem::take(&mut inner.terminals)
+        };
+        let (legacy, owned): (Vec<_>, Vec<_>) = entries
+            .into_values()
+            .partition(|entry| entry.process.group().is_some());
+        let groups: Vec<_> = legacy
+            .iter()
+            .filter_map(|entry| entry.process.group())
             .collect();
-        let groups: Vec<_> = entries.iter().map(|entry| entry.process.group()).collect();
-        stop_groups(&groups, KILL_GRACE).await;
+        let managed = futures::future::join_all(owned.into_iter().map(|entry| async move {
+            if let Err(error) = entry.process.release().await {
+                tracing::warn!(%error, "could not finish stopping an ACP terminal");
+            }
+        }));
+        // Keep the existing teardown budget. A managed supervisor continues
+        // after it expires, and desktop quit separately requires its proof.
+        let ((), managed) = tokio::join!(
+            stop_groups(&groups, KILL_GRACE),
+            tokio::time::timeout(KILL_GRACE, managed)
+        );
+        if managed.is_err() {
+            tracing::debug!("ACP terminal supervisors are still stopping their processes");
+        }
     }
 
     /// Kill the command if still running and remove the registry entry.

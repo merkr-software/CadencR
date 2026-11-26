@@ -89,6 +89,69 @@ fn write_silent_codex() -> (TempDir, std::path::PathBuf) {
 }
 
 #[tokio::test]
+async fn either_unsubscribe_result_keeps_the_leader_until_host_process_cleanup() {
+    use std::{future::Future, pin::Pin, sync::Arc};
+
+    #[derive(Default)]
+    struct Cleanup {
+        started: std::sync::OnceLock<u32>,
+        reaped: std::sync::OnceLock<u32>,
+    }
+    impl cli_discovery::ChildSessionObserver for Cleanup {
+        fn started(&self, pid: u32) {
+            self.started.set(pid).unwrap();
+        }
+
+        fn before_reap(&self, pid: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            Box::pin(async move {
+                self.reaped.set(pid).unwrap();
+            })
+        }
+    }
+
+    let _guard = TEST_LOCK.lock().await;
+    let (_temp, path) = write_executable(
+        br#"#!/bin/sh
+if [ "$1" = "--version" ]; then echo "codex-cli 0.0.0"; exit 0; fi
+while IFS= read -r request; do
+  case "$request" in
+    *'"method":"thread/unsubscribe"'*)
+      if [ "$FIXTURE_REFUSE_UNSUBSCRIBE" = "1" ]; then
+        echo '{"id":1,"error":{"code":-32600,"message":"fixture refused"}}'
+      else
+        echo '{"id":1,"result":{}}'
+      fi
+      ;;
+  esac
+done
+"#,
+    );
+    let _override = BinaryOverrideGuard::set(path);
+    for refuse in [false, true] {
+        let cleanup = Arc::new(Cleanup::default());
+        let options = AppServerSpawnOptions::builder()
+            .env(
+                [(
+                    "FIXTURE_REFUSE_UNSUBSCRIBE".into(),
+                    u8::from(refuse).to_string(),
+                )]
+                .into(),
+            )
+            .request_timeout(Duration::from_secs(2))
+            .child_session(cli_discovery::ChildSession::new(cleanup.clone()))
+            .build();
+        let client = CodexAppServerClient::spawn_with_options(options)
+            .await
+            .unwrap();
+        assert_eq!(client.thread_unsubscribe("fixture").await.is_err(), refuse);
+        assert!(cleanup.reaped.get().is_none());
+        client.shutdown().await;
+        assert_eq!(cleanup.started.get(), cleanup.reaped.get());
+        assert!(cleanup.reaped.get().is_some());
+    }
+}
+
+#[tokio::test]
 async fn mock_app_server_lifecycle_supports_handshake_model_list_and_requests() {
     let _guard = TEST_LOCK.lock().await;
     let (_temp, path) = write_mock_codex();

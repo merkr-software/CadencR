@@ -52,17 +52,27 @@ pub(super) async fn take(
     conn: &mut sqlx::SqliteConnection,
 ) -> Result<Option<Intents>, sqlx::Error> {
     let row: Option<(bool, bool)> = sqlx::query_as(
+        "DELETE FROM restart_quit_intent WHERE id = 1 RETURNING resume_turns, resume_background_work",
+    )
+    .fetch_optional(conn)
+    .await?;
+    Ok(row.map(intents))
+}
+
+pub(super) async fn read(conn: &mut sqlx::SqliteConnection) -> Result<Intents, sqlx::Error> {
+    let row = sqlx::query_as(
         "SELECT resume_turns, resume_background_work FROM restart_quit_intent WHERE id = 1",
     )
-    .fetch_optional(&mut *conn)
+    .fetch_optional(conn)
     .await?;
-    sqlx::query("DELETE FROM restart_quit_intent")
-        .execute(&mut *conn)
-        .await?;
-    Ok(row.map(|(turns, background)| Intents {
+    Ok(row.map(intents).unwrap_or(Intent::Resume.into()))
+}
+
+fn intents((turns, background): (bool, bool)) -> Intents {
+    Intents {
         turn: intent(turns),
         background: intent(background),
-    }))
+    }
 }
 
 #[cfg(test)]

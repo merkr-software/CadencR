@@ -12,6 +12,7 @@ pub mod model_refs;
 pub mod opencode;
 pub mod orchestration_skills;
 pub mod permission_modes;
+pub(crate) mod process_sessions;
 pub mod providers;
 pub mod relocation;
 pub mod response_style;

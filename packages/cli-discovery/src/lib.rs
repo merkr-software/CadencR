@@ -13,6 +13,7 @@
 mod error;
 mod override_path;
 mod path_lookup;
+mod process_session;
 mod shell;
 mod shell_exec;
 mod types;
@@ -24,8 +25,14 @@ mod tests_support;
 
 pub use error::DiscoveryError;
 pub use path_lookup::find_on_path;
+pub use process_session::{
+    observe_child_exit, process_session_entrypoint, session_command, wait_for_child, AnchorRecord,
+    ChildSession, ChildSessionObserver, ObservedChildExit,
+};
 pub use shell::login_shell_path;
-pub use shell_exec::{login_shell_command, login_shell_exec_command, shell_quote};
+pub use shell_exec::{
+    login_shell_command, login_shell_exec_command, login_shell_session_command, shell_quote,
+};
 pub use types::{Candidate, CandidateSource, DiscoverySpec, VersionKey};
 pub use version::{parse_version_string, query_version};
 

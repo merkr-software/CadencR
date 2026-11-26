@@ -28,10 +28,15 @@ impl ClaudeCodeAdapter {
         let cli_models = self.cli_model_resolver(config.env.clone()).await;
         let cwd = config.cwd.clone();
         let (options, config_dir, automatic_mcp) = spawn_options(config, &cli_models);
+        let owns_session = options.child_session.is_some();
         let query = claude_agent_sdk_rs::query(content, options)
             .await
             .map_err(RuntimeError::from)?;
-        let processes = CliProcesses::watch(query.pid(), query.process_exited());
+        let processes = if owns_session {
+            CliProcesses::untracked()
+        } else {
+            CliProcesses::watch(query.pid(), query.process_exited())
+        };
         Ok(Box::new(ClaudeCodeSession {
             query,
             processes,
@@ -83,6 +88,11 @@ fn spawn_options(
         None => config.env,
     };
     let config_dir = super::config_dir::for_env(env.as_ref());
+    let child_session = config
+        .purpose
+        .is_none()
+        .then(crate::domain::agents::process_sessions::new)
+        .flatten();
     let options = claude_agent_sdk_rs::Options::builder()
         .cwd(config.cwd)
         .maybe_permission_mode(config.permission_mode.map(map_permission_mode))
@@ -108,6 +118,7 @@ fn spawn_options(
         .maybe_user_config_file(super::config_dir::user_file_for_env(env.as_ref()))
         .maybe_env(env)
         .own_process_group(true)
+        .maybe_child_session(child_session)
         .build();
     (options, config_dir, automatic_mcp)
 }

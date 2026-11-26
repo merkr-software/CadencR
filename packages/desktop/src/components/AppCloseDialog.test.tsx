@@ -1,24 +1,21 @@
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import type { AppCloseState } from "@/hooks/useAppClose";
 import { AppCloseDialog } from "./AppCloseDialog";
 
-const resume = vi.hoisted(() => ({ enabled: true }));
-vi.mock("@/lib/restart-resume-setting", () => ({
-  useRestartResumeEnabled: () => ({
-    enabled: resume.enabled,
-    setEnabled: vi.fn(),
-    isLoading: false,
-  }),
-}));
-
 function state(quitting: boolean): AppCloseState {
   return {
-    request: { quitting },
+    request: { id: 1, quitting },
     agents: [
-      { sessionId: 1, label: "Fix login", waitingOnYou: false },
-      { sessionId: 2, label: "Docs", waitingOnYou: true },
+      {
+        session_id: 1,
+        feature_id: 1,
+        label: "Fix login",
+        waiting_on_you: false,
+        background_only: true,
+      },
+      { session_id: 2, feature_id: 2, label: "Docs", waiting_on_you: true, background_only: false },
     ],
     cancel: vi.fn(),
     close: vi.fn(),
@@ -26,35 +23,20 @@ function state(quitting: boolean): AppCloseState {
 }
 
 describe("AppCloseDialog", () => {
-  beforeEach(() => {
-    resume.enabled = true;
-  });
-
-  it("offers to resume the agents on the next launch, or to stop them", async () => {
+  it("includes background work and offers one way to quit", async () => {
     const quit = state(true);
     render(<AppCloseDialog state={quit} />);
 
     expect(screen.getByText("Quit Cadencr?")).toBeInTheDocument();
     expect(
-      screen.getByText(/2 agents are still working\. Cadencr can pick them back up/),
+      screen.getByText(/Quitting stops active turns and the background work Cadencr manages/),
     ).toBeInTheDocument();
-    expect(screen.getByText("waiting on you")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Quit and resume on next launch" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: true, resumeBackgroundWork: true });
-    await userEvent.click(screen.getByRole("button", { name: "Stop agents and quit" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false, resumeBackgroundWork: false });
-  });
-
-  it("only stops the agents when resuming is turned off", async () => {
-    resume.enabled = false;
-    const quit = state(true);
-    render(<AppCloseDialog state={quit} />);
-
+    expect(screen.getByText("Fix login").closest("li")).toHaveTextContent("background work");
+    expect(screen.getByText("Docs").closest("li")).toHaveTextContent("waiting on you");
     expect(screen.queryByRole("button", { name: "Quit and resume on next launch" })).toBeNull();
-    expect(screen.getByText(/resuming agents after a restart is turned off/)).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: "Stop agents and quit" }));
-    expect(quit.close).toHaveBeenCalledWith({ resumeAgents: false, resumeBackgroundWork: false });
+    expect(quit.close).toHaveBeenCalledTimes(1);
   });
 
   it("closes only the window when the app keeps running", async () => {
@@ -62,9 +44,15 @@ describe("AppCloseDialog", () => {
     render(<AppCloseDialog state={close} />);
 
     expect(screen.getByText("Close the window?")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop agents and quit" })).toBeNull();
+    expect(screen.getByText(/background work continue/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Close window" }));
-    expect(close.close).toHaveBeenCalledWith({ resumeAgents: true, resumeBackgroundWork: true });
+    expect(close.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a failed work lookup while keeping the quit confirmable", () => {
+    render(<AppCloseDialog state={{ ...state(true), agents: null }} />);
+    expect(screen.getByText(/could not list the active agents/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop agents and quit" })).toBeEnabled();
   });
 
   it("renders nothing without a pending close", () => {

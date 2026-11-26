@@ -33,6 +33,8 @@ mod prompt_queue_identity_migration_tests;
 #[cfg(test)]
 mod reply_wait_claim_migration_tests;
 #[cfg(test)]
+mod restart_work_migration_tests;
+#[cfg(test)]
 mod rewind_fork_migration_tests;
 #[cfg(test)]
 mod schedules_migration_tests;

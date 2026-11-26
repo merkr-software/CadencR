@@ -44,6 +44,7 @@ use crate::domain::push::models as push_models;
 use crate::domain::push::routes as push_routes;
 use crate::domain::remote::models as remote_models;
 use crate::domain::remote::routes as remote_routes;
+use crate::domain::restart_continuations::routes as restart_routes;
 use crate::domain::schedules::models as schedules_models;
 use crate::domain::schedules::recurrence as schedules_recurrence;
 use crate::domain::schedules::routes as schedules_routes;
@@ -76,6 +77,8 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::telemetry::routes::ingest_diagnostic,
         crate::domain::telemetry::routes::activity,
         openapi_spec,
+        restart_routes::get_active_close_work,
+        restart_routes::stop_live_work,
         editor_routes::read_file_handler,
         // `read-image` and `diff-image` are intentionally NOT exposed to orval: their responses
         // is a binary blob that the OpenAPI spec can't usefully describe,
@@ -485,6 +488,7 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::agents::updates::ProviderUpdateOutcome,
         crate::domain::agents::updates::ProviderUpdateRequest,
         crate::domain::restart_continuations::RestartContinuationReport,
+        restart_routes::ActiveCloseWork,
         crate::domain::restart_continuations::RestartContinuationEntry,
         crate::domain::restart_continuations::RestartContinuationOutcome,
         crate::domain::agents::providers::development::CreateProviderWorkspaceRequest,

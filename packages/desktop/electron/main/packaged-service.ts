@@ -20,19 +20,32 @@ export interface PackagedServiceHost {
 export interface PackagedService {
   spawn: (onStatus?: (update: SidecarStatusUpdate) => void) => Promise<SidecarHandle>;
   supervisor: ServiceSupervisor;
+  prepareQuit: () => Promise<void>;
 }
 
 /** The packaged sidecar and its supervision; the dev service runs on its own. */
 export function createPackagedService(host: PackagedServiceHost): PackagedService {
+  let armed: SidecarHandle | null = null;
+  let quitBeforeAttachment: (() => Promise<boolean>) | null = null;
+  const arm = (handle: SidecarHandle): SidecarHandle => {
+    armed = handle;
+    quitBeforeAttachment = null;
+    return handle;
+  };
   const spawn = (onStatus?: (update: SidecarStatusUpdate) => void): Promise<SidecarHandle> =>
     spawnProductionSidecar({
       appVersion: host.appVersion,
       browserBridge: host.browserBridge(),
       onStatus,
+      onSpawn: (prepareQuit) => {
+        quitBeforeAttachment = prepareQuit;
+      },
+      onRecoveryArmed: arm,
       onUnexpectedExit: (exit) => supervisor.reportExit(exit),
-    });
+    }).then(arm);
   const supervisor = createServiceSupervisor({
     respawn: async () => {
+      if (host.shuttingDown()) throw new Error("Cadencr is shutting down.");
       const next = await spawn();
       if (host.shuttingDown()) {
         await next.stop();
@@ -49,5 +62,11 @@ export function createPackagedService(host: PackagedServiceHost): PackagedServic
     },
     publish: host.publish,
   });
-  return { spawn, supervisor };
+  return {
+    spawn,
+    supervisor,
+    prepareQuit: async () => {
+      if (!(await quitBeforeAttachment?.())) await armed?.prepareQuit();
+    },
+  };
 }

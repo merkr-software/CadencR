@@ -40,13 +40,13 @@ impl WsSessionPersistence {
         Ok(())
     }
 
-    pub async fn mark_running_static(
-        pool: &SqlitePool,
+    pub async fn mark_running_static<'e>(
+        executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
         session_id: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE agent_sessions SET status = 'running', ended_at = NULL WHERE id = ?")
             .bind(session_id)
-            .execute(pool)
+            .execute(executor)
             .await?;
         Ok(())
     }

@@ -24,7 +24,7 @@ import type {
 } from "../main/browser-types";
 import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
 import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
-import type { AppCloseChoice, AppCloseRequest } from "../../src/shared/app-close";
+import type { AppCloseRequest } from "../../src/shared/app-close";
 import type { ServiceStatus } from "../../src/shared/service-status";
 import { UPDATE_STATE_CHANNEL, type UpdateSnapshot } from "../../src/shared/update-state";
 import { cliHostBridge } from "./cli-host-bridge";
@@ -181,10 +181,10 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("notification-fallback", cb),
   onCloseRequested: (cb: (request: AppCloseRequest) => void): (() => void) =>
     onIpc("app:close-requested", cb),
-  confirmClose: (choice?: AppCloseChoice): Promise<void> =>
-    ipcRenderer.invoke("app:confirm-close", choice),
-  acknowledgeCloseRequest: (): Promise<void> => ipcRenderer.invoke("app:acknowledge-close"),
-  cancelClose: (): Promise<void> => ipcRenderer.invoke("app:cancel-close"),
+  confirmClose: (id: number): Promise<void> => ipcRenderer.invoke("app:confirm-close", id),
+  acknowledgeCloseRequest: (id: number): Promise<void> =>
+    ipcRenderer.invoke("app:acknowledge-close", id),
+  cancelClose: (id: number): Promise<void> => ipcRenderer.invoke("app:cancel-close", id),
   requestQuit: (): Promise<void> => ipcRenderer.invoke("app:request-quit"),
   serviceStatus: (): Promise<ServiceStatus> => ipcRenderer.invoke("service:status"),
   restartService: (): Promise<void> => ipcRenderer.invoke("service:restart"),

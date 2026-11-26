@@ -5,6 +5,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
 use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
+use crate::domain::ws_session::runtime::prompt::runtime_hold_registry;
 
 mod owed_resume;
 mod watchdog;
@@ -69,18 +70,31 @@ pub(crate) async fn stop_session(
     // Under the barrier: no follow-up is handed over between these steps.
     let turns = &app_state.active_turns;
     let current_turn = turns.current_generation(db_session_id).await;
+    let recorded = owed_resume::record(app_state, db_session_id).await?;
+    let _pending_hold = recorded
+        .as_ref()
+        .and_then(|_| runtime_hold_registry::hold_pending_stop(db_session_id, &query));
     let stop = turns.followups().record_stop(db_session_id, current_turn);
     let withdrawn =
         withdraw_followups(app_state, &**q, db_session_id, feature_id, stop.handed_off).await;
-    // Before the runtime stops (and its reader writes the stop marker): a
-    // restart in between must not resume what the user is stopping.
-    let recorded = owed_resume::forget(app_state, &query, db_session_id).await;
     if stop.cancelled_start {
         // The prompt that reserved this turn has not reached the runtime (it
         // waits for its pre-turn checkpoint): it is withdrawn, and interrupting
         // a runtime that runs nothing would leave a mark on its next turn.
+        runtime_hold_registry::stop_by_user(db_session_id, &query);
         watchdog::end_turn_idle_for(app_state, db_session_id, feature_id, current_turn).await;
-        return withdrawn.and(recorded);
+        if let Some(recorded) = recorded {
+            recorded
+                .no_turn_started(&app_state.write_pool)
+                .await
+                .map_err(|error| {
+                    CommandError::new(
+                        "STOP_MARKER_FAILED",
+                        format!("Could not settle the Stop: {error}"),
+                    )
+                })?;
+        }
+        return withdrawn;
     }
     // Subscribe before interrupting so fast transitions to Idle are never missed
     // by the stop-escalation watchdog or the NothingToInterrupt reconciler.
@@ -94,8 +108,10 @@ pub(crate) async fn stop_session(
         StopReason::User,
     )
     .await;
-    if interrupted.is_err() {
-        owed_resume::restore(app_state, &query, db_session_id, feature_id).await;
+    if interrupted.is_ok() {
+        runtime_hold_registry::stop_by_user(db_session_id, &query);
+    } else if let Some(recorded) = recorded {
+        owed_resume::restore(app_state, recorded, db_session_id, feature_id).await;
     }
     finish_user_stop()
         .app_state(app_state)
@@ -107,7 +123,6 @@ pub(crate) async fn stop_session(
         .status_rx(status_rx)
         .interrupted(interrupted)
         .withdrawn(withdrawn)
-        .recorded(recorded)
         .call()
 }
 
@@ -186,7 +201,6 @@ fn finish_user_stop(
     status_rx: tokio::sync::broadcast::Receiver<crate::domain::session_status::SessionStatusEvent>,
     interrupted: Result<(), RuntimeError>,
     withdrawn: Result<(), CommandError>,
-    recorded: Result<(), CommandError>,
 ) -> Result<(), CommandError> {
     match interrupted {
         Ok(()) => {
@@ -207,7 +221,7 @@ fn finish_user_stop(
                     .build()
                     .spawn_escalation();
             }
-            withdrawn.and(recorded)
+            withdrawn
         }
         // The status said busy, but the runtime had no turn to stop (it
         // ended a moment ago): its mark is cleared, nothing will end. Reconcile
@@ -404,7 +418,7 @@ mod tests {
     use super::*;
     use crate::domain::agents::adapter::RuntimeSpawnConfig;
     use crate::domain::ws_session::handler::tests::support::{
-        make_active_handle, make_test_app_state,
+        insert_running_session, make_active_handle, make_test_app_state,
     };
     use crate::domain::ws_session::handler::types::new_sdk_sessions;
 
@@ -456,7 +470,7 @@ mod tests {
         let app_state = make_test_app_state().await;
         let sessions = pending_session(43).await;
         working(&app_state, 43);
-        let _spawning = app_state.session_runtimes.claim_spawn(43).await;
+        let _spawning = app_state.session_runtimes.claim_spawn(43).await.unwrap();
 
         let error = stop_session(&app_state, Some(&sessions), 43)
             .await
@@ -477,6 +491,7 @@ mod tests {
     #[tokio::test]
     async fn a_stop_by_id_reaches_the_registry_runtime() {
         let app_state = make_test_app_state().await;
+        insert_running_session(&app_state, 45, 1).await;
         let sessions = new_sdk_sessions();
         sessions
             .lock()
@@ -552,6 +567,7 @@ mod tests {
     #[tokio::test]
     async fn a_stop_that_finds_no_turn_leaves_no_mark_for_the_next_turn() {
         let app_state = make_test_app_state().await;
+        insert_running_session(&app_state, 47, 1).await;
         let sessions = new_sdk_sessions();
         let mut handle = make_active_handle(1, Some("cli".into()));
         let runtime: RuntimeSessionHandle =

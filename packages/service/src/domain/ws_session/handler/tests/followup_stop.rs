@@ -704,7 +704,7 @@ async fn queued_user_prompt_returns_on_acp_wire_submission_before_turn_ends() {
 
     let fixture = fixture(false).await;
     let (client, mut stdout, mut stdin) = build_in_memory_client().await;
-    let (_runtime, mut events) = fixture.install_acp(&client, true).await;
+    let (runtime, mut events) = fixture.install_acp(&client, true).await;
 
     let state = fixture.app_state.clone();
     let id = fixture.db_id;
@@ -724,6 +724,7 @@ async fn queued_user_prompt_returns_on_acp_wire_submission_before_turn_ends() {
         .expect("queued user prompt must not block waiting for the full ACP turn")
         .unwrap()
         .expect("queued user prompt submission should succeed");
+    assert_eq!(fixture.dispatch_status().await, "dispatching");
 
     // Now the agent finishes the turn; settlement still runs in the background
     // and publishes the Result event + marks dispatch succeeded.
@@ -743,6 +744,11 @@ async fn queued_user_prompt_returns_on_acp_wire_submission_before_turn_ends() {
     })
     .await
     .expect("background settlement must emit Result");
+    // The provider can emit Result before the dispatch task records its outcome.
+    // The task releases its runtime read guard only after recording success.
+    let _settled = tokio::time::timeout(Duration::from_secs(3), runtime.write())
+        .await
+        .expect("background settlement must release its runtime guard");
     assert_eq!(fixture.dispatch_status().await, "dispatched");
 }
 
