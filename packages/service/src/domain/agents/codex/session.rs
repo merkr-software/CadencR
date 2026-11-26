@@ -34,13 +34,12 @@ use super::session_permissions::{
 };
 use super::timeouts::with_probe_timeout;
 use super::turn_commands::SharedTurnCommands;
-use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 pub(super) use options::CodexSessionOptions;
 use stream::{error_receiver, spawn_local_forwarder, stream_channel};
 
@@ -83,7 +82,8 @@ pub(super) struct CodexSession {
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
     known_subagents: Vec<KnownSubagent>,
-    browser_trust: CadencrBrowserTrust,
+    automatic_mcp: Arc<Mutex<super::trusted_mcp::McpApprovalTurn>>,
+    mcp_trust: CadencrMcpTrust,
 }
 
 impl CodexSession {
@@ -127,7 +127,8 @@ impl CodexSession {
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
             known_subagents: Vec::new(),
-            browser_trust: options.browser_trust,
+            automatic_mcp: Default::default(),
+            mcp_trust: options.mcp_trust,
         }
     }
 
@@ -148,51 +149,6 @@ impl CodexSession {
     pub(super) async fn start_initial_turn(&self, content: Value) -> Result<(), RuntimeError> {
         let input = self.convert_input(content).await?;
         self.start_turn(input, None).await
-    }
-
-    async fn start_turn(
-        &self,
-        input: Vec<Value>,
-        client_message_id: Option<&str>,
-    ) -> Result<(), RuntimeError> {
-        let model = self.model.read().await.clone();
-        let effort = self.effort.read().await.clone();
-        let collaboration_model = self.effective_model.read().await.clone();
-        // Before `turn/start`: its `turn/started` can arrive before the reply.
-        *self.turn_model.write().await = collaboration_model.clone();
-        let collaboration_effort = self.effective_effort.read().await.clone();
-        let fast_mode = *self.fast_mode.read().await;
-        let controls = RuntimeEffectiveConfig {
-            model: collaboration_model.clone(),
-            thinking_effort: collaboration_effort.clone(),
-            fast_mode: fast_mode.unwrap_or(self.native_fast_mode),
-        };
-        let permission_mode = self.permission_mode.read().await.clone();
-        let access_mode = self.access_mode.read().await.clone();
-        let mut params = turn_start_params(
-            &self.thread_id,
-            input,
-            TurnStartOptions {
-                cwd: &self.cwd,
-                permission_mode: permission_mode.as_ref(),
-                access_mode: access_mode.as_ref(),
-                model,
-                effort,
-                collaboration_model,
-                collaboration_effort,
-                summary: self.summary.clone(),
-                fast_mode,
-            },
-        );
-        if let Some(client_message_id) = client_message_id {
-            params["clientUserMessageId"] = Value::String(client_message_id.to_string());
-        }
-        let _starting = self.turn_start.lock().await;
-        let turn = self.client.turn_start(params).await?;
-        *self.delivered_controls.write().await = controls;
-        *self.active_turn_id.write().await = Some(turn.id.clone());
-        *self.last_root_turn_id.write().await = Some(turn.id);
-        Ok(())
     }
 }
 
@@ -235,7 +191,8 @@ impl AgentRuntimeSession for CodexSession {
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
             .known_subagents(std::mem::take(&mut self.known_subagents))
-            .browser_trust(self.browser_trust)
+            .automatic_mcp(self.automatic_mcp.clone())
+            .mcp_trust(self.mcp_trust)
             .call();
         spawn_local_forwarder(local_rx, tx);
         rx
@@ -319,6 +276,10 @@ impl AgentRuntimeSession for CodexSession {
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
         self.interrupt_session().await
+    }
+
+    async fn terminate_unresponsive_stop(&self, reason: String) -> bool {
+        self.terminate_unresponsive_stop_session(reason).await
     }
 
     async fn compact(&self) -> Result<(), RuntimeError> {

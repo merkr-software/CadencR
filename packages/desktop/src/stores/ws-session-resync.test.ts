@@ -48,6 +48,16 @@ function createSession(
   };
 }
 
+function makeOpenConnection() {
+  return {
+    isOpen: () => true,
+    isConnecting: () => false,
+    send: vi.fn(),
+    sendJson: vi.fn(),
+    close: vi.fn(),
+  };
+}
+
 const afterCursor = (cursor: number, revision = 0) => ({
   session: 2586,
   after: JSON.stringify({ 2586: cursor }),
@@ -102,28 +112,36 @@ describe("resyncMessagesOnReconnect", () => {
     expect(ctx.get().sessions.s1.blocks.map((b) => b.id)).toEqual(["msg-10", "msg-11"]);
   });
 
-  it("keeps the reconnect notice when the catch-up says nothing about a restart", async () => {
-    const notice: AgentBlockData = {
-      id: "ws-err-close-1",
-      type: "error",
-      content: "Connection lost while streaming. Reconnecting…",
-      errorCode: "WS_RECONNECTING",
-    };
-    const ctx = createCtx(createSession([makeBlock("msg-10", "working"), notice], 10));
-    apiMocks.getFeatureAgentState.mockResolvedValue({
-      sessions: [
-        {
-          sessionDbId: 2586,
-          blocks: [{ id: "msg-11", type: "turn_interrupted", content: "" }],
-          maxMessageId: 11,
-        },
-      ],
-    });
+  it.each(["open", "replaced", "offline"] as const)(
+    "only clears the reconnect notice for a socket that stayed open during catch-up (%s)",
+    async (state) => {
+      const connection = makeOpenConnection();
+      const notice: AgentBlockData = {
+        id: "ws-err-close-1",
+        type: "error",
+        content: "Connection lost while streaming. Reconnecting…",
+        errorCode: "WS_RECONNECTING",
+      };
+      const ctx = createCtx(createSession([makeBlock("msg-10", "working"), notice], 10));
+      const transport = ctx.transport.ensure("s1");
+      if (state !== "offline") transport.conn = connection;
+      apiMocks.getFeatureAgentState.mockResolvedValue({
+        sessions: [
+          {
+            sessionDbId: 2586,
+            blocks: [{ id: "msg-11", type: "turn_interrupted", content: "" }],
+            maxMessageId: 11,
+          },
+        ],
+      });
 
-    await resyncMessagesOnReconnect(ctx, "s1");
+      const pending = resyncMessagesOnReconnect(ctx, "s1");
+      if (state === "replaced") transport.conn = makeOpenConnection();
+      await pending;
 
-    expect(ctx.get().sessions.s1.blocks.map((b) => b.id)).toContain("ws-err-close-1");
-  });
+      expect(ctx.get().sessions.s1.blocks.some((b) => b.id === notice.id)).toBe(state !== "open");
+    },
+  );
 
   it("de-dupes messages already received live while using the snapshot cursor", async () => {
     // A live message is present, but only the completed snapshot cursor is a
@@ -142,6 +160,79 @@ describe("resyncMessagesOnReconnect", () => {
     expect(session.lastAppliedMessageId).toBe(11);
     // The overlapping fetch is reconciled rather than skipped.
     expect(apiMocks.getFeatureAgentState).toHaveBeenCalledWith(1077, afterCursor(10, 7));
+  });
+
+  it("reads beyond an older socket's in-flight snapshot after another reconnect", async () => {
+    const ctx = createCtx(createSession([makeBlock("msg-10", "before")], 10));
+    const oldRead = Promise.withResolvers<unknown>();
+    const transport = ctx.transport.ensure("s1");
+    const socket = makeOpenConnection();
+    transport.conn = socket;
+    apiMocks.getFeatureAgentState.mockReturnValueOnce(oldRead.promise).mockResolvedValueOnce({
+      sessions: [
+        { sessionDbId: 2586, blocks: [makeBlock("msg-12", "second gap")], maxMessageId: 12 },
+      ],
+    });
+    const first = resyncMessagesOnReconnect(ctx, "s1");
+    transport.conn = makeOpenConnection();
+    const second = resyncMessagesOnReconnect(ctx, "s1");
+    expect(resyncMessagesOnReconnect(ctx, "s1")).toBe(second);
+    expect(apiMocks.getFeatureAgentState).toHaveBeenCalledTimes(1);
+    oldRead.resolve({
+      sessions: [
+        { sessionDbId: 2586, blocks: [makeBlock("msg-11", "first gap")], maxMessageId: 11 },
+      ],
+    });
+    await Promise.all([first, second]);
+    expect(apiMocks.getFeatureAgentState.mock.calls).toEqual([
+      [1077, afterCursor(10, 7)],
+      [1077, afterCursor(11, 7)],
+    ]);
+    expect(ctx.getSession("s1").blocks.map((b) => b.id)).toEqual(["msg-10", "msg-11", "msg-12"]);
+  });
+
+  it("does not apply an old session's rows when the same socket binds to another session", async () => {
+    const ctx = createCtx(createSession([], 10));
+    ctx.transport.ensure("s1").conn = makeOpenConnection();
+    const old = Promise.withResolvers<unknown>();
+    apiMocks.getFeatureAgentState.mockReturnValueOnce(old.promise).mockResolvedValueOnce({
+      sessions: [{ sessionDbId: 2587, blocks: [makeBlock("msg-12", "current")], maxMessageId: 12 }],
+    });
+    const first = resyncMessagesOnReconnect(ctx, "s1");
+    ctx.getSession("s1").sessionDbId = 2587;
+    const rebound = resyncMessagesOnReconnect(ctx, "s1");
+    old.resolve({
+      sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-11", "stale")], maxMessageId: 11 }],
+    });
+    await Promise.all([first, rebound]);
+    expect(ctx.getSession("s1").blocks.map((b) => b.content)).toEqual(["current"]);
+  });
+
+  it("keeps an earlier gap retryable when a targeted CLI sync succeeds", async () => {
+    const ctx = createCtx(createSession([makeBlock("msg-10", "before")], 10));
+    ctx.transport.ensure("s1").conn = makeOpenConnection();
+    apiMocks.getFeatureAgentState
+      .mockResolvedValueOnce({ sessions: [] })
+      .mockResolvedValueOnce({
+        sessions: [{ sessionDbId: 2586, blocks: [makeBlock("msg-12", "CLI")], maxMessageId: 12 }],
+      })
+      .mockResolvedValueOnce({
+        sessions: [
+          {
+            sessionDbId: 2586,
+            blocks: [makeBlock("msg-11", "missed"), makeBlock("msg-12", "CLI")],
+            maxMessageId: 12,
+          },
+        ],
+      });
+    await resyncMessagesOnReconnect(ctx, "s1");
+    await resyncMessagesOnReconnect(ctx, "s1", { featureId: 1077, sessionDbId: 2586, cursor: 11 });
+    expect(ctx.getSession("s1").historyLoadFailure).not.toBeNull();
+    expect(ctx.getSession("s1").lastAppliedMessageId).toBe(10);
+    await resyncMessagesOnReconnect(ctx, "s1");
+    expect(apiMocks.getFeatureAgentState.mock.lastCall).toEqual([1077, afterCursor(10, 7)]);
+    expect(ctx.getSession("s1").blocks.map((b) => b.id)).toEqual(["msg-10", "msg-11", "msg-12"]);
+    expect(ctx.getSession("s1").historyLoadFailure).toBeNull();
   });
 
   it("does not treat an explicitly stamped live DB id as a gap-free cursor", async () => {

@@ -1,17 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::{json, Map, Value};
 
 #[derive(Default)]
 pub(super) struct SessionServers {
     requests: HashMap<String, ServerRequest>,
-    sessions: HashMap<String, Vec<String>>,
+    sessions: HashMap<String, SessionInventory>,
+    pub(super) home: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct SessionInventory {
+    names: Vec<String>,
+    native: Arc<OnceLock<HashSet<String>>>,
 }
 
 enum ServerRequest {
     Open {
         session_id: Option<String>,
-        names: Vec<String>,
+        inventory: SessionInventory,
     },
     Close(String),
 }
@@ -35,10 +44,43 @@ impl SessionServers {
         };
         let session_id = message.pointer("/params/sessionId").and_then(Value::as_str);
         let request = match method {
-            "session/new" | "session/load" | "session/resume" => ServerRequest::Open {
-                session_id: session_id.map(ToOwned::to_owned),
-                names: server_names(message.pointer("/params/mcpServers")),
-            },
+            "session/new" | "session/load" | "session/resume" => {
+                if let Some(id) = session_id {
+                    self.sessions.remove(id);
+                    self.requests.retain(|_, pending| !matches!(pending, ServerRequest::Open {session_id: Some(other), ..} if other == id));
+                }
+                let names = server_names(message.pointer("/params/mcpServers"));
+                let native = Arc::new(OnceLock::new());
+                if names.iter().any(|name| {
+                    matches!(
+                        name.as_str(),
+                        "cadencr-browser" | "cadencr-project" | "cadencr-workspace"
+                    )
+                }) {
+                    if let (Some(home), Some(cwd)) = (
+                        self.home.clone(),
+                        message.pointer("/params/cwd").and_then(Value::as_str),
+                    ) {
+                        let result = Arc::clone(&native);
+                        let cwd = PathBuf::from(cwd);
+                        tokio::task::spawn_blocking(move || {
+                            match crate::mcp_inventory::configured_servers(&cwd, &home) {
+                                Ok(Some(names)) => {
+                                    result.get_or_init(|| names);
+                                }
+                                Ok(None) => {}
+                                Err(error) => eprintln!(
+                                    "Could not verify native Antigravity MCP inventory: {error}"
+                                ),
+                            }
+                        });
+                    }
+                }
+                ServerRequest::Open {
+                    session_id: session_id.map(ToOwned::to_owned),
+                    inventory: SessionInventory { names, native },
+                }
+            }
             "session/close" => {
                 let Some(session_id) = session_id else {
                     return;
@@ -61,13 +103,16 @@ impl SessionServers {
             return;
         };
         match request {
-            ServerRequest::Open { session_id, names } => {
+            ServerRequest::Open {
+                session_id,
+                inventory,
+            } => {
                 let id = result
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .or(session_id.as_deref());
                 if let Some(id) = id {
-                    self.sessions.insert(id.to_owned(), names);
+                    self.sessions.insert(id.to_owned(), inventory);
                 }
             }
             ServerRequest::Close(id) => {
@@ -76,12 +121,19 @@ impl SessionServers {
         }
     }
 
+    pub(super) fn native(&self, params: &Value) -> Option<&HashSet<String>> {
+        self.sessions
+            .get(params.get("sessionId")?.as_str()?)?
+            .native
+            .get()
+    }
+
     pub(super) fn for_params(&self, params: Option<&Value>) -> &[String] {
         params
             .and_then(|params| params.get("sessionId"))
             .and_then(Value::as_str)
             .and_then(|id| self.sessions.get(id))
-            .map(Vec::as_slice)
+            .map(|inventory| inventory.names.as_slice())
             .unwrap_or_default()
     }
 }
@@ -100,22 +152,75 @@ fn server_names(servers: Option<&Value>) -> Vec<String> {
     names
 }
 
+pub(super) fn approval_name(
+    call: &Value,
+    servers: &[String],
+    foreign: Option<&HashSet<String>>,
+) -> Option<String> {
+    let name = super::tools::call_name(call.as_object()?)?;
+    if ["name", "toolName"]
+        .iter()
+        .filter_map(|key| call.get(key))
+        .any(|field| field.as_str() != Some(name))
+    {
+        return None;
+    }
+    if call["kind"] != "other"
+        || call["title"].as_str()? != format!("Run {name}")
+        || call
+            .get("content")
+            .is_some_and(|content| !content.as_array().is_some_and(Vec::is_empty))
+    {
+        return None;
+    }
+    let raw = name.strip_prefix("mcp_")?;
+    let normalized = normalized_name(raw);
+    let foreign = foreign?;
+    let (server, tool) = attached_tool(raw, servers)?;
+    if foreign
+        .iter()
+        .chain(servers.iter().filter(|other| other.as_str() != server))
+        .any(|name| {
+            normalized
+                .strip_prefix(&normalized_name(name))
+                .is_some_and(|suffix| suffix.starts_with('_'))
+        })
+    {
+        return None;
+    }
+    Some(format!("mcp__{server}__{tool}"))
+}
+
+fn attached_tool<'a, 'b>(raw: &'a str, servers: &'b [String]) -> Option<(&'b str, &'a str)> {
+    let mut matches = servers.iter().filter_map(|name| {
+        let tool = raw.strip_prefix(name)?.strip_prefix('_')?;
+        (!tool.is_empty()).then_some((name.as_str(), tool))
+    });
+    let identity = matches.next()?;
+    matches.next().is_none().then_some(identity)
+}
+
+fn normalized_name(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// agy flattens the configured server and tool with underscores. A single
 /// matching configured name is necessary to disambiguate that separator.
 pub(super) fn normalize_call(call: &mut Map<String, Value>, name: &str, servers: &[String]) {
     let Some(flattened) = name.strip_prefix("mcp_") else {
         return;
     };
-    let mut matches = servers.iter().filter_map(|server| {
-        let tool = flattened.strip_prefix(server)?.strip_prefix('_')?;
-        (!tool.is_empty()).then_some((server, tool))
-    });
-    let Some((server, tool)) = matches.next() else {
+    let Some((server, tool)) = attached_tool(flattened, servers) else {
         return;
     };
-    if matches.next().is_some() {
-        return;
-    }
     let arguments = call
         .remove("rawInput")
         .filter(|args| !args.is_null())
@@ -131,6 +236,30 @@ pub(super) fn normalize_call(call: &mut Map<String, Value>, name: &str, servers:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_unambiguous_native_mcp_calls_can_be_attributed_to_an_attachment() {
+        let call = json!({"toolName":"mcp_cadencr-project_project_list_sessions","kind":"other","title":"Run mcp_cadencr-project_project_list_sessions"});
+        let attached = vec!["cadencr-project".into()];
+        let foreign = HashSet::new();
+        assert_eq!(
+            approval_name(&call, &attached, Some(&foreign)).as_deref(),
+            Some("mcp__cadencr-project__project_list_sessions")
+        );
+        assert!(approval_name(&call, &attached, None).is_none());
+        for collision in [
+            "Cadencr.Project",
+            "cadencr-project",
+            "cadencr-project_project",
+        ] {
+            assert!(
+                approval_name(&call, &attached, Some(&HashSet::from([collision.into()]))).is_none()
+            );
+        }
+        let conflicting =
+            json!({"toolName":"mcp_cadencr-project_project_list_sessions","name":"run_command"});
+        assert!(approval_name(&conflicting, &attached, Some(&foreign)).is_none());
+    }
 
     #[test]
     fn mcp_identity_is_scoped_to_successful_session_setup() {

@@ -4,6 +4,7 @@ mod catalog;
 mod cli;
 mod config;
 mod events;
+mod mcp_inventory;
 mod native_compat;
 mod provider;
 mod relay;

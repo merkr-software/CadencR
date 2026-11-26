@@ -117,7 +117,7 @@ impl FollowupDelivery {
     pub(super) fn arrive(context: &FollowupPromptContext) -> Self {
         let turn_running = context.session_status_tx.is_busy(context.db_session_id);
         Self {
-            preserve_running_turn: context.wait_for_delivery && turn_running,
+            preserve_running_turn: context.delivery_wait.waits_for_caller() && turn_running,
             accepted: turn_running.then(|| {
                 context
                     .active_turns
@@ -140,7 +140,7 @@ impl FollowupDelivery {
             match context.active_turns.followups().arrive_idle(id, busy) {
                 IdleArrival::Follows(accepted) => {
                     self.accepted = Some(accepted);
-                    self.preserve_running_turn = context.wait_for_delivery;
+                    self.preserve_running_turn = context.delivery_wait.waits_for_caller();
                 }
                 IdleArrival::Starts(reserved) => {
                     let start = self.start.insert(TurnStart {

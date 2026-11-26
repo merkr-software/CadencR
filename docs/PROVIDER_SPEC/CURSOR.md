@@ -73,8 +73,10 @@ behavior lives in the connector:
 - **Auto Review preflight.** Cursor's ACP bootstrap does not yet honor
   `--auto-review`, so the connector answers `allow_once` for a plain shell
   allowlist miss. A request that carries a stronger reason (parser, sandbox,
-  blocklist, delete protection, hook, or team policy) stays interactive. MCP and
-  other non-shell gates also stay interactive.
+  blocklist, delete protection, hook, or team policy) stays interactive. The connector checks Cursor’s native MCP inventory when
+  opening or restoring a session. After Cursor confirms setup, Cadencr can
+  approve an eligible tool once. An unavailable inventory or a conflicting
+  server name leaves the request with Cursor’s normal permission flow.
 - **`cursor/*` extensions mapped to standard ACP:**
 
   | Cursor method           | What Cadencr receives                                                                                                                                      |

@@ -21,7 +21,7 @@ use super::pending_subagents::PendingSubagentTasks;
 use super::root_usage_listener::{self, RootUsageState};
 use super::subagent_listener::{self, ListenerState, PermissionRegistry};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const IDLE_INTERVAL: Duration = Duration::from_secs(2);
@@ -41,7 +41,7 @@ pub(in crate::domain::agents::opencode::acp) fn spawn_side_channel_listeners(
     context_window: Option<u64>,
     pending_tasks: PendingSubagentTasks,
     permissions: PermissionRegistry,
-    browser_trust: CadencrBrowserTrust,
+    browser_trust: CadencrMcpTrust,
     runtime_tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> JoinHandle<()> {
     tracing::info!(

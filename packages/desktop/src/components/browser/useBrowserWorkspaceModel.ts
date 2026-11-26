@@ -5,6 +5,7 @@ import {
   type BrowserTabMetadata,
 } from "@/lib/desktop-bridge";
 import { PROFILE_ID, type CookieMode } from "@/lib/browser-settings";
+import { httpBrowserOrigin } from "@/shared/browser-url";
 import { useBrowserStore } from "@/stores/browser-store";
 import { useBrowserViewportBounds } from "../useBrowserViewportBounds";
 import { reportBrowserError, showBrowserError } from "./browser-errors";
@@ -36,7 +37,8 @@ export interface BrowserWorkspaceModel extends BrowserPageActions, BrowserTabOrg
   responsive: BrowserResponsiveModel;
   setUrlInput: (value: string) => void;
   setUrlEditing: (editing: boolean) => void;
-  clearError: () => void;
+  clearError: (target?: "tab" | "scope") => void;
+  revokeAgentAccess: (tab: BrowserTabMetadata) => void;
   focusUrlBar: () => void;
   navigate: (url: string) => Promise<void>;
   newTab: (mode?: CookieMode) => Promise<void>;
@@ -44,6 +46,27 @@ export interface BrowserWorkspaceModel extends BrowserPageActions, BrowserTabOrg
   closeTab: (tabId: string) => void;
   closeActiveTab: () => void;
   runForActive: (action: (tab: BrowserTabMetadata) => Promise<void>) => Promise<void>;
+}
+
+function clearBrowserErrorForTarget(
+  scopeId: number,
+  activeTabId: string | null,
+  target: "tab" | "scope",
+): void {
+  if (target === "scope") {
+    void desktopBridge.clearBrowserError(scopeId, null).catch(reportBrowserError);
+    return;
+  }
+  if (!activeTabId) return;
+  void desktopBridge.clearBrowserError(scopeId, activeTabId).catch(reportBrowserError);
+}
+
+function revokeBrowserTabAgentAccess(tab: BrowserTabMetadata): void {
+  const origin = httpBrowserOrigin(tab.url);
+  if (!origin) return;
+  void desktopBridge
+    .setBrowserAgentSharing(tab.id, origin, false)
+    .catch((error: unknown) => showBrowserError(error, "Could not revoke agent access"));
 }
 
 // A blank tab shows an empty, focusable address bar rather than "about:blank".
@@ -63,7 +86,6 @@ function useBrowserTabActions(
   runForActive: BrowserWorkspaceModel["runForActive"],
   setUrlInput: (url: string) => void,
   focusUrlBar: () => void,
-  setDismissedError: (error: string | null) => void,
   setCreatingMode: (mode: CookieMode | null) => void,
 ): BrowserTabActions {
   const creatingRef = useRef(false);
@@ -87,7 +109,6 @@ function useBrowserTabActions(
   );
   const navigate = useCallback(
     async (url: string): Promise<void> => {
-      setDismissedError(null);
       if (!activeTab) {
         await createTab(url, defaultMode);
         return;
@@ -96,7 +117,7 @@ function useBrowserTabActions(
         desktopBridge.navigateBrowserTab(tab.id, url).then(() => undefined),
       );
     },
-    [activeTab, createTab, defaultMode, runForActive, setDismissedError],
+    [activeTab, createTab, defaultMode, runForActive],
   );
   const newTab = useCallback(
     async (mode: CookieMode = defaultMode): Promise<void> => {
@@ -131,7 +152,6 @@ export function useBrowserWorkspaceModel(
   const [state, setState] = useState<BrowserStateSnapshot>(EMPTY_STATE);
   const [urlInput, setUrlInput] = useState("localhost:1420");
   const [creatingMode, setCreatingMode] = useState<CookieMode | null>(null);
-  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
@@ -158,11 +178,6 @@ export function useBrowserWorkspaceModel(
   const find = useBrowserFind(activeTab);
   const organization = useBrowserTabOrganization(scopeId);
 
-  const visibleState = useMemo<BrowserStateSnapshot>(
-    () => ({ ...state, error: state.error === dismissedError ? null : state.error }),
-    [dismissedError, state],
-  );
-
   const focusUrlBar = useCallback((): void => {
     const input = urlInputRef.current;
     if (!input) return;
@@ -177,20 +192,26 @@ export function useBrowserWorkspaceModel(
     runForActive,
     setUrlInput,
     focusUrlBar,
-    setDismissedError,
     setCreatingMode,
   );
   const pageActions = useBrowserPageActions(runForActive);
   const responsive = useBrowserResponsive(activeTab, runForActive);
-  const clearError = useCallback((): void => {
-    if (state.error) setDismissedError(state.error);
-  }, [state.error]);
+  const clearError = useCallback(
+    (target: "tab" | "scope" = "tab"): void => {
+      clearBrowserErrorForTarget(scopeId, activeTab?.id ?? null, target);
+    },
+    [activeTab?.id, scopeId],
+  );
+  const revokeAgentAccess = useCallback((tab: BrowserTabMetadata): void => {
+    revokeBrowserTabAgentAccess(tab);
+  }, []);
 
   return useBrowserModelValue({
     activeTab,
     activateTab: tabActions.activateTab,
     back: pageActions.back,
     clearError,
+    revokeAgentAccess,
     closeActiveTab: tabActions.closeActiveTab,
     closeTab: tabActions.closeTab,
     devTools: pageActions.devTools,
@@ -215,7 +236,7 @@ export function useBrowserWorkspaceModel(
     setUrlEditing,
     setTabPinned: organization.setTabPinned,
     setUrlInput,
-    state: visibleState,
+    state,
     stop: pageActions.stop,
     zoomIn: pageActions.zoomIn,
     zoomOut: pageActions.zoomOut,
@@ -234,6 +255,7 @@ function useBrowserModelValue(model: BrowserWorkspaceModel): BrowserWorkspaceMod
       model.activateTab,
       model.back,
       model.clearError,
+      model.revokeAgentAccess,
       model.closeActiveTab,
       model.closeTab,
       model.devTools,

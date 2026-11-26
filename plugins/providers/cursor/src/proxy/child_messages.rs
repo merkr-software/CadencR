@@ -15,6 +15,10 @@ use crate::extensions::tool_call_id;
 use crate::permission_policy::automatic_allow_option;
 use crate::tool_calls::{rewrite_permission_params, rewrite_tool_update};
 
+fn aliases_server(name: &str, server: &str) -> bool {
+    name.replace(['_', '.'], "-").eq_ignore_ascii_case(server)
+}
+
 impl Proxy {
     pub(super) fn handle_child_message(self: &Arc<Self>, conn: &Arc<ChildConn>, message: Value) {
         match classify(message) {
@@ -149,12 +153,76 @@ impl Proxy {
             conn.peer.respond(id, Ok(outcome));
             return;
         }
+        let attached_tool = self.attached_mcp_approval(conn.generation, &params).await;
         rewrite_permission_params(&mut params, &mut self.state().tools);
+        cadencr_provider_sdk::meta::set_attached_mcp_approval(
+            &mut params,
+            attached_tool.as_deref(),
+        );
         let result = self
             .host
             .request("session/request_permission", params)
             .await;
         conn.peer.respond(id, result);
+    }
+
+    async fn attached_mcp_approval(&self, generation: u64, params: &Value) -> Option<String> {
+        let tool = params.get("toolCall")?;
+        if tool["kind"] != "other"
+            || tool["content"].as_array()?.len() != 1
+            || crate::normalize::mcp_input_from_permission_content(params).is_none()
+        {
+            return None;
+        }
+        let title = tool["title"].as_str()?;
+        let name = crate::normalize::canonical_tool_name(title);
+        let (server, bare) = crate::normalize::canonical_mcp_identity(&name)?;
+        if title != format!("{server}-{bare}: {bare}") || !server.starts_with("cadencr-") {
+            return None;
+        }
+        if let Some(input) = tool.get("rawInput") {
+            if input
+                .get("providerIdentifier")
+                .is_some_and(|value| value != server)
+                || input.get("toolName").is_some_and(|value| value != bare)
+            {
+                return None;
+            }
+        }
+        let id = params["sessionId"].as_str()?;
+        let mut inventory = {
+            let state = self.state();
+            if state.generation != generation
+                || state.access != crate::access::AccessMode::AutoReview
+            {
+                return None;
+            }
+            let session = state.sessions.get(id)?;
+            let mut matching = session
+                .mcp_servers
+                .as_array()?
+                .iter()
+                .filter_map(|entry| entry["name"].as_str())
+                .filter(|name| aliases_server(name, server));
+            if matching.next() != Some(server) || matching.next().is_some() {
+                return None;
+            }
+            session.native_mcp_servers.clone()?
+        };
+        let collision = inventory
+            .wait_for(Option::is_some)
+            .await
+            .ok()?
+            .as_ref()?
+            .iter()
+            .any(|other| aliases_server(other, server));
+        let state = self.state();
+        let current = state.sessions.get(id)?.native_mcp_servers.as_ref()?;
+        (!collision
+            && state.generation == generation
+            && state.access == crate::access::AccessMode::AutoReview
+            && inventory.same_channel(current))
+        .then_some(name)
     }
 
     /// `cursor/update_todos` → `plan`; `cursor/task` / `cursor/generate_image`

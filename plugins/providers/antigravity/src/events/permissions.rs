@@ -2,6 +2,18 @@ use serde_json::Value;
 
 const WARNING_TEXT_LIMIT: usize = 512;
 
+pub(super) fn ordinary_once(params: &Value) -> bool {
+    let warned = |value: &Value| value.pointer("/_meta/agy.security.warning").is_some();
+    !warned(params)
+        && !warned(&params["toolCall"])
+        && params["options"].as_array().is_some_and(|options| {
+            options.iter().any(|o| o["kind"] == "allow_once")
+                && !options
+                    .iter()
+                    .any(|o| o["kind"] == "allow_once" && warned(o))
+        })
+}
+
 /// CadencR uses the ACP option name as the user-visible label. Include any
 /// native warning about a persistent grant there while retaining the option's
 /// id, kind, and metadata for the permission response.
@@ -47,6 +59,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn warning_on_the_selected_option_requires_native_review() {
+        let mut params = json!({"options":[{"kind":"allow_once"}, {"kind":"allow_always","_meta":{"agy.security.warning":{}}}]});
+        assert!(ordinary_once(&params));
+        params["options"][0]["_meta"] = json!({"agy.security.warning":{}});
+        assert!(!ordinary_once(&params));
+    }
 
     #[test]
     fn persistent_grant_warning_is_visible_once_and_retains_wire_metadata() {

@@ -1,6 +1,6 @@
 [package]
 name = "cadencr-app-paths"
-version = "0.16.3"
+version = "0.16.4"
 edition = "2021"
 license.workspace = true
 description = "Cadencr's per-user data, config and cache locations on macOS and Linux"

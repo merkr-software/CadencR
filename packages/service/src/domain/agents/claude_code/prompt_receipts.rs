@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::domain::agents::adapter::RuntimeEvent;
+use crate::domain::agents::adapter::{RuntimeEvent, RuntimeStreamEvent};
 
 const MAX_PENDING_PROMPT_RECEIPTS: usize = 64;
 
@@ -93,6 +93,52 @@ impl PendingClaudePromptReceipt {
     fn into_event(self) -> RuntimeEvent {
         RuntimeEvent::prompt_received_event(self.client_message_id)
     }
+}
+
+/// Receipts for the pending prompts `msg` echoes. Only a root, non-synthetic
+/// user message without tool output can be an echo of a prompt Cadencr sent;
+/// sub-agent traffic and tool results always flow through untouched.
+pub(super) fn acknowledge_user_prompt_receipt(
+    msg: &claude_agent_sdk_rs::SdkMessage,
+    prompt_receipts: &ClaudePromptReceipts,
+) -> Vec<RuntimeEvent> {
+    let claude_agent_sdk_rs::SdkMessage::User {
+        message,
+        parent_tool_use_id: None,
+        is_synthetic: None | Some(false),
+        tool_use_result: None,
+        ..
+    } = msg
+    else {
+        return Vec::new();
+    };
+    prompt_receipts.acknowledge_echo(message)
+}
+
+/// Drain outstanding prompt receipts when Claude starts its next response.
+/// A `Result` only closes the current turn (notably during compaction), so it
+/// must not acknowledge steering input that the CLI has queued but not replayed.
+pub(super) fn acknowledge_response_start_prompt_receipts(
+    event: &RuntimeEvent,
+    prompt_receipts: &ClaudePromptReceipts,
+) -> Vec<RuntimeEvent> {
+    if !matches!(
+        event.stream_event(),
+        Some(RuntimeStreamEvent::MessageStart { .. })
+    ) {
+        return Vec::new();
+    }
+    prompt_receipts.acknowledge_all_pending()
+}
+
+pub(super) fn is_unmatched_replay_user_message(msg: &claude_agent_sdk_rs::SdkMessage) -> bool {
+    matches!(
+        msg,
+        claude_agent_sdk_rs::SdkMessage::User {
+            is_replay: Some(true),
+            ..
+        }
+    )
 }
 
 /// Remove and return the receipts `observed` is composed of, or nothing.

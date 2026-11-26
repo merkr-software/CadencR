@@ -1,8 +1,14 @@
 import { toast } from "sonner";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorMessage, stripElectronIpcPrefix } from "@/lib/api-errors";
+
+export function formatBrowserIpcError(error: unknown): string {
+  const raw = apiErrorMessage(error, String(error)).trim();
+  const stripped = stripElectronIpcPrefix(raw);
+  return stripped.length > 0 ? stripped : raw || "Unknown error";
+}
 
 export function showBrowserError(error: unknown, title: string): void {
-  const message = apiErrorMessage(error, String(error));
+  const message = formatBrowserIpcError(error);
   toast.error(title, { description: message });
 }
 

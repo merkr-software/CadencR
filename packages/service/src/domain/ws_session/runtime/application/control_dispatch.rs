@@ -12,7 +12,7 @@ use super::control_dispatch_payload::replay_payload;
 use super::prompt_outcome::{publish_warnings, PromptDispatchOutcome};
 use super::PromptOrigin;
 use crate::domain::ws_session::runtime::prompt::prompt_followup::{
-    handle_followup_prompt, FollowupPromptContext,
+    handle_followup_prompt, DeliveryWait, FollowupPromptContext,
 };
 use crate::domain::ws_session::runtime::prompt::prompt_pending::{
     handle_pending_prompt, PendingPromptContext,
@@ -104,7 +104,10 @@ async fn dispatch_to_active_owner(
                 provider_id: handle.runtime_provider.clone(),
                 internal_replay: origin.is_replay(),
                 user_selection: origin.is_user().then(|| PromptedSelection::active(handle)),
-                wait_for_delivery: true,
+                delivery_wait: match origin {
+                    PromptOrigin::UserQueue => DeliveryWait::Submission,
+                    PromptOrigin::Control { .. } => DeliveryWait::Settlement,
+                },
             }),
             QueryState::Pending(_) => None,
         };

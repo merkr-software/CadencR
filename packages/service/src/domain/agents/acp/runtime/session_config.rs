@@ -47,6 +47,27 @@ impl AcpSessionConfigState {
         self.snapshot.read().await.clone()
     }
 
+    pub(super) async fn read(
+        &self,
+    ) -> tokio::sync::RwLockReadGuard<'_, RuntimeSessionConfigSnapshot> {
+        self.snapshot.read().await
+    }
+
+    pub(super) async fn observe_current_mode(&self, mode: &str) {
+        let Some(id) = self.hooks.mode_config_id() else {
+            return;
+        };
+        let mut snapshot = self.snapshot.write().await;
+        if let Some(RuntimeSessionConfigKind::Select { current_value, .. }) = snapshot
+            .options
+            .iter_mut()
+            .find(|option| option.id == id)
+            .map(|option| &mut option.kind)
+        {
+            mode.clone_into(current_value);
+        }
+    }
+
     /// Serialize every ACP configuration request, including the legacy
     /// model/effort entry points. Responses carry complete snapshots, so
     /// allowing their application order to differ from request order could

@@ -4,6 +4,7 @@ mod journal;
 mod store;
 
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -11,9 +12,13 @@ use std::time::{Duration, Instant};
 use cadencr_provider_sdk::meta::{merge_meta, subagent_background_meta};
 use serde_json::Value;
 
+pub(in crate::events) use self::journal::{read_exact_at, JournalCursor, SeekOutcome};
 use self::journal::{ChildJournal, JournalPoll, ParentReports};
-use self::store::{native_brain, parent_transcript, uuid_segment, Discovery};
+pub(crate) use self::store::native_brain;
+use self::store::Discovery;
+pub(in crate::events) use self::store::{parent_transcript, uuid_segment};
 use super::tools::{call_name, is_subagent_launch};
+use super::validated_session_id;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
 // Kept on synthesized frames only until EventMapper consumes it.
@@ -32,11 +37,7 @@ pub(crate) enum SubagentOperation {
 
 impl Subagents {
     pub(super) fn observe_request(&mut self, message: &Value) {
-        let Some(session) = message
-            .pointer("/params/sessionId")
-            .and_then(Value::as_str)
-            .filter(|id| uuid_segment(id))
-        else {
+        let Some(session) = validated_session_id(message) else {
             return;
         };
         match message.get("method").and_then(Value::as_str) {
@@ -123,9 +124,14 @@ struct Session {
 }
 
 impl SubagentTracker {
+    #[cfg(test)]
     pub(crate) fn new(args: &[OsString]) -> Self {
+        Self::with_brain(native_brain(args))
+    }
+
+    pub(crate) fn with_brain(brain: Option<PathBuf>) -> Self {
         Self {
-            brain: native_brain(args),
+            brain,
             unobserved: Vec::new(),
             sessions: HashMap::new(),
         }

@@ -19,8 +19,16 @@ export function statusSyncPatch(
     (previous.requestId == null || previous.requestId === session.pendingRequestId)
       ? buildClearedGatePatch(session)
       : null;
-  if (lifecycle !== session.lifecycle) return { ...gatePatch, lifecycle };
-  return gatePatch;
+  const compactPatch =
+    previous != null &&
+    previous.status !== "idle" &&
+    entry.status === "idle" &&
+    session.pendingManualCompact
+      ? { pendingManualCompact: false }
+      : null;
+  if (lifecycle !== session.lifecycle) return { ...gatePatch, ...compactPatch, lifecycle };
+  if (gatePatch || compactPatch) return { ...gatePatch, ...compactPatch };
+  return null;
 }
 
 function lifecycleFromStatus(

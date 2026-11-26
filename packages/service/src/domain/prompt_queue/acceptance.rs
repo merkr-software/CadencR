@@ -39,7 +39,14 @@ pub(crate) async fn defer_if_required(
     let message_uuid = payload.message_uuid.as_deref().ok_or_else(|| {
         AppError::BadRequest("A prompt must have a canonical message identity.".into())
     })?;
-    if store::has_source(&state.read_pool, session_id, message_uuid).await? {
+    if store::has_source(
+        &state.read_pool,
+        session_id,
+        store::QueueOrigin::User,
+        message_uuid,
+    )
+    .await?
+    {
         return Ok(true);
     }
     if !delivery::requires_queue(state, session_id).await {

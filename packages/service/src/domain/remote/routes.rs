@@ -228,12 +228,9 @@ pub async fn revoke_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<RemoteStatus>, AppError> {
-    // Its cached token and live sockets go with the row, before the fallible
-    // audit write below.
     if !super::revocation::revoke_device(&state, id).await? {
         return Err(AppError::NotFound(format!("device {id}")));
     }
-    repo::record_audit(&state.write_pool, "revoke", Some(id), None).await?;
     Ok(Json(current_status(&state).await?))
 }
 

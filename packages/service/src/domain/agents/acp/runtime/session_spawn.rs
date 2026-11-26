@@ -21,7 +21,7 @@ use crate::domain::agents::adapter::{
 
 #[cfg(unix)]
 use crate::domain::mcp::connection::Connections;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 use super::events_stream_blocks::EventIndexer;
 use super::lifecycle::{negotiate_session, NegotiatedSession};
@@ -108,7 +108,7 @@ pub async fn spawn_acp_runtime_session(
     let pid = client.pid();
     let mut event_rx = client.subscribe_reliable();
     // Overlaps the handshake: OpenCode lists its own MCP config to decide.
-    let injected = CadencrBrowserTrust::injected_in(config.mcp_servers.as_ref());
+    let injected = CadencrMcpTrust::injected_in(config.mcp_servers.as_ref());
     let (negotiated, browser_trust) = tokio::try_join!(
         negotiate_session(
             &client,
@@ -190,6 +190,9 @@ pub async fn spawn_acp_runtime_session(
             replay_suppression: Arc::clone(&session.replay_suppression),
             pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
             browser_trust,
+            attached_mcp: injected,
+            #[cfg(unix)]
+            connected_mcp: session.mcp_connections.observed(),
         },
     );
     session.loop_task = Some(loop_task);
@@ -198,7 +201,10 @@ pub async fn spawn_acp_runtime_session(
     // sub-agent child-session events). Started after the event loop so the
     // listener's emitted events queue behind any spawn-time init events the
     // FE expects to see first.
-    session.side_channel_task = hooks.start_side_channel(
+    *session
+        .side_channel_task
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = hooks.start_side_channel(
         &negotiated.session_id,
         config.cwd.as_path(),
         session.context_window,
@@ -319,7 +325,7 @@ impl AcpRuntimeSession {
             mcp_servers: Arc::new(RwLock::new(negotiated.mcp_servers.clone())),
             message_rx: Some(rx),
             loop_task: None,
-            side_channel_task: None,
+            side_channel_task: StdMutex::new(None),
             terminals: Arc::new(TerminalRegistry::default()),
             local_tx: Some(local_tx),
             hooks,

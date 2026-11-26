@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.16.4 - 2026-11-25
+
+Previous release: v0.16.3 - 2026-11-19
+
+### ✨ Added
+
+- [**Backend**] Added support for Google Antigravity through a separate provider plugin. The integration exposes native models, permission modes, and slash commands, and shows background replies and subagent activity with model and token usage. It requires a local `agy` installation and Google sign-in — [@rle-mino](https://github.com/rle-mino).
+- [**provider:opencode**] Added support for OpenCode 2.x alongside 1.x, including model selection, session forking, interactive questions, subagent activity, and conversation and token-history imports — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Send follow-up messages during a running turn with ACP providers that support steering. The conversation shows when the agent has received each follow-up — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Messages queued by agents in other conversations appear above the composer with their sender. You can edit, remove, or send them immediately, and your own queued prompts retain priority — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Share an in-app browser tab with an agent through an approval prompt. Before you share, the agent sees the site's origin. Shared tabs are marked, and you can revoke access from the tab menu. Page load failures appear inside the affected tab with a retry action where available — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Open Vega-Lite charts and interactive HTML visuals in full screen. Click an inline image or screenshot in an agent reply to inspect it in a lightbox — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] See how many subagents are running from the conversation's sidebar row in presets that display activity details — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] The `@@` conversation picker, composer chips, and transcript links show each conversation's project badge, making cross-project references easier to recognize — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**Desktop**] New conversations reuse the provider, model, profile, reasoning effort, and permission mode from the last prompt, plus Fast mode where supported. CadencR validates those choices for the new conversation — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Supported automatic permission modes can grant one-time approval to verified CadencR tools attached to the current conversation. External MCP tools and actions that require review continue through the provider's permission flow — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Agent questions that require a listed answer show the available choices in the conversation and in sidebar quick replies. The permission picker uses provider-defined colors when available — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Recently opened workspaces stay ready for faster switching, and visible conversations preload their history. Creating a conversation makes fewer requests to refresh other workspaces — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Live replies and sidebar activity remain more responsive while multiple agents stream or Git and terminal tasks are running. Model and slash-command lists remain available while CadencR refreshes them in the background — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Large Git diffs load on demand. When a diff exceeds its size limit, the Git tab directs you to the per-file view or the Editor — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Editor search reports how many files exceeded its size limit and follows file symlinks whose targets are inside the project. The file tree and live updates follow Git ignore rules, including nested `.gitignore` files and `.git/info/exclude` — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Native agents receive consistent formatting guidance for rich Markdown and inline local images in conversation replies — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**Desktop**] Conversation history fills gaps as you scroll or jump through the timeline, keeps your reading position when earlier messages load, and retries loading missed messages after reconnecting — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Opening a conversation during a live reply shows the text already streamed. Rewind waits for the interrupted turn's final text to be saved, preventing incomplete-history errors — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Archiving the open conversation selects the next active conversation in sidebar order and keeps the Archived section collapsed — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Saved conversations still open when provider discovery is unavailable. Model discovery errors explain how to recover, and MCP connection status follows the active session through reconnects and runtime changes — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Stop escalates when an agent fails to finish after cancellation. Restart recovery resumes conversations whose background work was interrupted and respects recorded user stops — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] ACP compaction clears its working indicator when the turn ends, and queued prompts can proceed once the conversation is ready. Reject & Stop delivers the next queued prompt after the blocked turn has ended — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Claude Code and Codex plans accept approval, change requests, and rejection through the API and MCP. Rejecting a Codex plan closes the request without sending a revision prompt, and repeated answers report that the request has already closed — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Subagent cards report uncached input and output tokens, avoiding inflated totals from repeated cached context — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Large terminal pastes keep their input order, failed input shows an error in the Terminal and Neovim, and closing a terminal leaves any unfinished command unexecuted — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Git shows when a target branch is missing and keeps unpublished commits visible when an upstream branch is deleted. Editor blame and change markers report failed Git reads — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Project port badges stay visible between scans and exclude provider infrastructure listeners. Pull request badges keep refreshing after credential changes and during slow Git reads — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Unreadable workspace settings show the affected file and the reason, preserving the existing onboarding state — [@rle-mino](https://github.com/rle-mino).
+
+### 🔒 Security
+
+- [**provider:codex**] CadencR masks potentially sensitive values in Codex configuration errors while keeping the affected setting visible for troubleshooting — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Revoking a paired remote device closes its active connections and immediately invalidates its cached credentials, even if the request is interrupted — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.16.3 - 2026-11-19
 
 Previous release: v0.16.2 - 2026-11-11

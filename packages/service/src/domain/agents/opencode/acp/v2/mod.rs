@@ -21,7 +21,9 @@ use self::wire::OpenCodeV2Wire;
 use super::instructions::apply_instruction_config;
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
 use crate::domain::agents::acp::{AcpClientInfo, AcpProcessTreePolicy, AcpStderrPolicy};
-use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{
+    AgentRuntimeSession, RuntimeError, RuntimePurpose, RuntimeSpawnConfig,
+};
 
 /// The `opencode acp` command for 2.x; the session directory rides
 /// `session/new` and the process starts in it.
@@ -40,7 +42,8 @@ pub(in crate::domain::agents::opencode) async fn spawn_session(
     content: Value,
     mut config: RuntimeSpawnConfig,
 ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
-    let instructions_dir = apply_instruction_config(&mut config, true)?;
+    let enable_todos = !matches!(config.purpose, Some(RuntimePurpose::AutoName));
+    let instructions_dir = apply_instruction_config(&mut config, enable_todos)?;
     let mut command = acp_command(&binary, &config.cwd);
     if let Some(env) = config.env.as_ref() {
         for (key, value) in env {
@@ -56,7 +59,7 @@ pub(in crate::domain::agents::opencode) async fn spawn_session(
     let wire = OpenCodeV2Wire::new(config.cwd.clone(), session_database());
     spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
         command,
-        // The instructions file must outlive the process that reads it.
+        // Keep any instructions file alive for the process lifetime via hooks.
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
         stderr_policy: AcpStderrPolicy::Log,

@@ -16,7 +16,7 @@ use super::events::{notification_events, rerouted_model};
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
 use crate::domain::agents::adapter::{KnownSubagent, RuntimeError, RuntimeEvent};
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 mod server_requests;
 
@@ -34,7 +34,8 @@ pub(super) fn spawn_event_loop(
     compaction: Arc<super::session::compaction::CompactionState>,
     /// Sub-agents earlier runtimes spawned: a rehydrated child keeps its carrier.
     known_subagents: Vec<KnownSubagent>,
-    browser_trust: CadencrBrowserTrust,
+    automatic_mcp: Arc<Mutex<super::trusted_mcp::McpApprovalTurn>>,
+    mcp_trust: CadencrMcpTrust,
 ) {
     let event_loop = EventLoop {
         client,
@@ -46,7 +47,8 @@ pub(super) fn spawn_event_loop(
         model,
         closing,
         compaction,
-        browser_trust,
+        mcp_trust,
+        automatic_mcp,
     };
     tokio::spawn(async move { event_loop.run(source_rx, known_subagents).await });
 }
@@ -61,7 +63,8 @@ struct EventLoop {
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
     compaction: Arc<super::session::compaction::CompactionState>,
-    browser_trust: CadencrBrowserTrust,
+    automatic_mcp: Arc<Mutex<super::trusted_mcp::McpApprovalTurn>>,
+    mcp_trust: CadencrMcpTrust,
 }
 
 struct NotificationState {
@@ -137,6 +140,16 @@ impl EventLoop {
     ) -> bool {
         if super::event_turn_state::belongs_to_root_thread(&params, &self.turns.root_thread_id) {
             self.compaction.observe(&method, &params);
+        }
+        if params["threadId"] == self.turns.root_thread_id.as_str() {
+            let turn = params
+                .pointer("/turn/id")
+                .and_then(serde_json::Value::as_str);
+            match (method.as_str(), turn) {
+                ("turn/started", Some(id)) => self.automatic_mcp.lock().await.started(id),
+                ("turn/completed", id) => self.automatic_mcp.lock().await.completed(id),
+                _ => {}
+            }
         }
         // Codex multiplexes every thread (root + each sub-agent) onto one
         // stream; item caches are kept per thread so a root turn/started

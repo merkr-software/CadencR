@@ -99,7 +99,8 @@ export class BrowserScopeState {
       scopeId: scoped ? scopeId : null,
       tabs: orderedMetadata ?? visible.map((tab) => tab.metadata),
       activeTabId,
-      error: this.errors.get(scopeId, activeTabId),
+      error: this.errors.get(scopeId),
+      tabError: this.errors.getTabError(scopeId, activeTabId),
     };
   }
 

@@ -1,10 +1,12 @@
 import type { BrowserWindow, HandlerDetails, WebContents } from "electron";
+import type { BrowserAgentAccessController } from "./browser-agent-access-controller";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
 import { isPinnedCommentBadge } from "./browser-comment-context";
 import { installBrowserContextMenu } from "./browser-context-menu";
 import type { BrowserFocusGuard } from "./browser-focus-guard";
 import type { BrowserDownloadManager } from "./browser-download-manager";
 import type { BrowserLibraryController } from "./browser-library-controller";
+import { isIgnoredLoadUrlRejection } from "./browser-load-errors";
 import { reclaimRendererFocus } from "./browser-manager-utils";
 import type { BrowserNetworkCollector } from "./browser-network-collector";
 import type { BrowserPageController } from "./browser-page-controller";
@@ -16,14 +18,19 @@ import type { BrowserTabCloseController } from "./browser-tab-close-controller";
 import { installTabEvents, type ManagedTab } from "./browser-tab-events";
 import type { BrowserTabLifecycle } from "./browser-tab-lifecycle";
 import type { BrowserTabWorkspaceController } from "./browser-tab-workspace-controller";
-import type { BrowserAgentAccess, BrowserShortcut, BrowserTabMetadata } from "./browser-types";
+import type {
+  BrowserAgentAccess,
+  BrowserShortcut,
+  BrowserTabError,
+  BrowserTabMetadata,
+} from "./browser-types";
 import { sendToWindow } from "./safe-send";
 
 interface BrowserTabCreationHost {
   getWindow(): BrowserWindow | null;
   /** Set (or clear, with `null`) the error owned by a live tab in its own scope. */
   /** True when the tab's stored error changed. */
-  setTabError(tab: ManagedTab, message: string | null): boolean;
+  setTabError(tab: ManagedTab, error: BrowserTabError | null): boolean;
   /** Record a live tab's failure and publish its scope. */
   reportTabError(tab: ManagedTab, error: unknown): void;
   /** Record a scope-wide error and publish that scope's state. */
@@ -52,6 +59,7 @@ interface BrowserTabCreationOptions {
   page: BrowserPageController;
   popup: BrowserPopupController;
   responsive: BrowserResponsiveController;
+  agentAccess: BrowserAgentAccessController;
   host: BrowserTabCreationHost;
 }
 
@@ -144,7 +152,9 @@ export class BrowserTabCreationController {
     if (background && !nativeChildWebContents(nativeOptions)) {
       void tab.webContents
         .loadURL(details.url, nativeLoadOptions(details))
-        .catch((error: unknown) => this.options.host.reportTabError(tab, error));
+        .catch((error: unknown) => {
+          if (!isIgnoredLoadUrlRejection(error)) this.options.host.reportTabError(tab, error);
+        });
     }
     return tab.webContents;
   }
@@ -184,6 +194,7 @@ export class BrowserTabCreationController {
       this.installEvents(tab, profile);
       this.options.popup.watch(tab);
       this.options.responsive.watch(tab);
+      if (tab.automationAccess !== "agent") this.options.agentAccess.watch(tab);
       this.options.network.ensure(tab.webContents.session);
       this.options.focusGuard.watch(tab.webContents);
       lifecycle.register(tab);

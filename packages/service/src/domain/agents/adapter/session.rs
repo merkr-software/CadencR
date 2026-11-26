@@ -1,8 +1,14 @@
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
+
+/// How long a cooperative Stop may wait for the provider to settle before the
+/// runtime is forcefully terminated. Shared by ACP cancel escalation and the
+/// service-level Stop watchdog so they stay aligned.
+pub const STOP_ESCALATION_GRACE: Duration = Duration::from_secs(15);
 
 use super::config::{RuntimeAccessMode, RuntimeMcpServerStatus, RuntimePermissionMode};
 use super::error::RuntimeError;
@@ -93,13 +99,24 @@ pub trait AgentRuntimeSession: Send + Sync {
         let _ = client_message_id;
         self.stream_input(content).await
     }
+    /// Whether `stream_input_with_delivery_order` fires its `submitted` signal
+    /// before full turn settlement (true for ACP, whose `session/prompt` awaits
+    /// the entire turn). Runtimes whose prompt RPC returns on acceptance leave
+    /// this `false` so callers avoid spawning a submission watcher.
+    fn signals_prompt_submission(&self) -> bool {
+        false
+    }
     /// A runtime that accepts overlapping prompts may release the order guard
     /// after submitting this request and continue awaiting its acknowledgement.
+    /// Runtimes whose prompt call awaits the full turn (ACP) also consume
+    /// `submitted` once the request hits the wire so queue callers need not
+    /// block for the entire turn.
     async fn stream_input_with_delivery_order(
         &self,
         content: Value,
         client_message_id: Option<String>,
         _order: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
+        _submitted: &mut Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<(), RuntimeError> {
         self.stream_input_with_client_message_id(content, client_message_id)
             .await
@@ -138,6 +155,14 @@ pub trait AgentRuntimeSession: Send + Sync {
     /// with a shorter bound; the stop's contract is otherwise `interrupt`'s.
     async fn interrupt_before_sleep(&self) -> Result<(), RuntimeError> {
         self.interrupt().await
+    }
+    /// Forcefully terminate a runtime that stayed busy past the cooperative
+    /// stop grace. Takes `&self` so a watchdog can escalate even while an ACP
+    /// prompt task holds a read lock on the runtime handle. Returns `true` when
+    /// termination was triggered (and a stop-escalation error queued on the
+    /// stream when still open).
+    async fn terminate_unresponsive_stop(&self, _reason: String) -> bool {
+        false
     }
     async fn compact(&self) -> Result<(), RuntimeError> {
         Err(RuntimeError::new(

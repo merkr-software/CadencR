@@ -1,24 +1,17 @@
 import { memo, useCallback, useState, type DragEvent, type ReactElement } from "react";
 import {
   ChevronDownIcon,
-  CopyIcon,
   EyeOffIcon,
   GlobeIcon,
   Loader2Icon,
   PinIcon,
-  PinOffIcon,
   PlusIcon,
   XIcon,
 } from "lucide-react";
 
+import { AgentIcon } from "@/components/AgentIcon";
 import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PROFILE_ID, type CookieMode } from "@/lib/browser-settings";
 import type { BrowserTabMetadata } from "@/lib/desktop-bridge";
+import { BrowserTabContextMenu, isAgentSharedTab } from "./BrowserTabContextMenu";
 import { BrowserTabDragSurface, BROWSER_TAB_DRAG_TYPE } from "./BrowserTabDragSurface";
 import { BrowserTabOverflow } from "./BrowserTabOverflow";
 import { scrollBrowserTabs, useRevealActiveBrowserTab } from "./browser-tab-strip-rail";
@@ -83,6 +77,7 @@ export function BrowserTabStrip({
               onDuplicate={model.duplicateTab}
               onReorder={model.reorderTab}
               onCloseOthers={model.closeOtherTabs}
+              onRevokeAgentAccess={model.revokeAgentAccess}
               onMenuOpenChange={onChromeOverlayOpenChange}
               dragging={draggedTabId === tab.id}
               dropTarget={dropTargetId === tab.id && draggedTabId !== tab.id}
@@ -132,6 +127,7 @@ interface BrowserTabPillProps {
   onDuplicate: (tabId: string) => void;
   onReorder: (tabId: string, targetIndex: number) => void;
   onCloseOthers: (tabId: string) => void;
+  onRevokeAgentAccess: (tab: BrowserTabMetadata) => void;
   onMenuOpenChange?: (open: boolean) => void;
   dragging: boolean;
   dropTarget: boolean;
@@ -155,6 +151,7 @@ const BrowserTabPill = memo(function BrowserTabPill({
   onDuplicate,
   onReorder,
   onCloseOthers,
+  onRevokeAgentAccess,
   onMenuOpenChange,
   dragging,
   dropTarget,
@@ -166,6 +163,7 @@ const BrowserTabPill = memo(function BrowserTabPill({
 }: BrowserTabPillProps): ReactElement {
   const label = tab.title || "New tab";
   const isPrivate = tab.sessionProfileId === PROFILE_ID.private;
+  const isAgentShared = isAgentSharedTab(tab);
   const drop = (event: DragEvent<HTMLDivElement>): void => {
     if (!acceptsDrop) return;
     event.preventDefault();
@@ -198,6 +196,11 @@ const BrowserTabPill = memo(function BrowserTabPill({
             <span className="flex shrink-0 items-center gap-1">
               {tab.pinned ? <PinIcon aria-label="Pinned tab" className="size-3" /> : null}
               <BrowserPageIcon tab={tab} />
+              {isAgentShared ? (
+                <span role="img" aria-label="Shared with agent" title="Shared with agent">
+                  <AgentIcon aria-hidden="true" className="size-3 shrink-0 text-primary" />
+                </span>
+              ) : null}
               {isPrivate ? (
                 <span role="img" aria-label="Private tab" title="Private tab">
                   <EyeOffIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
@@ -230,75 +233,11 @@ const BrowserTabPill = memo(function BrowserTabPill({
         onReorder={onReorder}
         onCloseOthers={onCloseOthers}
         onClose={onClose}
+        onRevokeAgentAccess={onRevokeAgentAccess}
       />
     </ContextMenu>
   );
 });
-
-function BrowserTabContextMenu({
-  tab,
-  index,
-  groupStart,
-  groupEnd,
-  closableOthers,
-  busy,
-  onSetPinned,
-  onDuplicate,
-  onReorder,
-  onCloseOthers,
-  onClose,
-}: {
-  tab: BrowserTabMetadata;
-  index: number;
-  groupStart: number;
-  groupEnd: number;
-  closableOthers: boolean;
-  busy: boolean;
-  onSetPinned: (tabId: string, pinned: boolean) => void;
-  onDuplicate: (tabId: string) => void;
-  onReorder: (tabId: string, targetIndex: number) => void;
-  onCloseOthers: (tabId: string) => void;
-  onClose: (tabId: string) => void;
-}): ReactElement {
-  return (
-    <ContextMenuContent className="min-w-52">
-      <ContextMenuItem disabled={busy} onSelect={() => onSetPinned(tab.id, !tab.pinned)}>
-        {tab.pinned ? <PinOffIcon /> : <PinIcon />}
-        {tab.pinned ? "Unpin tab" : "Pin tab"}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={busy || tab.temporary === true}
-        title={
-          tab.temporary ? "Temporary sign-in tabs cannot be replayed as GET requests" : undefined
-        }
-        onSelect={() => onDuplicate(tab.id)}
-      >
-        <CopyIcon />
-        Duplicate tab
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        disabled={busy || index <= groupStart}
-        onSelect={() => onReorder(tab.id, index - 1)}
-      >
-        Move left
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={busy || index >= groupEnd}
-        onSelect={() => onReorder(tab.id, index + 1)}
-      >
-        Move right
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem disabled={busy || !closableOthers} onSelect={() => onCloseOthers(tab.id)}>
-        Close other unpinned tabs
-      </ContextMenuItem>
-      <ContextMenuItem disabled={busy} variant="destructive" onSelect={() => onClose(tab.id)}>
-        Close tab
-      </ContextMenuItem>
-    </ContextMenuContent>
-  );
-}
 
 const NewBrowserTabButton = memo(function NewBrowserTabButton({
   defaultMode,

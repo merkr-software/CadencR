@@ -136,7 +136,15 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
   });
   // A retry the provider never reported recovering from ends with the turn.
   const streamRecovered = session.streamHealth.state === "degraded";
-  if (blocks === session.blocks && lifecycle === session.lifecycle && !streamRecovered) {
+  // A manual compaction whose turn ended (completed, interrupted, or stream
+  // closed) without a compact_boundary must not leave the UI stuck compacting.
+  const clearingCompacting = session.pendingManualCompact;
+  if (
+    blocks === session.blocks &&
+    lifecycle === session.lifecycle &&
+    !streamRecovered &&
+    !clearingCompacting
+  ) {
     repairRecoveredPersistence(ctx, sessionId);
     return;
   }
@@ -145,6 +153,7 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
       ...(blocks === session.blocks ? {} : blocksPatchWithDerived(state, blocks)),
       lifecycle,
       ...(streamRecovered ? { streamHealth: { state: "ok", since: Date.now() } } : {}),
+      ...(clearingCompacting ? { pendingManualCompact: false } : {}),
     }),
   );
   repairRecoveredPersistence(ctx, sessionId);

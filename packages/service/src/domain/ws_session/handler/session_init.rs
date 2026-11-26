@@ -102,8 +102,7 @@ pub(super) async fn handle_init(
     }
     let inherited =
         match binding::prepare_controls(app_state, row.as_mut(), &payload, &effective_cwd).await {
-            Ok(true) => row.as_ref(),
-            Ok(false) => None,
+            Ok(inherited) => inherited,
             Err(error) => {
                 let (code, message) = match error {
                     crate::error::AppError::Coded { code, message, .. } => (code, message),
@@ -197,9 +196,7 @@ pub(super) async fn handle_init(
     };
     let Some(mode::Prepared {
         mode: permission_mode,
-        wire: effective_permission_mode_wire,
-        warning: permission_mode_warning,
-        persist: persist_permission_mode,
+        offline: offline_mode,
     }) = mode::prepare()
         .app_state(app_state)
         .sender(sender)
@@ -214,9 +211,8 @@ pub(super) async fn handle_init(
         return Some(db_session_id);
     };
     runtime_config.permission_mode = permission_mode;
-    writes.permission_mode = persist_permission_mode;
     runtime_config.validate_restored_permission_mode =
-        permission_mode_warning.is_some() && effective_permission_mode_wire.is_some();
+        offline_mode.as_ref().is_some_and(|o| o.wire.is_some());
     let initial = (initial_provider.as_str(), configured_initial_access_mode);
     let read = provider::access_mode_for(app_state, initial, &effective_provider);
     let Some(configured_access_mode) =
@@ -291,9 +287,23 @@ pub(super) async fn handle_init(
     );
     runtime_config.fast_mode = effective_fast_mode;
 
-    writes.selection = Some(match inherited {
-        Some(row) => writes::SelectionWrite::Inherited(Box::new(row.clone())),
-        None => writes::SelectionWrite::Resolved {
+    let (effective_permission_mode_wire, persist_permission_mode, permission_mode_warning) =
+        mode::finalize(
+            offline_mode,
+            (!inherited)
+                .then(|| row.as_ref().and_then(|r| r.permission_mode.as_deref()))
+                .flatten(),
+            inherited,
+            runtime_config.permission_mode.as_ref(),
+        );
+    writes.permission_mode = persist_permission_mode;
+
+    writes.selection = Some(match row.as_mut() {
+        Some(row) if inherited => {
+            row.permission_mode = effective_permission_mode_wire.clone();
+            writes::SelectionWrite::Inherited(Box::new(row.clone()))
+        }
+        _ => writes::SelectionWrite::Resolved {
             provider: effective_provider.clone(),
             model: effective_model.clone(),
             initial_overrides: (inherits_profile_config

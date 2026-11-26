@@ -53,7 +53,8 @@ open, and disconnected after its last connection closes.
 With a compatible agy 1.x CLI (1.5.0 or later), pressing Enter during a turn
 sends a second ACP prompt to the same session. The agent can act on it while
 an earlier command is still running. The message appears at its submission
-position and shows a pending receipt until ACP acknowledges it. The composer's
+position and shows a pending receipt until Antigravity ingests it into the
+session transcript (or ACP settles the request). The composer's
 queue action keeps a message for the end of the turn. A new major CLI version uses the queue until
 its concurrent prompt behavior has been verified.
 
@@ -79,8 +80,8 @@ If the connector cannot find a
 readable child journal within 30 seconds, it releases that child's hold on the
 conversation. The card retains the last observed status until its runtime closes.
 
-The pre-session slash menu and child-journal format are verified with
-`agy 1.5.14`. After the session opens, ACP supplies the live command list.
+The pre-session slash menu, prompt transcript receipts, and child-journal format are verified with
+`agy 1.5.14`–`1.5.15`. After the session opens, ACP supplies the live command list.
 When investigating missing commands or child actions, check `agy --version`
 and the connector diagnostics. An unreadable optional skill or manifest is
 skipped individually. The journal determines which actions CadencR can show. Parallel calls can appear without individually
@@ -97,8 +98,10 @@ restores a session. See [Antigravity execution modes](https://antigravity.google
 
 In Auto mode, Antigravity can still request approval for an MCP tool.
 The `agy 1.5.14` ACP evaluator can classify even a read-only MCP call as
-`unsupported_tool` and offer a one-time allow or deny decision. CadencR presents
-that decision to the user. See [Antigravity CLI permissions](https://antigravity.google/docs/permissions#antigravity-cli).
+`unsupported_tool` and offer a one-time allow or deny decision. In Auto, CadencR can accept this request once for a verified tool
+from its own attached servers. A warning on the one-time grant goes through
+Antigravity’s permission flow. Native policy also applies to `browser_evaluate`,
+`browser_open_external_url`, `project_respond_gate`, and external MCP servers. See [Antigravity CLI permissions](https://antigravity.google/docs/permissions#antigravity-cli).
 
 ## Build and test
 

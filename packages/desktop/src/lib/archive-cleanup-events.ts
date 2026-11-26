@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { z } from "zod";
 import {
+  FeatureStatus,
   getGetArchiveCleanupQueryKey,
   getListArchiveCleanupsQueryKey,
   getListFeatureActivityQueryKey,
@@ -13,11 +14,15 @@ import {
   closeFeatureSession,
   navigateToFeatureIdOrHome,
 } from "@/components/project-feature-navigation";
+import { readLoadedIdList } from "@/hooks/usePersistedIdSet";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { updateArchiveProgress } from "@/lib/archive-progress-toast";
 import { isViewingFeature } from "@/lib/notify-agent-done";
 import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
+import { sortConversations } from "@/lib/sidebar-lens";
+import { NO_MANUAL_ORDER, SIDEBAR_CONVERSATION_ORDER_KEY } from "@/lib/sidebar-manual-order";
+import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 
 const stepSchema = z.object({
   status: z.enum(["pending", "running", "interrupted", "done", "skipped", "blocked", "failed"]),
@@ -73,7 +78,7 @@ function applyArchive(event: ArchiveCleanupEvent): void {
   const viewedId = event.archived_feature_ids.find(isViewingFeature);
   // Read before the cached lists mark the conversations archived.
   const target = archiveNavigationTarget(
-    cachedActiveFeatures(event.project_id, viewedId),
+    cachedActiveFeatures(event.project_id, viewedId, archivedIds),
     viewedId ?? null,
     archivedIds,
   );
@@ -93,8 +98,17 @@ function applyClosedActivity({ project_id, feature_id, cleanup }: ArchiveCleanup
   }
 }
 
-/** The sidebar's active list holding `featureId`, from the cached project lists. */
-function cachedActiveFeatures(projectId: number, featureId: number | undefined): Feature[] {
+/**
+ * The project's active conversations from the cached lists, in the sidebar's
+ * configured sort order. Keeps newly archived IDs in place if a `feature_event`
+ * refetch arrived first, so adjacency still resolves to the next active
+ * conversation rather than index 0.
+ */
+function cachedActiveFeatures(
+  projectId: number,
+  featureId: number | undefined,
+  archivedIds: ReadonlySet<number>,
+): readonly Feature[] {
   if (featureId === undefined) return [];
   const list = queryClient
     .getQueriesData<Feature[] | object>({ queryKey: getListFeaturesQueryKey() })
@@ -103,9 +117,17 @@ function cachedActiveFeatures(projectId: number, featureId: number | undefined):
       (data): data is Feature[] =>
         Array.isArray(data) && data.some((feature) => feature.id === featureId),
     );
-  return (list ?? []).filter(
-    (feature) => feature.project_id === projectId && feature.status === "active",
+  const filtered = (list ?? []).filter(
+    (feature) =>
+      feature.project_id === projectId &&
+      (feature.status === FeatureStatus.active || archivedIds.has(feature.id)),
   );
+  const sort = useSidebarConfigStore.getState().config.conversationSort;
+  const manualOrder =
+    sort === "manual"
+      ? (readLoadedIdList(queryClient, SIDEBAR_CONVERSATION_ORDER_KEY) ?? NO_MANUAL_ORDER)
+      : NO_MANUAL_ORDER;
+  return sortConversations(filtered, sort, manualOrder);
 }
 
 function leaveArchivedFeature(projectId: number, featureId: number | undefined): void {

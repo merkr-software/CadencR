@@ -25,7 +25,7 @@ pub use super::prompt_turn_lock::PromptTurnLock;
 /// answers with stop reason `cancelled`) before the process is terminated.
 /// Generous on purpose: agents unwind tool calls, MCP requests and
 /// subprocesses first, and killing the process loses all of that state.
-pub const DEFAULT_CANCEL_GRACE: Duration = Duration::from_secs(15);
+pub const DEFAULT_CANCEL_GRACE: Duration = crate::domain::agents::adapter::STOP_ESCALATION_GRACE;
 
 #[derive(Clone)]
 pub struct PromptCancel {
@@ -92,6 +92,11 @@ impl PromptCancel {
         self.current_epoch() > cancels
     }
 
+    /// Claim the one-shot stop-escalation slot for the current prompt turn.
+    pub(super) fn claim_escalation(&self) -> bool {
+        !self.escalated.swap(true, Ordering::Relaxed)
+    }
+
     async fn wait_for_cancel_after(&self, epoch: u64) {
         loop {
             // Register before re-checking the epoch: `notify_waiters` only
@@ -112,24 +117,37 @@ pub(super) struct PromptReply {
     body: Result<Value, RuntimeError>,
     fence_reached: oneshot::Receiver<()>,
     resume_updates: oneshot::Sender<()>,
+    start_epoch: u64,
 }
 
 impl PromptReply {
-    /// Wait for events ahead of the wire response. The caller keeps the sender
-    /// through result publication and releases the prompt lock before dropping it.
+    /// Wait for events ahead of the wire response while honoring Stop
+    /// escalation if the event loop is blocked and never reaches the barrier.
     pub(super) async fn after_prior_events(
         self,
+        client: &AcpClient,
+        prompt_cancel: &PromptCancel,
+        tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Result<(Value, oneshot::Sender<()>), RuntimeError> {
-        let (body, resumed) = self.ordered().await?;
+        let (body, resumed) = self.ordered(client, prompt_cancel, tx).await?;
         Ok((body?, resumed))
     }
 
     pub(super) async fn ordered(
         self,
+        client: &AcpClient,
+        prompt_cancel: &PromptCancel,
+        tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     ) -> Result<(Result<Value, RuntimeError>, oneshot::Sender<()>), RuntimeError> {
-        self.fence_reached
-            .await
-            .map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
+        let reached = await_with_cancel_grace(
+            self.fence_reached,
+            self.start_epoch,
+            client,
+            prompt_cancel,
+            tx,
+        )
+        .await?;
+        reached.map_err(|_| RuntimeError::new("ACP event loop stopped before turn completion"))?;
         Ok((self.body, self.resume_updates))
     }
 }
@@ -180,6 +198,7 @@ pub async fn drive_initial_prompt(
         request_registered_prompt(client, params, prompt_cancel, tx, epoch, || drop(admission))
             .await;
     CompletePrompt::builder()
+        .client(client)
         .tx(tx)
         .indexer(indexer)
         .session_id(&session_id)
@@ -246,29 +265,44 @@ pub(super) async fn request_registered_prompt(
     let (resume_updates, paused) = oneshot::channel();
     let (barrier, fence_reached) = AcpEventBarrier::new(Some(paused));
     let prompt = client.request_prompt_with_event_barrier(params, barrier, submitted);
-    tokio::pin!(prompt);
-
-    let body = tokio::select! {
-        result = &mut prompt => result,
-        _ = prompt_cancel.wait_for_cancel_after(start_epoch) => {
-            match tokio::time::timeout(prompt_cancel.grace, &mut prompt).await {
-                Ok(result) => result,
-                Err(_) => {
-                    if !prompt_cancel.escalated.swap(true, Ordering::Relaxed) {
-                        escalate_unresponsive_cancel(client, prompt_cancel.grace, tx).await;
-                    }
-                    return Err(RuntimeError::stop_escalated(unresponsive_cancel_message(prompt_cancel.grace)));
-                }
-            }
-        }
-    }.map_err(|error| RuntimeError::new(format!("session/prompt failed: {error}")))?;
+    let body = await_with_cancel_grace(prompt, start_epoch, client, prompt_cancel, tx)
+        .await?
+        .map_err(|error| RuntimeError::new(format!("session/prompt failed: {error}")))?;
     Ok(PromptReply {
         body: body.map_err(|error| {
             RuntimeError::request_rejected(format!("session/prompt failed: {error}"))
         }),
         fence_reached,
         resume_updates,
+        start_epoch,
     })
+}
+
+async fn await_with_cancel_grace<T>(
+    fut: impl std::future::Future<Output = T>,
+    start_epoch: u64,
+    client: &AcpClient,
+    prompt_cancel: &PromptCancel,
+    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+) -> Result<T, RuntimeError> {
+    tokio::pin!(fut);
+    tokio::select! {
+        biased;
+        result = &mut fut => Ok(result),
+        _ = prompt_cancel.wait_for_cancel_after(start_epoch) => {
+            match tokio::time::timeout(prompt_cancel.grace, &mut fut).await {
+                Ok(result) => Ok(result),
+                Err(_) => {
+                    if prompt_cancel.claim_escalation() {
+                        escalate_unresponsive_cancel(client, prompt_cancel.grace, tx).await;
+                    }
+                    Err(RuntimeError::stop_escalated(unresponsive_cancel_message(
+                        prompt_cancel.grace,
+                    )))
+                }
+            }
+        }
+    }
 }
 
 async fn escalate_unresponsive_cancel(
@@ -278,22 +312,11 @@ async fn escalate_unresponsive_cancel(
 ) {
     let message = unresponsive_cancel_message(grace);
     tracing::warn!(grace_ms = grace.as_millis() as u64, "{message}");
-    // The kill must never wait on the runtime channel. Queue the reason
-    // without blocking so it normally precedes the generic "process exited"
-    // error that follows the kill; a full channel gets it after the kill.
-    match tx.try_send(Err(RuntimeError::stop_escalated(message))) {
-        Ok(()) => client.shutdown().await,
-        Err(mpsc::error::TrySendError::Full(escalation)) => {
-            client.shutdown().await;
-            if tx.send(escalation).await.is_err() {
-                tracing::debug!("ACP runtime channel closed before cancel escalation");
-            }
-        }
-        Err(mpsc::error::TrySendError::Closed(_)) => {
-            tracing::debug!("ACP runtime channel closed before cancel escalation");
-            client.shutdown().await;
-        }
-    }
+    // The kill must never wait on the runtime channel: `queue_stop_escalation`
+    // is non-blocking so `try_send` lands ahead of process exit when room
+    // exists, and a full channel never delays `client.shutdown()`.
+    super::session::queue_stop_escalation(tx, message);
+    client.shutdown().await;
 }
 
 fn unresponsive_cancel_message(grace: Duration) -> String {
@@ -741,17 +764,45 @@ mod tests {
         for subscribed in [false, true] {
             let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
             let receiver = subscribed.then(|| client.subscribe_reliable());
+            let cancel = PromptCancel::new();
             let (tx, _rx) = mpsc::channel(4);
-            let prompt = spawn_prompt(&client, &PromptCancel::new(), &tx).await;
+            let prompt = spawn_prompt(&client, &cancel, &tx).await;
             let request = read_one_request(&mut agent_stdin).await;
             reply_with_stop(&mut agent_stdout, request["id"].clone(), "end_turn").await;
             let reply = prompt.await.unwrap().unwrap().unwrap();
             drop(receiver);
-            let error = tokio::time::timeout(Duration::from_secs(1), reply.after_prior_events())
-                .await
-                .expect("a missing or dropped loop releases the waiter")
-                .expect_err("barrier was never reached");
+            let error = tokio::time::timeout(
+                Duration::from_secs(1),
+                reply.after_prior_events(&client, &cancel, &tx),
+            )
+            .await
+            .expect("a missing or dropped loop releases the waiter")
+            .expect_err("barrier was never reached");
             assert!(error.to_string().contains("stopped before turn completion"));
         }
+    }
+
+    #[tokio::test]
+    async fn ordered_escalates_when_event_loop_never_reaches_barrier() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        // Keep the reliable event receiver open without acknowledging barriers,
+        // simulating a blocked event loop (e.g. full runtime channel).
+        let _stalled_event_loop = client.subscribe_reliable();
+        let cancel = PromptCancel::new().with_cancel_grace(Duration::from_millis(80));
+        let (tx, mut rx) = mpsc::channel(4);
+        let prompt = spawn_prompt(&client, &cancel, &tx).await;
+        let request = read_one_request(&mut agent_stdin).await;
+        reply_with_stop(&mut agent_stdout, request["id"].clone(), "cancelled").await;
+        let reply = prompt.await.unwrap().unwrap().unwrap();
+
+        cancel.cancel_current_turn();
+        let error =
+            tokio::time::timeout(Duration::from_secs(2), reply.ordered(&client, &cancel, &tx))
+                .await
+                .expect("cancel grace must unblock a stalled event barrier")
+                .expect_err("escalation returns stop_escalated error");
+        assert!(error.is_stop_escalation(), "{error:?}");
+        let stream_err = rx.recv().await.unwrap().expect_err("visible escalation");
+        assert!(stream_err.is_stop_escalation(), "{stream_err:?}");
     }
 }

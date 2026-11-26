@@ -48,6 +48,16 @@ pub(super) async fn mark_revoked(pool: &SqlitePool, id: i64) -> Result<bool, App
     Ok(result.rows_affected() > 0)
 }
 
+pub(super) async fn is_revoked(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
+    let revoked = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM remote_devices WHERE id = ? AND revoked_at IS NOT NULL)",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
+    Ok(revoked)
+}
+
 pub async fn touch_last_seen(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     sqlx::query("UPDATE remote_devices SET last_seen_at = datetime('now') WHERE id = ?")
         .bind(id)

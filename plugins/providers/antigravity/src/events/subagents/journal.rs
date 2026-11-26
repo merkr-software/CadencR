@@ -13,7 +13,7 @@ use cadencr_provider_sdk::meta::SubagentStatus;
 use serde_json::{json, Value};
 
 use self::background::BackgroundTasks;
-use self::cursor::JournalCursor;
+pub(in crate::events) use self::cursor::{read_exact_at, JournalCursor, SeekOutcome};
 use self::nested::NestedChildren;
 use self::projection::ProjectedRow;
 use self::report::ReportDigest;

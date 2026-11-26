@@ -1,44 +1,48 @@
 import { BrowserWindow } from "electron";
-import { normalizeBrowserOpenUrl } from "./browser-policy";
-import { BrowserFocusGuard } from "./browser-focus-guard";
+import { isHttpBrowserUrl } from "../../src/shared/browser-url";
+import { BrowserAgentAccessController } from "./browser-agent-access-controller";
+import { BrowserAutomationAuthority } from "./browser-automation-authority";
+import { toggleTabDevTools } from "./browser-devtools";
 import type { BrowserDownloadManager } from "./browser-download-manager";
-import { createBrowserDownloadManager, prepareBrowserShutdown } from "./browser-manager-downloads";
+import { BrowserFocusGuard } from "./browser-focus-guard";
+import { BrowserInspectionController } from "./browser-inspection-controller";
 import { BrowserLibraryController } from "./browser-library-controller";
 import { BrowserLibraryStore } from "./browser-library-store";
-import { BrowserManagerState } from "./browser-manager-state";
-import { BrowserAutomationAuthority } from "./browser-automation-authority";
-import { inspectTabElement, toggleTabDevTools } from "./browser-devtools";
-import { BrowserInspectionController } from "./browser-inspection-controller";
-import { BrowserNetworkCollector } from "./browser-network-collector";
-import { BrowserOpenController } from "./browser-open-controller";
+import { isIgnoredLoadUrlRejection } from "./browser-load-errors";
+import { prepareBrowserShutdown } from "./browser-manager-downloads";
+import { rendererBoundsToWindow } from "./browser-manager-layout";
+import type { BrowserManagerState } from "./browser-manager-state";
+import { profileFromSelection } from "./browser-manager-utils";
+import {
+  createBrowserManagerControllers,
+  ensureBrowserAgentAccess,
+} from "./browser-manager-wiring";
+import type { BrowserOpenController, EnsureAgentAccessOptions } from "./browser-open-controller";
 import { BrowserPageController } from "./browser-page-controller";
-import { BrowserPopupController } from "./browser-popup-controller";
-import { BrowserResponsiveController } from "./browser-responsive-controller";
-import { responsiveNativeScale } from "./browser-responsive-layout";
-import type { ManagedTab } from "./browser-tab-events";
-import { BrowserTabCloseController } from "./browser-tab-close-controller";
-import { BrowserTabCreationController } from "./browser-tab-creation-controller";
-import { BrowserTabOrganizationController } from "./browser-tab-organization-controller";
-import { BrowserTabLifecycle } from "./browser-tab-lifecycle";
-import { BrowserTabSessionStore } from "./browser-tab-session-store";
-import { BrowserTabWorkspaceController } from "./browser-tab-workspace-controller";
-import { browserTabErrorMessage } from "./browser-tab-workspace-utils";
+import { normalizeBrowserOpenUrl } from "./browser-policy";
+import type { BrowserPopupController } from "./browser-popup-controller";
+import type { BrowserResponsiveController } from "./browser-responsive-controller";
 import { BrowserScopeState } from "./browser-scope-state";
 import { BrowserSiteApi } from "./browser-site-api";
 import { BrowserSiteController } from "./browser-site-controller";
-import { rendererBoundsToWindow } from "./browser-manager-layout";
-import { BrowserViewLayout } from "./browser-view-layout";
-import { profileFromSelection, pushBounded } from "./browser-manager-utils";
-import { sendToWindow } from "./safe-send";
-import { MAX_NETWORK_PER_TAB } from "./browser-manager-tabs";
+import type { BrowserTabCreationController } from "./browser-tab-creation-controller";
+import type { ManagedTab } from "./browser-tab-events";
+import { BrowserTabLifecycle } from "./browser-tab-lifecycle";
+import type { BrowserTabOrganizationController } from "./browser-tab-organization-controller";
+import { BrowserTabSessionStore } from "./browser-tab-session-store";
+import type { BrowserTabWorkspaceController } from "./browser-tab-workspace-controller";
+import { browserTabErrorMessage } from "./browser-tab-workspace-utils";
 import type {
   BrowserAutomationState,
   BrowserBounds,
   BrowserOpenUrlOptions,
   BrowserResponsiveRequest,
   BrowserStateSnapshot,
+  BrowserTabError,
   BrowserTabMetadata,
 } from "./browser-types";
+import { BrowserViewLayout } from "./browser-view-layout";
+import { sendToWindow } from "./safe-send";
 
 export class BrowserManager {
   private readonly tabs = new Map<string, ManagedTab>();
@@ -57,58 +61,49 @@ export class BrowserManager {
   private readonly opener: BrowserOpenController;
   private readonly stateAuthority: BrowserManagerState;
   private readonly responsive: BrowserResponsiveController;
-  private readonly tabCloser = new BrowserTabCloseController(
-    this.tabs,
-    this.scopes,
-    this.tabLifecycle,
-    {
-      emitCounts: () => this.stateAuthority.emitCounts(),
-      activate: (tabId) => {
-        const scopeId = this.tabs.get(tabId)?.metadata.scopeId ?? null;
-        void this.activateTab(tabId).catch((error: unknown) => this.reportError(error, scopeId));
-      },
-      applyLayout: () => this.applyLayout(),
-      emitState: (scope) => this.stateAuthority.emit(scope),
-      reportError: (error, scope) => this.reportError(error, scope),
-      invalidateFind: (tab) => this.page.invalidateFind(tab),
-    },
-  );
   readonly library = new BrowserLibraryController(
     new BrowserLibraryStore(undefined, undefined, (change) =>
       sendToWindow(this.getMainWindow(), "browser:library-changed", change),
     ),
     (tabId) => this.requireTab(tabId),
-    (message, scopeId) => this.reportError(message, scopeId),
-  );
-  private readonly network = new BrowserNetworkCollector(
-    (webContentsId, entry) => {
-      const tab = [...this.tabs.values()].find((t) => t.webContents.id === webContentsId);
-      if (!tab) return;
-      // Read on demand by automation; the renderer's snapshot never carries it.
-      pushBounded(tab.networkEntries, { ...entry, tabId: tab.metadata.id }, MAX_NETWORK_PER_TAB);
-    },
-    (id) =>
-      [...this.tabs.values()].find((tab) => tab.webContents.id === id)?.automationAccess !== "user",
+    (message, scopeId) => console.warn("[browser] library error", { scopeId, message }),
   );
   private readonly siteController = new BrowserSiteController({
     send: (channel, payload) => sendToWindow(this.getMainWindow(), channel, payload),
     reportError: (message, tab) => this.reportTabError(tab, message),
   });
-  readonly site = new BrowserSiteApi(this.siteController, (tabId) => this.requireTab(tabId));
-  readonly automation = new BrowserAutomationAuthority(this.tabs, (scopeId) =>
-    this.automationState(scopeId),
+  readonly site = new BrowserSiteApi(
+    this.siteController,
+    (tabId) => this.requireTab(tabId),
+    (scopeId) => this.stateAuthority.emit(scopeId),
+    (tabId, shared) => this.agentAccess.syncExternalAccessChange(tabId, shared),
+  );
+  readonly agentAccess = new BrowserAgentAccessController({
+    send: (channel, payload) => sendToWindow(this.getMainWindow(), channel, payload),
+    activateTab: (tabId) => this.activateTab(tabId),
+    emitState: (scopeId) => this.stateAuthority.emit(scopeId),
+    suspendFocusGuard: (action) => this.focusGuard.suspend(action),
+  });
+  readonly automation = new BrowserAutomationAuthority(
+    this.tabs,
+    (scopeId) => this.automationState(scopeId),
+    (scopeId) => this.state(scopeId),
   );
   readonly inspection = new BrowserInspectionController(
     (tabId) => this.requireTab(tabId),
     (tab) => this.responsive.inputScaleGuard(tab),
   );
-  readonly page = new BrowserPageController(
-    this.tabs,
-    (tabId) => this.requireTab(tabId),
-    (scopeId) => this.stateAuthority.emit(scopeId),
-    (result) => sendToWindow(this.getMainWindow(), "browser:find-result", result),
-    (tab) => this.responsive.syncZoom(tab),
-  );
+  readonly page = new BrowserPageController({
+    tabs: this.tabs,
+    requireTab: (tabId) => this.requireTab(tabId),
+    emitState: (scopeId) => this.stateAuthority.emit(scopeId),
+    emitFindResult: (result) => sendToWindow(this.getMainWindow(), "browser:find-result", result),
+    syncResponsive: (tab) => this.responsive.syncZoom(tab),
+    clearTabError: (tab) => {
+      if (this.setTabError(tab, null)) this.stateAuthority.emit(tab.metadata.scopeId);
+    },
+    retryFailedLoad: (tab) => this.retryFailedLoad(tab),
+  });
 
   private readonly getMainWindow: () => BrowserWindow | null;
   constructor(
@@ -116,96 +111,44 @@ export class BrowserManager {
     sessionStore = new BrowserTabSessionStore(),
   ) {
     this.getMainWindow = getMainWindow;
-    this.workspace = new BrowserTabWorkspaceController(sessionStore, (message, scopeId) =>
-      this.reportError(message, scopeId),
-    );
-    this.stateAuthority = new BrowserManagerState(this.tabs, this.scopes, this.workspace, () =>
-      this.getMainWindow(),
-    );
-    this.responsive = this.createResponsiveController();
-    this.downloads = createBrowserDownloadManager({
-      lifecycle: this.tabLifecycle,
-      getWindow: () => this.getMainWindow(),
-      reportError: (message, scopeId) => this.reportError(message, scopeId),
-    });
-    this.popup = new BrowserPopupController({
-      getWindow: () => this.getMainWindow(),
-      currentUrl: (tabId) => this.tabs.get(tabId)?.webContents.getURL() ?? null,
-      assertCanCreateNative: (parent, temporary) =>
-        this.creator.assertCanCreateNative(parent, temporary),
-      createNativeChild: (parent, details, options, background, temporary) =>
-        this.creator.createNativeChild(parent, details, options, background, temporary),
-      reportError: (error, scopeId) => this.reportError(error, scopeId),
-    });
-    this.creator = new BrowserTabCreationController({
+    const wired = createBrowserManagerControllers({
       tabs: this.tabs,
-      workspace: this.workspace,
+      scopes: this.scopes,
+      layout: this.layout,
       lifecycle: this.tabLifecycle,
-      closer: this.tabCloser,
-      network: this.network,
       focusGuard: this.focusGuard,
-      downloads: this.downloads,
       site: this.siteController,
       library: this.library,
       page: this.page,
-      popup: this.popup,
-      responsive: this.responsive,
-      host: {
-        getWindow: () => this.getMainWindow(),
-        setTabError: (tab, message) => this.setTabError(tab, message),
-        reportTabError: (tab, error) => this.reportTabError(tab, error),
-        reportError: (error, scopeId) => this.reportError(error, scopeId),
-        emitState: (scopeId) => this.stateAuthority.emit(scopeId),
-        emitCounts: () => this.stateAuthority.emitCounts(),
-        emitShortcut: (shortcut) => this.stateAuthority.emitShortcut(shortcut),
-        activate: (tabId) => this.activateLiveTab(tabId),
-        activateFallback: (tabId) => this.activateTab(tabId),
-        activeTabId: (scopeId) => this.scopes.activeTabId(scopeId),
-        navigate: (tabId, url) => this.navigate(tabId, url),
-        inspectElement: (tabId, x, y) =>
-          inspectTabElement(this.requireTab(tabId), x, y, () => this.toggleDevTools(tabId)),
-        persist: (scopeId) => this.persistScope(scopeId),
-      },
-    });
-    this.organization = new BrowserTabOrganizationController(
-      this.tabs,
-      this.scopes,
-      this.workspace,
-      this.tabCloser,
-      {
-        activate: (tabId) => this.activateTab(tabId),
-        create: (source, profile, metadata) =>
-          this.creator.create(
-            source.url,
-            source.sessionProfileId,
-            profile,
-            source.scopeId,
-            "user",
-            metadata,
-          ),
-        persist: (scopeId) => this.persistScope(scopeId),
-        emitCounts: () => this.stateAuthority.emitCounts(),
-        applyLayout: () => this.applyLayout(),
-        emitState: (scopeId) => this.stateAuthority.emit(scopeId),
-        state: (scopeId) => this.state(scopeId),
-      },
-    );
-    this.opener = new BrowserOpenController(this.automation, this.inspection, {
-      activeTabId: (scopeId) => this.scopes.activeTabId(scopeId),
-      navigate: (tabId, url) => this.navigate(tabId, url),
-      createAgentTab: (url, scopeId) =>
-        this.creator.create(url, "fresh", profileFromSelection("fresh"), scopeId, "agent"),
-      requireTab: (tabId) => this.requireTab(tabId),
-    });
-  }
-  private createResponsiveController(): BrowserResponsiveController {
-    return new BrowserResponsiveController({
-      applyLayout: () => this.applyLayout(),
-      emitState: (scopeId) => this.stateAuthority.emit(scopeId),
+      agentAccess: this.agentAccess,
+      automation: this.automation,
+      inspection: this.inspection,
+      sessionStore,
+      getWindow: () => this.getMainWindow(),
+      setTabError: (tab, error) => this.setTabError(tab, error),
+      reportTabError: (tab, error) => this.reportTabError(tab, error),
       reportError: (error, scopeId) => this.reportError(error, scopeId),
-      nativeScale: (tab, request) => responsiveNativeScale(this.layout, this.scopes, tab, request),
+      activateLive: (tabId) => this.activateLiveTab(tabId),
+      activateTab: (tabId) => this.activateTab(tabId),
+      navigate: (tabId, url) => this.navigate(tabId, url),
+      toggleDevTools: (tabId) => this.toggleDevTools(tabId),
+      applyLayout: () => this.applyLayout(),
+      persistScope: (scopeId) => this.persistScope(scopeId),
+      state: (scopeId) => this.state(scopeId),
+      requireTab: (tabId) => this.requireTab(tabId),
+      ensureAgentAccess: (tabId, scopeId, options) =>
+        this.ensureAgentAccess(tabId, scopeId, options),
     });
+    this.workspace = wired.workspace;
+    this.stateAuthority = wired.stateAuthority;
+    this.responsive = wired.responsive;
+    this.downloads = wired.downloads;
+    this.popup = wired.popup;
+    this.creator = wired.creator;
+    this.organization = wired.organization;
+    this.opener = wired.opener;
   }
+
   createTab(
     rawUrl?: string,
     profileId = "fresh",
@@ -215,6 +158,9 @@ export class BrowserManager {
     return this.creator.create(rawUrl, profileId, profile, scopeId);
   }
   readonly tabCountsByScope = (): Record<number, number> => this.workspace.countByScope(this.tabs);
+  async ensureScopeRestored(scopeId: number): Promise<void> {
+    await this.workspace.ensureRestored(scopeId, this.scopes.activeTabId(scopeId));
+  }
   async restoreScope(scopeId: number): Promise<BrowserStateSnapshot> {
     const activeId = await this.workspace.ensureRestored(scopeId, this.scopes.activeTabId(scopeId));
     if (
@@ -227,20 +173,22 @@ export class BrowserManager {
     return this.state(scopeId);
   }
   async restoreScopeMetadata(scopeId: number): Promise<BrowserStateSnapshot> {
-    await this.workspace.ensureRestored(scopeId, this.scopes.activeTabId(scopeId));
+    await this.ensureScopeRestored(scopeId);
     return this.state(scopeId);
   }
   navigate(tabId: string, rawUrl: string): BrowserTabMetadata {
     const tab = this.requireTab(tabId);
     const url = normalizeBrowserOpenUrl(rawUrl);
     tab.metadata = { ...tab.metadata, url };
-    this.scopes.errors.clearForNavigation(tab.metadata.scopeId, tabId);
+    if (this.scopes.errors.clearForNavigation(tab.metadata.scopeId, tabId)) this.applyLayout();
     this.page.invalidateFind(tab);
     this.stateAuthority.emit(tab.metadata.scopeId);
     if (tab.profile.mode === "persistent" && tab.automationAccess !== "agent") {
       this.persistScope(tab.metadata.scopeId);
     }
-    void tab.webContents.loadURL(url).catch((error: unknown) => this.reportTabError(tab, error));
+    void tab.webContents.loadURL(url).catch((error: unknown) => {
+      if (!isIgnoredLoadUrlRejection(error)) this.reportTabError(tab, error);
+    });
     return tab.metadata;
   }
   navigateFromChrome(tabId: string, rawUrl: string): BrowserTabMetadata {
@@ -283,12 +231,27 @@ export class BrowserManager {
     if (this.layout.setSuppressed(value)) this.applyLayout();
   }
   private applyLayout(): void {
-    this.layout.apply(this.tabs, this.scopes.active, this.scopes.bounds, this.scopes.rendererZoom);
+    this.layout.apply(
+      this.tabs,
+      this.scopes.active,
+      this.scopes.bounds,
+      this.scopes.rendererZoom,
+      (tabId) => this.scopes.errors.hasViewportPageError(tabId),
+    );
   }
 
-  readonly closeTab = (tabId: string): Promise<BrowserStateSnapshot> =>
-    this.organization.close(tabId);
+  readonly closeTab = (tabId: string): Promise<BrowserStateSnapshot> => {
+    this.agentAccess.cancelTab(
+      tabId,
+      "The browser tab was closed before agent access was approved.",
+    );
+    return this.organization.close(tabId);
+  };
   async closeTabsForScope(scopeId: number): Promise<BrowserStateSnapshot> {
+    this.agentAccess.cancelScope(
+      scopeId,
+      "The browser tab was closed before agent access was approved.",
+    );
     this.scopes.errors.clearScope(scopeId);
     return this.downloads.closeScope(scopeId, () => this.organization.closeScope(scopeId));
   }
@@ -305,11 +268,13 @@ export class BrowserManager {
   readonly flushTabSessions = (): Promise<void> => this.workspace.flush();
 
   async prepareForWindowClose(): Promise<void> {
+    this.agentAccess.cancelAll();
     await this.workspace.prepareForWindowClose(this.tabs, this.scopes.active);
     this.layout.detachAll();
     this.scopes.clearBounds();
   }
   async prepareForShutdown(): Promise<void> {
+    this.agentAccess.cancelAll();
     await prepareBrowserShutdown(this.downloads, () =>
       this.workspace.prepareForShutdown(this.tabs, this.scopes.active),
     );
@@ -341,21 +306,23 @@ export class BrowserManager {
     );
   }
 
-  async openUrl(url: string, options: BrowserOpenUrlOptions = {}): Promise<BrowserTabMetadata> {
-    return this.opener.open(url, options);
-  }
-
-  async openExternalUrl(
+  openUrl(
     url: string,
     options: BrowserOpenUrlOptions = {},
+    signal?: AbortSignal,
   ): Promise<BrowserTabMetadata> {
-    return this.opener.openExternal(url, options);
+    return this.opener.open(url, options, signal);
+  }
+  openExternalUrl(
+    url: string,
+    options: BrowserOpenUrlOptions = {},
+    signal?: AbortSignal,
+  ): Promise<BrowserTabMetadata> {
+    return this.opener.openExternal(url, options, signal);
   }
 
   readonly state = (scopeId?: number | null): BrowserStateSnapshot =>
     this.stateAuthority.snapshot(scopeId);
-
-  /** Unfiltered: automation goes through `automation.state`, which applies its policy. */
   readonly automationState = (scopeId?: number | null): BrowserAutomationState =>
     this.stateAuthority.automationSnapshot(scopeId);
 
@@ -364,31 +331,71 @@ export class BrowserManager {
     this.workspace.schedulePersistence(scopeId, this.tabs, this.scopes.activeTabId(scopeId));
   }
 
-  /** A scope-wide failure: shown in that feature's Browser only. */
+  activeScopeTabId(scopeId?: number | null): string | null {
+    return this.scopes.activeTabId(scopeId);
+  }
+
+  ensureAgentAccess(
+    tabId: string,
+    scopeId: number | null,
+    options: EnsureAgentAccessOptions = {},
+  ): Promise<void> {
+    return ensureBrowserAgentAccess(
+      {
+        tabs: this.tabs,
+        workspace: this.workspace,
+        automation: this.automation,
+        agentAccess: this.agentAccess,
+        inspection: this.inspection,
+        activateTab: (id) => this.activateTab(id),
+        emitState: (scope) => this.stateAuthority.emit(scope),
+      },
+      tabId,
+      scopeId,
+      options,
+    );
+  }
+
+  clearError(scopeId: number | null, tabId?: string | null): void {
+    if (!this.scopes.errors.dismiss(scopeId, tabId)) return;
+    if (tabId != null) this.applyLayout();
+    this.stateAuthority.emit(scopeId);
+  }
+
+  private retryFailedLoad(tab: ManagedTab): boolean {
+    const error = this.scopes.errors.tabErrorFor(tab.metadata.id);
+    const retryableLoad = error?.kind === "load" || error?.kind === "security";
+    if (!error?.retryable || !retryableLoad || !error.url || !isHttpBrowserUrl(error.url)) {
+      return false;
+    }
+    this.navigate(tab.metadata.id, error.url);
+    return true;
+  }
+
   private reportError(error: unknown, scopeId: number | null): void {
     if (this.scopes.errors.report(scopeId, browserTabErrorMessage(error))) {
       this.stateAuthority.emit(scopeId);
     }
   }
 
-  /**
-   * Set a live tab's error (`null`: it recovered). Returns whether anything
-   * changed. A closed tab's late failure is dropped: its error left with it.
-   */
-  private setTabError(tab: Pick<ManagedTab, "metadata">, message: string | null): boolean {
+  private setTabError(tab: Pick<ManagedTab, "metadata">, error: BrowserTabError | null): boolean {
     const { id, scopeId } = tab.metadata;
-    if (message === null) {
-      this.scopes.errors.releaseTab(id);
-      return false;
-    }
-    return this.tabs.has(id) && this.scopes.errors.report(scopeId, message, id);
+    const changed =
+      error === null
+        ? this.scopes.errors.releaseTab(id)
+        : this.tabs.has(id) && this.scopes.errors.reportTab(scopeId, id, error);
+    if (changed) this.applyLayout();
+    return changed;
   }
 
-  /** Record a tab's failure and publish its scope, unless it repeats the current error. */
   private reportTabError(tab: Pick<ManagedTab, "metadata">, error: unknown): void {
-    if (this.setTabError(tab, browserTabErrorMessage(error))) {
-      this.stateAuthority.emit(tab.metadata.scopeId);
-    }
+    const tabError: BrowserTabError = {
+      kind: "internal",
+      title: "Browser error",
+      description: browserTabErrorMessage(error),
+      retryable: false,
+    };
+    if (this.setTabError(tab, tabError)) this.stateAuthority.emit(tab.metadata.scopeId);
   }
 
   private requireTab(tabId: string): ManagedTab {

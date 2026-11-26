@@ -8,7 +8,7 @@ use crate::domain::mcp::settings_tool::SettingsTool;
 mod descriptions;
 
 use descriptions::{property_description, tool_description};
-const PROJECT_TOOL_NAMES: [&str; 20] = [
+pub(super) const PROJECT_TOOL_NAMES: [&str; 20] = [
     "project_list_sessions",
     "project_read_session",
     "project_read_session_tail",

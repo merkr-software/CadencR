@@ -1,9 +1,14 @@
-/** Whether an address denotes a web page eligible for Browser history. */
-export function isHttpBrowserUrl(rawUrl: string): boolean {
+/** Return the `http(s)` origin for `rawUrl`, or `null` for non-web or invalid URLs. */
+export function httpBrowserOrigin(rawUrl: string): string | null {
   try {
-    const protocol = new URL(rawUrl).protocol;
-    return protocol === "http:" || protocol === "https:";
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Whether an address denotes a web page (`http:` or `https:`). */
+export function isHttpBrowserUrl(rawUrl: string): boolean {
+  return httpBrowserOrigin(rawUrl) !== null;
 }

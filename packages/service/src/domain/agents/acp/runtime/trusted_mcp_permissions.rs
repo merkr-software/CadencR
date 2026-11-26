@@ -4,18 +4,18 @@ use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimePermissionDecision, RuntimePermissionRequest,
 };
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 use super::schema_bridge::permission_response_value;
 
 /// `request.tool_name` is already normalized by the provider's hooks.
 pub async fn try_auto_allow_trusted_cadencr_browser_permission(
     client: &AcpClient,
-    trust: CadencrBrowserTrust,
+    trust: CadencrMcpTrust,
     raw_id: Value,
     request: &RuntimePermissionRequest,
 ) -> Result<bool, RuntimeError> {
-    if !trust.allows_tool_name(&request.tool_name) {
+    if !trust.allows_in_mode(&request.tool_name, false) {
         return Ok(false);
     }
     let Some(option_id) = request
@@ -50,7 +50,7 @@ mod tests {
         RuntimePermissionDecision, RuntimePermissionOption, RuntimePermissionRequest,
     };
     use crate::domain::mcp::trusted::test_support::injected_browser_servers;
-    use crate::domain::mcp::trusted::CadencrBrowserTrust;
+    use crate::domain::mcp::trusted::CadencrMcpTrust;
 
     async fn build_in_memory_client() -> (AcpClient, DuplexStream, BufReader<DuplexStream>) {
         let (client_reads_stdout, agent_writes_stdout) = duplex(64 * 1024);
@@ -121,7 +121,7 @@ mod tests {
 
         let untrusted = try_auto_allow_trusted_cadencr_browser_permission(
             &client,
-            CadencrBrowserTrust::default(),
+            CadencrMcpTrust::default(),
             json!("perm-browser"),
             &request,
         )
@@ -132,7 +132,7 @@ mod tests {
             "a same-named server Cadencr did not attach is not trusted"
         );
 
-        let trust = CadencrBrowserTrust::injected_in(Some(&injected_browser_servers()));
+        let trust = CadencrMcpTrust::injected_in(Some(&injected_browser_servers()));
         let handled = try_auto_allow_trusted_cadencr_browser_permission(
             &client,
             trust,

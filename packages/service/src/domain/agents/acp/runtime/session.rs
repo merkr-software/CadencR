@@ -2,10 +2,12 @@ mod close;
 mod compact;
 mod compact_turn;
 mod implementation;
+mod interrupt;
 mod modes;
 mod prompt;
 
 pub use implementation::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
+pub(super) use interrupt::queue_stop_escalation;
 pub(super) use modes::select_value;
 
 use crate::domain::agents::adapter::RuntimeError;
@@ -321,6 +323,9 @@ mod tests {
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             browser_trust: Default::default(),
+            attached_mcp: Default::default(),
+            #[cfg(unix)]
+            connected_mcp: Default::default(),
             indexer: Arc::clone(&indexer),
             prompt_turn_lock: Arc::clone(&lock),
         };
@@ -593,6 +598,104 @@ mod tests {
             .expect("no escalation error");
         assert!(result.is_result());
         assert_eq!(result.raw_json()["stop_reason"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn interrupt_does_not_deadlock_when_admission_lock_is_held() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let session = assembled_session(&client, "s-cancel-admission", false);
+        let _held_admission = session.prompt_turn_lock.lock_admission().await;
+
+        tokio::time::timeout(Duration::from_secs(2), session.interrupt())
+            .await
+            .expect("interrupt must not deadlock behind a held admission lock")
+            .unwrap();
+        let cancel = read_one_request(&mut agent_stdin).await;
+        assert_eq!(cancel["method"], "session/cancel");
+    }
+
+    #[tokio::test]
+    async fn requires_prompt_queue_tracks_live_compaction_lifecycle() {
+        struct CompactHooks;
+        #[async_trait::async_trait]
+        impl AcpProviderHooks for CompactHooks {
+            fn normalize_tool_name(&self, raw: &str) -> String {
+                raw.to_string()
+            }
+            fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
+                input
+            }
+            fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
+                None
+            }
+            fn compact_prompt(&self) -> Option<String> {
+                Some("/compact".to_string())
+            }
+        }
+
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
+        let mut session = assembled_session(&client, "s-compact-flag", false);
+        session.hooks = Arc::new(CompactHooks);
+        let mut runtime_rx = session.take_message_rx();
+        assert!(!session.requires_prompt_queue());
+
+        session.compact().await.unwrap();
+        let req = read_one_request(&mut agent_stdin).await;
+        assert_eq!(req["method"], "session/prompt");
+        assert!(
+            session.requires_prompt_queue(),
+            "active compaction must require prompt queueing"
+        );
+
+        write_frame(
+            &mut agent_stdout,
+            json!({
+                "jsonrpc": "2.0",
+                "id": req["id"],
+                "result": { "stopReason": "end_turn" }
+            }),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(item) = runtime_rx.recv().await {
+                if item.unwrap().is_result() {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("compaction turn must emit Result");
+        assert!(
+            !session.requires_prompt_queue(),
+            "compaction must clear requires_prompt_queue before Result"
+        );
+    }
+
+    #[tokio::test]
+    async fn terminate_unresponsive_stop_queues_escalation_and_shuts_down_transport() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-force-stop", false);
+        let mut runtime_rx = session.take_message_rx();
+
+        assert!(
+            session
+                .terminate_unresponsive_stop("stuck detached reply".into())
+                .await
+        );
+        let escalation = runtime_rx
+            .recv()
+            .await
+            .unwrap()
+            .expect_err("visible stop escalation");
+        assert!(escalation.is_stop_escalation(), "{escalation:?}");
+        assert!(escalation.to_string().contains("stuck detached reply"));
+        let mut line = String::new();
+        let read = tokio::time::timeout(Duration::from_secs(2), agent_stdin.read_line(&mut line))
+            .await
+            .expect("transport must be shut down")
+            .unwrap();
+        assert_eq!(read, 0);
     }
 
     #[tokio::test]

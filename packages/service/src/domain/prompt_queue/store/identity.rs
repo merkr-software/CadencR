@@ -4,13 +4,15 @@ use crate::error::AppError;
 pub(crate) async fn has_source(
     pool: &sqlx::SqlitePool,
     session_id: i64,
+    origin: QueueOrigin,
     message_uuid: &str,
 ) -> Result<bool, AppError> {
     Ok(sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM agent_session_prompt_queue
-         WHERE session_id = ? AND source_message_uuid = ?)",
+         WHERE session_id = ? AND origin_kind = ? AND source_message_uuid = ?)",
     )
     .bind(session_id)
+    .bind(origin)
     .bind(message_uuid)
     .fetch_one(pool)
     .await?)
@@ -26,16 +28,18 @@ pub(crate) async fn enqueue_deferred(
     Ok(sqlx::query(
         "INSERT INTO agent_session_prompt_queue
             (session_id, content, source_message_uuid, message_uuid)
-         SELECT ?, ?, ?, ? WHERE NOT EXISTS (
-             SELECT 1 FROM agent_messages WHERE session_id = ? AND message_uuid = ?
-         ) ON CONFLICT(session_id, source_message_uuid) DO NOTHING",
+         SELECT ?1, ?2, ?3, CASE WHEN EXISTS (
+             SELECT 1 FROM agent_session_prompt_queue
+             WHERE session_id = ?1 AND origin_kind = 'session' AND message_uuid = ?3
+         ) THEN ?4 ELSE ?3 END
+         WHERE NOT EXISTS (
+             SELECT 1 FROM agent_messages WHERE session_id = ?1 AND message_uuid = ?3
+         ) ON CONFLICT(session_id, origin_kind, source_message_uuid) DO NOTHING",
     )
     .bind(session_id)
     .bind(content)
     .bind(message_uuid)
-    .bind(message_uuid)
-    .bind(session_id)
-    .bind(message_uuid)
+    .bind(uuid::Uuid::new_v4().to_string())
     .execute(pool)
     .await?
     .rows_affected()
@@ -66,25 +70,27 @@ pub(crate) async fn enqueue_agent_message(
         "INSERT INTO agent_session_prompt_queue
             (session_id, content, source_message_uuid, message_uuid, origin_kind,
              source_session_id, original_content)
-         VALUES (?, ?, ?, ?, 'session', ?, ?)
-         ON CONFLICT(session_id, source_message_uuid) DO NOTHING
+         VALUES (?1, ?2, ?3, CASE WHEN EXISTS (
+             SELECT 1 FROM agent_session_prompt_queue
+             WHERE session_id = ?1 AND origin_kind = 'user' AND message_uuid = ?3
+         ) THEN ?5 ELSE ?3 END, 'session', ?4, ?2)
+         ON CONFLICT(session_id, origin_kind, source_message_uuid) DO NOTHING
          RETURNING id",
     )
     .bind(target_session_id)
     .bind(content)
     .bind(&message_uuid)
-    .bind(&message_uuid)
     .bind(source_session_id)
-    .bind(content)
+    .bind(uuid::Uuid::new_v4().to_string())
     .fetch_optional(pool)
     .await?;
     if let Some(id) = inserted {
         return Ok(EnqueuedMessage { id, inserted: true });
     }
     let existing: ExistingRow = sqlx::query_as(
-        "SELECT id, content, status, origin_kind, source_session_id, original_content
+        "SELECT id, content, status, source_session_id, original_content
          FROM agent_session_prompt_queue
-         WHERE session_id = ? AND source_message_uuid = ?",
+         WHERE session_id = ? AND origin_kind = 'session' AND source_message_uuid = ?",
     )
     .bind(target_session_id)
     .bind(&message_uuid)
@@ -112,7 +118,6 @@ struct ExistingRow {
     id: i64,
     content: String,
     status: String,
-    origin_kind: QueueOrigin,
     source_session_id: Option<i64>,
     original_content: Option<String>,
 }
@@ -125,8 +130,7 @@ impl ExistingRow {
         content: &str,
         message_uuid: &str,
     ) -> Result<(), AppError> {
-        if self.origin_kind != QueueOrigin::Session
-            || self.source_session_id != Some(source_session_id)
+        if self.source_session_id != Some(source_session_id)
             || self.original_content.as_deref() != Some(content)
         {
             return Err(AppError::Conflict(format!(
@@ -174,7 +178,9 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(edited.message_uuid, first.message_uuid);
-        assert!(has_source(&pool, session, &original).await.unwrap());
+        assert!(has_source(&pool, session, QueueOrigin::User, &original)
+            .await
+            .unwrap());
         assert!(!enqueue_deferred(&pool, session, "first", &original)
             .await
             .unwrap());
@@ -195,6 +201,41 @@ mod tests {
         enqueue_agent_message(pool, 1, 2, content, uuid)
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_user_and_agent_can_retransmit_their_own_request_with_the_same_uuid() {
+        let (pool, session) = super::super::tests::pool_with_session().await;
+        let uuid = uuid::Uuid::new_v4();
+        let original = uuid.to_string();
+
+        assert!(enqueue_deferred(&pool, session, "user prompt", &original)
+            .await
+            .unwrap());
+        let agent = agent_message(&pool, "agent message", uuid).await;
+        assert!(agent.inserted);
+        assert!(!enqueue_deferred(&pool, session, "user prompt", &original)
+            .await
+            .unwrap());
+        assert_eq!(
+            agent_message(&pool, "agent message", uuid).await.id,
+            agent.id
+        );
+
+        let deliveries: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT origin_kind, message_uuid FROM agent_session_prompt_queue ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(deliveries[0], ("user".into(), Some(original.clone())));
+        let agent_delivery = deliveries[1].1.as_deref().unwrap();
+        assert_eq!(deliveries[1].0, "session");
+        assert_ne!(agent_delivery, original);
+        assert_eq!(
+            uuid::Uuid::parse_str(agent_delivery).unwrap().to_string(),
+            agent_delivery
+        );
     }
 
     fn conflict(result: Result<EnqueuedMessage, AppError>) -> String {

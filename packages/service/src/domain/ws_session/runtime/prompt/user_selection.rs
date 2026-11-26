@@ -2,6 +2,7 @@
 use std::time::Instant;
 
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeSpawnConfig};
+use crate::domain::agents::permission_modes::permission_mode_wire;
 pub(in crate::domain::ws_session) use crate::domain::agents::selection::PromptedSelection;
 use crate::domain::ws_session::runtime::{output::OutputTarget, SdkHandle};
 
@@ -13,6 +14,10 @@ impl PromptedSelection {
             profile: handle.spawned_claude_profile.clone(),
             thinking_effort: handle.spawned_thinking_effort.clone(),
             fast_mode: handle.config.fast_mode,
+            permission_mode: handle
+                .spawned_permission_mode
+                .as_ref()
+                .map(permission_mode_wire),
         }
     }
 
@@ -26,6 +31,7 @@ impl PromptedSelection {
             profile: config.profile.clone(),
             thinking_effort: config.thinking_effort.clone(),
             fast_mode: config.fast_mode,
+            permission_mode: config.permission_mode.as_ref().map(permission_mode_wire),
         }
     }
 

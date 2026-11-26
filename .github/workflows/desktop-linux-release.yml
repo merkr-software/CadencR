@@ -2,7 +2,9 @@ name: Release Linux desktop alpha
 
 # Linux ships as an alpha, by hand. desktop-release.yml publishes macOS on every
 # `v*` tag; this workflow then builds that tag for Linux and attaches the
-# packages to its published release, flagging them as alpha in the notes. It
+# packages to its published release, flagging them as alpha in the notes.
+# Select build_only to prepare the artifacts for a separate alpha prerelease
+# when the published desktop release is immutable. The workflow
 # also attaches the server archive (`cadencr-server-<version>-linux-x64.tar.gz`
 # and its `.sha256`) that `cadencr serve` runs from on machines without a
 # desktop session, and that `cadencr update` installs there. A
@@ -15,6 +17,10 @@ on:
         description: Published desktop release to add the Linux alpha to (for example, v0.15.0)
         required: true
         type: string
+      build_only:
+        description: Build and test artifacts for a separate alpha prerelease
+        type: boolean
+        default: false
 
 # One run per tag, so two dispatches can never upload over each other.
 concurrency:
@@ -263,6 +269,7 @@ jobs:
 
   attach:
     needs: build
+    if: ${{ !inputs.build_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:

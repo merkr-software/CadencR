@@ -24,13 +24,62 @@ export const MAX_BROWSER_LIBRARY_URL_LENGTH = 2048;
 /** Whether an agent may inspect or automate this specific tab. */
 export type BrowserAgentAccess = "user" | "shared" | "agent";
 
+/** Privacy mode of a browser tab's session profile. */
+export type BrowserTabPrivacy = "normal" | "private" | "feature";
+
+export type BrowserTabErrorKind = "load" | "security" | "crash" | "blocked" | "internal";
+
+/** Structured, human-readable error state for an active browser tab. */
+export interface BrowserTabError {
+  kind: BrowserTabErrorKind;
+  title: string;
+  description: string;
+  url?: string;
+  code?: string;
+  retryable?: boolean;
+}
+
+/** Explicit user approval request emitted when an agent asks to use a user tab. */
+export interface BrowserAgentAccessRequest {
+  requestId: string;
+  tabId: string;
+  scopeId: number | null;
+  /** Live main-frame origin when requested, or null for blank tabs. */
+  origin: string | null;
+  url: string;
+  title: string;
+  privacy: BrowserTabPrivacy;
+  /** Target URL when the agent wants to open/navigate in this tab. */
+  targetUrl?: string;
+}
+
+/** Compact per-tab summary returned to agents by `browser_list_tabs`. */
+export interface BrowserAgentTabSummary {
+  id: string;
+  title: string;
+  url: string;
+  loading: boolean;
+  isActive: boolean;
+  pinned: boolean;
+  suspended: boolean;
+  privacy: BrowserTabPrivacy;
+  agentAccess: BrowserAgentAccess;
+  requiresApproval: boolean;
+}
+
+export interface BrowserAgentTabsList {
+  scopeId: number | null;
+  activeTabId: string | null;
+  tabs: BrowserAgentTabSummary[];
+}
+
 export interface BrowserSiteInfo {
   tabId: string;
   /** The live main-frame origin. `null` for pages such as `about:blank`. */
   origin: string | null;
   secure: boolean;
   profile: BrowserProfileMetadata;
-  privacy: "normal" | "private" | "feature";
+  privacy: BrowserTabPrivacy;
   permissions: Record<BrowserSitePermission, BrowserSitePermissionDecision>;
   agentAccess: BrowserAgentAccess;
 }
@@ -66,6 +115,8 @@ export interface BrowserTabMetadata {
   zoomPercent: number;
   /** Per-tab Chromium viewport emulation. The same WebContents remains alive. */
   responsive: BrowserResponsiveState;
+  /** Current agent sharing state for this live tab. */
+  agentAccess?: BrowserAgentAccess;
   /**
    * The feature-layout scope that owns this tab. Tabs are isolated per scope so
    * a tab opened in one feature's Browser never leaks into another's. Agent/MCP
@@ -235,6 +286,7 @@ export interface BrowserStateSnapshot {
   tabs: BrowserTabMetadata[];
   activeTabId: string | null;
   error: string | null;
+  tabError?: BrowserTabError | null;
 }
 
 /**

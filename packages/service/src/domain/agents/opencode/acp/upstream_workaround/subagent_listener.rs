@@ -29,7 +29,7 @@ use crate::domain::agents::adapter::{
     RuntimeSubagentUpdate,
 };
 use crate::domain::agents::opencode::stream_synthesizer::StreamSynthesizer;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 /// Pending-permissions map; the adapter's `respond_permission_fallback`
 /// reads it to route a reply to `POST /permission/{id}/reply`.
@@ -145,11 +145,11 @@ pub(super) struct ListenerState {
     /// still ends on the previous run until the new prompt lands.
     resumed_at: HashMap<String, usize>,
     /// Whether Cadencr's browser tools skip the permission prompt.
-    browser_trust: CadencrBrowserTrust,
+    browser_trust: CadencrMcpTrust,
 }
 
 impl ListenerState {
-    pub(super) fn new(root_session_id: String, browser_trust: CadencrBrowserTrust) -> Self {
+    pub(super) fn new(root_session_id: String, browser_trust: CadencrMcpTrust) -> Self {
         Self {
             root_session_id,
             browser_trust,

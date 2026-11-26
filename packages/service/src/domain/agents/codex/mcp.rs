@@ -6,17 +6,17 @@ use serde_json::{json, Value};
 
 pub(super) fn thread_config(
     mcp_servers: Option<&HashMap<String, RuntimeMcpServerConfig>>,
-    developer_instructions: Option<&str>,
+    developer_instructions: Option<String>,
 ) -> Value {
     let mut config = serde_json::Map::new();
-    if let Some(instructions) = developer_instructions
-        .map(str::trim)
-        .filter(|instructions| !instructions.is_empty())
-    {
-        config.insert(
-            "developer_instructions".to_string(),
-            Value::String(instructions.to_string()),
-        );
+    if let Some(instructions) = developer_instructions.filter(|value| !value.trim().is_empty()) {
+        let trimmed = instructions.trim();
+        let value = if trimmed.len() == instructions.len() {
+            instructions
+        } else {
+            trimmed.to_string()
+        };
+        config.insert("developer_instructions".to_string(), Value::String(value));
     }
     if let Some(servers) = mcp_servers.filter(|servers| !servers.is_empty()) {
         let mut values = serde_json::Map::new();
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn thread_config_injects_developer_instructions_without_mcp_servers() {
-        let config = thread_config(None, Some("Use Markdown"));
+        let config = thread_config(None, Some("Use Markdown".to_string()));
 
         assert_eq!(config["developer_instructions"], json!("Use Markdown"));
         assert!(config.get("mcp_servers").is_none());
@@ -90,7 +90,7 @@ mod tests {
             },
         );
 
-        let config = thread_config(Some(&servers), Some("Use Markdown"));
+        let config = thread_config(Some(&servers), Some("Use Markdown".to_string()));
 
         assert_eq!(config["developer_instructions"], json!("Use Markdown"));
         assert_eq!(

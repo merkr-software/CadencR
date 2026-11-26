@@ -20,11 +20,6 @@ function target(url: string, access: BrowserAgentAccess = "shared") {
     webContents,
     automationAccess: access,
     externalAutomationOrigin: new URL(url).origin,
-  } as unknown as ManagedTab;
-  const state = () => ({
-    tabs: [tab.metadata],
-    activeTabId: "tab",
-    error: null,
     consoleEntries: [
       {
         id: "console",
@@ -47,6 +42,13 @@ function target(url: string, access: BrowserAgentAccess = "shared") {
         responseHeaders: {},
       },
     ],
+  } as unknown as ManagedTab;
+  const state = () => ({
+    tabs: [tab.metadata],
+    activeTabId: "tab",
+    error: null,
+    consoleEntries: tab.consoleEntries,
+    networkEntries: tab.networkEntries,
   });
   const read = vi.fn(async () => ({ private: "must not escape" }));
   const action = vi.fn(async () => undefined);
@@ -200,4 +202,100 @@ it("fails closed when Electron invalidates the frame handle while reading it", (
   });
   expect(() => fake.automation.assert("tab", 7)).toThrow("cannot inspect");
   expect(fake.automation.state(7).tabs).toEqual([]);
+});
+
+describe("user-tab discovery and explicit approval boundaries", () => {
+  it("lists user normal/private tabs with compact fields while hiding forbidden tabs and subframes", async () => {
+    const { fake, tab } = target("https://docs.example.com/", "user");
+    tab.metadata = { ...tab.metadata, faviconUrl: "data:image/png;base64,secret" };
+
+    const result = await dispatchBrowserMcpTool(fake, "browser_list_tabs", {}, 7);
+    const parsed = JSON.parse(result.text) as {
+      scopeId: number | null;
+      activeTabId: string | null;
+      tabs: Array<Record<string, unknown>>;
+    };
+    expect(parsed).toEqual({
+      scopeId: 7,
+      activeTabId: "tab",
+      tabs: [
+        {
+          id: "tab",
+          title: "docs.example.com",
+          url: "https://docs.example.com",
+          loading: false,
+          isActive: false,
+          pinned: false,
+          suspended: false,
+          privacy: "private",
+          agentAccess: "user",
+          requiresApproval: true,
+        },
+      ],
+    });
+    expect(result.text).not.toContain("private console");
+    expect(result.text).not.toContain("faviconUrl");
+
+    Object.assign(tab.webContents, {
+      mainFrame: {
+        detached: false,
+        framesInSubtree: [{ url: "http://localhost:1420/#secret", detached: false }],
+      },
+    });
+    const withPrivilegedFrame = await dispatchBrowserMcpTool(fake, "browser_list_tabs", {}, 7);
+    expect(JSON.parse(withPrivilegedFrame.text)).toEqual({
+      scopeId: 7,
+      activeTabId: null,
+      tabs: [],
+    });
+  });
+
+  it("invokes ensureAgentAccess for an approvable user tab and proceeds after approval or rejects on denial", async () => {
+    const { fake, tab } = target("https://docs.example.com/", "user");
+    fake.activeScopeTabId = () => "tab";
+    fake.ensureAgentAccess = vi.fn(async () => {
+      tab.automationAccess = "shared";
+      tab.externalAutomationOrigin = "https://docs.example.com";
+    });
+
+    await expect(dispatchBrowserMcpTool(fake, "browser_get_snapshot", {}, 7)).resolves.toEqual({
+      text: JSON.stringify({ private: "must not escape" }),
+    });
+    expect(fake.ensureAgentAccess).toHaveBeenCalledWith("tab", 7, {
+      allowBlank: false,
+      signal: undefined,
+    });
+
+    const denied = target("https://docs.example.com/", "user");
+    denied.fake.activeScopeTabId = () => "tab";
+    denied.fake.ensureAgentAccess = vi.fn(async () => {
+      throw new Error("The user denied agent access to this browser tab.");
+    });
+    await expect(
+      dispatchBrowserMcpTool(denied.fake, "browser_get_snapshot", {}, 7),
+    ).rejects.toThrow("user denied agent access");
+    expect(denied.read).not.toHaveBeenCalled();
+  });
+
+  it.each(["file:///private/secret.html", "http://127.0.0.1:5005/api/settings", "about:blank"])(
+    "rejects forbidden user tab %s BEFORE prompting the user",
+    async (url) => {
+      const { fake, read } = target(url, "user");
+      const promptUser = vi.fn(async () => undefined);
+      fake.activeScopeTabId = () => "tab";
+      fake.ensureAgentAccess = vi.fn(async (tabId, scopeId, options) => {
+        fake.automation.assertApprovable?.(tabId, scopeId, options?.allowBlank);
+        await promptUser();
+      });
+
+      await expect(
+        dispatchBrowserMcpTool(fake, "browser_get_snapshot", { tab_id: "tab" }, 7),
+      ).rejects.toThrow("cannot inspect");
+      await expect(dispatchBrowserMcpTool(fake, "browser_get_snapshot", {}, 7)).rejects.toThrow(
+        "cannot inspect",
+      );
+      expect(promptUser).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+    },
+  );
 });

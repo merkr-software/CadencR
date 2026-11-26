@@ -25,6 +25,7 @@ export interface BrowserBridgeServerOptions {
     toolName: string,
     args: Record<string, unknown>,
     featureId?: number,
+    signal?: AbortSignal,
   ) => Promise<BrowserBridgeResult>;
 }
 
@@ -33,7 +34,7 @@ export async function startBrowserBridgeServer(
 ): Promise<BrowserBridgeHandle> {
   const token = options.token ?? crypto.randomBytes(32).toString("base64url");
   const server = http.createServer((request, response) => {
-    void handleRequest(request, response, token, options.dispatch);
+    void handleBrowserBridgeRequest(request, response, token, options.dispatch);
   });
   await listen(server);
   const address = server.address();
@@ -45,7 +46,7 @@ export async function startBrowserBridgeServer(
   };
 }
 
-async function handleRequest(
+export async function handleBrowserBridgeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   token: string,
@@ -59,18 +60,28 @@ async function handleRequest(
     sendJson(response, 401, { error: "Unauthorized" });
     return;
   }
+  const controller = new AbortController();
+  const onClose = (): void => {
+    if (!response.writableEnded) controller.abort();
+  };
+  response.on("close", onClose);
   try {
     const result = await dispatchBrowserBridgePayload(
       request.headers.authorization ?? "",
       token,
       await readBody(request),
       dispatch,
+      controller.signal,
     );
-    sendJson(response, result.status, result.payload);
+    if (!response.writableEnded) sendJson(response, result.status, result.payload);
   } catch (error) {
-    sendJson(response, 400, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    if (!response.writableEnded) {
+      sendJson(response, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } finally {
+    response.off("close", onClose);
   }
 }
 
@@ -79,6 +90,7 @@ export async function dispatchBrowserBridgePayload(
   token: string,
   rawBody: string,
   dispatch: BrowserBridgeServerOptions["dispatch"],
+  signal?: AbortSignal,
 ): Promise<{ status: number; payload: unknown }> {
   const caller = authenticateBridgeCaller(authorization, token);
   if (!caller) {
@@ -90,7 +102,9 @@ export async function dispatchBrowserBridgePayload(
   if (caller.kind === "feature" && payload.feature_id !== caller.featureId) {
     return { status: 403, payload: { error: "This token is scoped to another feature." } };
   }
-  const result = await dispatch(payload.tool_name, payload.args, payload.feature_id);
+  const result = signal
+    ? await dispatch(payload.tool_name, payload.args, payload.feature_id, signal)
+    : await dispatch(payload.tool_name, payload.args, payload.feature_id);
   return { status: 200, payload: result };
 }
 
@@ -99,7 +113,10 @@ function parsePayload(raw: string): BrowserBridgeRequestPayload {
   const record = requiredRecord(value, "request object");
   return {
     tool_name: requiredString(record.tool_name, "tool_name"),
-    args: requiredRecord(record.args, "args object"),
+    args:
+      record.args === undefined || record.args === null
+        ? {}
+        : requiredRecord(record.args, "args object"),
     feature_id: optionalNumber(record.feature_id),
   };
 }

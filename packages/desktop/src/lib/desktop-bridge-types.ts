@@ -30,6 +30,7 @@ import type {
   BrowserSitePermissionRequest,
   BrowserStateSnapshot,
   BrowserTabMetadata,
+  BrowserAgentAccessRequest,
   BrowserAgentActivity,
 } from "@/shared/browser-types";
 import type { BrowserResponsiveRequest } from "@/shared/browser-responsive";
@@ -217,6 +218,9 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
     shared: boolean,
   ) => Promise<BrowserSiteInfo>;
   resolveBrowserPermissionRequest: (requestId: string, allowed: boolean) => Promise<void>;
+  listBrowserAgentAccessRequests: (scopeId: number) => Promise<BrowserAgentAccessRequest[]>;
+  resolveBrowserAgentAccessRequest: (requestId: string, allowed: boolean) => Promise<void>;
+  clearBrowserError: (scopeId: number | null, tabId?: string | null) => Promise<void>;
   browserBack: (tabId: string) => Promise<void>;
   browserForward: (tabId: string) => Promise<void>;
   browserReload: (tabId: string) => Promise<void>;
@@ -250,6 +254,8 @@ export interface CadencrBrowserBridge extends CadencrDesktopBridge {
   onBrowserCommentBadgeClick: (cb: (event: BrowserCommentBadgeClick) => void) => () => void;
   onBrowserPermissionRequest: (cb: (request: BrowserSitePermissionRequest) => void) => () => void;
   onBrowserPermissionRequestCancelled: (cb: (event: { requestId: string }) => void) => () => void;
+  onBrowserAgentAccessRequest: (cb: (request: BrowserAgentAccessRequest) => void) => () => void;
+  onBrowserAgentAccessRequestCancelled: (cb: (event: { requestId: string }) => void) => () => void;
   onBrowserPopupRequestsChanged: (cb: (event: { scopeId: number }) => void) => () => void;
   onBrowserDownloadsChanged: (cb: (snapshot: BrowserDownloadSnapshot) => void) => () => void;
   onBrowserDownloadCounts: (cb: (counts: Record<number, number>) => void) => () => void;
