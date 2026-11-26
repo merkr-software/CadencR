@@ -12,6 +12,7 @@ import { makeErrorBlock } from "./ws-session-store-helpers";
 import { markPendingPromptsFailed, markPromptsReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { notifyRateLimited, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
+import { isSettingsRepairError } from "@/lib/api-errors";
 
 /**
  * Uncorrelated errors only: a failed session command (stop, model, mode, …)
@@ -102,6 +103,13 @@ export function handleError(ctx: StoreAccessors, sessionId: string, payload: unk
   }
 
   const session = ctx.getSession(sessionId);
+  if (isSettingsRepairError(p?.code ?? null) && p?.message) {
+    const blocks = [...session.blocks, makeErrorBlock(session, p.message, { code: p.code })];
+    ctx.set(
+      updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),
+    );
+    return;
+  }
   const gatePatch = isGateClosingErrorCode(p?.code) ? buildClearedGatePatch(session) : null;
   const compactWasRejectedBeforeStart =
     session.compactRequestPending &&

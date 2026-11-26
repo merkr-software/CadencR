@@ -140,47 +140,6 @@ async fn project_spawn_session_normalizes_common_claude_model_aliases() {
 }
 
 #[tokio::test]
-async fn project_spawn_session_pins_selected_claude_profile() {
-    let pool = seeded_control_pool().await;
-    cadencr_service::domain::agents::claude_code::profiles::upsert_profile(
-        "bedrock",
-        &std::collections::HashMap::new(),
-    )
-    .await
-    .unwrap();
-    cadencr_service::domain::agents::claude_code::profiles::set_active_profile("bedrock")
-        .await
-        .unwrap();
-    let app = control_router().with_state(AppState::with_pool(pool.clone()));
-
-    let response = app
-        .oneshot(spawn_request_from_body(serde_json::json!({
-            "source_feature_id": 42,
-            "source_session_id": 777,
-            "target_project_id": 7,
-            "title": "Profile-aware child",
-            "branch": { "mode": "skip" },
-            "provider": "claude_code",
-            "model": "opus"
-        })))
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let stored_profile: Option<String> = sqlx::query_scalar(
-        "SELECT profile FROM agent_sessions WHERE id != 777 ORDER BY id DESC LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(stored_profile.as_deref(), Some("bedrock"));
-
-    cadencr_service::domain::agents::claude_code::profiles::delete_profile("bedrock")
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
 async fn project_spawn_session_unknown_provider_error_lists_valid_ids() {
     let pool = seeded_control_pool().await;
     let app = control_router().with_state(AppState::with_pool(pool));

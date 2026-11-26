@@ -219,6 +219,7 @@ async fn codex_queue_and_steering_survive_compaction_and_normal_turns() {
             .unwrap(),
     ));
     let h = Harness::new().await;
+    scenarios::invalid_settings_refuse_cold_and_reused_codex_prompts(&h).await;
     for resumed in [true, false] {
         let (mut socket, session) = h.session(resumed).await;
         if !resumed {

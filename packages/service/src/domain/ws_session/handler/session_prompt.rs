@@ -2,6 +2,7 @@
 mod prompt_send;
 mod prompt_send_entry;
 mod prompt_send_pending;
+mod prompt_send_refusal;
 mod prompt_validation;
 mod user_shell;
 

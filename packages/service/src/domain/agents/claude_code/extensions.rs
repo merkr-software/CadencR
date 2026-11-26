@@ -61,7 +61,7 @@ impl ExtensionCli for ClaudeExtensions {
     }
 
     fn for_active_profile(&self, cli: &CliRunner) -> Result<CliRunner, ExtensionError> {
-        Ok(profile::active(cli))
+        profile::active(cli)
     }
 
     async fn list_mcp(&self, cli: &CliRunner) -> Result<Vec<CliMcpServer>, ExtensionError> {

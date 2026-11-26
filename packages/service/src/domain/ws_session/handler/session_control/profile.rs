@@ -59,7 +59,12 @@ pub(crate) async fn handle_profile_set(
     let update = match resolve_provider_profile(&provider, profile, &cwd).await {
         Ok(update) => update,
         Err(error) => {
-            send_error(sender, &envelope.id, "PROFILE_ERROR", &error);
+            send_error(
+                sender,
+                &envelope.id,
+                error.coded_error_or("PROFILE_ERROR"),
+                &error.to_string(),
+            );
             return;
         }
     };
@@ -70,10 +75,11 @@ pub(crate) async fn handle_profile_set(
         {
             Ok(effective) => Some(effective),
             Err(error) => {
+                let error = error.into_profile_error();
                 send_error(
                     sender,
                     &envelope.id,
-                    "PROFILE_CONFIG_ERROR",
+                    error.coded_error_or("PROFILE_CONFIG_ERROR"),
                     &error.to_string(),
                 );
                 return;

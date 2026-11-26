@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AxiosError, AxiosHeaders } from "axios";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 
 const rewindToMessage = vi.fn();
@@ -7,6 +8,12 @@ const forkFromMessage = vi.fn();
 const sendPrompt = vi.fn();
 const copyAs = vi.fn();
 const toastError = vi.fn();
+const fetchBlob = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/blob-ref", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/blob-ref")>()),
+  fetchBlob,
+}));
 
 vi.mock("@/stores/ws-session-store", () => ({
   useWsSessionStore: (selector: (s: unknown) => unknown) =>
@@ -48,6 +55,7 @@ describe("UserMessageActions", () => {
     sendPrompt.mockClear();
     copyAs.mockClear();
     toastError.mockClear();
+    fetchBlob.mockReset();
   });
   afterEach(() => resetPromptBlobCacheForTest());
 
@@ -143,6 +151,9 @@ describe("UserMessageActions", () => {
 
     const retry = screen.getByRole("button", { name: /retry/i });
     expect(retry).toBeDisabled();
+    const instruction = "Reattach the file and resend the message from the composer.";
+    expect(screen.getByText(instruction)).toBeVisible();
+    expect(retry).toHaveAccessibleDescription(instruction);
     await userEvent.click(retry);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
@@ -200,7 +211,46 @@ describe("UserMessageActions", () => {
         }),
       ),
     );
+    const retry = screen.getByRole("button", { name: /retry/i });
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAccessibleDescription(/check the conversation after reconnecting/i);
+    expect(retry).toHaveAccessibleDescription(/reattach the file and resend it from the composer/i);
     expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it.each([404, 503])("handles a stored image fetch returning %i", async (status) => {
+    const hash = "a".repeat(64);
+    const headers = new AxiosHeaders();
+    fetchBlob.mockRejectedValue(
+      new AxiosError("Blob unavailable", undefined, undefined, null, {
+        status,
+        statusText: "Unavailable",
+        data: null,
+        headers,
+        config: { headers },
+      }),
+    );
+    renderActions({
+      ...persisted,
+      content: JSON.stringify([
+        { type: "text", text: "inspect" },
+        { type: "image", source: { media_type: "image/png", data: `cadencr-blob://${hash}` } },
+      ]),
+      messageUuid: "a48cc11a-8a72-47f7-8577-d5c533d7909c",
+      promptDeliveryState: "delivery_failed",
+    });
+    const retry = screen.getByRole("button", { name: /retry/i });
+    await userEvent.click(retry);
+    await waitFor(() => expect(toastError).toHaveBeenCalledOnce());
+    expect(fetchBlob).toHaveBeenCalledWith(hash);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    if (status === 404) {
+      expect(retry).toBeDisabled();
+      expect(retry).toHaveAccessibleDescription(/reattach the file/i);
+    } else {
+      expect(retry).toBeEnabled();
+      expect(retry).not.toHaveAccessibleDescription(/reattach the file/i);
+    }
   });
 
   it("emails the rendered bubble from the touch Copy as menu", async () => {

@@ -9,9 +9,10 @@ use sqlx::SqlitePool;
 use std::path::Path;
 use std::time::Duration;
 
-use super::adapter::AgentRuntimeAdapter;
+use super::adapter::{AgentRuntimeAdapter, RuntimeError};
 use super::runtime::{
-    AgentCatalogResponse, ModelCatalogEntry, ProviderCatalogResponseEntry, ProviderStatus,
+    AgentCatalogResponse, ModelCatalogEntry, ProviderCatalogEntry, ProviderCatalogResponseEntry,
+    ProviderStatus,
 };
 
 const LEGACY_OWNERSHIP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -175,28 +176,32 @@ async fn provider_catalog_entries_with_origin_live_for_cwd(
         let selected_profile = profile.filter(|_| {
             profile_provider.is_some_and(|provider_id| provider_id == adapter.catalog_entry().id)
         });
-        let provider = provider_catalog_entry_live_for_settings(
+        let provider = match provider_catalog_entry_live_for_settings(
             read_pool,
             cwd,
             selected_profile,
             adapter.as_adapter(),
         )
-        .await;
-        let profile_capability = match adapter.profile_catalog(cwd).await {
-            Ok(catalog) => catalog.map(|catalog| super::runtime::ProviderProfileCapability {
-                active_profile: catalog.active_profile,
-                default_profile: catalog.default_profile,
-                supports_config_inheritance: adapter.supports_profile_config_inheritance(),
-            }),
+        .await {
+            Ok(provider) => provider,
             Err(error) => {
-                tracing::warn!(
-                    provider = %provider.id,
-                    %error,
-                    "failed to load provider profile metadata"
-                );
-                None
+                let entry = adapter.catalog_entry();
+                ProviderCatalogEntry::unavailable(entry.id, entry.label, error.to_string())
             }
         };
+        let profile_capability = adapter.default_profile_id().and_then(|default| {
+            match adapter.active_profile_id() {
+                Ok(active) => Some(super::runtime::ProviderProfileCapability {
+                    active_profile: active.unwrap_or_else(|| default.to_string()),
+                    default_profile: default.to_string(),
+                    supports_config_inheritance: adapter.supports_profile_config_inheritance(),
+                }),
+                Err(error) => {
+                    tracing::warn!(provider = %provider.id, %error, "failed to load active provider profile");
+                    None
+                }
+            }
+        });
         ProviderCatalogResponseEntry {
             provider,
             origin: registered.origin(),
@@ -215,16 +220,16 @@ pub(super) async fn provider_catalog_entry_live_for_settings(
     cwd: Option<&Path>,
     profile: Option<&str>,
     adapter: &dyn AgentRuntimeAdapter,
-) -> super::runtime::ProviderCatalogEntry {
+) -> Result<ProviderCatalogEntry, RuntimeError> {
     let mut entry = adapter
         .catalog_entry_live_for_settings(read_pool, cwd, profile)
-        .await;
+        .await?;
     let extra = adapter.extra_models(read_pool).await;
     if !extra.is_empty() {
         entry.models = merge_extra_models(entry.models, extra);
     }
     enforce_available_catalog_invariant(&mut entry);
-    entry
+    Ok(entry)
 }
 
 fn enforce_available_catalog_invariant(entry: &mut super::runtime::ProviderCatalogEntry) {
@@ -245,12 +250,15 @@ fn enforce_available_catalog_invariant(entry: &mut super::runtime::ProviderCatal
     );
 }
 
-pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -> Option<String> {
+pub async fn provider_default_model(
+    read_pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Option<String>, crate::error::AppError> {
     if let Some(adapter) = runtime_adapter(provider_id) {
         return adapter.default_model_id_for_settings(read_pool).await;
     }
 
-    None
+    Ok(None)
 }
 
 /// Resolves the catalog entry of the model to use for `provider_id`. Prefers
@@ -269,12 +277,12 @@ pub async fn resolve_requested_model_entry_or_provider_default(
     provider_id: &str,
     requested_model: Option<&str>,
     profile: Option<&str>,
-) -> Option<ModelCatalogEntry> {
+) -> Result<Option<ModelCatalogEntry>, crate::error::AppError> {
     if let Some(model) = requested_model {
         if let Some(entry) =
-            provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile).await
+            provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile).await?
         {
-            return Some(entry);
+            return Ok(Some(entry));
         }
         tracing::info!(
             requested_model = %model,

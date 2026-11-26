@@ -27,7 +27,7 @@ pub(crate) struct CodexRelocator;
 impl ProviderRelocator for CodexRelocator {
     async fn relocate(&self, moved: FolderMove<'_>) -> Result<Vec<String>, String> {
         let (from, to) = (moved.from.to_path_buf(), moved.to.to_path_buf());
-        let files = config_files();
+        let files = config_files().map_err(|error| error.to_string())?;
         tokio::task::spawn_blocking(move || relocate_in(&files, &from, &to))
             .await
             .map_err(|error| format!("Codex relocation task failed: {error}"))?
@@ -35,9 +35,9 @@ impl ProviderRelocator for CodexRelocator {
 }
 
 /// The service's own `config.toml` plus every profile's.
-fn config_files() -> Vec<PathBuf> {
+fn config_files() -> Result<Vec<PathBuf>, crate::error::AppError> {
     let default = profiles::default_home().map(|home| home.join("config.toml"));
-    let configured = profiles::list()
+    let configured = profiles::list()?
         .into_iter()
         .filter_map(|profile| profile.config_path);
     let files: BTreeSet<PathBuf> = default
@@ -45,7 +45,7 @@ fn config_files() -> Vec<PathBuf> {
         .chain(configured)
         .map(|file| std::fs::canonicalize(&file).unwrap_or(file))
         .collect();
-    files.into_iter().collect()
+    Ok(files.into_iter().collect())
 }
 
 fn relocate_in(files: &[PathBuf], from: &Path, to: &Path) -> Result<Vec<String>, String> {

@@ -57,6 +57,23 @@ describe("useAgentProfileSelection", () => {
     expect(result.current.selectedClaudeProfile).toBe("work");
   });
 
+  it.each(["claude_code", "codex_cli"])(
+    "omits a profile override when %s profiles fail to load",
+    (providerId) => {
+      query.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+      const { result } = renderHook(() =>
+        useAgentProfileSelection({
+          providerId,
+          supportsProfiles: true,
+          sessionProfile: "work",
+        }),
+      );
+      expect(result.current.claudeProfilesError).toBe(true);
+      expect(result.current.promptProfile).toBeUndefined();
+      expect(result.current.catalogProfile).toBeUndefined();
+    },
+  );
+
   it("does not forward a stale profile after a provider switch", () => {
     const { result, rerender } = renderHook(
       ({ providerId }) =>
@@ -74,6 +91,7 @@ describe("useAgentProfileSelection", () => {
     });
     rerender({ providerId: "claude_code" });
     expect(result.current.selectedClaudeProfile).toBe("claude-default");
+    expect(result.current.promptProfile).toBeUndefined();
     expect(result.current.catalogProfile).toBeUndefined();
   });
 });

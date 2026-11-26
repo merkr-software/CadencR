@@ -141,11 +141,14 @@ impl ForgeAuthStore {
 }
 
 pub fn host_configs() -> Result<BTreeMap<String, ForgeHostConfig>, AppError> {
-    let Some(value) = crate::domain::settings_store::global_get(FORGE_HOSTS_SETTING) else {
+    let Some(value) = crate::domain::settings_store::global_read(FORGE_HOSTS_SETTING)? else {
         return Ok(BTreeMap::new());
     };
-    serde_json::from_str(&value)
-        .map_err(|error| AppError::internal(format!("parse forge host settings: {error}")))
+    serde_json::from_str(&value).map_err(|_| {
+        crate::domain::settings_store::file::invalid_settings(
+            "Invalid forge host settings; fix forge_hosts via \"Edit JSON\"",
+        )
+    })
 }
 
 pub async fn save_host_config(hostname: &str, config: ForgeHostConfig) -> Result<(), AppError> {

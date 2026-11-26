@@ -698,6 +698,34 @@ describe("handleEnvelope workflow worktree events", () => {
 });
 
 describe("handleEnvelope error handling", () => {
+  it.each(["SETTINGS_INVALID", "SETTINGS_READ_FAILED"])(
+    "reports %s for a new prompt without ending the earlier turn or failing its receipts",
+    (code) => {
+      const session = createSessionEntry();
+      session.lifecycle = transitionTurn(session.lifecycle, { type: "prompt_sent" });
+      session.blocks = [
+        {
+          id: "earlier-prompt",
+          type: "user_message",
+          content: "Already sent",
+          messageUuid: "a48cc11a-8a72-47f7-8577-d5c533d7909c",
+          promptDeliveryState: "pending_agent",
+        },
+      ];
+      const ctx = createTestContext(session);
+      handleEnvelope(ctx, "s1", {
+        domain: "session",
+        action: "error",
+        ref: "refused-prompt",
+        payload: { code, message: "Could not read settings.json" },
+      });
+
+      expect(ctx.getSession("s1").lifecycle).toEqual(session.lifecycle);
+      expect(ctx.getSession("s1").blocks[0].promptDeliveryState).toBe("pending_agent");
+      expect(ctx.getSession("s1").blocks.at(-1)?.content).toBe("Could not read settings.json");
+    },
+  );
+
   it("fails pending prompts even when the terminal error has no message text", () => {
     const session = createSessionEntry();
     session.blocks = [

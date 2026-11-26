@@ -27,7 +27,15 @@ impl AgentRuntimeAdapter for CodexAdapter {
         &self,
         _cwd: Option<&std::path::Path>,
     ) -> Result<Option<super::runtime::ProviderProfilesResponse>, RuntimeError> {
-        Ok(Some(profile_runtime::profile_catalog()))
+        profile_runtime::profile_catalog().map(Some)
+    }
+
+    fn default_profile_id(&self) -> Option<&'static str> {
+        Some("default")
+    }
+
+    fn active_profile_id(&self) -> Result<Option<String>, RuntimeError> {
+        profiles::active_id().map_err(RuntimeError::Profile)
     }
 
     async fn resolve_profile(
@@ -45,7 +53,7 @@ impl AgentRuntimeAdapter for CodexAdapter {
         _read_pool: &sqlx::SqlitePool,
         cwd: Option<&std::path::Path>,
         profile: Option<&str>,
-    ) -> ProviderCatalogEntry {
+    ) -> Result<ProviderCatalogEntry, RuntimeError> {
         profile_runtime::catalog_for_profile(profile, cwd).await
     }
 

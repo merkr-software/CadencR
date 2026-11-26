@@ -42,7 +42,7 @@ pub async fn resolve_handler(
     State(state): State<AppState>,
     Query(params): Query<LspResolveParams>,
 ) -> Result<Json<LspResolveResponse>, AppError> {
-    let (_, global, global_warnings) = settings_store::global_map();
+    let (_, global, global_warnings) = settings_store::global_map()?;
     let (project, warnings) = if let Some(id) = params.project_id {
         let (_, map, warnings) = settings_store::project_map(&state.read_pool, id).await?;
         (map, warnings)

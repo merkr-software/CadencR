@@ -9,6 +9,8 @@ const EMPTY_CLAUDE_PROFILES: ClaudeCodeProfile[] = [];
 
 export interface ClaudeProfileSelection {
   selectedClaudeProfile: string;
+  /** A selection safe to forward to the runtime. Undefined leaves its profile selection intact. */
+  promptProfile: string | undefined;
   /**
    * The globally configured active profile. Distinct from
    * `selectedClaudeProfile`, which only scopes the next prompt — surfacing both
@@ -83,6 +85,12 @@ export function useClaudeProfileSelection({
   // differs from the active profile — otherwise the backend already probes the
   // active env, so leaving this undefined avoids a redundant model probe.
   const activeProfile = profilesQuery.data?.active;
+  const requestedProfile =
+    sessionProfile ??
+    (profileTouchedRef.current && conversationRef.current === wsSessionId
+      ? selectedClaudeProfile
+      : activeProfile);
+  const promptProfile = profilesQuery.data && !profilesQuery.isError ? requestedProfile : undefined;
   const catalogProfile =
     activeProfile != null && selectedClaudeProfile !== activeProfile
       ? selectedClaudeProfile
@@ -90,6 +98,7 @@ export function useClaudeProfileSelection({
   return useMemo(
     () => ({
       selectedClaudeProfile,
+      promptProfile,
       activeClaudeProfile,
       catalogProfile,
       claudeProfiles: profiles,
@@ -103,6 +112,7 @@ export function useClaudeProfileSelection({
       handleClaudeProfileChange,
       isClaudeProvider,
       profiles,
+      promptProfile,
       profilesQuery.isError,
       profilesQuery.isLoading,
       selectedClaudeProfile,

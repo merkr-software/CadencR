@@ -56,8 +56,8 @@ pub fn source_frame(location: &std::panic::Location<'_>) -> Option<DiagnosticFra
 pub fn snapshot() -> Result<TelemetryPreferences, AppError> {
     TELEMETRY
         .get()
-        .map(|runtime| runtime.snapshot())
-        .ok_or_else(|| AppError::ServiceUnavailable("Telemetry is not initialized".into()))
+        .ok_or_else(|| AppError::ServiceUnavailable("Telemetry is not initialized".into()))?
+        .snapshot()
 }
 
 pub async fn update(
@@ -76,7 +76,7 @@ pub async fn update(
     runtime.clear();
     result?;
     runtime.session_started();
-    Ok(runtime.snapshot())
+    runtime.snapshot()
 }
 
 /// Called only after local desktop authentication; service/MCP startup is not activity.
@@ -125,7 +125,10 @@ pub async fn turn_completed(summary: TurnSummary) {
     let Some(runtime) = TELEMETRY.get() else {
         return;
     };
-    let snapshot = runtime.snapshot();
+    let Ok(snapshot) = runtime.snapshot() else {
+        // An unreadable preference cannot authorize telemetry delivery.
+        return;
+    };
     if snapshot.decision_version.is_none_or(|version| version < 1)
         || !snapshot.usage_enabled
         || !snapshot.usage_configured

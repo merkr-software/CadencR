@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+use crate::error::AppError;
+
 use super::configuration::Configuration;
 #[cfg(test)]
 use super::models::DeliveryStatus;
@@ -113,21 +115,22 @@ impl Telemetry {
         self.session_started();
     }
 
-    pub fn snapshot(&self) -> TelemetryPreferences {
-        let stored = preferences::read(&self.path);
-        let read_failed = stored.is_err() || self.client.is_none();
-        let stored = stored.unwrap_or_default();
+    pub fn snapshot(&self) -> Result<TelemetryPreferences, AppError> {
+        let stored = preferences::read(&self.path)?;
+        let client_unavailable = self.client.is_none();
         let decided = stored.decision_made();
         let failed = self.state.lock().unwrap_or_else(|p| p.into_inner()).failed;
         let diagnostics_configured = self.config.sentry.is_some();
         let usage_configured = self.config.posthog.is_some();
-        TelemetryPreferences {
+        Ok(TelemetryPreferences {
             diagnostics_enabled: stored.diagnostics_enabled,
             usage_enabled: stored.usage_enabled,
             audience_enabled: stored.audience_enabled,
             decision_version: stored.decision_version,
             audience_configured: self.audience.configured(),
-            audience_status: self.audience.status(stored.audience_enabled, read_failed),
+            audience_status: self
+                .audience
+                .status(stored.audience_enabled, client_unavailable),
             installation_id: stored.installation_id,
             diagnostics_configured,
             usage_configured,
@@ -135,15 +138,15 @@ impl Telemetry {
                 stored.diagnostics_enabled && decided,
                 diagnostics_configured,
                 failed[0],
-                read_failed,
+                client_unavailable,
             ),
             usage_status: status(
                 stored.usage_enabled && decided,
                 usage_configured,
                 failed[1],
-                read_failed,
+                client_unavailable,
             ),
-        }
+        })
     }
 
     /// Cancel before AND after durable mutations so nothing observed mid-write survives.
@@ -308,6 +311,47 @@ mod tests {
     use crate::domain::telemetry::models::DiagnosticCategory;
     use axum::{routing::post, Router};
 
+    #[test]
+    fn snapshot_preserves_the_saved_decision_after_settings_are_repaired() {
+        use axum::response::IntoResponse;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let runtime = Telemetry::with_client(
+            Configuration {
+                sentry: None,
+                posthog: None,
+                release: "test".into(),
+            },
+            path.clone(),
+            None,
+        );
+        assert!(runtime.snapshot().unwrap().decision_version.is_none());
+
+        let consent = r#"{"onboarding_step":"completed","telemetry":{"decision_version":1,"audience_enabled":false,"diagnostics_enabled":false,"usage_enabled":false}}"#;
+        write_atomic(&path, consent).unwrap();
+        assert_eq!(runtime.snapshot().unwrap().decision_version, Some(1));
+
+        write_atomic(&path, "{").unwrap();
+        let invalid = runtime.snapshot().err().expect("malformed document");
+        assert_eq!(invalid.code(), "SETTINGS_INVALID");
+        assert_eq!(invalid.into_response().status(), 400);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let unreadable = runtime.snapshot().err().expect("unreadable document");
+        assert_eq!(unreadable.code(), "SETTINGS_READ_FAILED");
+        assert_eq!(unreadable.into_response().status(), 422);
+
+        std::fs::remove_dir(&path).unwrap();
+        write_atomic(&path, consent).unwrap();
+        let repaired = runtime.snapshot().unwrap();
+        assert_eq!(repaired.decision_version, Some(1));
+        assert!(
+            !repaired.audience_enabled && !repaired.diagnostics_enabled && !repaired.usage_enabled
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), consent);
+    }
+
     pub(super) async fn fixture(
         enabled: bool,
     ) -> (Arc<Telemetry>, Arc<Mutex<Vec<String>>>, tempfile::TempDir) {
@@ -384,7 +428,7 @@ mod tests {
         runtime.deliver(next).await;
         assert_eq!(requests.lock().unwrap().len(), 1);
         assert!(matches!(
-            runtime.snapshot().diagnostics_status,
+            runtime.snapshot().unwrap().diagnostics_status,
             DeliveryStatus::DeliveryFailed
         ));
         assert!(runtime.state.lock().unwrap().pending.is_empty());

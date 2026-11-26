@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { useSettingWriter } from "@/hooks/useSetting";
-import { apiErrorCode, SETTINGS_READ_FAILED } from "@/lib/api-errors";
+import { apiErrorCode, isSettingsRepairError } from "@/lib/api-errors";
 import {
   COMPLETED_ONBOARDING_STEP,
   ONBOARDING_STEP_SETTING_KEY,
@@ -16,7 +16,7 @@ interface UseOnboardingStatusResult {
   isFetching: boolean;
   isPersisting: boolean;
   error: unknown;
-  retry: () => void;
+  retry: () => Promise<OnboardingStep | undefined>;
   isCompleted: boolean;
   setStep: (next: OnboardingStep) => Promise<void>;
   /** Convenience: jump straight to `completed` (used by "Skip onboarding"). */
@@ -32,9 +32,10 @@ interface UseOnboardingStatusResult {
  */
 export function useOnboardingStatus(): UseOnboardingStatusResult {
   const query = useGetWorkspaceSetting(ONBOARDING_STEP_SETTING_KEY, {
-    // An unreadable settings file stays unreadable until the user fixes it:
-    // report it at once instead of showing setup while a retry waits.
-    query: { retry: (failures, error) => failures < 1 && !isUnreadableSettings(error) },
+    // Show settings repair immediately. The dialog offers an explicit retry.
+    query: {
+      retry: (failures, error) => failures < 1 && !isSettingsRepairError(apiErrorCode(error)),
+    },
   });
   const { setValue, isSaving: isPending } = useSettingWriter(ONBOARDING_STEP_SETTING_KEY);
 
@@ -49,8 +50,9 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
 
   const complete = useCallback(() => setStep(COMPLETED_ONBOARDING_STEP), [setStep]);
 
-  const retry = useCallback(() => {
-    void query.refetch();
+  const retry = useCallback(async () => {
+    const reading = await query.refetch({ cancelRefetch: false });
+    return reading.isSuccess ? parseOnboardingStep(reading.data.value) : undefined;
   }, [query.refetch]);
   const isLoading = query.isLoading;
   const isFetching = query.isFetching;
@@ -68,8 +70,4 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
     }),
     [step, isLoading, isFetching, isPending, setStep, complete, query.error, retry],
   );
-}
-
-function isUnreadableSettings(error: unknown): boolean {
-  return apiErrorCode(error) === SETTINGS_READ_FAILED;
 }

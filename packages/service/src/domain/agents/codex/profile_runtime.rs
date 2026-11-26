@@ -18,7 +18,7 @@ pub(super) use super::native_config::{
 };
 
 use super::spawn_options::app_server_spawn_options;
-use super::{profiles, unavailable_catalog, PROVIDER_ID};
+use super::{profiles, PROVIDER_ID};
 use crate::domain::agents::adapter::{ResolvedRuntimeProfile, RuntimeError};
 use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveConfig};
 use crate::domain::agents::runtime::ProviderCatalogEntry;
@@ -202,30 +202,26 @@ fn fingerprint_effective_config(
         .collect())
 }
 
-pub(super) fn profile_catalog() -> ProviderProfilesResponse {
-    let active = profiles::active_id().unwrap_or_else(|| "default".to_string());
+pub(super) fn profile_catalog() -> Result<ProviderProfilesResponse, RuntimeError> {
+    let (profiles, active) = profiles::list_with_active().map_err(RuntimeError::Profile)?;
     let mut entries = vec![ProviderProfileEntry {
         id: "default".to_string(),
         label: "Default Codex home".to_string(),
         description: Some("Uses the user's shared Codex home and config".to_string()),
         is_default: true,
     }];
-    entries.extend(
-        profiles::list()
-            .into_iter()
-            .map(|profile| ProviderProfileEntry {
-                id: profile.id,
-                label: profile.name,
-                description: None,
-                is_default: false,
-            }),
-    );
-    ProviderProfilesResponse {
+    entries.extend(profiles.into_iter().map(|profile| ProviderProfileEntry {
+        id: profile.id,
+        label: profile.name,
+        description: None,
+        is_default: false,
+    }));
+    Ok(ProviderProfilesResponse {
         provider: PROVIDER_ID.to_string(),
-        active_profile: active,
+        active_profile: active.unwrap_or_else(|| "default".to_string()),
         default_profile: "default".to_string(),
         profiles: entries,
-    }
+    })
 }
 
 pub(super) async fn resolve_profile(
@@ -245,7 +241,7 @@ pub(super) fn resolve_profile_for_selection(
     let resolved = if selection == Some("default") {
         None
     } else {
-        profiles::resolve(selection).map_err(|error| RuntimeError::new(error.to_string()))?
+        profiles::resolve(selection).map_err(RuntimeError::Profile)?
     };
     let Some(resolved) = resolved else {
         return Ok(ResolvedRuntimeProfile {
@@ -289,12 +285,9 @@ pub(super) fn resolve_profile_for_selection(
 pub(super) async fn catalog_for_profile(
     profile: Option<&str>,
     cwd: Option<&Path>,
-) -> ProviderCatalogEntry {
-    let resolved = match resolve_profile_for_selection(profile) {
-        Ok(profile) => profile,
-        Err(error) => return unavailable_catalog(error.to_string()),
-    };
-    super::live_catalog::profile_catalog(&resolved, cwd).await
+) -> Result<ProviderCatalogEntry, RuntimeError> {
+    let resolved = resolve_profile_for_selection(profile)?;
+    Ok(super::live_catalog::profile_catalog(&resolved, cwd).await)
 }
 
 #[cfg(test)]

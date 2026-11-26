@@ -153,6 +153,17 @@ impl AppError {
         }
     }
 
+    pub(crate) fn code(&self) -> &'static str {
+        self.status_and_code().1
+    }
+
+    pub(crate) fn coded_error_or(&self, fallback: &'static str) -> &'static str {
+        match self {
+            Self::Coded { code, .. } => code,
+            _ => fallback,
+        }
+    }
+
     /// Git exited non-zero: classify its (already sanitized) message.
     #[track_caller]
     pub fn git_rejected(message: impl Into<String>) -> Self {

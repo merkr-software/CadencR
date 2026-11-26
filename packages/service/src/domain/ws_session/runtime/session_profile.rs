@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::ws_session::protocol::PromptSendPayload;
+use crate::error::AppError;
 
 use super::state::{QueryState, SdkHandle};
 
@@ -25,10 +26,12 @@ pub(in crate::domain::ws_session) async fn resolve_provider_profile(
     provider: &str,
     profile: &str,
     cwd: &std::path::Path,
-) -> Result<SessionProfileUpdate, String> {
+) -> Result<SessionProfileUpdate, AppError> {
     resolve_supported_profile(provider, profile, cwd)
         .await?
-        .ok_or_else(|| format!("provider '{provider}' does not support profiles"))
+        .ok_or_else(|| {
+            AppError::BadRequest(format!("provider '{provider}' does not support profiles"))
+        })
 }
 
 /// Resolve a profile against the provider the session actually runs.
@@ -38,13 +41,13 @@ pub(in crate::domain::ws_session) async fn resolve_supported_profile(
     provider: &str,
     profile: &str,
     cwd: &std::path::Path,
-) -> Result<Option<SessionProfileUpdate>, String> {
+) -> Result<Option<SessionProfileUpdate>, AppError> {
     let adapter = runtime_adapter(provider)
-        .ok_or_else(|| format!("provider '{provider}' is not available"))?;
+        .ok_or_else(|| AppError::BadRequest(format!("provider '{provider}' is not available")))?;
     let resolved = adapter
         .resolve_profile(Some(profile), cwd)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.into_profile_error())?;
     Ok(resolved.map(|resolved| SessionProfileUpdate {
         name: resolved.identity,
         env: (!resolved.env.is_empty()).then_some(resolved.env),
@@ -121,7 +124,8 @@ mod tests {
             .await
             .err()
             .expect("profile.set needs a provider with profiles");
-        assert_eq!(error, "provider 'opencode' does not support profiles");
+        assert!(matches!(error, crate::error::AppError::BadRequest(message)
+            if message == "provider 'opencode' does not support profiles"));
     }
 
     #[tokio::test]

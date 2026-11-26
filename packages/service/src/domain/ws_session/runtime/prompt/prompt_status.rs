@@ -260,17 +260,22 @@ async fn resolve_dispatched_pending_state(
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum CanonicalUserMessageMode {
     PersistOnly,
+    RejectedPrompt,
     DispatchPrompt,
     DispatchTrackedPrompt,
 }
 
 impl CanonicalUserMessageMode {
     fn dispatch_prompt(self) -> bool {
-        !matches!(self, Self::PersistOnly)
+        matches!(self, Self::DispatchPrompt | Self::DispatchTrackedPrompt)
     }
 
     fn delivery_state(self) -> Option<&'static str> {
-        matches!(self, Self::DispatchTrackedPrompt).then_some("pending_agent")
+        match self {
+            Self::DispatchTrackedPrompt => Some("pending_agent"),
+            Self::RejectedPrompt => Some("delivery_failed"),
+            _ => None,
+        }
     }
 }
 
@@ -317,7 +322,10 @@ pub(crate) async fn persist_and_publish_user_message(
         request.feature_id,
         &message,
         request.origin,
-        request.mode.delivery_state().is_some(),
+        matches!(
+            request.mode,
+            CanonicalUserMessageMode::DispatchTrackedPrompt
+        ),
     )
     .await;
     Ok(CanonicalUserMessageOutcome { message, delivery })

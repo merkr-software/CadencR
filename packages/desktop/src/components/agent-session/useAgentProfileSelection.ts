@@ -28,6 +28,17 @@ export function useAgentProfileSelection({
   const active =
     query.data?.active_profile ?? query.data?.default_profile ?? profiles[0]?.id ?? "default";
   const [selected, setSelected] = useState(active);
+  // A missing or failed catalog cannot authorize replacing a pinned profile.
+  const localProfile =
+    touched.current && scope.current === `${wsSessionId ?? ""}:${providerId}` ? selected : active;
+  const promptProfile =
+    !query.data || query.isError
+      ? undefined
+      : sessionProfile
+        ? profiles.some((profile) => profile.id === sessionProfile)
+          ? sessionProfile
+          : undefined
+        : localProfile;
   const change = useCallback(
     (profile: string) => {
       touched.current = true;
@@ -51,8 +62,9 @@ export function useAgentProfileSelection({
   return useMemo(
     () => ({
       selectedClaudeProfile: selected,
+      promptProfile,
       activeClaudeProfile: active,
-      catalogProfile: selected !== active ? selected : undefined,
+      catalogProfile: promptProfile !== active ? promptProfile : undefined,
       claudeProfiles: profiles.map((profile) => ({
         name: profile.id,
         label: profile.label,
@@ -62,6 +74,15 @@ export function useAgentProfileSelection({
       claudeProfilesError: supportsProfiles && query.isError,
       handleClaudeProfileChange: change,
     }),
-    [active, change, profiles, query.isError, query.isLoading, selected, supportsProfiles],
+    [
+      active,
+      change,
+      profiles,
+      promptProfile,
+      query.isError,
+      query.isLoading,
+      selected,
+      supportsProfiles,
+    ],
   );
 }

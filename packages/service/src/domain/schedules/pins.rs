@@ -86,25 +86,15 @@ pub async fn model_for(
     let Some(requested) = trimmed(requested) else {
         return Ok(None);
     };
-    let profile = profile
-        .map(str::to_string)
-        .or_else(|| profile_for_new_session(provider));
     let (model, _entry) = resolve_model_or_error_for_profile(
         read_pool,
         project_path.map(std::path::Path::new),
         provider,
         &requested,
-        profile.as_deref(),
+        profile,
     )
-    .await
-    .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    .await?;
     Ok(Some(model))
-}
-
-/// The profile a fresh session on this provider would start under, if it has
-/// the concept at all.
-pub fn profile_for_new_session(provider: &str) -> Option<String> {
-    runtime_adapter(provider).and_then(|adapter| adapter.profile_name_for_new_session())
 }
 
 pub fn trimmed(value: Option<&str>) -> Option<String> {

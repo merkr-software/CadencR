@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { TELEMETRY_QUERY_KEY } from "@/api/telemetry";
 import { urlPrefixPredicate } from "./queryClient";
 import { createLeadingSettleCoalescer } from "./coalesceInvalidation";
 
@@ -69,7 +70,9 @@ export function invalidateSettingsDerivedQueries(client: QueryClient): Promise<v
       if (typeof head !== "string") return false;
 
       // Hand-written custom keys whose data depends on settings.
-      if (head === "agent-catalog") return true;
+      if (head === "agent-catalog" || head === "agent-profiles") return true;
+      if (head === TELEMETRY_QUERY_KEY[0]) return true;
+      if (sub === "profiles" && (head === "claude-code" || head === "codex")) return true;
       // The bulk list theme and favorite models read from (`api/settings.ts`).
       if (head === "workspace" && sub === "settings") return true;
       if (sub === "provider-settings" && (head === "workspace" || head === "features")) {

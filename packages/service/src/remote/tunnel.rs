@@ -36,10 +36,18 @@ pub(super) fn allowed_origins(
 /// Shared by the listener (allowlist) and the HTTP layer (status + pairing URLs)
 /// so normalization lives in one place.
 pub async fn load_tunnel_host(pool: &sqlx::SqlitePool) -> Option<String> {
-    let raw = crate::domain::workspace::repository::get_setting(pool, REMOTE_TUNNEL_HOST_SETTING)
-        .await
-        .ok()
-        .flatten()?;
+    let raw = match crate::domain::workspace::repository::get_setting(
+        pool,
+        REMOTE_TUNNEL_HOST_SETTING,
+    )
+    .await
+    {
+        Ok(raw) => raw?,
+        Err(error) => {
+            tracing::warn!(%error, "Remote tunnel settings unavailable; using LAN origins only");
+            return None;
+        }
+    };
     sanitize_tunnel_host(&raw)
 }
 

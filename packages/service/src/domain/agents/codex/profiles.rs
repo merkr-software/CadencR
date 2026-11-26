@@ -1,57 +1,111 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
-use serde_json::Value;
-use sha2::{Digest, Sha256};
+use serde::Deserialize;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::domain::settings_store;
+use crate::domain::settings_store::{self, file, Scope};
 use crate::error::AppError;
 
 pub const PROFILES_KEY: &str = "codex_profiles";
 pub const ACTIVE_PROFILE_KEY: &str = "codex_active_profile";
 
+mod configuration;
 mod types;
+use configuration::read_config_and_revision;
 pub use types::*;
 
-pub fn list() -> Vec<CodexProfile> {
-    settings_store::global_get_object(PROFILES_KEY)
-        .values()
-        .filter_map(|value| serde_json::from_value(value.clone()).ok())
+fn stored_profile(id: &str, value: &Value) -> Result<CodexProfile, AppError> {
+    let invalid = || file::invalid_settings(format!("Codex profile '{id}' is malformed"));
+    let profile = CodexProfile::deserialize(value).map_err(|_| invalid())?;
+    if profile.id != id {
+        return Err(invalid());
+    }
+    Ok(profile)
+}
+
+pub fn list() -> Result<Vec<CodexProfile>, AppError> {
+    settings_store::global_inspect_document(profiles_in)
+}
+
+fn profiles_in(doc: &Map<String, Value>) -> Result<Vec<CodexProfile>, AppError> {
+    file::object_section(doc, PROFILES_KEY)?
+        .into_iter()
+        .flatten()
+        .map(|(id, value)| stored_profile(id, value))
         .collect()
 }
 
-pub fn get(id: &str) -> Option<CodexProfile> {
-    settings_store::global_get_object(PROFILES_KEY)
-        .get(id)
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
+fn profile_in(doc: &Map<String, Value>, id: &str) -> Result<CodexProfile, AppError> {
+    let value = file::object_section(doc, PROFILES_KEY)?
+        .and_then(|profiles| profiles.get(id))
+        .ok_or_else(|| AppError::NotFound(format!("Codex profile '{id}' not found")))?;
+    stored_profile(id, value)
 }
 
-pub fn active_id() -> Option<String> {
-    settings_store::global_get_nonempty(ACTIVE_PROFILE_KEY)
+fn active_id_in(doc: &Map<String, Value>) -> Result<Option<String>, AppError> {
+    Ok(
+        file::read_scalar(doc, Scope::Workspace, ACTIVE_PROFILE_KEY)?
+            .filter(|id| !id.trim().is_empty()),
+    )
 }
 
-pub fn views() -> Result<Vec<CodexProfileView>, AppError> {
-    let active = active_id();
-    list()
+pub fn active_id() -> Result<Option<String>, AppError> {
+    settings_store::global_inspect_document(|doc| {
+        Ok(active_profile_in(doc)?.map(|profile| profile.id))
+    })
+}
+
+pub(super) fn list_with_active() -> Result<(Vec<CodexProfile>, Option<String>), AppError> {
+    settings_store::global_inspect_document(|doc| {
+        let profiles = profiles_in(doc)?;
+        let active = active_id_in(doc)?;
+        if let Some(id) = active.as_deref() {
+            if !profiles.iter().any(|profile| profile.id == id) {
+                return Err(missing_active_profile(id));
+            }
+        }
+        Ok((profiles, active))
+    })
+}
+
+fn active_profile_in(doc: &Map<String, Value>) -> Result<Option<CodexProfile>, AppError> {
+    active_id_in(doc)?
+        .as_deref()
+        .map(|id| {
+            profile_in(doc, id).map_err(|error| match error {
+                AppError::NotFound(_) => missing_active_profile(id),
+                other => other,
+            })
+        })
+        .transpose()
+}
+
+fn missing_active_profile(id: &str) -> AppError {
+    file::invalid_settings(format!(
+        "Active Codex profile '{id}' does not exist. Fix '{ACTIVE_PROFILE_KEY}' in Edit JSON."
+    ))
+}
+
+pub(super) fn views(profiles: Vec<CodexProfile>, active: Option<&str>) -> Vec<CodexProfileView> {
+    profiles
         .into_iter()
-        .map(|profile| view(profile, active.as_deref()))
+        .map(|profile| view(profile, active))
         .collect()
 }
 
 pub async fn create(draft: ProfileDraft) -> Result<CodexProfileView, AppError> {
     let profile = profile_from_draft(Uuid::new_v4().to_string(), draft)?;
     validate_profile(&profile)?;
-    read_config_and_revision(&profile)?;
-    let id = profile.id.clone();
-    let stored = serde_json::to_value(&profile)
-        .map_err(|error| AppError::internal(format!("could not encode Codex profile: {error}")))?;
-    settings_store::global_modify_object(PROFILES_KEY, move |profiles| {
-        profiles.insert(id, stored);
-        Ok(())
+    let (_, revision) = read_config_and_revision(&profile)?;
+    let (profile, active) = settings_store::global_update_document(move |doc| {
+        let active = active_id_in(doc)?;
+        save_profile(doc, &profile)?;
+        Ok((profile, active))
     })
     .await?;
-    view(profile, active_id().as_deref())
+    Ok(profile_view(profile, active.as_deref(), revision))
 }
 
 pub async fn update(
@@ -59,53 +113,98 @@ pub async fn update(
     update: ProfileUpdate,
     allow_home_change: bool,
 ) -> Result<CodexProfileView, AppError> {
-    let existing = get(id).ok_or_else(|| AppError::NotFound(format!("Codex profile '{id}'")))?;
-    let profile = apply_update(existing, update, allow_home_change)?;
+    let current = settings_store::global_inspect_document(|doc| profile_in(doc, id))?;
+    let profile = apply_update(current.clone(), update, allow_home_change)?;
     validate_profile(&profile)?;
-    read_config_and_revision(&profile)?;
-    let id_owned = id.to_string();
-    let stored = serde_json::to_value(&profile)
-        .map_err(|error| AppError::internal(format!("could not encode Codex profile: {error}")))?;
-    settings_store::global_modify_object(PROFILES_KEY, move |profiles| {
-        profiles.insert(id_owned, stored);
-        Ok(())
+    let (_, revision) = read_config_and_revision(&profile)?;
+    let (profile, active) = settings_store::global_update_document(move |doc| {
+        let active = active_id_in(doc)?;
+        verify_profile_unchanged(doc, &current)?;
+        save_profile(doc, &profile)?;
+        Ok((profile, active))
     })
     .await?;
-    view(profile, active_id().as_deref())
+    Ok(profile_view(profile, active.as_deref(), revision))
 }
 
-pub async fn delete(id: &str) -> Result<(), AppError> {
-    let id_owned = id.to_string();
-    settings_store::global_modify_object(PROFILES_KEY, move |profiles| {
-        profiles
-            .remove(&id_owned)
-            .ok_or_else(|| AppError::NotFound(format!("Codex profile '{id_owned}'")))?;
-        Ok(())
-    })
-    .await?;
-    if active_id().as_deref() == Some(id) {
-        settings_store::global_set(ACTIVE_PROFILE_KEY, "").await?;
+fn verify_profile_unchanged(
+    doc: &Map<String, Value>,
+    profile: &CodexProfile,
+) -> Result<(), AppError> {
+    if profile_in(doc, &profile.id)? != *profile {
+        return Err(AppError::Conflict(
+            "The Codex profile changed while it was being validated. Refresh and try again.".into(),
+        ));
     }
     Ok(())
 }
 
-pub async fn set_active(id: Option<&str>) -> Result<(), AppError> {
-    let id = id.map(str::trim).filter(|id| !id.is_empty());
-    if let Some(id) = id {
-        resolve(Some(id))?;
+fn save_profile(doc: &mut Map<String, Value>, profile: &CodexProfile) -> Result<(), AppError> {
+    let stored = serde_json::to_value(profile)
+        .map_err(|error| AppError::internal(format!("could not encode Codex profile: {error}")))?;
+    file::edit_object_section(doc, PROFILES_KEY, |profiles| {
+        profiles.insert(profile.id.clone(), stored);
+        Ok(())
+    })
+}
+
+pub async fn delete(id: &str) -> Result<(), AppError> {
+    let id = id.to_string();
+    settings_store::global_update_document(move |doc| {
+        let active = active_id_in(doc)?;
+        file::edit_object_section(doc, PROFILES_KEY, |profiles| {
+            profiles
+                .remove(&id)
+                .ok_or_else(|| AppError::NotFound(format!("Codex profile '{id}'")))
+        })?;
+        if active.as_deref() == Some(id.as_str()) {
+            doc.insert(ACTIVE_PROFILE_KEY.into(), Value::String(String::new()));
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// Return the profile list and active ID from the same document we saved.
+pub(super) async fn set_active(
+    id: Option<&str>,
+) -> Result<(Vec<CodexProfile>, Option<String>), AppError> {
+    let id = id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
+    let selected = id
+        .as_deref()
+        .map(|id| settings_store::global_inspect_document(|doc| profile_in(doc, id)))
+        .transpose()?;
+    if let Some(profile) = selected.as_ref() {
+        validate_profile(profile)?;
+        read_config_and_revision(profile)?;
     }
-    settings_store::global_set(ACTIVE_PROFILE_KEY, id.unwrap_or_default()).await
+    settings_store::global_update_document(move |doc| {
+        let profiles = profiles_in(doc)?;
+        if let Some(profile) = selected.as_ref() {
+            verify_profile_unchanged(doc, profile)?;
+        }
+        doc.insert(
+            ACTIVE_PROFILE_KEY.into(),
+            Value::String(id.clone().unwrap_or_default()),
+        );
+        Ok((profiles, id))
+    })
+    .await
 }
 
 pub fn resolve(selection: Option<&str>) -> Result<Option<ResolvedCodexProfile>, AppError> {
-    let id = selection
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(active_id);
-    let Some(id) = id else { return Ok(None) };
-    let profile =
-        get(&id).ok_or_else(|| AppError::NotFound(format!("Codex profile '{id}' not found")))?;
+    let profile = settings_store::global_inspect_document(|doc| {
+        match selection.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(id) => profile_in(doc, id).map(Some),
+            None => active_profile_in(doc),
+        }
+    })?;
+    let Some(profile) = profile else {
+        return Ok(None);
+    };
     validate_profile(&profile)?;
     let effective_home = effective_home(&profile);
     let (config, revision) = read_config_and_revision(&profile)?;
@@ -214,12 +313,6 @@ fn validate_profile(profile: &CodexProfile) -> Result<(), AppError> {
                 "config_path must be absolute and end with literal config.toml".to_string(),
             ));
         }
-        if !path.is_file() {
-            return Err(AppError::BadRequest(format!(
-                "config file '{}' does not exist",
-                path.display()
-            )));
-        }
     }
     validate_env(&profile.env, &profile.env_unset)
 }
@@ -276,59 +369,20 @@ fn normalize_unset(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn read_config_and_revision(profile: &CodexProfile) -> Result<(Option<Value>, String), AppError> {
-    let mut digest = Sha256::new();
-    digest.update(profile.id.as_bytes());
-    digest.update([0]);
-    digest.update(profile.name.as_bytes());
-    if let Some(path) = profile.config_path.as_deref() {
-        digest.update(path.as_os_str().as_encoded_bytes());
-    }
-    let sorted_env = profile
-        .env
-        .iter()
-        .collect::<std::collections::BTreeMap<_, _>>();
-    digest.update(
-        serde_json::to_vec(&sorted_env).map_err(|error| AppError::internal(error.to_string()))?,
-    );
-    digest.update(
-        serde_json::to_vec(&profile.env_unset)
-            .map_err(|error| AppError::internal(error.to_string()))?,
-    );
-    let config = match profile.config_path.as_deref() {
-        Some(path) => {
-            let source = std::fs::read_to_string(path).map_err(|error| {
-                AppError::BadRequest(format!("could not read '{}': {error}", path.display()))
-            })?;
-            let parsed = source.parse::<toml::Value>().map_err(|_| {
-                AppError::BadRequest(format!("invalid TOML in Codex config '{}'", path.display()))
-            })?;
-            digest.update(source.as_bytes());
-            Some(
-                serde_json::to_value(parsed)
-                    .map_err(|error| AppError::internal(error.to_string()))?,
-            )
-        }
-        None => None,
-    };
-    let revision = digest
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    Ok((config, revision))
-}
-
-fn view(profile: CodexProfile, active: Option<&str>) -> Result<CodexProfileView, AppError> {
-    let effective_home = effective_home(&profile);
+fn view(profile: CodexProfile, active: Option<&str>) -> CodexProfileView {
     // Listing remains available when an external config is temporarily missing
     // or malformed, so the user can repair or delete the stored profile.
     let revision = read_config_and_revision(&profile)
         .map(|(_, revision)| revision)
         .unwrap_or_else(|_| "invalid".to_string());
+    profile_view(profile, active, revision)
+}
+
+fn profile_view(profile: CodexProfile, active: Option<&str>, revision: String) -> CodexProfileView {
+    let effective_home = effective_home(&profile);
     let mut env_keys = profile.env.keys().cloned().collect::<Vec<_>>();
     env_keys.sort();
-    Ok(CodexProfileView {
+    CodexProfileView {
         id: profile.id.clone(),
         name: profile.name,
         config_path: profile
@@ -339,12 +393,54 @@ fn view(profile: CodexProfile, active: Option<&str>) -> Result<CodexProfileView,
         env_unset: profile.env_unset,
         revision,
         is_active: active == Some(profile.id.as_str()),
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn active_profile_resolution_requires_readable_settings() {
+        let path = settings_store::paths::global_file(&settings_store::global_dir());
+        assert!(resolve(None).unwrap().is_none());
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(
+            resolve(None),
+            Err(AppError::Coded {
+                code: settings_store::file::SETTINGS_READ_FAILED,
+                ..
+            })
+        ));
+        std::fs::remove_dir(&path).unwrap();
+        settings_store::global_write_content(
+            r#"{"codex_active_profile":"work","codex_profiles":{"work":5}}"#,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolve(None).unwrap_err().code(), file::SETTINGS_INVALID);
+        settings_store::global_write_content(
+            r#"{"codex_active_profile":"work","codex_profiles":{"work":{"id":"work","name":"Work"}}}"#,
+        ).await.unwrap();
+        assert_eq!(resolve(None).unwrap().unwrap().profile.id, "work");
+    }
+
+    #[tokio::test]
+    async fn concurrent_activation_and_deletion_never_leave_a_dangling_profile() {
+        settings_store::global_write_content(
+            r#"{"codex_profiles":{"work":{"id":"work","name":"Work"}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let (activation, deletion) = tokio::join!(set_active(Some("work")), delete("work"));
+        if let Err(error) = activation {
+            assert!(matches!(error, AppError::NotFound(_)), "{error}");
+        }
+        deletion.unwrap();
+        assert!(resolve(None).unwrap().is_none());
+        assert!(list().unwrap().is_empty());
+    }
 
     #[test]
     fn rejects_relative_or_renamed_config() {
@@ -403,7 +499,7 @@ mod tests {
             env: HashMap::new(),
             env_unset: Vec::new(),
         };
-        let view = view(profile, None).unwrap();
+        let view = view(profile, None);
         assert_eq!(view.revision, "invalid");
         assert_eq!(view.id, "broken");
     }

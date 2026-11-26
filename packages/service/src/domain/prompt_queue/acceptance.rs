@@ -1,5 +1,6 @@
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::PromptSendPayload;
+use crate::domain::ws_session::runtime::prompt::McpSettings;
 use crate::error::AppError;
 
 use super::{delivery, store};
@@ -24,7 +25,9 @@ pub(super) async fn enqueue(
     session_id: i64,
     content: &str,
 ) -> Result<store::QueuedPrompt, AppError> {
-    let prompt = store::enqueue(&state.write_pool, session_id, validated(content)?).await?;
+    let content = validated(content)?;
+    McpSettings::read()?;
+    let prompt = store::enqueue(&state.write_pool, session_id, content).await?;
     accepted(state, session_id).await;
     Ok(prompt.into())
 }
@@ -39,19 +42,13 @@ pub(crate) async fn defer_if_required(
     let message_uuid = payload.message_uuid.as_deref().ok_or_else(|| {
         AppError::BadRequest("A prompt must have a canonical message identity.".into())
     })?;
-    if store::has_source(
-        &state.read_pool,
-        session_id,
-        store::QueueOrigin::User,
-        message_uuid,
-    )
-    .await?
-    {
+    if already_deferred(state, session_id, message_uuid).await? {
         return Ok(true);
     }
     if !delivery::requires_queue(state, session_id).await {
         return Ok(false);
     }
+    McpSettings::read()?;
     if !payload.attachments.is_empty() || !payload.images.is_empty() {
         return Err(AppError::BadRequest(
             "Compaction is in progress. Keep attachments in the composer until it finishes.".into(),
@@ -68,6 +65,20 @@ pub(crate) async fn defer_if_required(
         accepted(state, session_id).await;
     }
     Ok(true)
+}
+
+pub(crate) async fn already_deferred(
+    state: &AppState,
+    session_id: i64,
+    message_uuid: &str,
+) -> Result<bool, AppError> {
+    store::has_source(
+        &state.read_pool,
+        session_id,
+        store::QueueOrigin::User,
+        message_uuid,
+    )
+    .await
 }
 
 /// Queue a message another session's agent sent with `delivery=next_turn`.

@@ -6,7 +6,6 @@ use crate::domain::agents::providers::{
 };
 use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::protocol::{ProviderSetOkPayload, ProviderSetPayload};
-use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 
 use super::switch::{ProviderSetError, SwitchSnapshot};
 
@@ -56,7 +55,10 @@ pub(super) async fn resolve(
         let profile = adapter
             .resolve_profile_for_selection(None, &runtime.cwd)
             .await
-            .map_err(|error| ProviderSetError::new("PROFILE_ERROR", error.to_string()))?;
+            .map_err(|error| {
+                let error = error.into_profile_error();
+                ProviderSetError::new(error.coded_error_or("PROFILE_ERROR"), error.to_string())
+            })?;
         runtime.profile = profile.as_ref().map(|profile| profile.identity.clone());
         runtime.env = profile
             .as_ref()
@@ -77,7 +79,7 @@ pub(super) async fn resolve(
         runtime.access_mode = adapter
             .configured_access_mode(&state.read_pool)
             .await
-            .map_err(|error| ProviderSetError::new(SETTINGS_READ_FAILED, error.to_string()))?;
+            .map_err(|error| ProviderSetError::new(error.code(), error.to_string()))?;
         runtime.allow_bypass_permissions = false;
     }
     let requested_model = payload.model.as_deref().or_else(|| {
@@ -92,7 +94,8 @@ pub(super) async fn resolve(
         requested_model,
         runtime.profile.as_deref(),
     )
-    .await;
+    .await
+    .map_err(|error| ProviderSetError::new(error.code(), error.to_string()))?;
     runtime.model = entry.as_ref().map(|entry| entry.id.clone());
     if provider_changed || runtime.model != previous_model {
         // A new provider/model resumes its last-used level, else its default,
@@ -100,7 +103,7 @@ pub(super) async fn resolve(
         let effort = match entry.as_ref() {
             Some(entry) => target_thinking_effort(&state.read_pool, &payload.provider, entry)
                 .await
-                .map_err(|error| ProviderSetError::new(SETTINGS_READ_FAILED, error.to_string()))?,
+                .map_err(|error| ProviderSetError::new(error.code(), error.to_string()))?,
             None => None,
         };
         runtime.thinking_effort = effort.clone();

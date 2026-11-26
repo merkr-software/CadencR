@@ -11,6 +11,7 @@ use crate::domain::agents::providers::{
     canonical_provider_or_error, default_provider_id, provider_model_catalog_entry,
     resolve_model_or_error_for_profile, runtime_adapter,
 };
+use crate::domain::settings_store::{self, file, Scope};
 use crate::error::AppError;
 
 /// A resolved target project the spawned session will be created in. Also the
@@ -198,7 +199,7 @@ pub(super) async fn resolve_spawn_runtime(
             std::path::Path::new(&target_project.path),
         )
         .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?
+        .map_err(|error| error.into_profile_error())?
         .map(|resolved| resolved.identity);
     let (model, model_entry) = match trimmed_optional(body.model.as_deref()) {
         Some(model) => {
@@ -209,8 +210,7 @@ pub(super) async fn resolve_spawn_runtime(
                 &model,
                 profile.as_deref(),
             )
-            .await
-            .map_err(|error| AppError::BadRequest(error.to_string()))?;
+            .await?;
             (Some(model), Some(catalog_entry))
         }
         None => {
@@ -221,7 +221,7 @@ pub(super) async fn resolve_spawn_runtime(
                 None,
                 profile.as_deref(),
             )
-            .await;
+            .await?;
             (None, entry)
         }
     };
@@ -256,6 +256,30 @@ pub(super) async fn codex_permission_mode_for_spawn(
     canonical_codex_permission_mode(&configured).map(Some)
 }
 
+/// Preflight the settings that the initial dispatch can already resolve
+/// without a conversation or worktree. Launch errors after creation still
+/// belong to the new conversation so it can be retried in place.
+pub(super) fn preflight_spawn_worktree(
+    target_project: &TargetProject,
+    worktree_mode: &str,
+) -> Result<(), AppError> {
+    // Reuse may already have a prepared worktree; new always needs provisioning.
+    if worktree_mode != "new" {
+        return Ok(());
+    }
+    let path = settings_store::paths::project_file_for_name(
+        &settings_store::global_dir(),
+        &target_project.name,
+    );
+    settings_store::cache::inspect_document(&path, |doc| {
+        if let Some(doc) = doc {
+            file::read_scalar(doc, Scope::Project, "branch_prefix")?;
+            file::read_scalar(doc, Scope::Project, "setup_worktree")?;
+        }
+        Ok(())
+    })
+}
+
 async fn effective_spawn_provider(
     state: &AppState,
     source: &super::scope::SessionScope,
@@ -278,11 +302,7 @@ async fn effective_spawn_provider(
     .await
     {
         Ok(selection) => Ok(selection.provider_id),
-        // A settings level that cannot be read must not pick another agent.
-        Err(error @ crate::domain::agents::SelectionError::SettingsUnreadable(_)) => {
-            Err(AppError::internal(error.to_string()))
-        }
-        Err(error) => {
+        Err(error @ crate::domain::agents::SelectionError::NoModelAvailable { .. }) => {
             // The provider may have resolved fine while its catalog is empty;
             // keep the user's configured provider only when the whole
             // resolution failed, and never hide the reason.
@@ -293,6 +313,7 @@ async fn effective_spawn_provider(
             );
             Ok(default_provider_id().to_string())
         }
+        Err(error) => Err(error.into()),
     }
 }
 

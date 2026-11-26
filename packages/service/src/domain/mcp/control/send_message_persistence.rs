@@ -4,6 +4,7 @@ use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::{
     persist_user_message, NewUserMessage, PersistedUserMessage,
 };
+use crate::domain::ws_session::runtime::prompt::McpSettings;
 use crate::error::AppError;
 
 pub(super) struct ImmediateMessageRequest<'a> {
@@ -32,6 +33,7 @@ pub(super) async fn persist_immediate_message(
     )
     .await?;
     if persisted.inserted {
+        McpSettings::read()?;
         persist_immediate_side_effects(&mut tx, &request, persisted.id).await?;
     }
     validate_immediate_options(&mut tx, &request, persisted.id).await?;

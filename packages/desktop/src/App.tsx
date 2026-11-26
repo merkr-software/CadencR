@@ -30,7 +30,7 @@ export default function App() {
         <MonoFontProvider>
           <AmbientBackground />
           <RemotePairingGate>
-            <OnboardingGate>
+            <OnboardingGate openSettings={() => router.navigate({ to: "/settings" })}>
               <RouterProvider router={router} />
             </OnboardingGate>
           </RemotePairingGate>

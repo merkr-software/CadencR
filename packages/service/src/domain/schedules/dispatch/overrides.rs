@@ -102,20 +102,16 @@ async fn validate_profile_state_transition(
     let cwd = std::path::Path::new(&row.3);
     let previous_selection = match row.1 {
         Some(profile) => Some(profile),
-        None => adapter
-            .profile_catalog(Some(cwd))
-            .await
-            .map_err(|error| AppError::BadRequest(error.to_string()))?
-            .map(|catalog| catalog.default_profile),
+        None => adapter.default_profile_id().map(str::to_string),
     };
     let previous = adapter
         .resolve_profile(previous_selection.as_deref(), cwd)
         .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+        .map_err(|error| error.into_profile_error())?;
     let next = adapter
         .resolve_profile(Some(next_profile), cwd)
         .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+        .map_err(|error| error.into_profile_error())?;
     let previous_state = previous.and_then(|profile| profile.state_identity);
     let next_state = next.and_then(|profile| profile.state_identity);
     if previous_state.is_some() && previous_state != next_state {
@@ -213,7 +209,7 @@ async fn resolve(
         pins.profile = adapter
             .resolve_profile(profile.as_deref(), cwd)
             .await
-            .map_err(|error| AppError::BadRequest(error.to_string()))?
+            .map_err(|error| error.into_profile_error())?
             .map(|resolved| resolved.identity);
     }
     pins.model = model_for(

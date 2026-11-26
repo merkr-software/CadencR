@@ -7,8 +7,8 @@ use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
+use crate::isolated_settings;
 use crate::support::mcp_service::served_mcp_context;
-use crate::SETTINGS_TEST_LOCK;
 
 async fn activity_ctx() -> Arc<McpContext> {
     global_write_content(r#"{"workspace_mcp_enabled":"true"}"#)
@@ -50,7 +50,7 @@ fn result_text(result: rmcp::model::CallToolResult) -> String {
 
 #[tokio::test]
 async fn workspace_recent_activity_returns_recent_messages_with_project_metadata() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let ctx = activity_ctx().await;
 
     let result = run_workspace_tool(

@@ -2,6 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::domain::workspace::repository::setting_enabled_by_default;
+use crate::error::AppError;
 
 use super::capture::{app_version, startup_capture_error};
 use super::eligibility::{decide, live_skip, Candidate, Decision, LOOP_WINDOW_MINUTES};
@@ -48,11 +49,11 @@ async fn run(state: &AppState) -> RestartContinuationReport {
         }
     };
     report.previous_version = previous_version(&pending, &report.app_version);
-    let enabled = setting_enabled_by_default(&state.read_pool, ENABLED_SETTING_KEY).await;
+    let enabled = setting_enabled_by_default(ENABLED_SETTING_KEY);
     let resolutions = futures::future::join_all(
         pending
             .iter()
-            .map(|continuation| resolve_one(state, continuation, enabled)),
+            .map(|continuation| resolve_one(state, continuation, &enabled)),
     )
     .await;
     report.entries = pending
@@ -88,7 +89,7 @@ fn previous_version(pending: &[PendingContinuation], current: &str) -> Option<St
 async fn resolve_one(
     state: &AppState,
     continuation: &PendingContinuation,
-    enabled: bool,
+    enabled: &Result<bool, AppError>,
 ) -> (RestartContinuationOutcome, Option<String>) {
     let (outcome, reason) = match prepare(state, continuation, enabled).await {
         Ok((Decision::Skip(reason), _)) => {
@@ -179,7 +180,7 @@ async fn record(
 async fn prepare(
     state: &AppState,
     continuation: &PendingContinuation,
-    enabled: bool,
+    enabled: &Result<bool, AppError>,
 ) -> Result<(Decision, bool), String> {
     let status = store::session_status(&state.write_pool, continuation.session_id)
         .await
@@ -202,11 +203,18 @@ async fn prepare(
     .map_err(|error| format!("could not read earlier crashes: {error}"))?;
     let decision = decide(&Candidate {
         stop_requested: continuation.stop_requested(),
-        enabled,
+        enabled: !matches!(enabled, Ok(false)),
         feature_archived: continuation.feature_archived,
         has_resume_id: continuation.has_resume_id,
         recent_crashes,
     });
+    // Keep the interruption marker and clear dead questions even when we
+    // cannot read the preference. Only an eligible turn needs the setting.
+    if decision == Decision::Resume {
+        enabled.as_ref().map_err(|error| {
+            format!("Cadencr could not read whether to resume after restart: {error}")
+        })?;
+    }
     Ok((decision, lost_gate))
 }
 
@@ -301,6 +309,45 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(prompts, 0, "no continue prompt is sent");
+    }
+
+    #[tokio::test]
+    async fn a_failed_settings_read_marks_the_turn_without_sending_a_resume() {
+        use crate::domain::settings_store;
+
+        let (pool, _, feature_id) = fixture().await;
+        let session_id = session(&pool, feature_id, "running").await;
+        seed_pending_question(&pool, session_id).await;
+        capture_running(&pool, Cause::Crash, Intent::Resume, None)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agent_sessions SET status = 'paused'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let path = settings_store::paths::global_file(&settings_store::global_dir());
+        std::fs::create_dir(&path).unwrap();
+
+        let report = run(&AppState::with_pool(pool.clone())).await;
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(
+            report.entries[0].outcome,
+            RestartContinuationOutcome::Failed
+        );
+        assert!(report.entries[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("could not read the settings file"));
+        let messages: Vec<String> = sqlx::query_scalar(
+            "SELECT message_type FROM agent_messages WHERE session_id = ? ORDER BY id",
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(messages, ["turn_interrupted"]);
+        assert!(store::list_pending(&pool).await.unwrap().is_empty());
     }
 
     #[tokio::test]

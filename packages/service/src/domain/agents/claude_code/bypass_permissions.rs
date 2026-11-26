@@ -54,14 +54,14 @@ mod tests {
         let adapter = runtime_adapter(super::super::PROVIDER_ID).unwrap();
         assert_eq!(
             adapter
-                .bypass_permission_opt_in(&pool, 1, None)
+                .bypass_permission_opt_in(&pool, Some(1), None)
                 .await
                 .unwrap(),
             Some(true)
         );
         assert_eq!(
             adapter
-                .bypass_permission_opt_in(&pool, 2, None)
+                .bypass_permission_opt_in(&pool, Some(2), None)
                 .await
                 .unwrap(),
             Some(false)
@@ -69,7 +69,7 @@ mod tests {
         let other = runtime_adapter(crate::domain::agents::codex::PROVIDER_ID).unwrap();
         assert_eq!(
             other
-                .bypass_permission_opt_in(&pool, 1, None)
+                .bypass_permission_opt_in(&pool, Some(1), None)
                 .await
                 .unwrap(),
             None

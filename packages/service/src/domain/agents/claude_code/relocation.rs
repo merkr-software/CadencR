@@ -36,7 +36,7 @@ impl ProviderRelocator for ClaudeRelocator {
             moved.to.to_path_buf(),
             moved.folders(),
         );
-        let homes = config_homes();
+        let homes = config_homes().map_err(|error| error.to_string())?;
         tokio::task::spawn_blocking(move || relocate_in(&homes, &from, &to, &folders))
             .await
             .map_err(|error| format!("Claude Code relocation task failed: {error}"))?
@@ -51,8 +51,8 @@ struct ConfigHome {
 }
 
 /// The service's own Claude Code home plus every profile's.
-fn config_homes() -> Vec<ConfigHome> {
-    let profiles = super::profiles::list_profiles();
+fn config_homes() -> Result<Vec<ConfigHome>, crate::error::AppError> {
+    let profiles = super::profiles::list_profiles()?;
     let envs = std::iter::once(None).chain(profiles.iter().map(|profile| Some(&profile.env)));
     let homes: BTreeSet<ConfigHome> = envs
         .filter_map(|env| {
@@ -62,7 +62,7 @@ fn config_homes() -> Vec<ConfigHome> {
             })
         })
         .collect();
-    homes.into_iter().collect()
+    Ok(homes.into_iter().collect())
 }
 
 /// `folders` are the conversation folders that moved, as `(old, new)`: each

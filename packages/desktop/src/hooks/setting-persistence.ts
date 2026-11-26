@@ -59,7 +59,17 @@ async function sendSetting(
     const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
     if (value === null) return true;
     const saved = await setWorkspaceSetting(key, { value });
+    // A read started before this write can still return the old value. Discard
+    // it before publishing the confirmed value to the open settings UI.
+    const single = { queryKey: getGetWorkspaceSettingQueryKey(key), exact: true };
+    const bulk = { queryKey: getWorkspaceSettingsQueryKey(), exact: true };
+    const bulkWasFetching = queryClient.isFetching(bulk) > 0;
+    await Promise.all([
+      queryClient.cancelQueries(single),
+      bulkWasFetching ? queryClient.cancelQueries(bulk) : undefined,
+    ]);
     seedConfirmedSetting(queryClient, key, saved.value ?? null);
+    if (bulkWasFetching) void queryClient.invalidateQueries(bulk);
     return true;
   } catch (error: unknown) {
     toast.error(`Could not save setting "${key}": ${apiErrorMessage(error, "Unknown error")}`);

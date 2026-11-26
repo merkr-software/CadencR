@@ -133,7 +133,7 @@ pub async fn get_agent_profiles(
     let catalog = adapter
         .profile_catalog(query.cwd.as_deref())
         .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?
+        .map_err(|error| error.into_profile_error())?
         .ok_or_else(|| {
             AppError::NotFound(format!(
                 "provider '{}' does not expose profiles",

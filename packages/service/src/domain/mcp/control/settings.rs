@@ -210,7 +210,7 @@ async fn read_document(
     let scope = document.scope();
     settings_policy::check_known_keys(scope, &body.keys).map_err(AppError::BadRequest)?;
     let (path, mut stored, warnings) = match &document {
-        Document::Global => settings_store::global_map(),
+        Document::Global => settings_store::global_map()?,
         Document::Project(project) => {
             settings_store::project_map(&state.read_pool, project.id).await?
         }

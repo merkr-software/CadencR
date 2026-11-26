@@ -153,7 +153,7 @@ mod tests {
         }});
         write_atomic(&runtime.path, &document.to_string()).unwrap();
         runtime.settings_changed();
-        let snapshot = runtime.snapshot();
+        let snapshot = runtime.snapshot().unwrap();
         assert!(snapshot.decision_version.is_none());
         assert!(matches!(snapshot.audience_status, DeliveryStatus::Ready));
         assert!(matches!(
@@ -187,7 +187,7 @@ mod tests {
             serde_json::to_value(stored.audience_last_claimed_month).unwrap();
         write_atomic(&runtime.path, &document.to_string()).unwrap();
         runtime.clear();
-        let snapshot = runtime.snapshot();
+        let snapshot = runtime.snapshot().unwrap();
         assert!(snapshot.audience_enabled);
         assert!(matches!(
             snapshot.diagnostics_status,
@@ -229,11 +229,11 @@ mod tests {
         assert!(runtime.state.lock().unwrap().pending.is_empty());
         assert!(!preferences::claim_first_turn().await.unwrap());
         assert!(matches!(
-            runtime.snapshot().diagnostics_status,
+            runtime.snapshot().unwrap().diagnostics_status,
             DeliveryStatus::Disabled
         ));
         assert!(matches!(
-            runtime.snapshot().usage_status,
+            runtime.snapshot().unwrap().usage_status,
             DeliveryStatus::Disabled
         ));
         preferences::update(
@@ -252,7 +252,7 @@ mod tests {
         runtime.capture(report());
         assert_eq!(runtime.state.lock().unwrap().pending.len(), 3);
         assert!(matches!(
-            runtime.snapshot().usage_status,
+            runtime.snapshot().unwrap().usage_status,
             DeliveryStatus::Ready
         ));
     }
@@ -310,7 +310,7 @@ mod tests {
             None,
         );
         assert!(matches!(
-            runtime.snapshot().diagnostics_status,
+            runtime.snapshot().unwrap().diagnostics_status,
             DeliveryStatus::DeliveryFailed
         ));
         runtime.capture(report());

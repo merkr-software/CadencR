@@ -170,10 +170,7 @@ async fn runtime_options(
             provider,
             row.profile.as_deref(),
             row.runtime_session_id.as_deref(),
-            &options.cwd,
-        )
-        .await
-        .map_err(AppError::BadRequest)?;
+        )?;
     let context = RuntimeSettingsContext::builder()
         .read_pool(&app_state.read_pool)
         .write_pool(&app_state.write_pool)
@@ -186,8 +183,7 @@ async fn runtime_options(
             selected_profile.as_deref(),
             &mut options,
         )
-        .await
-        .map_err(AppError::BadRequest)?;
+        .await?;
     crate::domain::ws_session::runtime::session_runtime_config::apply_bypass_opt_in(
         &context,
         project_id,
@@ -205,18 +201,18 @@ async fn runtime_access_mode(
     provider: &str,
     row: &SessionRow,
 ) -> Result<Option<crate::domain::agents::adapter::RuntimeAccessMode>, AppError> {
-    let configured = crate::domain::ws_session::runtime::access::configured_access_mode(
-        provider,
-        &app_state.read_pool,
-    )
-    .await?;
-    Ok(
-        crate::domain::ws_session::runtime::access::runtime_access_mode(
-            provider,
-            row.codex_permission_mode.as_deref(),
-            configured,
-        ),
-    )
+    use crate::domain::ws_session::runtime::access::{configured_access_mode, runtime_access_mode};
+
+    let stored = row.codex_permission_mode.as_deref();
+    let configured = if stored
+        .and_then(crate::domain::agents::adapter::parse_access_mode_wire)
+        .is_some()
+    {
+        None
+    } else {
+        configured_access_mode(provider, &app_state.read_pool).await?
+    };
+    Ok(runtime_access_mode(provider, stored, configured))
 }
 
 #[cfg(test)]

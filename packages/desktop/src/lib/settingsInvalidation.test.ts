@@ -52,6 +52,21 @@ describe("scheduleSettingsInvalidation", () => {
 });
 
 describe("invalidateSettingsDerivedQueries", () => {
+  it("refreshes open profile pickers and lists after settings are repaired", async () => {
+    const client = new QueryClient();
+    const profileKeys = [
+      ["agent-profiles", "claude_code"],
+      ["agent-profiles", "codex_cli"],
+      ["claude-code", "profiles"],
+      ["codex", "profiles"],
+    ];
+    for (const key of profileKeys) client.setQueryData(key, {});
+
+    await invalidateSettingsDerivedQueries(client);
+
+    for (const key of profileKeys) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
   it("refreshes the resolved agent selection, which a prompt can move", async () => {
     const client = new QueryClient();
     client.setQueryData(["/api/agent-runtime/selection"], { selections: {} });

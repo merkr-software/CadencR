@@ -40,7 +40,13 @@ export interface OnboardingStepProps {
  * Back (previous step). A top-right "Skip onboarding" link short-circuits the
  * flow to the privacy decision when one is required, otherwise to `completed`.
  */
-export function OnboardingOverlay({ telemetryState }: { telemetryState: TelemetryState }) {
+export function OnboardingOverlay({
+  telemetryState,
+  showWelcomeIntro = true,
+}: {
+  telemetryState: TelemetryState;
+  showWelcomeIntro?: boolean;
+}) {
   const { step, isPersisting, setStep, complete } = useOnboardingStatus();
   const [skipAfterDecision, setSkipAfterDecision] = useState(false);
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -120,7 +126,7 @@ export function OnboardingOverlay({ telemetryState }: { telemetryState: Telemetr
                 onContinue={skipAfterDecision ? completeOnboarding : advance}
               />
             ) : (
-              <StepBody step={step} {...stepProps} />
+              <StepBody step={step} showWelcomeIntro={showWelcomeIntro} {...stepProps} />
             )}
           </div>
           {isPersisting ? (
@@ -139,10 +145,14 @@ export function OnboardingOverlay({ telemetryState }: { telemetryState: Telemetr
   );
 }
 
-function StepBody({ step, ...props }: OnboardingStepProps & { step: OnboardingStep }) {
+function StepBody({
+  step,
+  showWelcomeIntro,
+  ...props
+}: OnboardingStepProps & { step: OnboardingStep; showWelcomeIntro: boolean }) {
   switch (step) {
     case "welcome":
-      return <WelcomeStep {...props} />;
+      return <WelcomeStep {...props} showIntro={showWelcomeIntro} />;
     case "discover_cli":
       return <DiscoverCliStep {...props} />;
     case "choose_workspace":

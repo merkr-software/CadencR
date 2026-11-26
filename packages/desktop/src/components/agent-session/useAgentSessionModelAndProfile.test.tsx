@@ -5,7 +5,7 @@ import type { AgentSessionProps } from "./types";
 import { useAgentSessionModelAndProfile } from "./useAgentSessionModelAndProfile";
 
 vi.mock("./useClaudeProfileSelection", () => ({
-  useClaudeProfileSelection: () => ({ selectedClaudeProfile: "work" }),
+  useClaudeProfileSelection: () => ({ selectedClaudeProfile: "work", promptProfile: "work" }),
 }));
 
 const catalog = {

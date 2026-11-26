@@ -44,7 +44,7 @@ pub async fn resolve(
             std::path::Path::new(project_path),
         )
         .await
-        .map_err(|error| AppError::BadRequest(error.to_string()))?
+        .map_err(|error| error.into_profile_error())?
         .map(|resolved| resolved.identity);
     let model = model_for(
         &state.read_pool,

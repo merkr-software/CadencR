@@ -1,32 +1,28 @@
-use crate::domain::settings_store;
+use crate::domain::settings_store::{self, file, Scope};
 
 const ENABLED_KEY: &str = "retention_compact_archived_enabled";
 const DAYS_KEY: &str = "retention_compact_archived_days";
 pub(super) const DEFAULT_DAYS: i64 = 30;
-const MIN_DAYS: i64 = 1;
-const MAX_DAYS: i64 = 365;
 
 /// The configured window, or `None` when the pass must not run.
 pub(super) fn window_days() -> Option<i64> {
     // Fail closed: a malformed settings document must never re-enable the only
     // maintenance pass that discards bytes.
-    let Some(settings) = settings_store::global_snapshot() else {
-        tracing::warn!("retention: settings are unreadable, skipping compaction this sweep");
-        return None;
-    };
-    let enabled = settings
-        .get(ENABLED_KEY)
-        .map(|value| value == "true")
-        .unwrap_or(false);
-    if !enabled {
-        return None;
+    let window = settings_store::global_inspect_document(|doc| {
+        if file::read_scalar(doc, Scope::Workspace, ENABLED_KEY)?.as_deref() != Some("true") {
+            return Ok(None);
+        }
+        let days = file::read_scalar(doc, Scope::Workspace, DAYS_KEY)?;
+        let days = days.map(|days| days.trim().parse().expect("validated retention window"));
+        Ok(Some(days.unwrap_or(DEFAULT_DAYS)))
+    });
+    match window {
+        Ok(days) => days,
+        Err(error) => {
+            tracing::warn!(%error, "retention: skipping compaction this sweep");
+            None
+        }
     }
-    let days = settings
-        .get(DAYS_KEY)
-        .and_then(|value| value.trim().parse::<i64>().ok())
-        .filter(|days| (MIN_DAYS..=MAX_DAYS).contains(days))
-        .unwrap_or(DEFAULT_DAYS);
-    Some(days)
 }
 
 pub(super) enum PolicyGuard {

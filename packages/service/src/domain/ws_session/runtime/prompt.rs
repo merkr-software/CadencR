@@ -23,6 +23,7 @@ pub(in crate::domain::ws_session) mod respawn_deferral;
 mod runtime_hold;
 pub(in crate::domain::ws_session) mod runtime_hold_registry;
 mod runtime_mcp;
+pub(crate) use runtime_mcp::McpSettings;
 mod stream_diagnostics;
 mod stream_reader;
 mod stream_reader_after_turn;

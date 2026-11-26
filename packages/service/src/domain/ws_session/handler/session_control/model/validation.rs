@@ -59,7 +59,7 @@ pub(super) async fn validate_model_set(
             send_error(
                 sender,
                 envelope_id,
-                "MODEL_PROVIDER_MISMATCH",
+                error.coded_error_or("MODEL_PROVIDER_MISMATCH"),
                 &error.to_string(),
             );
             None

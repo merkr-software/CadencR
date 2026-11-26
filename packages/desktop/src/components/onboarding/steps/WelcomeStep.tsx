@@ -20,8 +20,15 @@ import { WelcomeIntro } from "./WelcomeIntro";
  * for the full fade-out animation (the cache update would otherwise flip
  * `persistedShown` to true mid-fade and unmount the intro instantly).
  */
-export function WelcomeStep({ isPersisting, onAdvance, onBack }: OnboardingStepProps) {
-  const introQuery = useGetWorkspaceSetting(ONBOARDING_INTRO_SHOWN_SETTING_KEY);
+export function WelcomeStep({
+  isPersisting,
+  onAdvance,
+  onBack,
+  showIntro = true,
+}: OnboardingStepProps & { showIntro?: boolean }) {
+  const introQuery = useGetWorkspaceSetting(ONBOARDING_INTRO_SHOWN_SETTING_KEY, {
+    query: { enabled: showIntro },
+  });
   const [introClosed, setIntroClosed] = useState(false);
   const onIntroComplete = useCallback(() => setIntroClosed(true), []);
   const animations = useAnimationsEnabled();
@@ -29,7 +36,7 @@ export function WelcomeStep({ isPersisting, onAdvance, onBack }: OnboardingStepP
   // Wait for the query to resolve before deciding — otherwise we'd flash the
   // welcome copy for one frame on first launch before the intro mounts.
   const persistedShown = introQuery.data?.value === "true";
-  const shouldShowIntro = !introQuery.isLoading && !persistedShown && !introClosed;
+  const shouldShowIntro = showIntro && !introQuery.isLoading && !persistedShown && !introClosed;
 
   return (
     <>

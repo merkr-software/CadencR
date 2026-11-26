@@ -1,5 +1,119 @@
 use super::*;
 
+pub(super) async fn invalid_settings_refuse_cold_and_reused_codex_prompts(h: &Harness) {
+    use cadencr_service::domain::settings_store;
+
+    let dir = settings_store::global_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = settings_store::paths::global_file(&dir);
+    let (mut warm, warm_id) = h.session(false).await;
+    prompt(&mut warm, warm_id, "warmup").await;
+    until(&mut warm, "ended").await;
+    let (mut cold, cold_id) = h.session(false).await;
+    let before = turn_requests(h);
+
+    // The warm-up can persist the last-used selection to the fixture file.
+    if let Err(error) = std::fs::remove_file(&path) {
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+    std::fs::create_dir(&path).unwrap();
+    expect_settings_refusal(&mut cold, cold_id, "SETTINGS_READ_FAILED").await;
+    expect_settings_refusal(&mut warm, warm_id, "SETTINGS_READ_FAILED").await;
+    std::fs::remove_dir(&path).unwrap();
+
+    for invalid in ["{ broken", r#"{"workspace_mcp_enabled":[]}"#] {
+        std::fs::write(&path, invalid).unwrap();
+        expect_settings_refusal(&mut cold, cold_id, "SETTINGS_INVALID").await;
+        expect_settings_refusal(&mut warm, warm_id, "SETTINGS_INVALID").await;
+    }
+    assert_eq!(turn_requests(h), before);
+    let rejected: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_messages m WHERE m.session_id IN (?, ?) AND m.delivery_state='delivery_failed'
+         AND NOT EXISTS (SELECT 1 FROM agent_message_dispatches d WHERE d.message_id=m.id)",
+    ).bind(cold_id).bind(warm_id).fetch_one(&h.pool).await.unwrap();
+    assert_eq!(rejected, 6);
+    assert!(h.queue(cold_id).await.is_empty() && h.queue(warm_id).await.is_empty());
+
+    std::fs::write(&path, "{}").unwrap();
+    prompt(&mut cold, cold_id, "manual cold send").await;
+    until(&mut cold, "ended").await;
+    prompt(&mut warm, warm_id, "manual warm send").await;
+    until(&mut warm, "ended").await;
+    assert_eq!(turn_requests(h), before + 2);
+    assert!(h
+        .user_messages(cold_id)
+        .await
+        .ends_with(&["manual cold send".to_owned()]));
+    assert!(h
+        .user_messages(warm_id)
+        .await
+        .ends_with(&["manual warm send".to_owned()]));
+
+    let completion = ProviderGate::arm(&h.repo, "held-turn-completion");
+    prompt(&mut warm, warm_id, "hold").await;
+    completion.wait().await;
+    std::fs::write(&path, "{ broken again").unwrap();
+    expect_settings_refusal(&mut warm, warm_id, "SETTINGS_INVALID").await;
+    assert_eq!(turn_requests(h), before + 3);
+    send(
+        &mut warm,
+        "interrupt",
+        json!({"session_id":warm_id.to_string()}),
+    )
+    .await;
+    until(&mut warm, "ended").await;
+    assert!(requests(h)
+        .iter()
+        .any(|request| request["method"] == "turn/interrupt"));
+    completion.release();
+    std::fs::remove_file(path).unwrap();
+    cold.close(None).await.unwrap();
+    warm.close(None).await.unwrap();
+}
+
+fn turn_requests(h: &Harness) -> usize {
+    requests(h)
+        .iter()
+        .filter(|request| {
+            matches!(
+                request["method"].as_str(),
+                Some("turn/start" | "turn/steer")
+            )
+        })
+        .count()
+}
+
+async fn expect_settings_refusal(socket: &mut Socket, session: i64, code: &str) {
+    let envelope = WsEnvelope::new(
+        "session",
+        "prompt.send",
+        json!({
+            "session_id":session.to_string(),
+            "text":"Do not send during settings repair",
+            "message_uuid":uuid::Uuid::new_v4().to_string()
+        }),
+    );
+    let id = envelope.id.clone();
+    socket
+        .send(Message::Text(String::from(envelope).into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Message::Text(text) = socket.next().await.unwrap().unwrap() {
+                let event: Value = serde_json::from_str(&text).unwrap();
+                if event["ref"] == id {
+                    assert_eq!(event["action"], "error", "{event}");
+                    assert_eq!(event["payload"]["code"], code, "{event}");
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .expect("settings refusal");
+}
+
 fn requests(h: &Harness) -> Vec<Value> {
     std::fs::read_to_string(h.repo.join("queue-rpc.jsonl"))
         .unwrap()

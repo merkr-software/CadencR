@@ -42,6 +42,11 @@ function backendErrorMessage(err: unknown): string | null {
 export const SETTINGS_READ_FAILED = "SETTINGS_READ_FAILED";
 export const WORKTREE_UNAVAILABLE = "WORKTREE_UNAVAILABLE";
 
+/** An invalid settings document or stored value that needs to be repaired. */
+export function isSettingsRepairError(code: string | null): boolean {
+  return code === SETTINGS_READ_FAILED || code === "SETTINGS_INVALID";
+}
+
 /** Codes of a `413`: a diff or file refused for its size, which asking again only recomputes. */
 const REFUSED_FOR_SIZE: ReadonlySet<string> = new Set(["DIFF_TOO_LARGE", "FILE_TOO_LARGE"]);
 

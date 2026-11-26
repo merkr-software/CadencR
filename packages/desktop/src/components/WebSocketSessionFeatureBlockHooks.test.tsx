@@ -369,7 +369,7 @@ describe("claudeProfileForPrompt", () => {
     ({
       activeProviderId,
       supportsProfiles,
-      claudeProfile: { selectedClaudeProfile: "work" },
+      claudeProfile: { selectedClaudeProfile: "work", promptProfile: "work" },
     }) as unknown as Controls;
 
   it("attaches the profile for a provider with profiles", () => {
