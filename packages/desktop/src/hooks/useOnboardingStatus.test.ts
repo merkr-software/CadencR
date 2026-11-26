@@ -80,6 +80,7 @@ describe("useOnboardingStatus", () => {
     if (typeof retry !== "function") throw new Error("expected a retry policy");
 
     expect(retry(0, errorWithCode("SETTINGS_READ_FAILED"))).toBe(false);
+    expect(retry(0, errorWithCode("SETTINGS_INVALID"))).toBe(false);
     expect(retry(0, errorWithCode("DATABASE_BUSY"))).toBe(true);
     expect(retry(1, errorWithCode("DATABASE_BUSY"))).toBe(false);
   });

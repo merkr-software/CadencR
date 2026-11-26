@@ -79,7 +79,7 @@ const initial: TelemetryState = {
 };
 function mount(
   content = (
-    <OnboardingGate>
+    <OnboardingGate openSettings={vi.fn().mockResolvedValue(undefined)}>
       <button>Workspace action</button>
     </OnboardingGate>
   ),
@@ -215,7 +215,7 @@ describe("local telemetry decision", () => {
       return <p>Active terminal</p>;
     }
     const { client } = mount(
-      <OnboardingGate>
+      <OnboardingGate openSettings={vi.fn().mockResolvedValue(undefined)}>
         <Workspace />
       </OnboardingGate>,
     );

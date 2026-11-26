@@ -1,11 +1,12 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { render, screen, waitFor } from "@/test-utils";
 import { toast } from "sonner";
 import { CodexProfilesSection } from "./CodexProfilesSection";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  request: vi.fn(),
   activate: { mutate: vi.fn(), isPending: false },
   remove: { mutateAsync: vi.fn(), isPending: false },
 }));
@@ -14,7 +15,10 @@ vi.mock("@/api/codexProfiles", () => ({
   useCodexProfiles: () => mocks.query(),
   useSetActiveCodexProfile: () => mocks.activate,
   useDeleteCodexProfile: () => mocks.remove,
+  useSaveCodexProfile: () => ({ isPending: false }),
+  useValidateCodexProfile: () => ({ isPending: false }),
 }));
+vi.mock("@/api/client", () => ({ customInstance: mocks.request }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const profile = {
@@ -31,6 +35,7 @@ const profile = {
 describe("CodexProfilesSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.request.mockReset();
     mocks.activate.isPending = false;
     mocks.remove.isPending = false;
     mocks.query.mockReturnValue({
@@ -101,6 +106,54 @@ describe("CodexProfilesSection", () => {
     await user.click(screen.getByRole("button", { name: "Activate" }));
 
     expect(toast.error).toHaveBeenCalledWith("Profile could not be used");
+  });
+
+  it("rereads a selected profile in the same panel after external corruption and repair", async () => {
+    const user = userEvent.setup();
+    const { useCodexProfiles } =
+      await vi.importActual<typeof import("@/api/codexProfiles")>("@/api/codexProfiles");
+    mocks.query.mockImplementation(useCodexProfiles);
+    let revision = profile.revision;
+    mocks.request.mockImplementation(async () => ({
+      active_profile_id: profile.id,
+      profiles: [{ ...profile, is_active: true, revision }],
+    }));
+    render(<CodexProfilesSection />);
+
+    expect((await screen.findByText(profile.name)).parentElement).toHaveTextContent("Active");
+    const refresh = screen.getByRole("button", { name: "Refresh profile status" });
+    const warning = "Profile unavailable. Repair or replace its config.toml to use it.";
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+
+    revision = "invalid";
+    await user.click(refresh);
+    expect(await screen.findByText(warning)).toBeVisible();
+    expect(screen.getByText(profile.name).parentElement).toHaveTextContent("Active");
+    await user.click(screen.getByRole("button", { name: "Edit Work account" }));
+    expect(await screen.findByRole("dialog", { name: /edit profile/i })).toBeVisible();
+    expect(screen.getByLabelText("Source config.toml (optional)")).toHaveValue(profile.config_path);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    revision = "repaired-revision";
+    await user.click(refresh);
+    await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument());
+    expect(screen.getByText(profile.name).parentElement).toHaveTextContent("Active");
+    expect(screen.getByRole("button", { name: "Refresh profile status" })).toBeEnabled();
+    const readProfiles = { method: "GET", url: "/api/codex/profiles" };
+    expect(mocks.request.mock.calls).toEqual([[readProfiles], [readProfiles], [readProfiles]]);
+    expect(mocks.activate.mutate).not.toHaveBeenCalled();
+  });
+
+  it("lets the service revalidate an inactive profile repaired outside the app", async () => {
+    mocks.query.mockReturnValue({
+      data: { active_profile_id: null, profiles: [{ ...profile, revision: "invalid" }] },
+      isLoading: false,
+      isError: false,
+    });
+    render(<CodexProfilesSection />);
+    expect(screen.getByRole("button", { name: "Edit Work account" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Activate" }));
+    expect(mocks.activate.mutate).toHaveBeenCalledWith(profile.id, expect.any(Object));
   });
 
   it("keeps the delete dialog open and shows a referenced-profile conflict", async () => {

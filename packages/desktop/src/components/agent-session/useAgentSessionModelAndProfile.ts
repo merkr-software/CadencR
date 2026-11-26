@@ -77,10 +77,10 @@ export function useAgentSessionModelAndProfile(
   const handleSend = useCallback(
     (message: string, images?: Parameters<AgentSessionProps["onSend"]>[1]) => {
       scrollToBottom();
-      const claudeProfile = sendsProfile ? profile.selectedClaudeProfile : undefined;
+      const claudeProfile = sendsProfile ? profile.promptProfile : undefined;
       return onSend(message, images, claudeProfile);
     },
-    [onSend, profile.selectedClaudeProfile, scrollToBottom, sendsProfile],
+    [onSend, profile.promptProfile, scrollToBottom, sendsProfile],
   );
 
   const visibleProviders = useMemo(

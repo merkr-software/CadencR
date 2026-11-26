@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_CLAUDE_PROFILE_NAME,
@@ -135,7 +136,7 @@ export function ProfilesSection() {
       {profilesQuery.isLoading ? (
         <LoadingRow label="Loading profiles…" />
       ) : profilesQuery.isError ? (
-        <ErrorRow label="Failed to load profiles." />
+        <ErrorRow label={apiErrorMessage(profilesQuery.error, "Failed to load profiles.")} />
       ) : (
         <div className="rounded-md border border-border bg-card overflow-hidden">
           <ProfileRow

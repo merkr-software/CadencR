@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useCodexProfiles,
@@ -48,15 +48,25 @@ export function CodexProfilesSection(): React.JSX.Element {
         title="Profiles"
         description="Named Codex configurations and environment variables. Profiles without a custom config.toml use your usual Codex home."
         action={
-          <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
-            <Plus className="size-3.5" /> New profile
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw className="size-3.5" aria-hidden /> Refresh profile status
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
+              <Plus className="size-3.5" /> New profile
+            </Button>
+          </div>
         }
       />
       {query.isLoading ? (
         <LoadingRow label="Loading Codex profiles…" />
       ) : query.isError ? (
-        <ErrorRow label="Failed to load Codex profiles." />
+        <ErrorRow label={apiErrorMessage(query.error, "Failed to load Codex profiles.")} />
       ) : (
         <div className="overflow-hidden rounded-md border border-border bg-card">
           <NativeProfileRow
@@ -170,6 +180,7 @@ function CodexProfileRow({
   onEdit: () => void;
   onDelete: () => void;
 }): React.JSX.Element {
+  const invalidConfig = profile.revision === "invalid";
   return (
     <div
       className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-4 py-2.5 ${profile.is_active ? "bg-primary/5" : ""}`}
@@ -192,6 +203,11 @@ function CodexProfileRow({
           {profile.env_unset.length > 0 &&
             ` · ${profile.env_unset.length} removed inherited variable${profile.env_unset.length === 1 ? "" : "s"}`}
         </p>
+        {invalidConfig && (
+          <p className="text-xs text-destructive">
+            Profile unavailable. Repair or replace its config.toml to use it.
+          </p>
+        )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {!profile.is_active && (

@@ -1,3 +1,4 @@
+import { QueryObserver } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxiosRequestConfig } from "axios";
 import { getGetWorkspaceSettingQueryKey } from "@/api/generated";
@@ -62,6 +63,34 @@ describe("writeSetting", () => {
       { key: "k", value: "new" },
     ]);
     expect(isSettingSaving("k")).toBe(false);
+  });
+
+  it("discards a bulk read older than the confirmed write and refreshes active readers", async () => {
+    const queryClient = createTestQueryClient();
+    const stale = Promise.withResolvers<Array<{ key: string; value: string }>>();
+    const current = [
+      { key: "k", value: "new" },
+      { key: "other", value: "external" },
+    ];
+    const queryFn = vi.fn().mockReturnValueOnce(stale.promise).mockResolvedValue(current);
+    const queryKey = getWorkspaceSettingsQueryKey();
+    const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      expect(queryFn).toHaveBeenCalledOnce();
+      const write = writeSetting(queryClient, "k", "new");
+      await settle();
+      pending[0]!.resolve();
+      await expect(write).resolves.toBe(true);
+
+      stale.resolve([{ key: "k", value: "old" }]);
+      await settle();
+      expect(queryFn).toHaveBeenCalledTimes(2);
+      expect(observer.getCurrentResult().data).toEqual(current);
+      expect(cached(queryClient, "k")).toEqual({ value: "new" });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("keeps the confirmed value and says why when the write fails", async () => {

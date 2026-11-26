@@ -27,7 +27,7 @@ export { useSessionControls } from "@/components/WebSocketSessionControls";
 /** The selected native profile to attach to an outgoing prompt when supported. */
 export function claudeProfileForPrompt(controls: SessionControls): string | undefined {
   return controls.supportsProfiles || controls.activeProviderId === PROVIDER_IDS.CLAUDE_CODE
-    ? controls.claudeProfile.selectedClaudeProfile
+    ? controls.claudeProfile.promptProfile
     : undefined;
 }
 
@@ -305,12 +305,12 @@ export function useWsSessionEffects(args: WsSessionEffectsArgs): void {
         sessionId,
         data.effectiveCwd,
         controls.activeProviderId,
-        controls.supportsProfiles ? controls.claudeProfile.selectedClaudeProfile : undefined,
+        controls.supportsProfiles ? controls.claudeProfile.promptProfile : undefined,
       );
     }
   }, [
     controls.activeProviderId,
-    controls.claudeProfile.selectedClaudeProfile,
+    controls.claudeProfile.promptProfile,
     controls.supportsProfiles,
     data.effectiveCwd,
     data.requestSlashCommands,

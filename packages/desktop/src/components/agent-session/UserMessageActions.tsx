@@ -1,4 +1,14 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { isAxiosError } from "axios";
 import { CopyIcon, CheckIcon, RotateCcwIcon, GitBranchIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -31,6 +41,8 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   const sendPrompt = useWsSessionStore((s) => s.sendPrompt);
   const parsedContent = useMemo(() => parseUserMessageContent(block.content), [block.content]);
   const retry = useUserMessageRetry(block, wsSessionId, parsedContent, sendPrompt);
+  const retryHelpId = useId();
+  const needsAttachment = retry.visible && !retry.available;
   // Virtuoso recycles stream rows, so a row can unmount inside the 1.5s window —
   // track the timer and clear it on unmount to avoid a dangling timeout.
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,55 +62,67 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   }, [parsedContent.text]);
 
   return (
-    <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
-      <ActionButton onClick={handleCopy} title="Copy as Markdown">
-        {copied ? (
+    <>
+      {needsAttachment && (
+        <p id={retryHelpId} className="mt-1 text-xs text-muted-foreground">
+          {block.promptDeliveryState === "delivery_unknown"
+            ? "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer."
+            : "Reattach the file and resend the message from the composer."}
+        </p>
+      )}
+      <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
+        <ActionButton onClick={handleCopy} title="Copy as Markdown">
+          {copied ? (
+            <>
+              <CheckIcon className="size-3 text-green-400" />
+              <span className="text-green-400">Copied</span>
+            </>
+          ) : (
+            <>
+              <CopyIcon className="size-3" />
+              <span>Copy</span>
+            </>
+          )}
+        </ActionButton>
+        <CopyAsMenu content={parsedContent.text} sourceRef={bubbleRef} />
+        {retry.visible && (
+          <ActionButton
+            disabled={!retry.available || retry.retrying}
+            descriptionId={needsAttachment ? retryHelpId : undefined}
+            onClick={retry.send}
+            title={
+              retry.retrying
+                ? "Retrying delivery with the same message identity"
+                : retry.available
+                  ? "Retry delivery with the same message identity"
+                  : "Retry unavailable"
+            }
+          >
+            <RefreshCwIcon className={cn("size-3", retry.retrying && "animate-spin")} />
+            <span>{retry.retrying ? "Retrying" : "Retry"}</span>
+          </ActionButton>
+        )}
+        {canBranch && (
           <>
-            <CheckIcon className="size-3 text-green-400" />
-            <span className="text-green-400">Copied</span>
-          </>
-        ) : (
-          <>
-            <CopyIcon className="size-3" />
-            <span>Copy</span>
+            <ActionButton onClick={fork} title="Fork a new session from this message">
+              <GitBranchIcon className="size-3" />
+              <span>Fork</span>
+            </ActionButton>
+            <ActionButton onClick={rewind} title="Rewind the session to this message">
+              <RotateCcwIcon className="size-3" />
+              <span>Rewind</span>
+            </ActionButton>
           </>
         )}
-      </ActionButton>
-      <CopyAsMenu content={parsedContent.text} sourceRef={bubbleRef} />
-      {retry.visible && (
-        <ActionButton
-          disabled={!retry.available || retry.retrying}
-          onClick={retry.send}
-          title={
-            retry.retrying
-              ? "Retrying delivery with the same message identity"
-              : retry.available
-                ? "Retry delivery with the same message identity"
-                : "Retry unavailable because the original attachment data is not stored"
-          }
-        >
-          <RefreshCwIcon className={cn("size-3", retry.retrying && "animate-spin")} />
-          <span>{retry.retrying ? "Retrying" : "Retry"}</span>
-        </ActionButton>
-      )}
-      {canBranch && (
-        <>
-          <ActionButton onClick={fork} title="Fork a new session from this message">
-            <GitBranchIcon className="size-3" />
-            <span>Fork</span>
-          </ActionButton>
-          <ActionButton onClick={rewind} title="Rewind the session to this message">
-            <RotateCcwIcon className="size-3" />
-            <span>Rewind</span>
-          </ActionButton>
-        </>
-      )}
-    </div>
+      </div>
+    </>
   );
 }
 
 type ParsedMessage = ReturnType<typeof parseUserMessageContent>;
 type SendPrompt = ReturnType<typeof useWsSessionStore.getState>["sendPrompt"];
+
+class RetryAttachmentUnavailable extends Error {}
 
 function useUserMessageRetry(
   block: AgentBlockData,
@@ -107,10 +131,12 @@ function useUserMessageRetry(
   sendPrompt: SendPrompt,
 ) {
   const [retryingMessageUuid, setRetryingMessageUuid] = useState<string | null>(null);
+  const [missingPayload, setMissingPayload] = useState<ParsedMessage | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Images have a third source — the on-disk blob store the backend off-loads
   // them to — which file attachments don't, so the two lists check separately.
   const available =
+    content !== missingPayload &&
     content.images.every(
       (image) =>
         image.base64 !== undefined || image.ref !== undefined || image.blobHash !== undefined,
@@ -146,9 +172,11 @@ function useUserMessageRetry(
         });
       },
       (error: unknown) => {
+        if (retryTimer.current) clearTimeout(retryTimer.current);
         setRetryingMessageUuid(null);
+        if (error instanceof RetryAttachmentUnavailable) setMissingPayload(content);
         toast.error("Couldn't resend this message", {
-          description: `${apiErrorMessage(error, "An attachment could not be rebuilt")}. Reload the conversation and try again.`,
+          description: apiErrorMessage(error, "An attachment could not be rebuilt"),
         });
       },
     );
@@ -178,12 +206,16 @@ async function payloadBase64(
       const base64 = await readBlobBase64(await fetchBlob(source.blobHash));
       if (base64.length > 0) return base64;
     } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 404) {
+        throw new RetryAttachmentUnavailable(`${label} is no longer in storage`, { cause: error });
+      }
       throw new Error(`${label} could not be read from storage`, { cause: error });
     }
-    throw new Error(`${label} could not be read from storage`);
+    throw new RetryAttachmentUnavailable(`${label} has no saved bytes`);
   }
   const restored = source.ref ? await readPromptBlobBase64(source.ref) : undefined;
-  if (restored === undefined) throw new Error(`${label} is no longer held in memory`);
+  if (restored === undefined)
+    throw new RetryAttachmentUnavailable(`${label} is no longer held in memory`);
   return restored;
 }
 
@@ -206,11 +238,13 @@ async function buildRetryAttachments(content: ParsedMessage): Promise<PromptAtta
 function ActionButton({
   onClick,
   title,
+  descriptionId,
   disabled = false,
   children,
 }: {
   onClick: () => void;
   title: string;
+  descriptionId?: string;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
@@ -219,6 +253,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       title={title}
+      aria-describedby={descriptionId}
       disabled={disabled}
       className={cn(
         "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground/70",
