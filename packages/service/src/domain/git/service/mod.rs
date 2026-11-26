@@ -101,11 +101,10 @@ pub async fn resolve_feature_working_path(
     state: &AppState,
     feature_id: i64,
 ) -> Result<Option<String>, AppError> {
-    Ok(
-        crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, feature_id)
-            .await?
-            .map(|dir| dir.cwd),
-    )
+    crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, feature_id)
+        .await?
+        .map(|dir| dir.cwd().map(str::to_owned))
+        .transpose()
 }
 
 /// Helper to get project path + the feature's own branch for

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { act, render, screen, within } from "@/test-utils";
 import type { FileDiffSection } from "@/lib/parse-unified-diff";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import type { GitNavigationAdapter, GitNavigationAdapterRegistrar } from "./gitNavigation";
 
 const singleFileDiff = `diff --git a/src/foo.ts b/src/foo.ts
@@ -132,6 +133,7 @@ vi.mock("@/api/generated", () => ({
   ConflictKind: { dd: "dd", au: "au", ud: "ud", ua: "ua", du: "du", aa: "aa", uu: "uu" },
   useGetChangedFiles: mocks.useGetChangedFilesMock,
   useGetFileBlobShas: mocks.useGetFileBlobShasMock,
+  getGetFileBlobShasQueryKey: (params: { feature_id: number }) => ["blob-shas", params],
   useGetFileContent: mocks.useGetFileContentMock,
   // Orval emits a mutation hook for batch endpoints — mirror the mutation
   // shape so call sites that read `.mutate` and `.data` don't blow up.
@@ -163,7 +165,11 @@ vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual("@tanstack/react-query");
   return {
     ...actual,
-    useQueryClient: vi.fn(() => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() })),
+    useQueryClient: vi.fn(() => ({
+      setQueryData: vi.fn(),
+      cancelQueries: vi.fn(),
+      invalidateQueries: vi.fn(),
+    })),
   };
 });
 
@@ -245,10 +251,87 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
   vi.restoreAllMocks();
 });
 
 describe("DiffViewer", () => {
+  it.each(["uncommitted", "branch"] as const)(
+    "hides cached parent files and identifies a checkout outage in %s",
+    (mode) => {
+      const git = useGitStatusStore.getState();
+      git.setStatusError({
+        feature_id: 1,
+        code: "WORKTREE_UNAVAILABLE",
+        error: "The feature's worktree is no longer available",
+      });
+      mocks.useGetChangedFilesMock.mockReturnValue({
+        data: [{ ...fooFile, file: "qa-root-only.txt" }],
+        isLoading: false,
+      });
+      const { rerender } = render(<DiffViewer featureId={1} mode={mode} targetBranch="main" />);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The feature's worktree is no longer available",
+      );
+      expect(screen.queryByText("qa-root-only.txt")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/target branch.*(unavailable|does not exist)/i),
+      ).not.toBeInTheDocument();
+
+      withFooFile();
+      act(() => git.clearStatus(1));
+      rerender(<DiffViewer featureId={1} mode={mode} targetBranch="main" />);
+      expect(
+        screen.getByRole("button", { name: /^(Expand|Collapse) src\/foo\.ts$/ }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows paused comment checks and keeps Changes usable when the target is absent", () => {
+    useGitStatusStore.getState().setStatus({
+      feature_id: 1,
+      current_branch: "topic",
+      target_branch: "main",
+      uncommitted_count: 1,
+      staged_count: 0,
+      unstaged_count: 1,
+      untracked_count: 0,
+      ahead_of_remote: 0,
+      behind_remote: 0,
+      ahead_of_target: 0,
+      has_remote: false,
+      computed_at: 1,
+    });
+    withFooFile();
+    render(<DiffViewer featureId={1} mode="uncommitted" />);
+    expect(screen.getByText(/Review comment checks paused.*“main”/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^(Expand|Collapse) src\/foo\.ts$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an unavailable line count beside readable changes", () => {
+    mocks.useGetChangedFilesMock.mockReturnValue({
+      data: [
+        fooFile,
+        {
+          ...fooFile,
+          file: "locked.txt",
+          status: "?",
+          stage_state: "untracked",
+          additions: 0,
+          deletions: 0,
+          line_count_unavailable: true,
+        },
+      ],
+      isLoading: false,
+    });
+    render(<DiffViewer featureId={1} mode="uncommitted" />);
+    expect(screen.getByText("Line count unavailable")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+  });
+
   it("shows loading state", () => {
     mocks.useGetChangedFilesMock.mockReturnValue({ data: [], isLoading: true });
     render(<DiffViewer featureId={1} mode="worktree" />);

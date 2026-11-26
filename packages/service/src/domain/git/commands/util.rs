@@ -57,9 +57,11 @@ pub(super) async fn empty_tree(cwd: &Path) -> Result<String, AppError> {
 /// The refusal for a comparison against a target branch that does not exist:
 /// the reason itself, where Git would only say "bad revision".
 pub(crate) fn missing_target_branch(target: &str) -> AppError {
-    AppError::Conflict(format!(
-        "Target branch '{target}' does not exist; set the feature's target branch"
-    ))
+    AppError::Conflict(missing_target_branch_message(target))
+}
+
+pub(super) fn missing_target_branch_message(target: &str) -> String {
+    format!("Target branch '{target}' does not exist; set the feature's target branch")
 }
 
 /// The error for a failed `<target>...HEAD` read: [`missing_target_branch`]

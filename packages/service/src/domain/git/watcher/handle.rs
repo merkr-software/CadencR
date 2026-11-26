@@ -46,6 +46,8 @@ pub(super) enum RecomputePing {
 /// feature) may register against a single handle.
 pub(super) struct WatcherHandle {
     pub(super) subscribers: Vec<Subscriber>,
+    pub(super) linked_root: Option<PathBuf>,
+    pub(super) needs_rebind: bool,
     /// Underlying fs watcher; dropping releases the OS resources.
     pub(super) _watcher: IgnoreAwareWatcher,
     /// Channel the fs callback pushes coalesced "recompute requested" pings on.
@@ -71,6 +73,12 @@ impl WatcherHandle {
     }
 }
 
+impl Drop for WatcherHandle {
+    fn drop(&mut self) {
+        self.compute_task.abort();
+    }
+}
+
 /// Inner registry state — a `HashMap` keyed by canonicalized worktree path.
 ///
 /// Held only for bookkeeping, never across a Git command or a filesystem walk:
@@ -80,6 +88,24 @@ pub(super) struct RegistryInner {
     /// Serializes the Git work of one repository (status snapshots, watcher
     /// start) without holding up the others.
     pub(super) repo_locks: Arc<KeyedLocks<PathBuf>>,
+}
+
+impl RegistryInner {
+    pub(super) fn replace_handle(
+        &mut self,
+        path: &Path,
+        root: Option<&Path>,
+        mut replacement: WatcherHandle,
+    ) -> Option<WatcherHandle> {
+        let mut retired = self.handles.remove(path);
+        if let Some(previous) = &mut retired {
+            previous.cancel_grace();
+            replacement.subscribers = std::mem::take(&mut previous.subscribers);
+        }
+        replacement.linked_root = root.map(Path::to_path_buf);
+        self.handles.insert(path.to_path_buf(), replacement);
+        retired
+    }
 }
 
 /// The lock serializing Git work on `worktree_path`.
@@ -105,7 +131,7 @@ pub(super) async fn spawn_handle(
     let epoch = Arc::new(AtomicU64::new(0));
     let (ping_tx, ping_rx) = mpsc::unbounded_channel::<RecomputePing>();
 
-    let extra_git_roots = resolve_git_roots(&worktree_path).await;
+    let extra_git_roots = resolve_git_roots(&worktree_path).await?;
     let watcher = tokio::task::spawn_blocking({
         let worktree_path = worktree_path.clone();
         let ping_tx = ping_tx.clone();
@@ -136,6 +162,8 @@ pub(super) async fn spawn_handle(
 
     Ok(WatcherHandle {
         subscribers: Vec::new(),
+        linked_root: None,
+        needs_rebind: false,
         _watcher: watcher,
         ping_tx,
         compute_task,
@@ -163,10 +191,12 @@ pub(super) fn schedule_grace_drop(
     let path_owned = path.to_path_buf();
     let task = tokio::spawn(async move {
         tokio::time::sleep(GRACE_PERIOD).await;
+        let repo = repo_lock(&registry, &path_owned).await;
+        let _repo = repo.lock().await;
+        let mut inner = registry.lock().await;
         if epoch.load(Ordering::Relaxed) != epoch_at_schedule {
             return;
         }
-        let mut inner = registry.lock().await;
         if let Some(handle) = inner.handles.get(&path_owned) {
             if !handle.subscribers.is_empty() {
                 return;
@@ -175,7 +205,6 @@ pub(super) fn schedule_grace_drop(
         if let Some(mut handle) = inner.handles.remove(&path_owned) {
             handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
-            handle.compute_task.abort();
             debug!(path = %path_owned.display(), "git watcher dropped after grace");
         }
     });

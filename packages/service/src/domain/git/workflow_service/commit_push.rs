@@ -46,7 +46,6 @@ pub async fn commit(state: &AppState, body: CommitBody) -> Result<SuccessRespons
         .map_err(|error| mutation_guard_error(error))?;
     // The paths come from the changed-files list, relative to the checkout
     // root, so `git add` runs there.
-    let repo = dir.root;
 
     // Streaming setup is shared with `push` — see [`super::streaming`].
     // The synthetic `$ git add …` header gives the dialog a first line to
@@ -60,8 +59,13 @@ pub async fn commit(state: &AppState, body: CommitBody) -> Result<SuccessRespons
         feature_id,
         GitStreamOp::Commit,
         header,
-        |output_tx| async move {
-            commands::commit_streaming(&repo, message_trim, &file_paths, output_tx).await
+        |output_tx| {
+            dir.run(commands::commit_streaming(
+                &dir.root,
+                message_trim,
+                &file_paths,
+                output_tx,
+            ))
         },
     )
     .await;

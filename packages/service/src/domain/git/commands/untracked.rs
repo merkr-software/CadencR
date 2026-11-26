@@ -40,16 +40,9 @@ fn unless_gone<T>(result: std::io::Result<T>, path: &Path) -> Result<Option<T>, 
 /// file, or deleted since it was listed), matching exactly how
 /// [`synthesize_untracked_new_file_diff`] treats it.
 ///
-/// A file that cannot be read gets no count either. The count only decorates a
-/// changed-file row or a stat total, and failing it would take the whole list
-/// down for one file; opening that file's diff reports the read error instead
-/// (see [`synthesize_untracked_new_file_diff`]).
-pub(super) async fn count_untracked_lines(path: &Path) -> Option<u32> {
-    // Deliberately no error here: the file's own diff reports it.
-    counted_lines(path).await.unwrap_or_default()
-}
-
-async fn counted_lines(path: &Path) -> Result<Option<u32>, AppError> {
+/// An empty file is `Some(0)`. Read failures let the caller mark its count
+/// unavailable while keeping the other files.
+pub(super) async fn count_untracked_lines(path: &Path) -> Result<Option<u32>, AppError> {
     if regular_file_metadata(path).await?.is_none() {
         return Ok(None);
     }
@@ -228,7 +221,9 @@ mod tests {
         assert!(block.contains("@@ -0,0 +1,2 @@"));
 
         assert_eq!(
-            count_untracked_lines(&dir.path().join("latin.txt")).await,
+            count_untracked_lines(&dir.path().join("latin.txt"))
+                .await
+                .unwrap(),
             Some(2),
             "same file must be counted, not skipped — diff/stats parity",
         );
@@ -260,7 +255,7 @@ mod tests {
         ];
         for (name, content, expected) in cases {
             std::fs::write(dir.path().join(name), content).unwrap();
-            let got = count_untracked_lines(&dir.path().join(name)).await;
+            let got = count_untracked_lines(&dir.path().join(name)).await.unwrap();
             assert_eq!(got, Some(expected), "line count for {name:?} ({content:?})");
         }
     }
@@ -271,7 +266,9 @@ mod tests {
         // NUL byte in the first 8 KB → treated as binary and skipped.
         std::fs::write(dir.path().join("blob.bin"), b"abc\0def\n").unwrap();
         assert_eq!(
-            count_untracked_lines(&dir.path().join("blob.bin")).await,
+            count_untracked_lines(&dir.path().join("blob.bin"))
+                .await
+                .unwrap(),
             None
         );
     }
@@ -284,15 +281,16 @@ mod tests {
         let content = "x\n".repeat(100_000);
         std::fs::write(dir.path().join("many.txt"), &content).unwrap();
         assert_eq!(
-            count_untracked_lines(&dir.path().join("many.txt")).await,
+            count_untracked_lines(&dir.path().join("many.txt"))
+                .await
+                .unwrap(),
             Some(100_000)
         );
     }
 
     /// A file deleted since it was listed, or a link to a directory, has
     /// nothing to show. One that cannot be read fails its diff, where it used
-    /// to vanish from it or show as a binary file; its line count is left out
-    /// so one such file does not take the whole changed-file list down.
+    /// to vanish from it or show as a binary file.
     #[cfg(unix)]
     #[tokio::test]
     async fn an_unreadable_untracked_file_is_an_error_not_a_skip() {
@@ -309,7 +307,9 @@ mod tests {
             None
         );
         assert_eq!(
-            count_untracked_lines(&dir.path().join("gone.txt")).await,
+            count_untracked_lines(&dir.path().join("gone.txt"))
+                .await
+                .unwrap(),
             None
         );
 
@@ -321,7 +321,9 @@ mod tests {
             None
         );
         assert_eq!(
-            count_untracked_lines(&dir.path().join("dir-link")).await,
+            count_untracked_lines(&dir.path().join("dir-link"))
+                .await
+                .unwrap(),
             None
         );
 
@@ -332,6 +334,6 @@ mod tests {
         let counted = count_untracked_lines(&locked).await;
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(synthesized.is_err(), "{synthesized:?}");
-        assert_eq!(counted, None);
+        assert!(counted.is_err(), "{counted:?}");
     }
 }

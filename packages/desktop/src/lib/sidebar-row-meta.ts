@@ -68,7 +68,11 @@ export function rowMetaItems(show: RowMetaOptions, input: RowMetaInput): RowMeta
         ? feature.model_session?.trim() || "Default"
         : null,
     stats:
-      show.diff && gitStats != null && (gitStats.insertions > 0 || gitStats.deletions > 0)
+      show.diff &&
+      gitStats != null &&
+      (gitStats.insertions > 0 ||
+        gitStats.deletions > 0 ||
+        (gitStats.unavailable_line_counts ?? 0) > 0)
         ? gitStats
         : null,
     // `FeaturePrIndicator` also renders for an error with no proposal — a forge

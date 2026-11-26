@@ -64,7 +64,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.continuePending = false;
   mocks.abortPending = false;
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
   useGitStatusStore.getState().setStatus(snapshot());
 });
 

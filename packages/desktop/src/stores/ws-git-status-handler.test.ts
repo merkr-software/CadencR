@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), dismiss: vi.fn() } }));
 vi.mock("@/components/ToastScope", () => ({
   scopedToastDescription: (scope: unknown, description?: unknown) => ({ scope, description }),
 }));
@@ -67,11 +67,12 @@ const validPrSnapshot = {
 
 beforeEach(() => {
   resetGitInvalidationSchedulingForTest();
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
   useCommitOutputStore.setState({ byFeature: {} });
   usePushOutputStore.setState({ byFeature: {} });
   usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
   vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.dismiss).mockClear();
 });
 
 afterEach(() => {
@@ -119,6 +120,54 @@ describe("handleGitEnvelope", () => {
 
     expect(usePrStatusStore.getState().byFeature[7]).toEqual(validPrSnapshot);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("discards the failed checkout's files and SHAs without cancelling pull-request data", () => {
+    const files = ["/api/git/changed-files", { feature_id: 7 }] as const;
+    const otherFiles = ["/api/git/changed-files", { feature_id: 8 }] as const;
+    const shas = getGetFileBlobShasQueryKey({ feature_id: 7 });
+    const prComments = ["/api/git/pr/comments", { feature_id: 7 }] as const;
+    queryClient.setQueryData(files, ["qa-root-only.txt"]);
+    queryClient.setQueryData(shas, []);
+    queryClient.setQueryData(otherFiles, ["unrelated"]);
+    queryClient.setQueryData(prComments, ["a review discussion"]);
+    handleGitEnvelope("status", validSnapshot);
+    handleGitEnvelope("status_error", {
+      feature_id: 7,
+      code: "WORKTREE_UNAVAILABLE",
+      error: "Worktree is unavailable",
+    });
+    expect(queryClient.getQueryData(files)).toBeUndefined();
+    expect(queryClient.getQueryData(shas)).toBeUndefined();
+    expect(queryClient.getQueryData(otherFiles)).toEqual(["unrelated"]);
+    expect(queryClient.getQueryData(prComments)).toEqual(["a review discussion"]);
+    expect(useGitStatusStore.getState().byFeature[7]).toBeUndefined();
+    handleGitEnvelope("status_error", {
+      feature_id: 7,
+      error: "Corrupt index",
+      watcher_error: null,
+    });
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusError).toBe("Corrupt index");
+    queryClient.removeQueries({ queryKey: otherFiles });
+    queryClient.removeQueries({ queryKey: prComments });
+  });
+
+  it("drops stale files and SHAs before accepting a fresh acknowledgement after reactivation", () => {
+    const files = ["/api/git/changed-files", { feature_id: 7 }] as const;
+    const shas = getGetFileBlobShasQueryKey({ feature_id: 7 });
+    const git = useGitStatusStore.getState();
+    handleGitEnvelope("status", validSnapshot);
+    queryClient.setQueryData(files, ["before hiding"]);
+    queryClient.setQueryData(shas, []);
+    git.discardSnapshot(7);
+    git.setSubscription(7, "pending");
+    git.setSubscription(7, "answered");
+    handleGitEnvelope("status", { ...validSnapshot, computed_at: validSnapshot.computed_at + 1 });
+    expect(useGitStatusStore.getState().byFeature[7]?.current_branch).toBe(
+      validSnapshot.current_branch,
+    );
+    expect(queryClient.getQueryData(files)).toBeUndefined();
+    expect(queryClient.getQueryData(shas)).toBeUndefined();
   });
 
   it("invalidates comments only when the pull request was updated", () => {
@@ -290,21 +339,53 @@ describe("handleGitEnvelope", () => {
   it("writes errors and surfaces a toast on status_error", () => {
     handleGitEnvelope("status_error", { feature_id: 7, error: "fatal: not a git repo" });
 
-    expect(useGitStatusStore.getState().errorByFeature[7]).toBe("fatal: not a git repo");
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusError).toBe(
+      "fatal: not a git repo",
+    );
     expect(toast.error).toHaveBeenCalledWith("Git status error", {
       id: "git-status-error-7",
       description: { scope: { featureId: 7 }, description: "fatal: not a git repo" },
     });
   });
 
-  it("clears any prior error when a fresh snapshot arrives", () => {
+  it("recovers from a first scan failure and refreshes queries without a prior snapshot", () => {
     useGitStatusStore.getState().setStatusError({ feature_id: 7, error: "boom" });
-    expect(useGitStatusStore.getState().errorByFeature[7]).toBe("boom");
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusError).toBe("boom");
 
-    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
     handleGitEnvelope("status", validSnapshot as Record<string, unknown>);
 
-    expect(useGitStatusStore.getState().errorByFeature[7]).toBeUndefined();
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusError).toBeUndefined();
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(toast.dismiss).toHaveBeenCalledWith("git-status-error-7");
+  });
+
+  it("keeps a watcher failure after a good snapshot until setup is confirmed", () => {
+    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    handleGitEnvelope("status", validSnapshot);
+    handleGitEnvelope("status", { ...validSnapshot, watcher_error: "inotify limit" });
+    handleGitEnvelope("status_error", { feature_id: 8, error: "bad index" });
+    expect(useGitStatusStore.getState().healthByFeature[7]).toMatchObject({
+      watcherError: "inotify limit",
+    });
+    expect(toast.error).toHaveBeenCalledWith(
+      "Git live updates unavailable",
+      expect.objectContaining({
+        id: "git-watcher-error-7",
+      }),
+    );
+    handleGitEnvelope("status", { ...validSnapshot, computed_at: validSnapshot.computed_at + 1 });
+    expect(useGitStatusStore.getState().healthByFeature[7]?.watcherError).toBe("inotify limit");
+    expect(toast.dismiss).not.toHaveBeenCalledWith("git-watcher-error-7");
+
+    handleGitEnvelope("status", {
+      ...validSnapshot,
+      computed_at: validSnapshot.computed_at + 2,
+      watcher_error: null,
+    });
+    expect(useGitStatusStore.getState().healthByFeature[7]?.watcherError).toBeUndefined();
+    expect(useGitStatusStore.getState().healthByFeature[8]?.statusError).toBe("bad index");
+    expect(toast.dismiss).toHaveBeenCalledWith("git-watcher-error-7");
   });
 
   it("routes commit lifecycle envelopes into the commit output store", () => {

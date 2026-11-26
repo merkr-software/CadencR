@@ -11,6 +11,7 @@ mod reader_spawn;
 mod runtime_ownership;
 
 mod app;
+mod app_git_checkout;
 mod bidirectional_controls;
 mod codex_provider;
 mod dispatch;

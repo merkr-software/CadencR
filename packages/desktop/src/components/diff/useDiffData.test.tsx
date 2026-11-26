@@ -1,7 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { onlineManager, QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { AxiosError, AxiosHeaders } from "axios";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GitStatusSnapshot } from "@/api/generated";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
 
 interface QueryState {
   data: unknown[] | undefined;
@@ -9,25 +12,37 @@ interface QueryState {
   isError: boolean;
   error: unknown;
   dataUpdatedAt: number;
+  fetchStatus?: "idle" | "fetching" | "paused";
 }
 
 const mocks = vi.hoisted(() => ({
-  blobShas: vi.fn<() => QueryState>(),
+  blobShas:
+    vi.fn<
+      (params: { feature_id: number }, options?: { query: { enabled: boolean } }) => QueryState
+    >(),
   comments: vi.fn<() => QueryState>(),
+  viewed: vi.fn<() => QueryState>(),
   deleteMutate: vi.fn(),
   toastInfo: vi.fn(),
   toastError: vi.fn(),
+  toastDismiss: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
-  toast: { info: mocks.toastInfo, success: vi.fn(), error: mocks.toastError },
+  toast: {
+    info: mocks.toastInfo,
+    success: vi.fn(),
+    error: mocks.toastError,
+    dismiss: mocks.toastDismiss,
+  },
 }));
 
 vi.mock("@/api/generated", () => ({
   useGetFileBlobShas: mocks.blobShas,
+  getGetFileBlobShasQueryKey: (params: { feature_id: number }) => ["blob-shas", params],
   useGetChangedFiles: () => ({ data: [], isLoading: false, isError: false, error: null }),
   getGetFileContentQueryKey: () => ["file-content"],
-  useListDiffViewed: () => ({ data: [] }),
+  useListDiffViewed: mocks.viewed,
   useMarkDiffViewed: () => ({ mutate: vi.fn() }),
   useUnmarkDiffViewed: () => ({ mutate: vi.fn() }),
   useListDiffComments: mocks.comments,
@@ -52,12 +67,28 @@ const pendingComment = {
   original_blob_sha: "sha-at-comment-time",
 };
 
+const snapshot: GitStatusSnapshot = {
+  feature_id: 7,
+  current_branch: "topic",
+  target_branch: "main",
+  uncommitted_count: 1,
+  staged_count: 0,
+  unstaged_count: 1,
+  untracked_count: 0,
+  ahead_of_remote: 0,
+  behind_remote: 0,
+  ahead_of_target: 0,
+  has_remote: false,
+  computed_at: 1,
+};
+
 const settled = (data: unknown[], dataUpdatedAt = 100): QueryState => ({
   data,
   isSuccess: true,
   isError: false,
   error: null,
   dataUpdatedAt,
+  fetchStatus: "idle",
 });
 const failed = (data: unknown[] | undefined): QueryState => ({
   data,
@@ -67,12 +98,12 @@ const failed = (data: unknown[] | undefined): QueryState => ({
   dataUpdatedAt: data ? 100 : 0,
 });
 
-function wrapper({ children }: { children: ReactNode }) {
-  return <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;
-}
-
-function renderDiffData() {
-  return renderHook(() => useDiffData(7, "worktree"), { wrapper });
+function renderDiffData(client = new QueryClient()) {
+  return renderHook(() => useDiffData(7, "worktree"), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
 }
 
 describe("useDiffData stale comment invalidation", () => {
@@ -80,7 +111,10 @@ describe("useDiffData stale comment invalidation", () => {
     mocks.deleteMutate.mockReset();
     mocks.toastInfo.mockReset();
     mocks.toastError.mockReset();
+    mocks.toastDismiss.mockReset();
+    mocks.viewed.mockReturnValue(settled([]));
     mocks.comments.mockReturnValue(settled([pendingComment]));
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
   });
 
   it.each<[string, QueryState]>([
@@ -128,6 +162,149 @@ describe("useDiffData stale comment invalidation", () => {
     expect(mocks.toastError).toHaveBeenCalledWith(
       expect.stringContaining("Review comment checks paused"),
       { id: "diff-blob-shas-7" },
+    );
+  });
+
+  it("holds pending comments during a checkout outage and waits for restored SHAs", () => {
+    const git = useGitStatusStore.getState();
+    git.setStatus({ ...snapshot, target_resolved: true });
+    const matching = settled([
+      { file_path: pendingComment.file_path, sha: pendingComment.original_blob_sha },
+    ]);
+    mocks.blobShas.mockReturnValue(matching);
+    const { result, rerender } = renderDiffData();
+    mocks.blobShas.mockReturnValue(settled([]));
+    act(() =>
+      git.setStatusError({
+        feature_id: 7,
+        code: "WORKTREE_UNAVAILABLE",
+        error: "The feature's worktree is no longer available",
+      }),
+    );
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    expect(result.current.commentChecksNotice).toBeNull();
+    mocks.blobShas.mockReturnValue({ ...settled([]), fetchStatus: "fetching" });
+    act(() => git.setStatus({ ...snapshot, target_resolved: true, computed_at: 2 }));
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    mocks.blobShas.mockReturnValue(matching);
+    rerender();
+    expect(result.current.comments).toEqual([pendingComment]);
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("preserves comments during target loss and while the restored target is being checked", () => {
+    const git = useGitStatusStore.getState();
+    git.setStatus({ ...snapshot, target_resolved: true });
+    const matching = settled([
+      { file_path: pendingComment.file_path, sha: pendingComment.original_blob_sha },
+    ]);
+    mocks.blobShas.mockReturnValue(matching);
+    const { result, rerender } = renderDiffData();
+    expect(result.current.commentChecksNotice).toBeNull();
+
+    mocks.blobShas.mockReturnValue(settled([]));
+    act(() => git.setStatus({ ...snapshot, computed_at: 2 }));
+    expect(result.current.commentChecksNotice).toContain("“main” is unavailable");
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+
+    mocks.blobShas.mockReturnValue({ ...settled([]), fetchStatus: "fetching" });
+    act(() => git.setStatus({ ...snapshot, target_resolved: true, computed_at: 3 }));
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    mocks.blobShas.mockReturnValue(matching);
+    rerender();
+    expect(result.current.commentChecksNotice).toBeNull();
+    expect(result.current.comments).toEqual([pendingComment]);
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing target from the SHA query without a duplicate toast", () => {
+    const error = new AxiosError("Conflict", "ERR_BAD_REQUEST", undefined, undefined, {
+      status: 409,
+      statusText: "Conflict",
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: { error: "Target branch 'main' does not exist", code: "MISSING_TARGET_BRANCH" },
+    });
+    mocks.blobShas.mockReturnValue({ ...failed(undefined), error });
+    const { result } = renderDiffData();
+    expect(result.current.commentChecksNotice).toBe(
+      "Review comment checks paused. The target branch is unavailable.",
+    );
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing worktree with its original error", () => {
+    const error = new AxiosError("Conflict", "ERR_BAD_REQUEST", undefined, undefined, {
+      status: 409,
+      statusText: "Conflict",
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: { error: "The feature's worktree is no longer available", code: "CONFLICT" },
+    });
+    mocks.blobShas.mockReturnValue({ ...failed(undefined), error });
+    const { result } = renderDiffData();
+    expect(result.current.commentChecksNotice).toBeNull();
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Review comment checks paused: The feature's worktree is no longer available",
+      { id: "diff-blob-shas-7" },
+    );
+  });
+
+  it("waits for a fresh successful SHA read after a paused target recovery", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    const key = ["blob-shas", { feature_id: 7 }];
+    const fetchShas = vi
+      .fn()
+      .mockResolvedValue([
+        { file_path: pendingComment.file_path, sha: pendingComment.original_blob_sha },
+      ]);
+    mocks.blobShas.mockImplementation(function useTestBlobShas(_params, options) {
+      return useQuery({ queryKey: key, queryFn: fetchShas, ...options?.query });
+    });
+    const git = useGitStatusStore.getState();
+    git.setStatus(snapshot);
+    client.setQueryData(key, []);
+    onlineManager.setOnline(false);
+    try {
+      const { result } = renderDiffData(client);
+      expect(result.current.commentChecksNotice).toContain("“main” is unavailable");
+      act(() => git.setStatus({ ...snapshot, target_resolved: true, computed_at: 2 }));
+      await waitFor(() => expect(client.getQueryState(key)?.fetchStatus).toBe("paused"));
+      expect(fetchShas).not.toHaveBeenCalled();
+      expect(mocks.deleteMutate).not.toHaveBeenCalled();
+      act(() => onlineManager.setOnline(true));
+      await waitFor(() =>
+        expect(result.current.blobShas[pendingComment.file_path]).toBe(
+          pendingComment.original_blob_sha,
+        ),
+      );
+      expect(fetchShas).toHaveBeenCalledOnce();
+      expect(result.current.comments).toEqual([pendingComment]);
+      expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it("dismisses scoped secondary-query errors on recovery", () => {
+    mocks.blobShas.mockReturnValue(failed(undefined));
+    mocks.viewed.mockReturnValue(failed(undefined));
+    mocks.comments.mockReturnValue(failed(undefined));
+    const { rerender } = renderDiffData();
+    for (const id of ["diff-blob-shas-7", "diff-viewed-7", "diff-comments-7"]) {
+      expect(mocks.toastError).toHaveBeenCalledWith(expect.any(String), { id });
+    }
+    mocks.blobShas.mockReturnValue(settled([]));
+    mocks.viewed.mockReturnValue(settled([]));
+    mocks.comments.mockReturnValue(settled([]));
+    rerender();
+    expect(mocks.toastDismiss.mock.calls.flat()).toEqual(
+      expect.arrayContaining(["diff-blob-shas-7", "diff-viewed-7", "diff-comments-7"]),
     );
   });
 

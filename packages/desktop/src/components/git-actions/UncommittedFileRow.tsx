@@ -44,7 +44,12 @@ export const UncommittedFileRow = memo(function UncommittedFileRow({
           {content}
         </span>
       )}
-      <NumStat additions={file.additions} deletions={file.deletions} className="shrink-0 text-xs" />
+      <NumStat
+        additions={file.additions}
+        deletions={file.deletions}
+        notice={file.line_count_unavailable ? "Line count unavailable" : undefined}
+        className="shrink-0 text-xs"
+      />
     </div>
   );
 });

@@ -1,28 +1,19 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
 
-const { subscribeGitStatus, storeState, gitStatusState } = vi.hoisted(() => {
+const { subscribeGitStatus, storeState } = vi.hoisted(() => {
   const subscribeGitStatus = vi.fn<(featureId: number) => () => void>();
   return {
     subscribeGitStatus,
     storeState: { isConnected: false, connectionEpoch: 0, subscribeGitStatus },
-    gitStatusState: { watcherEpoch: {} as Record<number, number> },
   };
 });
 
 vi.mock("@/stores/session-status-store", () => ({
   useSessionStatusStore: <T>(selector: (state: typeof storeState) => T): T => selector(storeState),
 }));
-vi.mock("@/stores/useGitStatusStore", () => ({
-  useGitStatusStore: <T>(selector: (state: typeof gitStatusState) => T): T =>
-    selector(gitStatusState),
-  selectGitWatcherEpoch:
-    (featureId: number | null | undefined) =>
-    (state: typeof gitStatusState): number =>
-      featureId == null ? 0 : (state.watcherEpoch[featureId] ?? 0),
-}));
-
 import { useGitStatusSubscription } from "./useGitStatusSubscription";
 
 beforeEach(() => {
@@ -30,7 +21,7 @@ beforeEach(() => {
   subscribeGitStatus.mockImplementation(() => vi.fn());
   storeState.isConnected = false;
   storeState.connectionEpoch = 0;
-  gitStatusState.watcherEpoch = {};
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
 });
 
 describe("useGitStatusSubscription", () => {
@@ -90,9 +81,8 @@ describe("useGitStatusSubscription", () => {
       calls.push(`subscribe:${id}`);
       return () => calls.push(`release:${id}`);
     });
-    const { rerender, unmount } = renderHook(() => useGitStatusSubscription(7));
-    gitStatusState.watcherEpoch = { 7: 1 };
-    rerender();
+    const { unmount } = renderHook(() => useGitStatusSubscription(7));
+    act(() => useGitStatusStore.getState().bumpWatcherEpoch(7));
     expect(calls).toEqual(["subscribe:7", "release:7", "subscribe:7"]);
     unmount();
   });
@@ -115,7 +105,7 @@ describe("useGitStatusSubscription", () => {
   it("keeps the subscription across unrelated renders and another feature's watcher update", () => {
     storeState.isConnected = true;
     const { rerender, unmount } = renderHook(() => useGitStatusSubscription(7));
-    gitStatusState.watcherEpoch = { 8: 1 };
+    act(() => useGitStatusStore.getState().bumpWatcherEpoch(8));
     rerender();
     expect(subscribeGitStatus).toHaveBeenCalledExactlyOnceWith(7);
     unmount();

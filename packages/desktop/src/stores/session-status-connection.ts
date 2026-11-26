@@ -8,6 +8,7 @@ import { isBrowserRemote } from "@/lib/remote/device-token";
 import { hydratePrStatuses } from "@/stores/pr-status-hydration";
 import { subscribeForgeStatus } from "@/stores/forge-visibility";
 import { clearStorageMaintenanceStatus } from "@/stores/storage-maintenance-store";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import { resetServerClock } from "@/lib/server-clock";
 import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 import type { EnvelopeDispatcher, SessionStatusState } from "@/stores/session-status-store";
@@ -22,6 +23,7 @@ interface AppWsConnection {
   dispatchEnvelope: EnvelopeDispatcher;
   isCurrent: () => boolean;
   unsubscribeForgeVisibility: () => void;
+  gitSubscriptions: Map<number, string>;
 }
 
 function sendAppEnvelope(ws: WsConnection, action: string, payload: object = {}): void {
@@ -82,12 +84,25 @@ function handleAppWsMessage(connection: AppWsConnection, data: string): void {
   } catch {
     return;
   }
+  const payload = envelope.payload as Record<string, unknown>;
+  if (
+    envelope.domain === "git" &&
+    (envelope.action === "status" || envelope.action === "status_error")
+  ) {
+    const featureId = payload?.feature_id;
+    if (typeof featureId !== "number") return;
+    const requestId = connection.gitSubscriptions.get(featureId);
+    if (!requestId) return;
+    const git = useGitStatusStore.getState();
+    if (envelope.ref) {
+      if (requestId !== envelope.ref) return;
+      git.setSubscription(featureId, "answered");
+    } else if (git.subscriptionByFeature[featureId] !== "answered") {
+      return;
+    }
+  }
   try {
-    connection.dispatchEnvelope(
-      envelope.domain,
-      envelope.action,
-      envelope.payload as Record<string, unknown>,
-    );
+    connection.dispatchEnvelope(envelope.domain, envelope.action, payload);
   } catch (error) {
     console.error("[session-status] dispatchEnvelope error:", error);
     toast.error("Background update failed", {
@@ -111,6 +126,9 @@ export function createAppWsConnection(
   const release = (connection: AppWsConnection): void => {
     connection.unsubscribeForgeVisibility();
     clearStorageMaintenanceStatus();
+    for (const featureId of connection.gitSubscriptions.keys()) {
+      useGitStatusStore.getState().setSubscription(featureId);
+    }
   };
   const retireCurrent = (): void => {
     const previous = current;
@@ -158,6 +176,7 @@ export function createAppWsConnection(
       dispatchEnvelope,
       isCurrent: () => current === connection,
       unsubscribeForgeVisibility: () => {},
+      gitSubscriptions: new Map(),
     };
     current = connection;
   };
@@ -182,13 +201,16 @@ export function createAppWsConnection(
 
 function subscribeGitStatus(connection: AppWsConnection | null, featureId: number): () => void {
   if (!connection?.ws.isOpen()) return () => {};
-  sendAppEnvelope(connection.ws, "subscribe.git_status", { feature_id: featureId });
-  let unsubscribed = false;
+  const request = createEnvelope("app", "subscribe.git_status", { feature_id: featureId });
+  connection.gitSubscriptions.set(featureId, request.id);
+  useGitStatusStore.getState().setSubscription(featureId, "pending");
+  connection.ws.sendJson(request);
   return () => {
-    if (unsubscribed) return;
-    unsubscribed = true;
-    if (connection.isCurrent() && connection.ws.isOpen()) {
-      sendAppEnvelope(connection.ws, "unsubscribe.git_status", { feature_id: featureId });
-    }
+    if (!connection.isCurrent() || connection.gitSubscriptions.get(featureId) !== request.id)
+      return;
+    connection.gitSubscriptions.delete(featureId);
+    useGitStatusStore.getState().setSubscription(featureId);
+    if (!connection.ws.isOpen()) return;
+    sendAppEnvelope(connection.ws, "unsubscribe.git_status", { feature_id: featureId });
   };
 }

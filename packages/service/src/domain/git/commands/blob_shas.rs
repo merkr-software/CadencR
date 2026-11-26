@@ -14,7 +14,9 @@ use crate::shared::git_cli::{
 };
 use crate::shared::git_z;
 
-use super::util::missing_target_branch;
+use super::util::missing_target_branch_message;
+
+const MISSING_TARGET_BRANCH: &str = "MISSING_TARGET_BRANCH";
 
 mod disk;
 mod head;
@@ -43,7 +45,11 @@ async fn branch_changed_files(
     // A base that cannot be resolved would make every committed file look
     // gone; refuse instead so the viewer pauses comment retirement.
     if !git_ref_resolves_background(base_branch, worktree_path).await? {
-        return Err(missing_target_branch(base_branch));
+        return Err(AppError::coded(
+            axum::http::StatusCode::CONFLICT,
+            MISSING_TARGET_BRANCH,
+            missing_target_branch_message(base_branch),
+        ));
     }
     let output =
         run_git_output_background(&["merge-base", "HEAD", base_branch], worktree_path).await?;
@@ -228,7 +234,11 @@ mod tests {
         let repo = repo_on_develop().await;
         assert!(matches!(
             get_file_blob_shas(repo.path(), "main").await,
-            Err(AppError::Conflict(_))
+            Err(AppError::Coded {
+                status: axum::http::StatusCode::CONFLICT,
+                code: MISSING_TARGET_BRANCH,
+                ..
+            })
         ));
     }
 

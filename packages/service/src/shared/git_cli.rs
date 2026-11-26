@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::future::Future;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 
@@ -21,6 +22,63 @@ pub(crate) use batch_check::{parse_batch_check_line, BatchCheckEntry};
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
 use redact::redact_paths;
 pub use spawn::{git_command, git_std_command};
+
+tokio::task_local! {
+    static LINKED_CHECKOUT: (PathBuf, PathBuf, PathBuf);
+}
+
+/// Bind Git processes in an operation to a verified linked checkout. If its
+/// marker disappears, Git fails instead of discovering an ancestor checkout.
+pub(crate) fn in_linked_checkout<T, F: Future<Output = T>>(
+    binding: Option<(&Path, &Path)>,
+    cwd: &Path,
+    operation: F,
+) -> impl Future<Output = T> + use<T, F> {
+    let scope = binding
+        .map(|(root, git_dir)| (root.to_path_buf(), cwd.to_path_buf(), git_dir.to_path_buf()));
+    // Git workflows contain nested and concurrent command futures. Keep
+    // their storage out of the task-local wrapper and caller's stack.
+    let operation = Box::pin(operation);
+    async move {
+        match scope {
+            Some(scope) => LINKED_CHECKOUT.scope(scope, operation).await,
+            None => operation.await,
+        }
+    }
+}
+
+pub(crate) fn linked_checkout_env(
+    cwd: &Path,
+) -> Result<Option<[(&'static str, PathBuf); 2]>, AppError> {
+    LINKED_CHECKOUT
+        .try_with(|(root, feature_cwd, git_dir)| {
+            if cwd == feature_cwd || cwd.starts_with(root) {
+                // Pin the admin directory selected by the resolver. The
+                // worktree's pointer can change while a request is running.
+                if !root.join(".git").is_file() {
+                    return Err(AppError::git_rejected(
+                        "The linked checkout marker is unavailable",
+                    ));
+                }
+                Ok(Some([
+                    ("GIT_DIR", git_dir.clone()),
+                    ("GIT_WORK_TREE", root.clone()),
+                ]))
+            } else {
+                Ok(None)
+            }
+        })
+        .unwrap_or(Ok(None))
+}
+
+fn git_command_in(cwd: &Path) -> Result<tokio::process::Command, AppError> {
+    let mut command = git_command();
+    if let Some(env) = linked_checkout_env(cwd)? {
+        command.envs(env);
+    }
+    command.current_dir(cwd);
+    Ok(command)
+}
 
 /// Convert owned UTF-8 bytes into a `String` without copying in the common
 /// valid-UTF-8 case, falling back to lossy replacement only when invalid bytes
@@ -47,10 +105,9 @@ pub async fn run_git_output_with_env(
     cwd: &Path,
     env: &[(&str, &str)],
 ) -> Result<std::process::Output, AppError> {
-    git_command()
+    git_command_in(cwd)?
         .args(args)
         .envs(env.iter().copied())
-        .current_dir(cwd)
         .output()
         .await
         .map_err(|error| AppError::git_command(format!("Failed to spawn git: {error}")))
@@ -258,9 +315,8 @@ async fn run_raw(args: &[&str], cwd: &Path) -> Result<String, AppError> {
 }
 
 async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
-    let output = git_command()
+    let output = git_command_in(cwd)?
         .args(args)
-        .current_dir(cwd)
         .output()
         .await
         .map_err(|e| AppError::git_command(format!("Failed to spawn git: {e}")))?;
@@ -293,9 +349,8 @@ pub async fn run_git_capture(
     args.extend_from_slice(flags);
     args.extend_from_slice(positionals);
 
-    let output = git_command()
+    let output = git_command_in(cwd)?
         .args(&args)
-        .current_dir(cwd)
         .output()
         .await
         .map_err(|e| AppError::git_command(format!("Failed to spawn git: {e}")))?;

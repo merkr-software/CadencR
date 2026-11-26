@@ -12,12 +12,19 @@ const mocks = vi.hoisted(() => ({
   settingPending: false,
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (_scope: unknown, description: unknown) => description,
+}));
 vi.mock("@/api/generated", () => ({
   getGetFeatureSettingsQueryKey: (featureId: number) => ["/api/features/settings", featureId],
   useGetFeatureSettings: () => ({ data: [{ key: "git_view_mode", value: "stashes" }] }),
   useGetStats: () => ({ isLoading: false, isError: false, data: undefined }),
   useListDiffComments: () => ({ data: [] }),
-  useGetGitPathPrefix: () => ({ data: { prefix: "", root: "/repo" }, isError: false }),
+  useGetGitPathPrefix: (params: { feature_id: number }) => ({
+    data: { prefix: "", root: "/repo" },
+    isError: false,
+    queryKey: ["/api/git/path-prefix", params],
+  }),
   useGetPrComments: () => ({ data: undefined, isLoading: false, isError: false, error: null }),
   useSetFeatureSetting: (options: {
     mutation: { onSuccess: (response: unknown, variables: { data: { value: string } }) => void };
@@ -95,7 +102,7 @@ describe("FeatureGitTab stash conflicts", () => {
     vi.clearAllMocks();
     mocks.shortcutCallbacks.clear();
     mocks.settingPending = false;
-    useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
     usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
     useGitStatusStore.getState().setStatus({
       feature_id: 9,

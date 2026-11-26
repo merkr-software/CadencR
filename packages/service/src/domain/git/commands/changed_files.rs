@@ -128,6 +128,7 @@ async fn get_uncommitted_changed_files(worktree_path: &Path) -> Result<Vec<Chang
             old_file: entry.old_path,
             additions: entry.additions,
             deletions: entry.deletions,
+            line_count_unavailable: entry.line_count_unavailable,
             is_staged: entry.stage_state.is_staged(),
             stage_state: entry.stage_state,
             conflict_kind: entry.conflict_kind,
@@ -158,8 +159,13 @@ pub(crate) async fn get_uncommitted_entries(
         .iter_mut()
         .filter(|e| e.stage_state == FileStageState::Untracked)
     {
-        if let Some(lines) = count_untracked_lines(&worktree_path.join(&entry.path)).await {
-            entry.additions = lines as i32;
+        match count_untracked_lines(&worktree_path.join(&entry.path)).await {
+            Ok(Some(lines)) => entry.additions = lines as i32,
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, "untracked file line count unavailable");
+                entry.line_count_unavailable = true;
+            }
         }
     }
     Ok(entries)
@@ -189,6 +195,7 @@ fn changed_files_with_stats(
                 old_file: entry.old_path,
                 additions,
                 deletions,
+                line_count_unavailable: false,
                 is_staged: stage_state.is_staged(),
                 stage_state,
                 conflict_kind: None,

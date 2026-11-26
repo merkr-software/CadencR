@@ -30,6 +30,9 @@ pub struct UncommittedFile {
     pub additions: i32,
     #[serde(default)]
     pub deletions: i32,
+    /// The untracked file could not be read and its additions are unknown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub line_count_unavailable: bool,
     /// Typed equivalent of `status`; new consumers should prefer this field.
     #[serde(default)]
     pub stage_state: FileStageState,
@@ -54,6 +57,7 @@ pub(crate) struct PorcelainFileEntry {
     pub(crate) conflict_kind: Option<ConflictKind>,
     pub(crate) additions: i32,
     pub(crate) deletions: i32,
+    pub(crate) line_count_unavailable: bool,
 }
 
 impl PorcelainFileEntry {
@@ -64,6 +68,7 @@ impl PorcelainFileEntry {
             change_kind: self.change_kind,
             additions: self.additions,
             deletions: self.deletions,
+            line_count_unavailable: self.line_count_unavailable,
             stage_state: self.stage_state,
             conflict_kind: self.conflict_kind,
         }
@@ -91,6 +96,7 @@ impl From<PorcelainFileEntryRef<'_>> for PorcelainFileEntry {
             conflict_kind: entry.conflict_kind,
             additions: 0,
             deletions: 0,
+            line_count_unavailable: false,
         }
     }
 }

@@ -10,7 +10,7 @@ use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::models::MergeResult;
 use crate::domain::git::repository;
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 use crate::domain::workspace;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_safe_refs;
@@ -74,10 +74,10 @@ pub async fn merge_feature_branch(
 ) -> Result<MergeResult, AppError> {
     let feature_id = body.feature_id;
     let mode = body.mode.unwrap_or(MergeMode::NoFf);
-    let source_path = resolve_feature_git_path(state, feature_id)
+    let source_checkout = resolve_feature_git_dir(state, feature_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let source_repo = Path::new(&source_path);
+    let source_repo = &source_checkout.root;
 
     // Merging consumes the committed branch ref only. Uncommitted files in the
     // source worktree are intentionally allowed and remain unmerged there.
@@ -94,7 +94,7 @@ pub async fn merge_feature_branch(
     let project_path = repository::get_project_path(&state.read_pool, project_id).await?;
     let project_repo = Path::new(&project_path);
     let configured_target = resolve_target_branch(state, feature_id, source_repo).await?;
-    let target_branch = ensure_local_target(project_repo, &configured_target).await?;
+    let (target_branch, create_from) = find_merge_target(project_repo, &configured_target).await?;
 
     if source_branch == target_branch {
         return Err(AppError::BadRequest(
@@ -111,10 +111,26 @@ pub async fn merge_feature_branch(
         .map_err(|error| mutation_guard_error(error))?;
     // `git merge` exits 0 with "Already up to date" here, which would report a
     // successful merge that changed nothing.
-    if commands::is_branch_merged(&merge_repo, &source_branch, &target_branch).await? {
+    if commands::is_branch_merged(
+        &merge_repo,
+        &source_branch,
+        create_from.unwrap_or(&target_branch),
+    )
+    .await?
+    {
         return Err(AppError::BadRequest(format!(
             "'{source_branch}' has no commits that aren't already in '{target_branch}' — nothing to merge"
         )));
+    }
+    source_checkout.validate().await?;
+    if let Some(remote_target) = create_from {
+        run_git_safe_refs(
+            &["branch"],
+            &[],
+            &[&target_branch, remote_target],
+            &merge_repo,
+        )
+        .await?;
     }
     let result = run_merge(&merge_repo, &source_branch, &target_branch, mode).await?;
     drop(permit);
@@ -146,12 +162,15 @@ async fn resolve_project_id(
         .ok_or_else(|| AppError::NotFound(format!("feature not found: {feature_id}")))
 }
 
-async fn ensure_local_target(repo: &Path, target: &str) -> Result<String, AppError> {
+async fn find_merge_target<'a>(
+    repo: &Path,
+    target: &'a str,
+) -> Result<(String, Option<&'a str>), AppError> {
     if target.trim().is_empty() || target.starts_with('-') {
         return Err(AppError::BadRequest("target branch is invalid".into()));
     }
     if local_branch_exists(repo, target).await? {
-        return Ok(target.to_string());
+        return Ok((target.to_string(), None));
     }
     if remote_branch_exists(repo, target).await? {
         let local = target
@@ -159,11 +178,8 @@ async fn ensure_local_target(repo: &Path, target: &str) -> Result<String, AppErr
             .map(|(_, branch)| branch)
             .filter(|branch| !branch.is_empty())
             .ok_or_else(|| AppError::BadRequest(format!("target branch is invalid: {target}")))?;
-        if local_branch_exists(repo, local).await? {
-            return Ok(local.to_string());
-        }
-        run_git_safe_refs(&["branch"], &[], &[local, target], repo).await?;
-        return Ok(local.to_string());
+        let create_from = (!local_branch_exists(repo, local).await?).then_some(target);
+        return Ok((local.to_string(), create_from));
     }
     Err(AppError::BadRequest(format!(
         "target branch '{target}' does not resolve locally or as a remote-tracking ref"
@@ -354,7 +370,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_tracking_target_creates_local_branch() {
+    async fn resolving_a_remote_only_target_leaves_the_local_branch_untouched() {
         let dir = init_repo().await;
         let repo = dir.path();
         run_git(&["branch", "-M", "trunk"], repo).await.unwrap();
@@ -366,10 +382,10 @@ mod tests {
         .await
         .unwrap();
 
-        let local = ensure_local_target(repo, "origin/main").await.unwrap();
+        let local = find_merge_target(repo, "origin/main").await.unwrap();
 
-        assert_eq!(local, "main");
-        assert!(local_branch_exists(repo, "main").await.unwrap());
+        assert_eq!(local, ("main".to_string(), Some("origin/main")));
+        assert!(!local_branch_exists(repo, "main").await.unwrap());
     }
 
     #[tokio::test]
@@ -378,9 +394,9 @@ mod tests {
         let repo = dir.path();
         run_git(&["branch", "release"], repo).await.unwrap();
 
-        let local = ensure_local_target(repo, "release").await.unwrap();
+        let local = find_merge_target(repo, "release").await.unwrap();
 
-        assert_eq!(local, "release");
+        assert_eq!(local, ("release".to_string(), None));
     }
 
     /// A `main` repo plus a worktree on `feature/x`. The second dir owns the

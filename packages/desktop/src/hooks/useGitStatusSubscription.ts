@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useWorkspaceActivity, whileActive } from "@/components/workspace-pool/workspace-activity";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusStore";
@@ -11,14 +11,12 @@ import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusS
  * starts a `notify` watcher on first subscription and tears it down after
  * the last unsubscribe.
  *
- * The first event the backend pushes after subscribing is the initial
- * snapshot, which `ws-git-status-handler` writes into `useGitStatusStore`.
+ * The backend replies with the initial snapshot or calculation error and the
+ * watcher setup outcome. A Retry bumps the epoch to start a fresh subscription.
  *
  * **Re-subscribes on worktree transitions.** The backend resolves the
- * watcher's path *at subscribe time* (`worktree_path` setting → project path
- * fallback). If we mount before the worktree exists, the initial subscription
- * binds to the project path — and keeps emitting snapshots from there even
- * after `worktree_path` is written. The WS envelope handler bumps a per-
+ * watcher's path *at subscribe time*. The project is the initial binding
+ * until a worktree path is assigned. The WS envelope handler bumps a per-
  * feature `watcherEpoch` whenever it sees `workflow/worktree.created` or
  * `workflow/worktree.ready`; including the epoch in the effect deps tears
  * down the old subscription and starts a new one, forcing the backend to
@@ -39,6 +37,17 @@ export function useGitStatusSubscription(featureId: number | null | undefined): 
   const watcherEpoch = useGitStatusStore(selectGitWatcherEpoch(featureId));
 
   const activity = useWorkspaceActivity();
+
+  useLayoutEffect(() => {
+    if (featureId == null) return undefined;
+    return whileActive(activity, () => {
+      const git = useGitStatusStore.getState();
+      if (!git.byFeature[featureId] && git.hydrationEpoch[featureId] == null) {
+        git.discardSnapshot(featureId);
+      }
+      return () => useGitStatusStore.getState().discardSnapshot(featureId);
+    });
+  }, [activity, featureId]);
 
   useEffect(() => {
     if (featureId == null || !isConnected) return undefined;

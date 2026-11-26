@@ -28,11 +28,10 @@ pub async fn push(state: &AppState, body: PushBody) -> Result<SuccessResponse, A
     let feature_id = body.feature_id;
     let repo = resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
-        .cwd;
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
     let permit = state
         .git_mutations
-        .try_acquire(&repo)
+        .try_acquire(&repo.cwd)
         .map_err(|error| mutation_guard_error(error))?;
 
     // ssh's prompts (`Enter passphrase…`, `(yes/no)?`) arrive on stdout
@@ -62,7 +61,10 @@ pub async fn push(state: &AppState, body: PushBody) -> Result<SuccessResponse, A
         push_header_line(force),
         |output_tx| async move {
             let stdin_rx = stdin_rx_slot.take().expect("run closure invoked once");
-            commands::push_streaming(&repo, output_tx, stdin_rx, force).await
+            repo.run(commands::push_streaming(
+                &repo.cwd, output_tx, stdin_rx, force,
+            ))
+            .await
         },
     )
     .await;

@@ -18,6 +18,7 @@ export interface NumStatProps {
   addColor?: string;
   /** Override the deletions color (defaults to `--numstat-del-fg`). */
   delColor?: string;
+  notice?: string;
   className?: string;
 }
 
@@ -28,11 +29,12 @@ export function NumStat({
   separator,
   addColor,
   delColor,
+  notice,
   className,
 }: NumStatProps): ReactElement | null {
   const adds = additions ?? 0;
   const dels = deletions ?? 0;
-  if (hideZero && adds === 0 && dels === 0) return null;
+  if (hideZero && adds === 0 && dels === 0 && !notice) return null;
 
   const showAdds = !hideZero || adds > 0;
   const showDels = !hideZero || dels > 0;
@@ -43,6 +45,7 @@ export function NumStat({
         <span className="text-muted-foreground">{separator}</span>
       )}
       {showDels && <span style={{ color: delColor ?? "var(--numstat-del-fg)" }}>-{dels}</span>}
+      {notice && <span className="font-sans text-muted-foreground">{notice}</span>}
     </span>
   );
 }

@@ -40,6 +40,7 @@ function backendErrorMessage(err: unknown): string | null {
 
 /** A settings file the service could not read; the message names it and the cause. */
 export const SETTINGS_READ_FAILED = "SETTINGS_READ_FAILED";
+export const WORKTREE_UNAVAILABLE = "WORKTREE_UNAVAILABLE";
 
 /** Codes of a `413`: a diff or file refused for its size, which asking again only recomputes. */
 const REFUSED_FOR_SIZE: ReadonlySet<string> = new Set(["DIFF_TOO_LARGE", "FILE_TOO_LARGE"]);

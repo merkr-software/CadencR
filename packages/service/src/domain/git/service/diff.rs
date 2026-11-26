@@ -7,7 +7,7 @@ use crate::domain::git::models::*;
 use crate::domain::git::repository;
 use crate::error::AppError;
 
-use super::resolve_feature_git_path;
+use super::{resolve_feature_git_dir, resolve_feature_git_path};
 
 pub async fn get_branch(
     state: &AppState,
@@ -19,64 +19,52 @@ pub async fn get_branch(
 }
 
 pub async fn get_stats(state: &AppState, params: GetStatsParams) -> Result<GitStats, AppError> {
-    let git_path = resolve_feature_git_path(state, params.feature_id).await?;
-    let git_path = match git_path {
-        Some(p) => p,
-        None => {
-            return Ok(GitStats {
-                files_changed: 0,
-                insertions: 0,
-                deletions: 0,
-            })
-        }
+    let Some(dir) = resolve_feature_git_dir(state, params.feature_id).await? else {
+        return Ok(GitStats::default());
     };
-    commands::get_stats(
-        Path::new(&git_path),
+    dir.checked(commands::get_stats(
+        &dir.root,
         &params.mode,
         params.target_branch.as_deref(),
-    )
+    ))
     .await
 }
 
 pub async fn get_diff(state: &AppState, params: GetDiffParams) -> Result<DiffResponse, AppError> {
-    let git_path = resolve_feature_git_path(state, params.feature_id).await?;
-    let git_path = match git_path {
-        Some(p) => p,
-        None => {
-            return Ok(DiffResponse {
-                diff: String::new(),
-            })
-        }
+    let Some(dir) = resolve_feature_git_dir(state, params.feature_id).await? else {
+        return Ok(DiffResponse::default());
     };
 
-    let diff = if let Some(ref commit_sha) = params.commit_sha {
-        commands::get_commit_diff(Path::new(&git_path), commit_sha).await?
-    } else {
-        commands::get_diff(
-            Path::new(&git_path),
-            &params.mode,
-            params.target_branch.as_deref(),
-        )
-        .await?
-    };
-    Ok(DiffResponse { diff })
+    if let Some(ref commit_sha) = params.commit_sha {
+        let diff = dir
+            .checked(commands::get_commit_diff(&dir.root, commit_sha))
+            .await?;
+        return Ok(DiffResponse {
+            diff,
+            ..DiffResponse::default()
+        });
+    }
+    dir.checked(commands::get_diff(
+        &dir.root,
+        &params.mode,
+        params.target_branch.as_deref(),
+    ))
+    .await
 }
 
 pub async fn get_changed_files(
     state: &AppState,
     params: GetChangedFilesParams,
 ) -> Result<Vec<ChangedFile>, AppError> {
-    let git_path = resolve_feature_git_path(state, params.feature_id).await?;
-    let git_path = match git_path {
-        Some(p) => p,
-        None => return Ok(vec![]),
+    let Some(dir) = resolve_feature_git_dir(state, params.feature_id).await? else {
+        return Ok(vec![]);
     };
-    commands::get_changed_files(
-        Path::new(&git_path),
+    dir.checked(commands::get_changed_files(
+        &dir.root,
         &params.mode,
         params.target_branch.as_deref(),
         params.commit_sha.as_deref(),
-    )
+    ))
     .await
 }
 
@@ -86,25 +74,23 @@ pub async fn get_file_diff(
     state: &AppState,
     params: GetFileDiffParams,
 ) -> Result<DiffResponse, AppError> {
-    let git_path = resolve_feature_git_path(state, params.feature_id).await?;
-    let git_path = match git_path {
-        Some(p) => p,
-        None => {
-            return Ok(DiffResponse {
-                diff: String::new(),
-            })
-        }
+    let Some(dir) = resolve_feature_git_dir(state, params.feature_id).await? else {
+        return Ok(DiffResponse::default());
     };
-    let diff = commands::get_file_diff(
-        Path::new(&git_path),
-        &params.mode,
-        params.target_branch.as_deref(),
-        params.commit_sha.as_deref(),
-        &params.file_path,
-        params.old_file_path.as_deref(),
-    )
-    .await?;
-    Ok(DiffResponse { diff })
+    let diff = dir
+        .checked(commands::get_file_diff(
+            &dir.root,
+            &params.mode,
+            params.target_branch.as_deref(),
+            params.commit_sha.as_deref(),
+            &params.file_path,
+            params.old_file_path.as_deref(),
+        ))
+        .await?;
+    Ok(DiffResponse {
+        diff,
+        ..DiffResponse::default()
+    })
 }
 
 /// Resolve which (old_ref, new_ref) pair the diff endpoints should use for a
@@ -330,40 +316,39 @@ pub async fn get_file_blob_shas(
     state: &AppState,
     params: GetFileBlobShasParams,
 ) -> Result<Vec<FileBlobSha>, AppError> {
-    use crate::domain::git::feature_dir::{FeatureDirSource, ProjectFallback};
-
     let Some(dir) =
         crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, params.feature_id)
             .await?
     else {
         return Ok(vec![]);
     };
-    // A recorded worktree that is gone must not be answered with the main
-    // checkout's SHAs.
-    if dir.source == FeatureDirSource::Project(ProjectFallback::WorktreeNotLive) {
-        return Err(AppError::Conflict(
-            "The feature's worktree is no longer available".into(),
-        ));
-    }
-    let git_path = Path::new(&dir.cwd);
+    dir.checked_read(async |git_path| {
+        collect_feature_blob_shas(state, params.feature_id, git_path).await
+    })
+    .await
+}
+
+async fn collect_feature_blob_shas(
+    state: &AppState,
+    feature_id: i64,
+    git_path: &Path,
+) -> Result<Vec<FileBlobSha>, AppError> {
+    let cwd = git_path.display();
     match tokio::fs::metadata(git_path).await {
         Ok(metadata) if metadata.is_dir() => {}
         Ok(_) => {
             return Err(AppError::Conflict(format!(
-                "The feature's directory {} is not a directory",
-                dir.cwd
+                "The feature's directory {cwd} is not a directory"
             )))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(AppError::Conflict(format!(
-                "The feature's directory {} is not available",
-                dir.cwd
+                "The feature's directory {cwd} is not available"
             )))
         }
         Err(error) => {
             return Err(AppError::internal(format!(
-                "Failed to inspect the feature's directory {}: {error}",
-                dir.cwd
+                "Failed to inspect the feature's directory {cwd}: {error}",
             )))
         }
     }
@@ -373,12 +358,9 @@ pub async fn get_file_blob_shas(
     if !crate::shared::git_context::has_git_metadata(git_path).await? {
         return Ok(vec![]);
     }
-    let base_branch = crate::domain::git::workflow_service::resolve_target_branch(
-        state,
-        params.feature_id,
-        git_path,
-    )
-    .await?;
+    let base_branch =
+        crate::domain::git::workflow_service::resolve_target_branch(state, feature_id, git_path)
+            .await?;
     let map = commands::get_file_blob_shas(git_path, &base_branch).await?;
     Ok(map
         .into_iter()
@@ -516,12 +498,18 @@ mod tests {
             .unwrap();
         let state = AppState::with_pool(pool);
 
-        for feature_id in [1, 2] {
-            let result = get_file_blob_shas(&state, GetFileBlobShasParams { feature_id }).await;
-            assert!(
-                matches!(result, Err(AppError::Conflict(_))),
-                "feature {feature_id}: {result:?}"
-            );
-        }
+        let worktree_error = get_file_blob_shas(&state, GetFileBlobShasParams { feature_id: 1 })
+            .await
+            .unwrap_err();
+        assert!(crate::domain::git::feature_dir::is_worktree_unavailable(
+            &worktree_error
+        ));
+        let project_error = get_file_blob_shas(&state, GetFileBlobShasParams { feature_id: 2 })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(project_error, AppError::Conflict(_)),
+            "{project_error:?}"
+        );
     }
 }

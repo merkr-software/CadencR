@@ -42,7 +42,7 @@ beforeEach(() => {
     isError: false,
     error: null,
   });
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
   useGitStatusStore.getState().setStatus({
     feature_id: 7,
     current_branch: "feature/branches",

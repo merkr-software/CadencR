@@ -28,6 +28,15 @@ function renderToolbar(overrides: Partial<GitTabToolbarProps> = {}) {
 }
 
 describe("GitTabToolbar", () => {
+  it("labels the known subtotal when some file counts are unavailable", () => {
+    renderToolbar({
+      stats: { isLoading: false, isError: false, additions: 12, deletions: 4, partial: true },
+    });
+    expect(screen.getByText("Partial stats")).toBeInTheDocument();
+    expect(screen.getByText("+12")).toBeInTheDocument();
+    expect(screen.getByText("-4")).toBeInTheDocument();
+  });
+
   it("shows no stat at all when there is no diff to measure", () => {
     renderToolbar({ stats: { isLoading: false, isError: false, hidden: true } });
     expect(screen.queryByText("Stats unavailable")).toBeNull();

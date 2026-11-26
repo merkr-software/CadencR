@@ -47,6 +47,9 @@ fn spawn(
     piped_stdin: bool,
 ) -> Result<(Child, KillGroupOnDrop), AppError> {
     let mut command = background_git_command();
+    if let Some(env) = crate::shared::git_cli::linked_checkout_env(cwd)? {
+        command.envs(env);
+    }
     command
         .args(args)
         .current_dir(cwd)

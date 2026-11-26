@@ -34,6 +34,7 @@ export interface GitTabToolbarProps {
     isError: boolean;
     additions?: number;
     deletions?: number;
+    partial?: boolean;
     /** No diff to measure (its target branch does not exist): show nothing. */
     hidden?: boolean;
   };
@@ -161,6 +162,7 @@ function GitToolbarNumStat({
   isError,
   additions,
   deletions,
+  partial,
   hidden = false,
 }: GitTabToolbarProps["stats"]): ReactElement | null {
   if (hidden) return null;
@@ -181,6 +183,7 @@ function GitToolbarNumStat({
       additions={additions}
       deletions={deletions}
       hideZero={false}
+      notice={partial ? "Partial stats" : undefined}
       className="shrink-0 text-[11.5px]"
     />
   );

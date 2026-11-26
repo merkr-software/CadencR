@@ -7,10 +7,13 @@
 //! checkout root ([`FeatureDir::git_root`]) instead. The agent, terminals, the
 //! editor, and the status watcher keep the feature's own directory.
 
+use std::future::Future;
 use std::path::PathBuf;
 
 use crate::app_state::AppState;
-use crate::domain::git::feature_dir::resolve_feature_dir;
+use crate::domain::git::feature_dir::{
+    require_linked_checkout, resolve_feature_dir, worktree_unavailable,
+};
 use crate::domain::git::models::{GetGitPathPrefixParams, GitPathPrefixResponse};
 use crate::error::AppError;
 
@@ -22,6 +25,7 @@ pub struct FeatureGitDir {
     /// Root of the checkout owning `cwd`, where Git runs. Equal to `cwd`
     /// unless the project is a repository subdirectory.
     pub root: PathBuf,
+    linked_git_dir: Option<PathBuf>,
 }
 
 /// Resolve a feature's Git directories, `None` when the feature does not
@@ -34,9 +38,13 @@ pub async fn resolve_feature_git_dir(
     let Some(dir) = resolve_feature_dir(&state.read_pool, feature_id).await? else {
         return Ok(None);
     };
+    let cwd = PathBuf::from(dir.cwd()?);
     Ok(dir.git_root().await?.map(|root| FeatureGitDir {
-        cwd: PathBuf::from(dir.cwd),
+        cwd,
         root,
+        linked_git_dir: dir
+            .linked_binding()
+            .map(|(_, git_dir)| git_dir.to_path_buf()),
     }))
 }
 
@@ -52,6 +60,40 @@ pub async fn resolve_feature_git_path(
 }
 
 impl FeatureGitDir {
+    pub(crate) fn run<T, F: Future<Output = T>>(
+        &self,
+        operation: F,
+    ) -> impl Future<Output = T> + use<T, F> {
+        crate::shared::git_cli::in_linked_checkout(
+            self.linked_git_dir
+                .as_deref()
+                .map(|git_dir| (self.root.as_path(), git_dir)),
+            &self.cwd,
+            operation,
+        )
+    }
+
+    pub(crate) async fn validate(&self) -> Result<(), AppError> {
+        if let Some(expected) = self.linked_git_dir.as_deref() {
+            if require_linked_checkout(&self.cwd, &self.root).await? != expected {
+                return Err(worktree_unavailable());
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn checked<'a, T, F: Future<Output = Result<T, AppError>>>(
+        &'a self,
+        operation: F,
+    ) -> impl Future<Output = Result<T, AppError>> + use<'a, T, F> {
+        let operation = self.run(operation);
+        async move {
+            let result = operation.await;
+            self.validate().await?;
+            result
+        }
+    }
+
     /// `cwd` relative to `root`, `/`-separated: what a repository-relative
     /// path loses when it is opened relative to the feature's directory.
     pub fn cwd_prefix(&self) -> Result<String, AppError> {

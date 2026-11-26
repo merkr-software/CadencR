@@ -98,11 +98,9 @@ describe("deriveGitAction", () => {
   });
 
   it("surfaces feature-scoped stash mutation exclusion without changing the primary action", () => {
-    const state = deriveGitAction(
-      snapshot({ uncommitted_count: 1, unstaged_count: 1 }),
-      false,
-      "Pop stash@{0} in progress",
-    );
+    const state = deriveGitAction(snapshot({ uncommitted_count: 1, unstaged_count: 1 }), {
+      stashMutationBlockedReason: "Pop stash@{0} in progress",
+    });
 
     expect(state.primary).toBe("commit");
     expect(state.disabled.stash).toBe("Pop stash@{0} in progress");
@@ -217,7 +215,9 @@ describe("deriveGitAction", () => {
   });
 
   it("blocks incompatible actions while an update request is pending", () => {
-    const state = deriveGitAction(snapshot({ behind_target: 2, ahead_of_target: 2 }), true);
+    const state = deriveGitAction(snapshot({ behind_target: 2, ahead_of_target: 2 }), {
+      updatePending: true,
+    });
 
     expect(state.primary).toBeNull();
     expect(state.label).toBe("Updating…");
@@ -288,12 +288,23 @@ describe("deriveGitAction", () => {
   });
 
   it("opens an existing proposal even when the branch has nothing left to compare", () => {
-    const state = deriveGitAction(snapshot(), false, null, pullRequest());
+    const state = deriveGitAction(snapshot(), { existingPr: pullRequest() });
 
     expect(state.primary).toBe("pr");
     expect(state.label).toBe("View pull request #42");
     expect(state.compareLabel).toBe("View pull request #42");
     expect(state.disabled.pr).toBeNull();
+  });
+
+  it("keeps existing proposals and update recovery accessible after a scan fails", () => {
+    const state = deriveGitAction(snapshot({ operation: "rebase", conflict_count: 0 }), {
+      statusError: "bad index",
+      existingPr: pullRequest(),
+    });
+    expect(state.label).toBe("Git status unavailable");
+    expect(state.disabled.commit).toBe("Git status unavailable");
+    expect(state.disabled.pr).toBeNull();
+    expect(state.recovery).toMatchObject({ operation: "rebase", abortDisabled: null });
   });
 
   it("primary=merge when compare is unavailable but target has commits to merge", () => {

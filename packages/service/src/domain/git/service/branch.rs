@@ -2,15 +2,14 @@ use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::git::commands;
+use crate::domain::git::feature_dir::resolve_feature_dir_in_project;
 use crate::domain::git::models::*;
 use crate::domain::git::repository;
 use crate::domain::git::workflow_service;
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_capture;
 
-use super::{
-    get_project_and_branch, normalize_git_path, resolve_feature_git_path, SETTING_WORKTREE_PATH,
-};
+use super::{get_project_and_branch, resolve_feature_git_path};
 
 pub async fn get_original_branch(
     state: &AppState,
@@ -59,8 +58,17 @@ pub async fn delete_feature_branch(
     state: &AppState,
     params: DeleteFeatureBranchParams,
 ) -> Result<SuccessResponse, AppError> {
+    super::ensure_feature_belongs_to_project(
+        &state.read_pool,
+        params.feature_id,
+        params.project_id,
+    )
+    .await?;
     let (project_path, branch) =
         get_project_and_branch(state, params.project_id, params.feature_id).await?;
+    let checkout =
+        resolve_feature_dir_in_project(&state.read_pool, params.feature_id, &project_path).await?;
+    checkout.cwd()?;
     let repo = Path::new(&project_path);
     crate::shared::git_context::require_git_metadata(repo).await?;
     if !workflow_service::local_branch_exists(repo, &branch).await? {
@@ -75,9 +83,7 @@ pub async fn delete_feature_branch(
         .git_mutations
         .try_acquire(Path::new(&project_path))
         .map_err(|error| workflow_service::mutation_guard_error(error))?;
-    let has_separate_worktree =
-        feature_has_separate_worktree(state, &project_path, params.feature_id).await?;
-    if !has_separate_worktree {
+    if checkout.linked_root().is_none() {
         return delete_no_worktree_feature_branch(
             state,
             &project_path,
@@ -103,6 +109,7 @@ pub async fn delete_feature_branch(
             "Cannot remove the target branch",
         ));
     }
+    checkout.validate().await?;
     if params.force {
         return delete_branch_after_validation(Path::new(&project_path), &branch).await;
     }
@@ -240,24 +247,6 @@ pub async fn check_branch_delete(
         is_default_branch,
         merged,
     })
-}
-
-async fn feature_has_separate_worktree(
-    state: &AppState,
-    project_path: &str,
-    feature_id: i64,
-) -> Result<bool, AppError> {
-    let Some(worktree_path) =
-        repository::get_feature_setting(&state.read_pool, feature_id, SETTING_WORKTREE_PATH)
-            .await?
-    else {
-        return Ok(false);
-    };
-    Ok(
-        normalize_git_path(&worktree_path) != normalize_git_path(project_path)
-            && commands::is_live_worktree(Path::new(project_path), Path::new(&worktree_path))
-                .await?,
-    )
 }
 
 fn branch_delete_blocked(reason: &str, error: impl Into<String>) -> SuccessResponse {

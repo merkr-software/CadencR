@@ -91,7 +91,7 @@ impl IgnoreAwareWatcher {
     /// thread with each debounced batch of paths Git does not ignore.
     ///
     /// Blocking: walks the non-ignored tree once. Fails when the worktree
-    /// itself cannot be watched or the system watch limit is reached.
+    /// or an explicit Git root cannot be watched, or the watch limit is reached.
     pub fn start<F>(
         worktree: PathBuf,
         git_dirs: Vec<PathBuf>,
@@ -174,15 +174,14 @@ impl Drop for IgnoreAwareWatcher {
     }
 }
 
-/// Start the initial watches. Only the worktree root and a watch-limit error
-/// are fatal: a Git dir or subdirectory that cannot be watched costs live
-/// refresh for its paths alone.
+/// An unavailable worktree or explicit Git root makes setup fail. A
+/// disappearing subdirectory can be skipped unless the watch limit is hit.
 fn start_watches(watcher: &mut RecommendedWatcher, tree: &WatchTree) -> Result<(), notify::Error> {
     for (path, mode) in tree.initial_watches() {
         let Err(error) = watcher.watch(&path, mode) else {
             continue;
         };
-        if path == tree.worktree() || is_watch_limit_error(&error.kind) {
+        if tree.is_required_root(&path) || is_watch_limit_error(&error.kind) {
             return Err(error);
         }
         warn!(path = %path.display(), %error, "file watcher: continuing without this directory");

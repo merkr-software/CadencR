@@ -93,6 +93,14 @@ export interface GitActionState {
   updatePending: boolean;
   /** Continue/Abort state for a backend-confirmed or just-returned recoverable update. */
   recovery: GitUpdateRecoveryActionState | null;
+  statusUnavailable?: boolean;
+}
+
+interface GitActionOptions {
+  updatePending?: boolean;
+  stashMutationBlockedReason?: string | null;
+  existingPr?: PrSummary;
+  statusError?: string;
 }
 
 export interface GitUpdateSource {
@@ -105,17 +113,14 @@ export interface GitUpdateSource {
 
 const PRIMARY_ORDER: readonly PrimaryGitAction[] = ["commit", "update", "push", "pr", "merge"];
 
+function disabledActions(reason: string): Record<GitAction, string> {
+  return { commit: reason, stash: reason, update: reason, push: reason, pr: reason, merge: reason };
+}
+
 const LOADING_STATE: GitActionState = {
   primary: null,
   label: "Loading…",
-  disabled: {
-    commit: "Loading…",
-    stash: "Loading…",
-    update: "Loading…",
-    push: "Loading…",
-    pr: "Loading…",
-    merge: "Loading…",
-  },
+  disabled: disabledActions("Loading…"),
   compareLabel: DEFAULT_COMPARE_LABEL,
   updatePending: false,
   recovery: null,
@@ -136,8 +141,7 @@ function derivePushDisabled(snapshot: GitStatusSnapshot): string | null {
   return snapshot.ahead_of_remote > 0 ? null : "Nothing to push";
 }
 
-function derivePrDisabled(snapshot: GitStatusSnapshot, existingPr?: PrSummary): string | null {
-  if (existingPr) return null;
+function derivePrDisabled(snapshot: GitStatusSnapshot): string | null {
   if (snapshot.ahead_of_remote > 0) return "Push your commits first";
   if (!snapshot.has_remote) return "No remote configured";
   if (snapshot.ahead_of_target <= 0) return "Nothing to compare";
@@ -232,40 +236,46 @@ function localTargetBranchName(targetBranch: string): string {
 
 export function deriveGitAction(
   snapshot: GitStatusSnapshot | undefined,
-  updatePending = false,
-  stashMutationBlockedReason: string | null = null,
-  existingPr?: PrSummary,
+  {
+    updatePending = false,
+    stashMutationBlockedReason,
+    existingPr,
+    statusError,
+  }: GitActionOptions = {},
 ): GitActionState {
-  if (!snapshot) return LOADING_STATE;
+  const unavailable = statusError ? "Git status unavailable" : null;
+  if (!snapshot) {
+    return unavailable
+      ? {
+          ...LOADING_STATE,
+          label: unavailable,
+          disabled: disabledActions(unavailable),
+          statusUnavailable: true,
+        }
+      : LOADING_STATE;
+  }
 
   const operation = snapshot.operation ?? null;
   const operationConflictCount = snapshot.conflict_count ?? 0;
-  const mutationBlockedReason = updatePending
-    ? "Update request in progress"
-    : operation
-      ? `Finish or abort the active ${operation} update first`
-      : null;
+  const mutationBlockedReason =
+    unavailable ??
+    (updatePending
+      ? "Update request in progress"
+      : operation
+        ? `Finish or abort the active ${operation} update first`
+        : null);
 
-  // Degraded snapshot from the backend: `current_branch` is empty when the
-  // worktree path doesn't resolve on disk (still being created, or stale
-  // setting). Surface that explicitly so the button doesn't show a misleading
-  // "No uncommitted changes" reason.
+  // A project directory can be open before it has a Git checkout.
   if (!snapshot.current_branch) {
-    const reason = "No worktree available yet";
+    const reason = unavailable ?? "No worktree available yet";
     return {
       primary: null,
       label: reason,
-      disabled: {
-        commit: reason,
-        stash: reason,
-        update: reason,
-        push: reason,
-        pr: reason,
-        merge: reason,
-      },
+      disabled: disabledActions(reason),
       compareLabel: snapshot.action_label ?? DEFAULT_COMPARE_LABEL,
       updatePending,
       recovery: null,
+      statusUnavailable: !!unavailable,
     };
   }
 
@@ -279,26 +289,28 @@ export function deriveGitAction(
     push: mutationBlockedReason ?? derivePushDisabled(snapshot),
     // Opening an existing compare URL does not mutate Git, so keep it
     // available while an update request or recovery operation is active.
-    pr: derivePrDisabled(snapshot, existingPr),
+    pr: existingPr ? null : (unavailable ?? derivePrDisabled(snapshot)),
     merge: mutationBlockedReason ?? deriveMergeDisabled(snapshot),
   };
 
   const primary = mutationBlockedReason
     ? null
     : (PRIMARY_ORDER.find((action) => disabled[action] === null) ?? null);
-  const label = updatePending
-    ? "Updating…"
-    : primary === "commit"
-      ? "Commit"
-      : primary === "update"
-        ? "Update"
-        : primary === "push"
-          ? "Push"
-          : primary === "pr"
-            ? compareLabel
-            : primary === "merge"
-              ? "Merge"
-              : (disabled.commit ?? "No action");
+  const label =
+    unavailable ??
+    (updatePending
+      ? "Updating…"
+      : primary === "commit"
+        ? "Commit"
+        : primary === "update"
+          ? "Update"
+          : primary === "push"
+            ? "Push"
+            : primary === "pr"
+              ? compareLabel
+              : primary === "merge"
+                ? "Merge"
+                : (disabled.commit ?? "No action"));
 
   const recovery = operation
     ? {
@@ -311,22 +323,30 @@ export function deriveGitAction(
       }
     : null;
 
-  return { primary, label, disabled, compareLabel, updatePending, recovery };
+  return {
+    primary,
+    label,
+    disabled,
+    compareLabel,
+    updatePending,
+    recovery,
+    statusUnavailable: !!unavailable,
+  };
 }
 
-/**
- * Memoized wrapper around `deriveGitAction`. Re-runs only when the snapshot
- * reference changes (the store keeps snapshots stable until the backend pushes
- * a new one for the same feature).
- */
+/** Keep the derived controls stable until their inputs change. */
 export function useGitAction(
   snapshot: GitStatusSnapshot | undefined,
-  updatePending = false,
-  stashMutationBlockedReason: string | null = null,
-  existingPr?: PrSummary,
+  { updatePending, stashMutationBlockedReason, existingPr, statusError }: GitActionOptions,
 ): GitActionState {
   return useMemo(
-    () => deriveGitAction(snapshot, updatePending, stashMutationBlockedReason, existingPr),
-    [existingPr, snapshot, stashMutationBlockedReason, updatePending],
+    () =>
+      deriveGitAction(snapshot, {
+        updatePending,
+        stashMutationBlockedReason,
+        existingPr,
+        statusError,
+      }),
+    [existingPr, snapshot, stashMutationBlockedReason, statusError, updatePending],
   );
 }

@@ -42,7 +42,7 @@ export async function checkoutSelectedBranch(params: {
 }): Promise<boolean> {
   const { branch, projectId, featureId, queryClient, checkoutMutateAsync } = params;
   try {
-    await checkoutMutateAsync({ data: { project_id: projectId, branch } });
+    await checkoutMutateAsync({ data: { project_id: projectId, feature_id: featureId, branch } });
     invalidateAfterBranchMove(queryClient, projectId, featureId);
     return true;
   } catch (err) {

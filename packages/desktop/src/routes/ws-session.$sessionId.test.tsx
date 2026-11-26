@@ -512,7 +512,7 @@ describe("WsSessionPage route", () => {
   it("checks out the picked branch (no worktree) for the on_branch mode", async () => {
     await setModeBranchAndSend({ mode: "on_branch", branch: "feat/unattached" });
     expect(mocks.mockCheckoutBranchMutateAsync).toHaveBeenCalledWith({
-      data: { project_id: 1, branch: "feat/unattached" },
+      data: { project_id: 1, feature_id: 35, branch: "feat/unattached" },
     });
     expect(mocks.mockSetFeatureSettingMutateAsync).not.toHaveBeenCalled();
     expect(mocks.mockDeliverPrompt).toHaveBeenCalledWith("hello", {

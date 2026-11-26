@@ -79,6 +79,7 @@ vi.mock("@/api/generated", () => ({
   usePush: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useCommit: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useGetUncommittedFiles: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+  getGetGitStatusQueryKey: (params: { feature_id: number }) => ["/api/git/status", params],
   useListBranches: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
   useUpdateTargetBranch: vi.fn(() => ({ mutateAsync: vi.fn() })),
   getCompareUrl: vi.fn(),

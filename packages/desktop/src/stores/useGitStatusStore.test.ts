@@ -32,7 +32,7 @@ function snap(overrides: Partial<GitStatusSnapshot> = {}): GitStatusSnapshot {
 }
 
 beforeEach(() => {
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
 });
 
 describe("useGitStatusStore.setStatus", () => {
@@ -118,7 +118,7 @@ describe("useGitStatusStore.setStatus", () => {
   it("clears any prior error for the feature when a snapshot arrives", () => {
     useGitStatusStore.getState().setStatusError({ feature_id: 1, error: "boom" });
     useGitStatusStore.getState().setStatus(snap());
-    expect(useGitStatusStore.getState().errorByFeature[1]).toBeUndefined();
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBeUndefined();
   });
 
   it("ordering guard is per-feature (a stale snapshot for one doesn't block another)", () => {
@@ -126,6 +126,46 @@ describe("useGitStatusStore.setStatus", () => {
     setStatus(snap({ feature_id: 1, computed_at: 200 }));
     setStatus(snap({ feature_id: 2, computed_at: 50 }));
     expect(useGitStatusStore.getState().byFeature[2]?.computed_at).toBe(50);
+  });
+
+  it("lets HTTP recover an initial error until the socket reports status", () => {
+    const git = useGitStatusStore.getState();
+    git.hydrateStatus(1, "HTTP status failed");
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBe("HTTP status failed");
+    git.hydrateStatus(1, snap({ computed_at: 100 }));
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBeUndefined();
+    expect(useGitStatusStore.getState().byFeature[1]?.computed_at).toBe(100);
+
+    git.setSubscription(1, "answered");
+    git.setStatusError({ feature_id: 1, error: "Git index corrupt" });
+    git.hydrateStatus(1, snap({ computed_at: 200 }));
+    expect(useGitStatusStore.getState().byFeature[1]?.computed_at).toBe(100);
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBe("Git index corrupt");
+
+    git.setStatus(snap({ computed_at: 150 }));
+    git.hydrateStatus(1, "late HTTP failure");
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBeUndefined();
+    expect(useGitStatusStore.getState().byFeature[1]?.computed_at).toBe(150);
+  });
+
+  it("uses fresh HTTP status after disconnect and retains the watcher issue until setup succeeds", () => {
+    const git = useGitStatusStore.getState();
+    git.hydrateStatus(1, snap({ computed_at: 120 }));
+    git.setSubscription(1, "answered");
+    git.setStatusError({ feature_id: 1, error: "bad index" }, "watch limit");
+    git.hydrateStatus(1, snap({ computed_at: 140 }));
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBe("bad index");
+    git.setSubscription(1);
+    git.hydrateStatus(1, snap({ computed_at: 200, current_branch: "current" }));
+    expect(useGitStatusStore.getState().healthByFeature[1]).toMatchObject({
+      watcherError: "watch limit",
+    });
+    expect(useGitStatusStore.getState().healthByFeature[1]?.statusError).toBeUndefined();
+
+    git.setSubscription(1, "answered");
+    git.setStatus(snap({ computed_at: 190, current_branch: "old" }), null);
+    expect(useGitStatusStore.getState().byFeature[1]?.current_branch).toBe("current");
+    expect(useGitStatusStore.getState().healthByFeature[1]?.watcherError).toBeUndefined();
   });
 });
 

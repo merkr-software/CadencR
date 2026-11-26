@@ -11,7 +11,7 @@ use super::debouncer::now_ms;
 use super::handle::RecomputePing;
 use super::recompute;
 use super::registry::GitWatcherRegistry;
-use super::subscription::broadcast_envelope;
+use super::subscription::{broadcast_envelope, watcher_path};
 use crate::app_state::AppState;
 
 impl GitWatcherRegistry {
@@ -57,8 +57,7 @@ impl GitWatcherRegistry {
     /// `worktree_path` and broadcast the resulting `git.status` envelopes.
     #[cfg(test)]
     async fn recompute_now(&self, worktree_path: &Path, state: &AppState) {
-        let canonical =
-            std::fs::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
+        let canonical = watcher_path(worktree_path).await;
         recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
 
@@ -75,9 +74,7 @@ impl GitWatcherRegistry {
     /// Suppress self-induced fs events and synchronously confirm one fresh
     /// status (or status-error) snapshot for a user-initiated write.
     pub async fn confirm_after_write(&self, worktree_path: &Path, state: &AppState) {
-        let canonical = tokio::fs::canonicalize(worktree_path)
-            .await
-            .unwrap_or_else(|_| worktree_path.to_path_buf());
+        let canonical = watcher_path(worktree_path).await;
         self.nudge(&canonical).await;
         recompute::recompute_for_path(&self.inner, &canonical, state, None).await;
     }
@@ -91,7 +88,6 @@ impl GitWatcherRegistry {
         for (_, mut handle) in drained {
             handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
-            handle.compute_task.abort();
         }
     }
 }
