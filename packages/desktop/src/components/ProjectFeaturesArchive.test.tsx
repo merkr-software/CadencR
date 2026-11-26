@@ -32,7 +32,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-const mockFeatures = [
+const defaultMockFeatures = [
   {
     id: 1,
     title: "Feature One",
@@ -50,6 +50,8 @@ const mockFeatures = [
     created_at: "2026-01-02T00:00:00Z",
   },
 ];
+
+let currentMockFeatures = defaultMockFeatures;
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
@@ -80,7 +82,7 @@ vi.mock("@/api/generated", async (importOriginal) => ({
     }),
   ),
   useGetFeatureArchivePreview: mockUseArchivePreview,
-  useListFeatures: vi.fn(() => ({ data: mockFeatures })),
+  useListFeatures: vi.fn(() => ({ data: currentMockFeatures })),
   useListFeaturePorts: vi.fn(() => ({ data: [], error: null })),
   useListFeatureActivity: vi.fn(() => ({ data: [], error: null })),
   useUpdateFeatureStatus: vi.fn(
@@ -138,8 +140,8 @@ vi.mock("@/stores/ws-session-store", () => ({
   ),
 }));
 
-function renderProjectFeatures(activeFeatureId: number | null = null): void {
-  render(
+function renderProjectFeatures(activeFeatureId: number | null = null) {
+  return render(
     <ProjectFeatures
       projectId={1}
       projectPath="/test/path"
@@ -158,6 +160,7 @@ function openFeatureContextMenu(featureTitle: string): void {
 describe("ProjectFeatures archived section", () => {
   beforeEach(() => {
     // Fixture dates are fixed in the past: keep every conversation out of "Dormant".
+    currentMockFeatures = defaultMockFeatures;
     useSidebarConfigStore.setState({
       config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
     });
@@ -263,9 +266,9 @@ describe("ProjectFeatures archived section", () => {
     expect(screen.queryByText("Delete session?")).not.toBeInTheDocument();
   });
 
-  it("leaves the active chat route after archiving the current session", async () => {
+  it("leaves the active chat route without expanding archived when archiving the current session", async () => {
     const user = userEvent.setup();
-    renderProjectFeatures(1);
+    const { rerender } = renderProjectFeatures(1);
 
     openFeatureContextMenu("Feature One");
     await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
@@ -275,7 +278,72 @@ describe("ProjectFeatures archived section", () => {
     await waitFor(() => expect(mockDisconnectSession).toHaveBeenCalledWith("ws-feature-1"));
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/",
+      search: { projectId: 1 },
     });
+
+    // Simulate the cache flipping Feature One to archived before the route leaves feature 1.
+    currentMockFeatures = defaultMockFeatures.map((feature) =>
+      feature.id === 1 ? { ...feature, status: "archived" } : feature,
+    );
+    rerender(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={1}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /archived \(2\)/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByText("Archived Session")).not.toBeInTheDocument();
+  });
+
+  it("navigates to the next neighbor in the active sidebar sort order when archiving", async () => {
+    const user = userEvent.setup();
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never", conversationSort: "title" },
+    });
+    // Activity order is [Alpha, Zeta, Middle]; Title sort order is [Alpha, Middle, Zeta].
+    currentMockFeatures = [
+      {
+        id: 2,
+        title: "Alpha",
+        status: "active",
+        type: "ws-session",
+        project_id: 1,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: 1,
+        title: "Zeta",
+        status: "active",
+        type: "ws-session",
+        project_id: 1,
+        created_at: "2026-01-02T00:00:00Z",
+      },
+      {
+        id: 3,
+        title: "Middle",
+        status: "active",
+        type: "ws-session",
+        project_id: 1,
+        created_at: "2026-01-03T00:00:00Z",
+      },
+    ];
+    renderProjectFeatures(2);
+
+    openFeatureContextMenu("Alpha");
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: /archive/i }));
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId/features/$featureId",
+        params: { projectId: "1", featureId: "3" },
+      }),
+    );
   });
 
   it("shows unarchive and delete actions for archived session context menus", async () => {

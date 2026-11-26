@@ -53,6 +53,7 @@ function model(activeIndex: number): BrowserWorkspaceModel {
     reorderTab: vi.fn(),
     closeOtherTabs: vi.fn(),
     reopenLastClosedTab: vi.fn(),
+    revokeAgentAccess: vi.fn(),
   } as unknown as BrowserWorkspaceModel;
 }
 
@@ -152,5 +153,38 @@ describe("BrowserTabStrip", () => {
     expect(source).not.toHaveAttribute("data-dragging");
     expect(target).not.toHaveAttribute("data-drop-target");
     expect(workspace.reorderTab).not.toHaveBeenCalled();
+  });
+
+  it("shows a shared-with-agent badge and revoke menu item only for shared/agent http tabs", () => {
+    const workspace = model(1);
+    workspace.state.tabs[0] = { ...workspace.state.tabs[0], agentAccess: "shared" };
+    workspace.state.tabs[1] = { ...workspace.state.tabs[1], agentAccess: "agent" };
+    workspace.state.tabs[2] = {
+      ...workspace.state.tabs[2],
+      agentAccess: "shared",
+      url: "about:blank",
+    };
+    workspace.state.tabs[3] = { ...workspace.state.tabs[3], agentAccess: "user" };
+    render(<BrowserTabStrip model={workspace} />);
+
+    expect(screen.getAllByRole("img", { name: "Shared with agent" })).toHaveLength(3);
+
+    // Shared http(s) tab offers "Revoke agent access" and invokes revokeAgentAccess.
+    const sharedPill = screen.getByText("Tab 1").closest<HTMLElement>("[draggable='true']")!;
+    fireEvent.contextMenu(sharedPill);
+    const revokeItem = screen.getByRole("menuitem", { name: "Revoke agent access" });
+    expect(revokeItem).toBeInTheDocument();
+    fireEvent.click(revokeItem);
+    expect(workspace.revokeAgentAccess).toHaveBeenCalledWith(workspace.state.tabs[0]);
+
+    // Shared tab with non-http URL does not offer revoke.
+    const blankPill = screen.getByText("Tab 3").closest<HTMLElement>("[draggable='true']")!;
+    fireEvent.contextMenu(blankPill);
+    expect(screen.queryByRole("menuitem", { name: "Revoke agent access" })).not.toBeInTheDocument();
+
+    // Regular user tab does not offer revoke.
+    const userPill = screen.getByText("Tab 4").closest<HTMLElement>("[draggable='true']")!;
+    fireEvent.contextMenu(userPill);
+    expect(screen.queryByRole("menuitem", { name: "Revoke agent access" })).not.toBeInTheDocument();
   });
 });

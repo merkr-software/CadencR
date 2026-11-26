@@ -65,7 +65,7 @@ impl AccessMode {
         match self {
             Self::Default => "Enables Cursor's sandbox and uses its configured approval rules. Explicitly allowed calls run and unmatched calls ask for approval.",
             Self::FullAccess => "Starts Cursor with Run Everything enabled and disables the sandbox. Commands run without approval unless an explicit deny rule blocks them.",
-            Self::AutoReview => "Sandbox stays enabled. Ordinary shell allowlist misses are preflight-approved; MCP calls and explicit safety-policy requests still ask for approval.",
+            Self::AutoReview => "Sandbox stays enabled. Ordinary shell allowlist misses and eligible Cadencr MCP calls are approved once. Cursor handles other requests under its configured approval rules.",
         }
     }
 

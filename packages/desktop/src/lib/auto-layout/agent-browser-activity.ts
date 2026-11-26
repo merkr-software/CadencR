@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 
 import { desktopBridge } from "@/lib/desktop-bridge";
-import type { BrowserAgentActivity } from "@/shared/browser-types";
+import type { BrowserAgentAccessRequest, BrowserAgentActivity } from "@/shared/browser-types";
 import { useAutoLayoutStore } from "@/stores/auto-layout-store";
 
-import { requestAutoReveal } from "./auto-layout-controller";
+import { requestAutoReveal, revealOrActivateFeatureTab } from "./auto-layout-controller";
 
 /** How long the Browser tab keeps its "agent is driving" dot after the last call. */
 const ACTIVITY_LINGER_MS = 3_000;
@@ -28,15 +28,29 @@ export function handleAgentBrowserActivity({ scopeId, action }: BrowserAgentActi
   if (action === "open") requestAutoReveal(scopeId, "browser", "agent");
 }
 
+export function handleAgentBrowserAccessRequest(request: BrowserAgentAccessRequest): void {
+  if (request.scopeId === null) return;
+  useAutoLayoutStore.getState().setAgentBrowserActive(request.scopeId, true);
+  revealOrActivateFeatureTab(request.scopeId, "browser", "user-link");
+}
+
 /**
- * Keep one `browser:agent-activity` subscription alive while any feature
- * layout is mounted — every shell calls this, the IPC listener is shared.
+ * Keep one `browser:agent-activity` and `browser:agent-access-request`
+ * subscription alive while any feature layout is mounted — every shell calls
+ * this, the IPC listeners are shared.
  */
 export function useAgentBrowserActivityListener(): void {
   useEffect((): (() => void) => {
     listenerCount += 1;
     if (listenerCount === 1) {
-      unsubscribe = desktopBridge.onBrowserAgentActivity(handleAgentBrowserActivity);
+      const offActivity = desktopBridge.onBrowserAgentActivity(handleAgentBrowserActivity);
+      const offAccessRequest = desktopBridge.onBrowserAgentAccessRequest(
+        handleAgentBrowserAccessRequest,
+      );
+      unsubscribe = (): void => {
+        offActivity();
+        offAccessRequest();
+      };
     }
     return (): void => {
       listenerCount -= 1;

@@ -15,7 +15,7 @@ use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
 use super::prompt_send_entry::report_prompt_result;
 use super::prompt_validation;
 use crate::domain::ws_session::runtime::prompt::prompt_followup::{
-    handle_followup_prompt, FollowupPromptContext,
+    handle_followup_prompt, DeliveryWait, FollowupPromptContext,
 };
 use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::{
     apply_respawn_if_needed, dispatch_changes, log_dispatch_decision, notify_deferred_respawn,
@@ -195,7 +195,7 @@ pub(super) fn build_followup_context(
         active_turns: app_state.active_turns.clone(),
         provider_id,
         internal_replay: false,
-        wait_for_delivery: false,
+        delivery_wait: DeliveryWait::None,
     }
 }
 

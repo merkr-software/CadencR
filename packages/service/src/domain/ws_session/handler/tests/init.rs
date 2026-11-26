@@ -414,7 +414,7 @@ async fn claude_init_downgrades_bypass_without_capability() {
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let app_state = make_test_app_state().await;
 
-    let session_id = init_session_with_payload(
+    let response = init_session_and_get_response(
         &tx,
         &mut rx,
         &sdk_sessions,
@@ -430,6 +430,12 @@ async fn claude_init_downgrades_bypass_without_capability() {
         },
     )
     .await;
+    assert_eq!(
+        response.permission_mode.as_deref(),
+        Some("auto"),
+        "initialized payload must report the downgraded mode"
+    );
+    let session_id = response.session_id;
 
     let sessions = sdk_sessions.lock().await;
     let handle = sessions.get(&session_id.parse::<i64>().unwrap()).unwrap();
@@ -442,6 +448,13 @@ async fn claude_init_downgrades_bypass_without_capability() {
         Some(RuntimePermissionMode::Auto),
         "bypass without the capability must downgrade to the Claude default"
     );
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE id = ?")
+            .bind(session_id.parse::<i64>().unwrap())
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(stored.as_deref(), Some("auto"));
 }
 
 #[tokio::test]

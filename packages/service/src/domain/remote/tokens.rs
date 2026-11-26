@@ -122,17 +122,23 @@ pub async fn verify_device_token(
     presented: &str,
 ) -> Option<i64> {
     let hash = hash_token(pepper, presented);
-    let generation = match cache.lookup_or_gen(&hash, Instant::now()) {
-        Ok(device_id) => return Some(device_id),
-        Err(generation) => generation,
-    };
-    match repo::find_active_device_hash(pool, &hash).await {
-        Ok(Some((id, stored))) if constant_time_str_eq(&stored, &hash) => {
-            cache.insert_if_gen(hash, id, generation, Instant::now());
-            Some(id)
+    // Re-read if revocation raced this lookup. The generation covers every
+    // device, so an unrelated revocation can also invalidate the first read.
+    for _ in 0..2 {
+        let generation = match cache.lookup_or_gen(&hash, Instant::now()) {
+            Ok(device_id) => return Some(device_id),
+            Err(generation) => generation,
+        };
+        match repo::find_active_device_hash(pool, &hash).await {
+            Ok(Some((id, stored))) if constant_time_str_eq(&stored, &hash) => {
+                if cache.insert_if_gen(hash.clone(), id, generation, Instant::now()) {
+                    return Some(id);
+                }
+            }
+            _ => return None,
         }
-        _ => None,
     }
+    None
 }
 
 #[cfg(test)]

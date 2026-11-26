@@ -126,7 +126,7 @@ export class BrowserPopupController {
     try {
       assertNativePopupUrl(tab.webContents.getURL(), details.url);
     } catch (error) {
-      this.host.reportError(error, tab.metadata.scopeId);
+      console.debug("[browser] popup URL denied", details.url, error);
       return { action: "deny" };
     }
     const allowed = gesture || grant;

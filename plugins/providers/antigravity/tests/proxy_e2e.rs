@@ -743,6 +743,56 @@ async fn steering_acknowledges_both_prompts_while_the_original_command_finishes(
 }
 
 #[tokio::test]
+async fn steering_emits_user_message_chunk_when_native_transcript_ingests_the_steer() {
+    let fixture = Fixture::new("steer-receipt");
+    let (mut host, session) = session_with_mcp(&fixture).await;
+    let first = host
+        .start_request("session/prompt", prompt(&session, "Start command"))
+        .await;
+    assert_eq!(host.next_update(&session).await["name"], "Bash");
+    let steer = host
+        .start_request(
+            "session/prompt",
+            json!({
+                "sessionId": session,
+                "messageId": "steer-receipt-uuid",
+                "prompt": [{"type": "text", "text": "Also run step two"}],
+            }),
+        )
+        .await;
+    assert_eq!(
+        host.response(first).await["result"]["stopReason"],
+        "end_turn"
+    );
+    // While the command is still running and the steer is not in transcript_full.jsonl yet,
+    // no user_message_chunk receipt is emitted.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), host.next())
+            .await
+            .is_err(),
+        "steer must not be acknowledged before agy ingests it"
+    );
+    host.send(json!({
+        "jsonrpc": "2.0",
+        "method": "fixture/ingest-steer",
+        "params": { "text": "Also run step two" },
+    }))
+    .await;
+    let receipt = host.next_update(&session).await;
+    assert_eq!(receipt["sessionUpdate"], "user_message_chunk");
+    assert_eq!(receipt["messageId"], "steer-receipt-uuid");
+    assert_eq!(receipt["content"]["text"], "Also run step two");
+
+    host.send(json!({"jsonrpc":"2.0","method":"fixture/finish-steer","params":{}}))
+        .await;
+    assert_eq!(
+        host.response(steer).await["result"]["stopReason"],
+        "end_turn"
+    );
+    host.close().await;
+}
+
+#[tokio::test]
 async fn command_and_timer_completion_keep_working_until_the_native_wake_finishes() {
     for name in ["run_command", "schedule"] {
         let fixture = Fixture::new("background-wake");

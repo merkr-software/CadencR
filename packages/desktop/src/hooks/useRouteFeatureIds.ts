@@ -28,6 +28,13 @@ export function useRouteFeatureId(): number | null {
   });
 }
 
+/** True on the home screen (`/`), where no conversation is open. */
+export function useIsHomeRoute(): boolean {
+  return useRouterState({
+    select: (state) => state.location.pathname === "/",
+  });
+}
+
 /**
  * The project and conversation the current route shows, from its path or search
  * params. Selects plain values, so other router updates don't re-render callers,

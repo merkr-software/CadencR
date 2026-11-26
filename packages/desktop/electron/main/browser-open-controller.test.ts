@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserAutomationAuthority } from "./browser-automation-authority";
 import type { BrowserInspectionController } from "./browser-inspection-controller";
 import { metadataFor } from "./browser-manager-utils";
-import { BrowserOpenController } from "./browser-open-controller";
+import { BrowserOpenController, type BrowserOpenHost } from "./browser-open-controller";
 import { setBrowserRemoteOrigins } from "./runtime-config";
 import type { ManagedTab } from "./browser-tab-events";
 
@@ -30,7 +30,10 @@ function opener(finalUrl: string) {
     tab.metadata = { ...tab.metadata, url };
     return tab.metadata;
   });
-  const host = {
+  const host: BrowserOpenHost & {
+    navigate: typeof navigate;
+    createAgentTab: ReturnType<typeof vi.fn>;
+  } = {
     activeTabId: () => null,
     navigate,
     createAgentTab: vi.fn((url: string) => navigate("tab", url)),
@@ -80,5 +83,43 @@ describe("agent URL opening", () => {
       controller.openExternal("https://approved.test/", { scopeId: 7 }),
     ).resolves.toMatchObject({ url: "https://approved.test/dashboard" });
     expect(tab.externalAutomationOrigin).toBe("https://approved.test");
+  });
+
+  it("skips ensureAgentAccess when replacing an already-shared or agent tab and updates externalAutomationOrigin before navigate", async () => {
+    const { controller, tab, host } = opener("http://localhost:3000/ready");
+    tab.automationAccess = "shared";
+    tab.metadata = { ...tab.metadata, url: "https://previous.example.com/" };
+    tab.externalAutomationOrigin = "https://previous.example.com";
+    const ensureAgentAccess = vi.fn(async () => undefined);
+    let originAtNavigate: string | null = null;
+    host.ensureAgentAccess = ensureAgentAccess;
+    host.navigate.mockImplementation((_id: string, url: string) => {
+      originAtNavigate = tab.externalAutomationOrigin;
+      tab.metadata = { ...tab.metadata, url };
+      return tab.metadata;
+    });
+
+    await expect(
+      controller.open("http://localhost:3000/ready", { scopeId: 7, tabId: "tab" }),
+    ).resolves.toMatchObject({ url: "http://localhost:3000/ready" });
+    expect(ensureAgentAccess).not.toHaveBeenCalled();
+    expect(originAtNavigate).toBe("http://localhost:3000");
+  });
+
+  it("prompts via ensureAgentAccess with allowBlank, targetUrl, and signal for an unshared user tab", async () => {
+    const { controller, tab, host } = opener("http://localhost:3000/app");
+    tab.automationAccess = "user";
+    const abort = new AbortController();
+    const ensureAgentAccess = vi.fn(async () => {
+      tab.automationAccess = "shared";
+    });
+    host.ensureAgentAccess = ensureAgentAccess;
+
+    await controller.open("http://localhost:3000/app", { scopeId: 7, tabId: "tab" }, abort.signal);
+    expect(ensureAgentAccess).toHaveBeenCalledWith("tab", 7, {
+      allowBlank: true,
+      targetUrl: "http://localhost:3000/app",
+      signal: abort.signal,
+    });
   });
 });

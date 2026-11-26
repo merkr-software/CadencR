@@ -9,11 +9,11 @@ use super::store::{self, Pick, QueueOrigin, QueueRow};
 use crate::domain::mcp::control::message_queue as agent_messages;
 
 /// Deliver the oldest pending prompt right after a turn finished; true when
-/// one was sent. The caller (the stream reader's post-result hook) has already
-/// checked that no permission or question waits on the user; the finished
-/// turn's owner is still registered at that point, which is what routes the
-/// prompt into it. A failed delivery is recorded on the prompt's row, which
-/// the queue shows; only the log can carry a failure to read the queue.
+/// one was sent. Spawned off the stream reader so ACP turns never deadlock on
+/// `message_rx`; `drain_if_idle` serializes per session and re-checks that no
+/// turn or gate is active before claiming a row. A failed delivery is recorded
+/// on the prompt's row, which the queue shows; only the log can carry a failure
+/// to read the queue.
 pub async fn drain_next_after_turn(state: &AppState, session_id: i64) -> bool {
     match drain_next_if_idle(state, session_id).await {
         Ok(delivered) => delivered,
@@ -70,14 +70,21 @@ async fn drain_if_idle(
     let mut delivered = false;
     let mut last_error = None;
     loop {
-        // Every finished turn lands here; an empty queue must not cost a write.
-        if !store::has_pending(&state.read_pool, session_id, pick).await?
-            || !session_is_idle(state, session_id).await?
-        {
-            break;
-        }
-        let Some(prompt) = store::claim(&state.write_pool, session_id, pick).await? else {
-            break;
+        let prompt = {
+            // Serialize the idle check + claim (not the delivery RPC itself) so
+            // concurrent drains cannot both observe idle and claim back-to-back
+            // rows, while enqueuing during an in-flight delivery stays non-blocking.
+            let _drain = state.active_turns.lock_prompt_queue_drain(session_id).await;
+            // Every finished turn lands here; an empty queue must not cost a write.
+            if !store::has_pending(&state.read_pool, session_id, pick).await?
+                || !session_is_idle(state, session_id).await?
+            {
+                break;
+            }
+            let Some(prompt) = store::claim(&state.write_pool, session_id, pick).await? else {
+                break;
+            };
+            prompt
         };
         let origin = prompt.origin_kind;
         match deliver(state, prompt).await {

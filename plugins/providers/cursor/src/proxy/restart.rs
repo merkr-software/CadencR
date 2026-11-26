@@ -133,7 +133,7 @@ impl Proxy {
     async fn restore_session(&self, session_id: &str) -> Result<(), RpcError> {
         let (params, mode, model) = {
             let mut state = self.state();
-            let Some(session) = state.sessions.get(session_id) else {
+            let Some(session) = state.sessions.get_mut(session_id) else {
                 return Ok(());
             };
             let params = json!({
@@ -146,7 +146,9 @@ impl Proxy {
             state.suppressed.insert(session_id.to_string());
             (params, mode, model)
         };
-        let loaded = self.child().peer.request("session/load", params).await;
+        let loaded = self
+            .load_with_inventory(session_id, "session/load", params)
+            .await;
         self.state().suppressed.remove(session_id);
         let loaded = loaded.map_err(|error| {
             RpcError::new(

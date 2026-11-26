@@ -51,6 +51,13 @@ impl LiveStatusBook {
             .is_some_and(|entry| entry.status == AgentStatus::Question)
     }
 
+    pub(super) fn busy_non_gate_feature_id(&self, session_id: i64) -> Option<i64> {
+        self.sessions
+            .get(&session_id)
+            .filter(|entry| entry.status == AgentStatus::Agent)
+            .map(|entry| entry.feature_id)
+    }
+
     pub(super) fn seq(&self) -> u64 {
         self.seq
     }

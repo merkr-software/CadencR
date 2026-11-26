@@ -20,7 +20,7 @@ use super::schema_bridge::permission_response_value;
 use super::session_permissions::PermissionKey;
 use super::session_permissions::SessionPermissions;
 use super::trusted_mcp_permissions::try_auto_allow_trusted_cadencr_browser_permission;
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 /// One pending `session/request_permission` server request awaiting the
 /// user's decision. Tracks the raw ACP server-request id so we can echo the
@@ -110,7 +110,8 @@ pub async fn dispatch_permission_request_with_cache(
     client: &AcpClient,
     pending: &PendingPermissions,
     session_permissions: &SessionPermissions,
-    browser_trust: CadencrBrowserTrust,
+    browser_trust: CadencrMcpTrust,
+    attached_option: Option<&str>,
     session_id: Option<String>,
     request_id: &str,
     raw_id: Value,
@@ -118,6 +119,16 @@ pub async fn dispatch_permission_request_with_cache(
     params: &Value,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> Result<(), RuntimeError> {
+    if let Some(option) = attached_option {
+        let payload =
+            permission_response_value(RuntimePermissionDecision::AllowOnce, Some(option), None);
+        return client
+            .respond_server_request(raw_id, payload)
+            .await
+            .map_err(|error| {
+                RuntimeError::new(format!("failed to answer attached MCP permission: {error}"))
+            });
+    }
     if try_auto_allow_trusted_cadencr_browser_permission(
         client,
         browser_trust,

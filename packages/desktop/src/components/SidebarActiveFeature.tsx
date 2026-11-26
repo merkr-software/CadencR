@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactElement,
@@ -13,11 +14,11 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { PendingGateHost } from "@/components/sidebar-gate-popover/PendingGateHost";
 import { SidebarAttentionShortcuts } from "@/components/SidebarShortcuts";
 import { SidebarSections } from "@/components/SidebarSections";
-import { useRouteFeatureId, useRouteProjectId } from "@/hooks/useRouteFeatureIds";
+import { useIsHomeRoute, useRouteFeatureId, useRouteProjectId } from "@/hooks/useRouteFeatureIds";
 import { useSidebarKeyboardNavigation } from "@/hooks/useSidebarKeyboardNavigation";
 
 interface SidebarSelection {
-  /** The row last opened from the sidebar: it stays active on pages that show no conversation. */
+  /** The last active conversation: remembered on non-home pages (e.g. Settings), cleared on `/`. */
   selectedFeatureId: number | null;
 }
 
@@ -35,8 +36,28 @@ export function SidebarActiveFeatureProvider({ children }: { children: ReactNode
     createStore<SidebarSelection>(() => ({ selectedFeatureId: null })),
   );
   return (
-    <SidebarSelectionContext.Provider value={store}>{children}</SidebarSelectionContext.Provider>
+    <SidebarSelectionContext.Provider value={store}>
+      <SidebarSelectionRouteSync />
+      {children}
+    </SidebarSelectionContext.Provider>
   );
+}
+
+/**
+ * Keeps the remembered sidebar selection in sync with route navigations that
+ * bypass row clicks (such as archiving or deleting the open conversation), and
+ * clears it on the home screen where no conversation is open.
+ */
+function SidebarSelectionRouteSync(): null {
+  const store = useSelectionStore();
+  const routeFeatureId = useRouteFeatureId();
+  const isHome = useIsHomeRoute();
+  useEffect(() => {
+    const current = store.getState().selectedFeatureId;
+    const next = routeFeatureId ?? (isHome ? null : current);
+    if (next !== current) store.setState({ selectedFeatureId: next });
+  }, [isHome, routeFeatureId, store]);
+  return null;
 }
 
 function useSelectionStore(): SidebarSelectionStore {
@@ -49,7 +70,7 @@ interface SidebarActiveIds {
   activeProjectId: number | null;
   /** The conversation on screen (the route's); null on any other page. */
   routeFeatureId: number | null;
-  /** The route's conversation, else the row last selected. */
+  /** The route's conversation, else the row last selected (null on the home screen). */
   effectiveFeatureId: number | null;
 }
 
@@ -57,8 +78,11 @@ interface SidebarActiveIds {
 function useSidebarActiveIds(): SidebarActiveIds {
   const activeProjectId = useRouteProjectId();
   const routeFeatureId = useRouteFeatureId();
-  const selectedFeatureId = useStore(useSelectionStore(), (state) => state.selectedFeatureId);
-  const effectiveFeatureId = routeFeatureId ?? selectedFeatureId;
+  const isHome = useIsHomeRoute();
+  const effectiveFeatureId = useStore(
+    useSelectionStore(),
+    (state) => routeFeatureId ?? (isHome ? null : state.selectedFeatureId),
+  );
   return useMemo(
     () => ({ activeProjectId, routeFeatureId, effectiveFeatureId }),
     [activeProjectId, effectiveFeatureId, routeFeatureId],

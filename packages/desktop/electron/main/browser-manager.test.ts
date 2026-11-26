@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as runtime from "./runtime-config";
 import { setBrowserRemoteOrigins } from "./runtime-config";
 
 const buildContextMenu = vi.hoisted(() =>
@@ -197,6 +198,7 @@ vi.mock("electron", () => {
 
 const { BrowserManager } = await import("./browser-manager");
 const { BrowserLibraryController } = await import("./browser-library-controller");
+const { dispatchBrowserMcpTool } = await import("./browser-mcp-dispatch");
 const { WebContentsView } = await import("electron");
 type BrowserTabSessionStore = import("./browser-tab-session-store").BrowserTabSessionStore;
 type RestorableBrowserScope = import("./browser-tab-session-store").RestorableBrowserScope;
@@ -710,21 +712,33 @@ describe("BrowserManager", () => {
     expect(manager.state().activeTabId).toBe(a.id);
   });
 
-  it("reuses an explicitly shared scoped tab without changing its profile", async () => {
-    const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
-    const tab = manager.createTab(undefined, "fresh", 1);
+  it("prompts for approval before reusing an unshared scoped tab and reuses it once approved", async () => {
+    const win = mainWindow();
+    const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+    const tab = manager.createTab(undefined, "default", 1);
     const contents = [...webContentsById.values()][0];
     contents.getURL.mockReturnValue("http://localhost:3000/start");
 
-    await expect(manager.openUrl("http://localhost:3000/blocked", { scopeId: 1 })).rejects.toThrow(
-      "not shared",
-    );
-    manager.site.setSharing(tab.id, "http://localhost:3000", true);
+    const denied = manager.openUrl("http://localhost:3000/blocked", { scopeId: 1 });
+    await vi.waitFor(() => expect(manager.agentAccess.list(1)).toHaveLength(1));
+    const deniedRequest = manager.agentAccess.list(1)[0];
+    expect(deniedRequest).toMatchObject({
+      tabId: tab.id,
+      privacy: "normal",
+      targetUrl: "http://localhost:3000/blocked",
+    });
+    manager.agentAccess.resolve(deniedRequest.requestId, false);
+    await expect(denied).rejects.toThrow("denied");
+    expect(contents.loadURL).not.toHaveBeenCalled();
 
-    const result = await manager.openUrl("http://localhost:3000/next", { scopeId: 1 });
+    const approved = manager.openUrl("http://localhost:3000/next", { scopeId: 1 });
+    await vi.waitFor(() => expect(manager.agentAccess.list(1)).toHaveLength(1));
+    manager.agentAccess.resolve(manager.agentAccess.list(1)[0].requestId, true);
+    const result = await approved;
 
     expect(result.id).toBe(tab.id);
-    expect(result.sessionProfileId).toBe("fresh");
+    expect(result.sessionProfileId).toBe("default");
+    expect(result.agentAccess).toBe("shared");
     expect(manager.state(1).tabs.map((t) => t.id)).toEqual([tab.id]);
     expect(contents.loadURL).toHaveBeenCalledWith("http://localhost:3000/next");
   });
@@ -1166,7 +1180,7 @@ describe("BrowserManager", () => {
     );
     expect(stateEmits).toEqual([]);
     expect(Object.keys(manager.state(1)).sort()).toEqual(
-      ["activeTabId", "error", "scopeId", "tabs"].sort(),
+      ["activeTabId", "error", "scopeId", "tabError", "tabs"].sort(),
     );
     const automation = manager.automationState(1);
     expect(automation.activeTabId).toBe(tab.id);
@@ -1771,19 +1785,23 @@ describe("BrowserManager", () => {
 
       failLoad(failing, "https://bad.invalid/");
 
-      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
-      expect(manager.state(2).error).toBeNull();
+      expect(manager.state(1).tabError).toMatchObject({
+        kind: "load",
+        code: "ERR_NAME_NOT_RESOLVED",
+        url: "https://bad.invalid/",
+      });
+      expect(manager.state(2).tabError).toBeNull();
 
       // A successful navigation in another feature must not erase this one's error.
       manager.navigate(second.id, "https://example.com/");
       healthy.emit("did-start-loading");
       healthy.emit("did-navigate");
-      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
-      expect(manager.state(2).error).toBeNull();
+      expect(manager.state(1).tabError?.code).toBe("ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(2).tabError).toBeNull();
 
       // The failing tab's own recovery clears it.
       failing.emit("did-navigate");
-      expect(manager.state(1).error).toBeNull();
+      expect(manager.state(1).tabError).toBeNull();
     });
 
     it("shows the active tab's error and brings it back when that tab is reactivated", async () => {
@@ -1794,15 +1812,15 @@ describe("BrowserManager", () => {
 
       await manager.activateTab(failingTab.id);
       failLoad(failing, "http://127.0.0.1:9/");
-      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(1).tabError?.url).toBe("http://127.0.0.1:9/");
 
       valid.emit("did-navigate");
       await manager.activateTab(validTab.id);
       expect(manager.state(1).activeTabId).toBe(validTab.id);
-      expect(manager.state(1).error).toBeNull();
+      expect(manager.state(1).tabError).toBeNull();
 
       await manager.activateTab(failingTab.id);
-      expect(manager.state(1).error).toBe("http://127.0.0.1:9/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(1).tabError?.url).toBe("http://127.0.0.1:9/");
     });
 
     it("publishes a tab failure once, and nothing for a repeat or a closed tab", async () => {
@@ -1847,7 +1865,7 @@ describe("BrowserManager", () => {
       failLoad(failing, "https://bad.invalid/");
       sibling.emit("did-navigate");
       await manager.activateTab(failingTab.id);
-      expect(manager.state(1).error).toBe("https://bad.invalid/: ERR_NAME_NOT_RESOLVED");
+      expect(manager.state(1).tabError?.url).toBe("https://bad.invalid/");
     });
 
     it("clears a feature-wide error on that feature's next navigation only", () => {
@@ -1889,10 +1907,10 @@ describe("BrowserManager", () => {
 
       await manager.activateTab(failingTab.id);
       failLoad(failing, "https://bad.invalid/");
-      expect(manager.state(1).error).not.toBeNull();
+      expect(manager.state(1).tabError).not.toBeNull();
 
       await manager.closeTab(failingTab.id);
-      expect(manager.state(1).error).toBeNull();
+      expect(manager.state(1).tabError).toBeNull();
     });
 
     it("ignores a late load failure from a tab that is already closed", async () => {
@@ -1902,7 +1920,256 @@ describe("BrowserManager", () => {
       await manager.closeTab(tab.id);
 
       failLoad(contents, "https://bad.invalid/");
-      expect(manager.state(1).error).toBeNull();
+      expect(manager.state(1).tabError).toBeNull();
+    });
+
+    it("clears scope and tab errors via clearError and emits state", () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+
+      failLoad(contents, "https://bad.invalid/");
+      expect(manager.state(1).tabError).not.toBeNull();
+      win.webContents.send.mockClear();
+
+      manager.clearError(1, tab.id);
+      expect(manager.state(1).tabError).toBeNull();
+      expect(win.webContents.send).toHaveBeenCalledWith(
+        "browser:state",
+        expect.objectContaining({ scopeId: 1, tabError: null }),
+      );
+    });
+
+    it("detaches only the failing tab's guest view while keeping DevTools and other features' views attached", () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tabA = manager.createTab("https://app.example.com/", "fresh", 1);
+      const tabB = manager.createTab("https://other.example.com/", "fresh", 2);
+      const [viewA, viewB] = createdViews;
+      const [contentsA] = [...webContentsById.values()];
+
+      manager.setBounds({ x: 0, y: 0, width: 800, height: 600 }, 1);
+      manager.setBounds({ x: 0, y: 0, width: 800, height: 600 }, 2);
+      manager.toggleDevTools(tabA.id);
+      const devToolsViewA = createdViews[2];
+      expect(tabB.id).toBeTruthy();
+
+      win.contentView.removeChildView.mockClear();
+      win.contentView.addChildView.mockClear();
+
+      failLoad(contentsA, "https://missing.invalid/");
+      expect(win.contentView.removeChildView).toHaveBeenCalledWith(viewA);
+      expect(win.contentView.removeChildView).not.toHaveBeenCalledWith(viewB);
+      expect(win.contentView.removeChildView).not.toHaveBeenCalledWith(devToolsViewA);
+
+      // Clearing the error reattaches the failing tab's guest view.
+      manager.clearError(1, tabA.id);
+      expect(win.contentView.addChildView).toHaveBeenCalledWith(viewA);
+    });
+
+    it("retries the failed URL on toolbar reload() after did-fail-load", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab(undefined, "fresh", 1);
+      const [contents] = [...webContentsById.values()];
+
+      failLoad(contents, "http://localhost:5173/dashboard");
+      contents.loadURL.mockClear();
+      contents.reload.mockClear();
+
+      manager.page.reload(tab.id);
+      expect(contents.loadURL).toHaveBeenCalledWith("http://localhost:5173/dashboard");
+      expect(contents.reload).not.toHaveBeenCalled();
+      expect(manager.state(1).tabError).toBeNull();
+    });
+  });
+
+  describe("agent access review fixes", () => {
+    it("prompts for a dormant tab without waking it until Allow, and keeps it dormant on Deny", async () => {
+      const win = mainWindow();
+      const { store } = tabSessionStore({
+        tabs: [
+          {
+            title: "Dormant Docs",
+            url: "https://docs.example.com/guide",
+            sessionProfileId: "default",
+            pinned: false,
+          },
+        ],
+        activeIndex: 0,
+      });
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow, store);
+      const snapshot = await manager.restoreScopeMetadata(31);
+      const dormantId = snapshot.tabs[0].id;
+      expect(createdViews).toHaveLength(0);
+
+      // Deny path: never wakes WebContents.
+      const denied = manager.ensureAgentAccess(dormantId, 31, { allowBlank: false });
+      await vi.waitFor(() =>
+        expect(win.webContents.send).toHaveBeenCalledWith(
+          "browser:agent-access-request",
+          expect.objectContaining({ tabId: dormantId, url: "https://docs.example.com/guide" }),
+        ),
+      );
+      expect(createdViews).toHaveLength(0);
+      const denyReq = win.webContents.send.mock.calls.find(
+        ([channel]) => channel === "browser:agent-access-request",
+      )?.[1] as { requestId: string };
+      manager.agentAccess.resolve(denyReq.requestId, false);
+      await expect(denied).rejects.toThrow("user denied agent access");
+      expect(createdViews).toHaveLength(0);
+      expect(manager.state(31).tabs[0].suspended).toBe(true);
+
+      // Allow path: wakes after consent and grants shared access.
+      win.webContents.send.mockClear();
+      const allowed = manager.ensureAgentAccess(dormantId, 31, { allowBlank: false });
+      await vi.waitFor(() =>
+        expect(win.webContents.send).toHaveBeenCalledWith(
+          "browser:agent-access-request",
+          expect.objectContaining({ tabId: dormantId }),
+        ),
+      );
+      expect(createdViews).toHaveLength(0);
+      const allowReq = win.webContents.send.mock.calls.find(
+        ([channel]) => channel === "browser:agent-access-request",
+      )?.[1] as { requestId: string };
+      manager.agentAccess.resolve(allowReq.requestId, true);
+      await expect(allowed).resolves.toBeUndefined();
+      expect(createdViews).toHaveLength(1);
+      expect(manager.automation.isSharedOrAgent(dormantId, 31)).toBe(true);
+    });
+
+    it("revokes shared access back to user on cross-origin navigation and redirect", () => {
+      const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab("https://app.example.com/home", "fresh", 32);
+      const [contents] = [...webContentsById.values()];
+      contents.getURL.mockReturnValue("https://app.example.com/home");
+      manager.site.setSharing(tab.id, "https://app.example.com", true);
+      expect(manager.automation.isSharedOrAgent(tab.id, 32)).toBe(true);
+
+      contents.emit("did-start-navigation", {
+        url: "https://other.example.com/",
+        isMainFrame: true,
+        isSameDocument: false,
+      });
+      expect(manager.automation.isSharedOrAgent(tab.id, 32)).toBe(false);
+      expect(manager.state(32).tabs[0].agentAccess).toBe("user");
+
+      contents.getURL.mockReturnValue("https://app.example.com/home");
+      manager.site.setSharing(tab.id, "https://app.example.com", true);
+      contents.emit("will-redirect", {
+        url: "https://evil.example.com/",
+        isMainFrame: true,
+        preventDefault: vi.fn(),
+      });
+      expect(manager.automation.isSharedOrAgent(tab.id, 32)).toBe(false);
+      expect(manager.state(32).tabs[0].agentAccess).toBe("user");
+    });
+
+    it("returns console and network logs for a background shared non-loopback HTTP tab", async () => {
+      const refreshSpy = vi
+        .spyOn(runtime, "refreshBrowserOriginPolicy")
+        .mockResolvedValue(undefined);
+      try {
+        const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
+        const background = manager.createTab("http://staging.internal/app", "fresh", 33);
+        const [bgContents] = [...webContentsById.values()];
+        bgContents.getURL.mockReturnValue("http://staging.internal/app");
+        manager.site.setSharing(background.id, "http://staging.internal", true);
+
+        bgContents.emit("console-message", {
+          level: "error",
+          message: "staging failure",
+          lineNumber: 42,
+          sourceId: "http://staging.internal/main.js",
+        });
+        const onCompleted = (
+          bgContents.session.webRequest as { onCompleted: ReturnType<typeof vi.fn> }
+        ).onCompleted.mock.calls[0]?.[0] as
+          | ((details: Record<string, unknown>) => void)
+          | undefined;
+        onCompleted?.({
+          id: 99,
+          webContentsId: bgContents.id,
+          method: "GET",
+          url: "http://staging.internal/api/status",
+          statusCode: 500,
+          responseHeaders: {},
+          resourceType: "xhr",
+        });
+
+        const foreground = manager.createTab("http://localhost:3000/", "fresh", 33);
+        expect(manager.state(33).activeTabId).toBe(foreground.id);
+
+        const consoleResult = await dispatchBrowserMcpTool(
+          manager,
+          "browser_get_console",
+          { tab_id: background.id },
+          33,
+        );
+        expect(JSON.parse(consoleResult.text)).toEqual([
+          expect.objectContaining({
+            tabId: background.id,
+            message: "staging failure",
+            sourceUrl: "http://staging.internal/main.js",
+          }),
+        ]);
+
+        const networkResult = await dispatchBrowserMcpTool(
+          manager,
+          "browser_get_network",
+          { tab_id: background.id },
+          33,
+        );
+        expect(JSON.parse(networkResult.text)).toEqual([
+          expect.objectContaining({
+            url: "http://staging.internal/api/status",
+            status: 500,
+          }),
+        ]);
+      } finally {
+        refreshSpy.mockRestore();
+      }
+    });
+
+    it("allows revoking access after a failed load and resolves pending banner when shared via Site Info", async () => {
+      const win = mainWindow();
+      const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+      const tab = manager.createTab("https://app.example.com/home", "fresh", 34);
+      const [contents] = [...webContentsById.values()];
+      contents.getURL.mockReturnValue("https://app.example.com/home");
+
+      // Pending approval banner resolves immediately when user shares via Site Info.
+      const pending = manager.ensureAgentAccess(tab.id, 34, { allowBlank: false });
+      await vi.waitFor(() =>
+        expect(win.webContents.send).toHaveBeenCalledWith(
+          "browser:agent-access-request",
+          expect.objectContaining({ tabId: tab.id }),
+        ),
+      );
+      const req = win.webContents.send.mock.calls.find(
+        ([channel]) => channel === "browser:agent-access-request",
+      )?.[1] as { requestId: string };
+
+      manager.site.setSharing(tab.id, "https://app.example.com", true);
+      await expect(pending).resolves.toBeUndefined();
+      expect(win.webContents.send).toHaveBeenCalledWith("browser:agent-access-request-cancelled", {
+        requestId: req.requestId,
+      });
+
+      // Revoking still works even after a failed load leaves live URL blank.
+      contents.getURL.mockReturnValue("about:blank");
+      contents.emit(
+        "did-fail-load",
+        {},
+        -105,
+        "ERR_NAME_NOT_RESOLVED",
+        "https://bad.invalid/",
+        true,
+      );
+      const revoked = manager.site.setSharing(tab.id, "https://app.example.com", false);
+      expect(revoked.agentAccess).toBe("user");
+      expect(manager.automation.isSharedOrAgent(tab.id, 34)).toBe(false);
     });
   });
 });

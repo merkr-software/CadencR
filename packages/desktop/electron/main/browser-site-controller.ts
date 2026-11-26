@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Session, WebContents } from "electron";
-import { browserPartitionForProfile, type BrowserProfile } from "./browser-profiles";
+import { applyTabAgentAccess } from "./browser-manager-utils";
+import {
+  browserPartitionForProfile,
+  privacyForProfileMode,
+  type BrowserProfile,
+} from "./browser-profiles";
 import { BrowserSitePermissionStore } from "./browser-site-permission-store";
 import { BrowserSiteDecisions } from "./browser-site-decisions";
 import { clearDataForOrigin } from "./browser-site-data";
@@ -24,7 +29,7 @@ const REQUEST_TIMEOUT_MS = 60_000;
 
 export type BrowserSiteTab = Pick<
   ManagedTab,
-  "metadata" | "profile" | "automationAccess" | "webContents"
+  "metadata" | "profile" | "automationAccess" | "externalAutomationOrigin" | "webContents"
 >;
 
 interface RegisteredTab {
@@ -113,12 +118,7 @@ export class BrowserSiteController {
       origin,
       secure: origin?.startsWith("https://") === true,
       profile: profileMetadata(tab.profile),
-      privacy:
-        tab.profile.mode === "persistent"
-          ? "normal"
-          : tab.profile.mode === "fresh"
-            ? "private"
-            : "feature",
+      privacy: privacyForProfileMode(tab.profile.mode),
       permissions: this.decisions.forOrigin(tab, origin),
       agentAccess: tab.automationAccess,
     };
@@ -136,10 +136,14 @@ export class BrowserSiteController {
     return this.info(tab);
   }
 
-  setAgentAccess(tab: BrowserSiteTab, origin: string, shared: boolean): BrowserSiteInfo {
-    this.requireCurrentOrigin(tab, origin);
-    tab.automationAccess = shared ? "shared" : "user";
-    return this.info(tab);
+  setAgentAccess(
+    tab: BrowserSiteTab,
+    origin: string,
+    shared: boolean,
+  ): { info: BrowserSiteInfo; changed: boolean } {
+    if (shared) this.requireCurrentOrigin(tab, origin);
+    const changed = applyTabAgentAccess(tab, shared, shared ? origin : null);
+    return { info: this.info(tab), changed };
   }
 
   async clearSiteData(tab: BrowserSiteTab, origin: string): Promise<BrowserSiteInfo> {

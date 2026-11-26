@@ -11,6 +11,10 @@ pub(super) const FINGERPRINT_MODELS_TIMEOUT: Duration = Duration::from_secs(5);
 // Stream recovery and user-requested shutdown must remain responsive.
 pub(super) const RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
+/// Stop timeouts: generous enough to survive brief app-server RPC hiccups
+/// without killing the process, while still well under the 15s Stop watchdog.
+pub(super) const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const TURN_START_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) async fn with_probe_timeout<T>(
     operation: &'static str,
@@ -32,7 +36,22 @@ pub(super) async fn sdk_control_timeout<T>(
     operation: &'static str,
     future: impl Future<Output = Result<T, codex_app_server_sdk_rs::SdkError>>,
 ) -> Result<T, codex_app_server_sdk_rs::SdkError> {
-    tokio::time::timeout(CONTROL_TIMEOUT, future)
+    sdk_timeout(CONTROL_TIMEOUT, operation, future).await
+}
+
+pub(super) async fn sdk_interrupt_timeout<T>(
+    operation: &'static str,
+    future: impl Future<Output = Result<T, codex_app_server_sdk_rs::SdkError>>,
+) -> Result<T, codex_app_server_sdk_rs::SdkError> {
+    sdk_timeout(INTERRUPT_TIMEOUT, operation, future).await
+}
+
+async fn sdk_timeout<T>(
+    timeout: Duration,
+    operation: &'static str,
+    future: impl Future<Output = Result<T, codex_app_server_sdk_rs::SdkError>>,
+) -> Result<T, codex_app_server_sdk_rs::SdkError> {
+    tokio::time::timeout(timeout, future)
         .await
         .unwrap_or(Err(codex_app_server_sdk_rs::SdkError::Timeout(operation)))
 }

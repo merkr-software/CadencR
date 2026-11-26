@@ -1,20 +1,28 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::sync::mpsc;
 
 use super::background_agents::starts_shell_command;
 use super::cli_processes::CliProcesses;
-use super::prompt_receipts::ClaudePromptReceipts;
+use super::prompt_receipts::{
+    acknowledge_response_start_prompt_receipts, acknowledge_user_prompt_receipt,
+    is_unmatched_replay_user_message, ClaudePromptReceipts,
+};
 use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
+    AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
-    RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
-    RuntimeToolPermissionResult, WithdrawnInputs,
+    RuntimeToolPermissionHandler, RuntimeToolPermissionRequest, RuntimeToolPermissionResult,
+    WithdrawnInputs,
 };
-use crate::domain::mcp::trusted::CadencrBrowserTrust;
+use crate::domain::mcp::trusted::CadencrMcpTrust;
 
 pub struct ClaudeCodeSession {
+    pub(super) automatic_mcp: Arc<AtomicBool>,
     pub(super) query: claude_agent_sdk_rs::Query,
     pub(super) turn_control: std::sync::Arc<tokio::sync::Mutex<()>>,
     pub(super) prompt_receipts: std::sync::Arc<ClaudePromptReceipts>,
@@ -41,6 +49,7 @@ impl ClaudeCodeSession {
     pub(crate) fn from_query(query: claude_agent_sdk_rs::Query) -> Self {
         Self {
             query,
+            automatic_mcp: Default::default(),
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: std::path::PathBuf::new(),
@@ -54,22 +63,23 @@ impl ClaudeCodeSession {
 }
 
 pub(super) struct ClaudeCanUseToolAdapter {
+    pub(super) automatic_mcp: Arc<AtomicBool>,
     pub(super) inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
-    /// Cadencr's browser tools skip the prompt only when Cadencr attached its
-    /// browser server. Claude Code gives `--mcp-config` precedence over a
-    /// same-named project (`.mcp.json`) or user server, so the canonical
-    /// `mcp__cadencr-browser__*` name then reaches Cadencr's server.
-    pub(super) browser_trust: CadencrBrowserTrust,
+    /// Cadencr verifies that the tool belongs to a server attached to this runtime. Claude Code gives `--mcp-config` precedence over a
+    /// same-named project (`.mcp.json`) or user server, so the canonical tool name then reaches the attached server.
+    pub(super) mcp_trust: CadencrMcpTrust,
 }
 
 impl ClaudeCanUseToolAdapter {
     pub(super) fn shared(
         inner: std::sync::Arc<dyn RuntimeToolPermissionHandler>,
         mcp_servers: Option<&std::collections::HashMap<String, RuntimeMcpServerConfig>>,
+        automatic_mcp: Arc<AtomicBool>,
     ) -> std::sync::Arc<dyn claude_agent_sdk_rs::CanUseTool> {
         std::sync::Arc::new(Self {
             inner,
-            browser_trust: CadencrBrowserTrust::injected_in(mcp_servers),
+            automatic_mcp,
+            mcp_trust: CadencrMcpTrust::injected_in(mcp_servers),
         })
     }
 }
@@ -80,7 +90,13 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
         &self,
         request: claude_agent_sdk_rs::PermissionRequest,
     ) -> claude_agent_sdk_rs::PermissionResult {
-        if self.browser_trust.allows_tool_name(&request.tool_name) {
+        if self.mcp_trust.allows_in_mode(
+            &request.tool_name,
+            request.agent_id.is_none()
+                && request.blocked_path.is_none()
+                && request.decision_reason.is_none()
+                && self.automatic_mcp.load(Ordering::Acquire),
+        ) {
             return claude_agent_sdk_rs::PermissionResult::Allow {
                 updated_input: request.input,
                 updated_permissions: None,
@@ -333,6 +349,16 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         .await
     }
 
+    async fn terminate_unresponsive_stop(&self, reason: String) -> bool {
+        super::stop_escalation::terminate_with_reason(
+            &self.query,
+            reason,
+            self.stop_escalation.as_ref(),
+        )
+        .await;
+        true
+    }
+
     async fn close(&mut self) -> Result<(), RuntimeError> {
         self.query.close().await;
         Ok(())
@@ -346,61 +372,18 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     }
 
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError> {
+        let automatic = mode == RuntimePermissionMode::Auto;
+        self.automatic_mcp.store(false, Ordering::Release);
         self.query
             .set_permission_mode(map_permission_mode(mode))
-            .await
-            .map_err(RuntimeError::from)
+            .await?;
+        self.automatic_mcp.store(automatic, Ordering::Release);
+        Ok(())
     }
 
     fn pid(&self) -> Option<u32> {
         self.query.pid()
     }
-}
-
-/// Receipts for the pending prompts `msg` echoes. Only a root, non-synthetic
-/// user message without tool output can be an echo of a prompt Cadencr sent;
-/// sub-agent traffic and tool results always flow through untouched.
-pub(super) fn acknowledge_user_prompt_receipt(
-    msg: &claude_agent_sdk_rs::SdkMessage,
-    prompt_receipts: &ClaudePromptReceipts,
-) -> Vec<RuntimeEvent> {
-    let claude_agent_sdk_rs::SdkMessage::User {
-        message,
-        parent_tool_use_id: None,
-        is_synthetic: None | Some(false),
-        tool_use_result: None,
-        ..
-    } = msg
-    else {
-        return Vec::new();
-    };
-    prompt_receipts.acknowledge_echo(message)
-}
-
-/// Drain outstanding prompt receipts when Claude starts its next response.
-/// A `Result` only closes the current turn (notably during compaction), so it
-/// must not acknowledge steering input that the CLI has queued but not replayed.
-pub(super) fn acknowledge_response_start_prompt_receipts(
-    event: &RuntimeEvent,
-    prompt_receipts: &ClaudePromptReceipts,
-) -> Vec<RuntimeEvent> {
-    if !matches!(
-        event.stream_event(),
-        Some(RuntimeStreamEvent::MessageStart { .. })
-    ) {
-        return Vec::new();
-    }
-    prompt_receipts.acknowledge_all_pending()
-}
-
-pub(super) fn is_unmatched_replay_user_message(msg: &claude_agent_sdk_rs::SdkMessage) -> bool {
-    matches!(
-        msg,
-        claude_agent_sdk_rs::SdkMessage::User {
-            is_replay: Some(true),
-            ..
-        }
-    )
 }
 
 #[cfg(test)]
@@ -613,7 +596,8 @@ mod tests {
     async fn sdk_callback_normalizes_only_question_answers_at_provider_boundary() {
         let adapter = super::ClaudeCanUseToolAdapter {
             inner: std::sync::Arc::new(EchoPermission),
-            browser_trust: Default::default(),
+            mcp_trust: Default::default(),
+            automatic_mcp: Default::default(),
         };
         for (tool_name, expected_answers) in [
             ("AskUserQuestion", json!({"Color?": "Blue, Green"})),
@@ -663,6 +647,7 @@ mod tests {
         let adapter = super::ClaudeCanUseToolAdapter::shared(
             std::sync::Arc::new(DenyPermission),
             mcp_servers,
+            Default::default(),
         );
         adapter
             .can_use_tool(claude_agent_sdk_rs::PermissionRequest {
@@ -675,6 +660,70 @@ mod tests {
                 decision_reason: None,
             })
             .await
+    }
+
+    #[tokio::test]
+    async fn auto_mode_change_controls_project_approvals_in_the_same_callback() {
+        let injected = crate::domain::mcp::trusted::test_support::injected_servers(&["project"]);
+        let automatic = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callback = super::ClaudeCanUseToolAdapter::shared(
+            std::sync::Arc::new(DenyPermission),
+            Some(&injected),
+            automatic.clone(),
+        );
+        for (enabled, tool, child, blocked, reason, allowed) in [
+            (false, "project_list_sessions", None, None, None, false),
+            (true, "project_list_sessions", None, None, None, true),
+            (
+                true,
+                "project_list_sessions",
+                Some("child"),
+                None,
+                None,
+                false,
+            ),
+            (
+                true,
+                "project_list_sessions",
+                None,
+                Some("/protected"),
+                None,
+                false,
+            ),
+            (
+                true,
+                "project_list_sessions",
+                None,
+                None,
+                Some("review"),
+                false,
+            ),
+            (true, "project_respond_gate", None, None, None, false),
+            (false, "project_list_sessions", None, None, None, false),
+        ] {
+            automatic.store(enabled, std::sync::atomic::Ordering::Release);
+            let result = callback
+                .can_use_tool(claude_agent_sdk_rs::PermissionRequest {
+                    tool_name: format!("mcp__cadencr-project__{tool}"),
+                    input: json!({}),
+                    tool_use_id: "call".into(),
+                    agent_id: child.map(str::to_owned),
+                    suggestions: None,
+                    blocked_path: blocked.map(str::to_owned),
+                    decision_reason: reason.map(str::to_owned),
+                })
+                .await;
+            assert_eq!(
+                matches!(
+                    result,
+                    claude_agent_sdk_rs::PermissionResult::Allow {
+                        updated_permissions: None,
+                        ..
+                    }
+                ),
+                allowed
+            );
+        }
     }
 
     #[tokio::test]

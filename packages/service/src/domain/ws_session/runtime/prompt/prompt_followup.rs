@@ -7,23 +7,43 @@ use crate::domain::ws_session::protocol::PromptSendPayload;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 use super::super::{ActiveTurnRegistry, SdkSessions};
 use super::content::{
     build_content_value_for_provider, build_persist_content, expand_prompt_for_provider,
     payload_attachments,
 };
-use super::errors::persist_pause_and_send_session_error;
 use super::followup_delivery::{mark_running, FollowupDelivery};
 use super::followup_dispatch::{
-    claim_followup_shell_context, fail_followup_stream, mark_followup_dispatch_failed,
-    mark_followup_succeeded,
+    append_shell_context_or_fail, claim_followup_shell_context, fail_followup_stream,
+    mark_followup_dispatch_failed, mark_followup_succeeded,
 };
 use super::followup_turn::{acquire_followup_turn_guard, FollowupTurnGuard};
 use super::followup_withdrawal::{fail_stopped_followups, withdraw_followup, WithdrawnBy};
 use super::prompt_receipt::clear_pending_prompt_receipt;
 use super::prompt_status::{persist_and_publish_prompt, PromptPersistenceOutcome};
 use crate::domain::ws_session::runtime::followup_stops::HandOff;
+
+/// How long `handle_followup_prompt` waits before returning to its caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::domain::ws_session) enum DeliveryWait {
+    /// Interactive WS prompt: return as soon as the dispatch task is spawned.
+    None,
+    /// Queued user prompt: wait until the prompt is written onto the provider
+    /// transport (for ACP, immediately after `session/prompt` is sent; for
+    /// Codex/Claude, when `stream_input` returns). Settlement continues in the
+    /// background so post-turn queue draining never blocks for a full ACP turn.
+    Submission,
+    /// Control/MCP/scheduled prompt: wait for full provider settlement.
+    Settlement,
+}
+
+impl DeliveryWait {
+    pub(super) fn waits_for_caller(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
 
 pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub query: RuntimeSessionHandle,
@@ -42,9 +62,8 @@ pub(in crate::domain::ws_session) struct FollowupPromptContext {
     pub active_turns: Arc<ActiveTurnRegistry>,
     pub provider_id: String,
     pub internal_replay: bool,
-    /// Control callers must observe the provider's delivery result before
-    /// acknowledging a queued or scheduled prompt.
-    pub wait_for_delivery: bool,
+    /// How long the caller waits for provider delivery before returning.
+    pub delivery_wait: DeliveryWait,
 }
 
 struct PreparedFollowup {
@@ -111,19 +130,40 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
         conversation_references,
         delivery,
     };
-    let wait = prepared.context.wait_for_delivery;
-    if wait && prepared.turn_guard.runtime.negotiated_prompt_steering() != Some(true) {
-        return stream_followup_prompt(prepared).await;
+    let wait = prepared.context.delivery_wait;
+    match wait {
+        DeliveryWait::None => {
+            drop(tokio::spawn(stream_followup_prompt(prepared, None)));
+            Ok(())
+        }
+        DeliveryWait::Submission => {
+            if !prepared.turn_guard.runtime.signals_prompt_submission() {
+                return stream_followup_prompt(prepared, None).await;
+            }
+            let (submitted_tx, submitted_rx) = tokio::sync::oneshot::channel();
+            let mut task = tokio::spawn(stream_followup_prompt(prepared, Some(submitted_tx)));
+            tokio::select! {
+                submitted = submitted_rx => match submitted {
+                    Ok(()) => Ok(()),
+                    Err(_) => await_dispatch_task(task).await,
+                },
+                result = &mut task => result
+                    .map_err(|error| format!("Follow-up dispatch task failed: {error}"))?,
+            }
+        }
+        DeliveryWait::Settlement => {
+            if prepared.turn_guard.runtime.negotiated_prompt_steering() != Some(true) {
+                return stream_followup_prompt(prepared, None).await;
+            }
+            // The dispatch owns its ACP request and receipt if the control caller leaves.
+            await_dispatch_task(tokio::spawn(stream_followup_prompt(prepared, None))).await
+        }
     }
-    // The dispatch owns its ACP request and receipt if the control caller leaves.
-    let task = tokio::spawn(stream_followup_prompt(prepared));
-    if wait {
-        return task
-            .await
-            .map_err(|error| format!("Follow-up dispatch task failed: {error}"))?;
-    }
-    drop(task);
-    Ok(())
+}
+
+async fn await_dispatch_task(task: JoinHandle<Result<(), String>>) -> Result<(), String> {
+    task.await
+        .map_err(|error| format!("Follow-up dispatch task failed: {error}"))?
 }
 
 async fn resolve_followup_references(
@@ -191,7 +231,10 @@ async fn persist_followup_user_message(
     Ok(outcome)
 }
 
-async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String> {
+async fn stream_followup_prompt(
+    prepared: PreparedFollowup,
+    mut submitted: Option<tokio::sync::oneshot::Sender<()>>,
+) -> Result<(), String> {
     let PreparedFollowup {
         mut context,
         mut turn_guard,
@@ -235,8 +278,39 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
             content,
             receipt_message_uuid.clone(),
             &mut turn_guard.followup_order,
+            &mut submitted,
         )
         .await;
+    // Derive caller state directly from whether `submitted` was consumed: if
+    // the runtime took and fired it, the caller already got `Ok(())`.
+    let caller_still_waiting = matches!(context.delivery_wait, DeliveryWait::Settlement)
+        || (matches!(context.delivery_wait, DeliveryWait::Submission) && submitted.is_some());
+    settle_followup_stream()
+        .context(context)
+        .turn_guard(turn_guard)
+        .payload(payload)
+        .shell_context(shell_context)
+        .maybe_dispatch_claim(dispatch_claim)
+        .maybe_receipt_message_uuid(receipt_message_uuid)
+        .delivery(delivery)
+        .stream_result(stream_result)
+        .caller_still_waiting(caller_still_waiting)
+        .call()
+        .await
+}
+
+#[bon::builder]
+async fn settle_followup_stream(
+    mut context: FollowupPromptContext,
+    turn_guard: FollowupTurnGuard,
+    payload: PromptSendPayload,
+    shell_context: super::user_shell_context::PendingUserShellContext,
+    dispatch_claim: Option<(i64, String)>,
+    receipt_message_uuid: Option<String>,
+    mut delivery: FollowupDelivery,
+    stream_result: Result<(), crate::domain::agents::adapter::RuntimeError>,
+    caller_still_waiting: bool,
+) -> Result<(), String> {
     // Recorded before the barrier drops: a Stop that follows withdraws it,
     // and finds its dispatch final.
     let selection = match (&stream_result, context.user_selection.take()) {
@@ -283,46 +357,18 @@ async fn stream_followup_prompt(prepared: PreparedFollowup) -> Result<(), String
         shell_context
             .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
             .await;
-        return fail_followup_stream(
-            &context,
-            dispatch_claim.as_ref(),
-            receipt_message_uuid,
-            &error,
-            delivery.preserve_running_turn,
-        )
-        .await;
+        return fail_followup_stream()
+            .context(&context)
+            .maybe_dispatch_claim(dispatch_claim.as_ref())
+            .maybe_receipt_message_uuid(receipt_message_uuid)
+            .error(&error)
+            .preserve_running_turn(delivery.preserve_running_turn)
+            .caller_still_waiting(caller_still_waiting)
+            .call()
+            .await;
     }
     shell_context
         .mark_delivered_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
         .await;
     Ok(())
-}
-
-async fn append_shell_context_or_fail<'a>(
-    context: &FollowupPromptContext,
-    shell_context: &super::user_shell_context::PendingUserShellContext,
-    prompt_text: std::borrow::Cow<'a, str>,
-    dispatch_claim: Option<&(i64, String)>,
-) -> Result<std::borrow::Cow<'a, str>, String> {
-    match shell_context.append_to_prompt(prompt_text) {
-        Ok(prompt) => Ok(prompt),
-        Err(message) => {
-            shell_context
-                .release_or_warn(&context.write_pool, &context.sender, &context.envelope_id)
-                .await;
-            mark_followup_dispatch_failed(context, dispatch_claim, &message).await;
-            persist_pause_and_send_session_error()
-                .pool(&context.write_pool)
-                .session_status_tx(&context.session_status_tx)
-                .sender(&context.sender)
-                .ref_id(&context.envelope_id)
-                .feature_id(context.feature_id)
-                .session_id(context.db_session_id)
-                .code("USER_SHELL_CONTEXT_ERROR")
-                .message(&message)
-                .call()
-                .await;
-            Err(message)
-        }
-    }
 }

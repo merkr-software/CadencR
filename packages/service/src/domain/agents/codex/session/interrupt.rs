@@ -6,11 +6,11 @@ use crate::shared::discard::IgnoreClosed;
 use std::future::Future;
 use std::sync::atomic::Ordering;
 
-use codex_app_server_sdk_rs::CodexAppServerClient;
+use codex_app_server_sdk_rs::{CodexAppServerClient, SdkError};
 use futures::{stream, StreamExt};
 
 use super::super::events::provider_error_event;
-use super::super::timeouts::{sdk_control_timeout, with_control_timeout};
+use super::super::timeouts::{sdk_control_timeout, sdk_interrupt_timeout, TURN_START_WAIT_TIMEOUT};
 use super::super::turn_commands::TurnCommand;
 use super::CodexSession;
 use crate::domain::agents::adapter::RuntimeError;
@@ -23,14 +23,44 @@ pub(super) struct InterruptTarget {
     pub fallback: bool,
 }
 
+enum InterruptOutcome {
+    Ok,
+    NothingToInterrupt,
+    TimedOut(String),
+    Failed(RuntimeError),
+}
+
 impl CodexSession {
+    pub(super) async fn terminate_unresponsive_stop_session(&self, reason: String) -> bool {
+        if self.closing.swap(true, Ordering::SeqCst) {
+            return true;
+        }
+        tracing::warn!(thread_id = %self.thread_id, "{reason}");
+        self.async_questions.lock().await.clear();
+        self.local_tx
+            .send(Err(RuntimeError::stop_escalated(reason)))
+            .ignore_closed();
+        self.client.shutdown().await;
+        true
+    }
+
     pub(super) async fn interrupt_session(&self) -> Result<(), RuntimeError> {
         self.interrupts.fetch_add(1, Ordering::SeqCst);
         // A turn being started has no id yet: wait for `turn/start` to give
         // it, or the stop would target the previous turn and miss this one.
-        let targets = {
-            let _started = self.turn_start.lock().await;
-            self.interrupt_targets().await
+        // Bound the wait so a frozen app-server cannot deadlock Stop.
+        let targets = match tokio::time::timeout(TURN_START_WAIT_TIMEOUT, self.turn_start.lock())
+            .await
+        {
+            Ok(_started) => self.interrupt_targets().await,
+            Err(_) => {
+                self.terminate_unresponsive_stop_session(
+                    "Codex did not respond while starting a turn during Stop; its process was terminated."
+                        .to_string(),
+                )
+                .await;
+                return Ok(());
+            }
         };
         // Before the interrupt: its `turn/completed` forgets the turn's commands.
         let commands = {
@@ -40,7 +70,18 @@ impl CodexSession {
                 .flat_map(|target| started.started_by(&target.thread, target.turn.as_deref()))
                 .collect::<Vec<_>>()
         };
-        let interrupted = interrupt_turns(&self.client, targets).await;
+        let interrupted = match interrupt_turns(&self.client, targets).await {
+            InterruptOutcome::TimedOut(detail) => {
+                self.terminate_unresponsive_stop_session(format!(
+                    "Codex did not respond to Stop ({detail}); its process was terminated."
+                ))
+                .await;
+                return Ok(());
+            }
+            InterruptOutcome::Ok => Ok(()),
+            InterruptOutcome::NothingToInterrupt => Err(RuntimeError::NothingToInterrupt),
+            InterruptOutcome::Failed(error) => Err(error),
+        };
         if let Some(failure) = stop_commands(&self.client, commands).await {
             let event = provider_error_event(&self.thread_id, failure, CODEX_COMMAND_NOT_STOPPED);
             // A closed stream means the session is gone, its commands with it.
@@ -78,25 +119,29 @@ impl CodexSession {
 /// (`fallback`: no turn is known to run), Codex refusing it ("no active turn
 /// to interrupt") means nothing was stopped and no stopped turn will be
 /// reported.
-pub(super) async fn interrupt_turns(
+async fn interrupt_turns(
     client: &CodexAppServerClient,
     targets: Vec<InterruptTarget>,
-) -> Result<(), RuntimeError> {
+) -> InterruptOutcome {
     match targets.as_slice() {
-        [] => return Err(RuntimeError::NothingToInterrupt),
+        [] => return InterruptOutcome::NothingToInterrupt,
         [InterruptTarget {
             thread,
             turn: Some(turn),
             fallback: true,
         }] => {
             let interrupted =
-                sdk_control_timeout("Codex turn/interrupt", client.turn_interrupt(thread, turn))
+                sdk_interrupt_timeout("Codex turn/interrupt", client.turn_interrupt(thread, turn))
                     .await;
             return match interrupted {
+                Ok(()) => InterruptOutcome::Ok,
                 Err(error) if error.is_no_active_turn_to_interrupt() => {
-                    Err(RuntimeError::NothingToInterrupt)
+                    InterruptOutcome::NothingToInterrupt
                 }
-                result => result.map_err(RuntimeError::from),
+                Err(SdkError::Timeout(operation)) => {
+                    InterruptOutcome::TimedOut(format!("{operation} timed out"))
+                }
+                Err(error) => InterruptOutcome::Failed(RuntimeError::from(error)),
             };
         }
         _ => {}
@@ -107,7 +152,7 @@ pub(super) async fn interrupt_turns(
         if target.fallback {
             Ok(())
         } else {
-            result.map_err(|error| RuntimeError::new(format!("{}: {error}", target.thread)))
+            result.map_err(|error| (target.thread, error))
         }
     })
     .await
@@ -157,13 +202,13 @@ async fn stop_commands(
 async fn interrupt_target(
     client: &CodexAppServerClient,
     target: &InterruptTarget,
-) -> Result<(), RuntimeError> {
+) -> Result<(), SdkError> {
     let turn = match &target.turn {
         Some(turn) => turn.clone(),
         None => {
             // Status-only/reloaded children may never send turn/started on this
             // connection. Read only on Stop, not on the streaming hot path.
-            let snapshot = with_control_timeout(
+            let snapshot = sdk_interrupt_timeout(
                 "Codex thread/read (interrupt)",
                 client.thread_read(&target.thread, true),
             )
@@ -171,38 +216,43 @@ async fn interrupt_target(
             last_turn_id(&snapshot)?
         }
     };
-    with_control_timeout(
+    sdk_interrupt_timeout(
         "Codex turn/interrupt",
         client.turn_interrupt(&target.thread, &turn),
     )
     .await
 }
 
-fn last_turn_id(
-    snapshot: &codex_app_server_sdk_rs::ThreadSnapshot,
-) -> Result<String, RuntimeError> {
+fn last_turn_id(snapshot: &codex_app_server_sdk_rs::ThreadSnapshot) -> Result<String, SdkError> {
     snapshot
         .turns
         .last()
         .map(|turn| turn.id.clone())
-        .ok_or_else(|| RuntimeError::new("Active Codex child has no turn to interrupt; retry Stop"))
+        .ok_or_else(|| {
+            SdkError::Protocol("Active Codex child has no turn to interrupt; retry Stop".into())
+        })
 }
 
-async fn interrupt_all<T, F, Fut>(targets: Vec<T>, send: F) -> Result<(), RuntimeError>
+async fn interrupt_all<T, F, Fut>(targets: Vec<T>, send: F) -> InterruptOutcome
 where
     F: FnMut(T) -> Fut,
-    Fut: Future<Output = Result<(), RuntimeError>>,
+    Fut: Future<Output = Result<(), (String, SdkError)>>,
 {
-    let failures: Vec<_> = stream::iter(targets)
-        .map(send)
-        .buffer_unordered(8)
-        .filter_map(|result| async { result.err().map(|error| error.to_string()) })
-        .collect()
-        .await;
+    let mut pending = stream::iter(targets).map(send).buffer_unordered(8);
+    let mut failures = Vec::new();
+    while let Some(result) = pending.next().await {
+        let Err((thread, error)) = result else {
+            continue;
+        };
+        if let SdkError::Timeout(operation) = error {
+            return InterruptOutcome::TimedOut(format!("{thread}: {operation} timed out"));
+        }
+        failures.push(format!("{thread}: {error}"));
+    }
     if failures.is_empty() {
-        Ok(())
+        InterruptOutcome::Ok
     } else {
-        Err(RuntimeError::new(format!(
+        InterruptOutcome::Failed(RuntimeError::new(format!(
             "Failed to interrupt Codex turns: {}",
             failures.join("; ")
         )))
@@ -230,7 +280,7 @@ mod tests {
                 if thread == "slow-child" {
                     release.notified().await;
                 }
-                Err(RuntimeError::new(thread))
+                Err((thread.to_string(), SdkError::Protocol(thread.to_string())))
             }
         });
         let observer = async {
@@ -244,20 +294,37 @@ mod tests {
             release.notify_one();
         };
         let (result, ()) = tokio::join!(requests, observer);
-        let error = result.unwrap_err().to_string();
+        let InterruptOutcome::Failed(error) = result else {
+            panic!("expected Failed outcome");
+        };
+        let error = error.to_string();
         for thread in ["slow-child", "root", "other-child"] {
             assert!(error.contains(thread));
         }
     }
 
     #[tokio::test]
+    async fn timeout_outcome_is_classified_for_stop_escalation() {
+        let outcome = interrupt_all(vec!["root"], |thread| async move {
+            Err((
+                thread.to_string(),
+                SdkError::Timeout("Codex turn/interrupt"),
+            ))
+        })
+        .await;
+        assert!(matches!(outcome, InterruptOutcome::TimedOut(detail) if detail.contains("root")));
+    }
+
+    #[tokio::test]
     async fn successful_or_empty_interrupt_sets_succeed() {
-        assert!(interrupt_all(vec![1, 2], |_| async { Ok(()) })
-            .await
-            .is_ok());
-        assert!(interrupt_all(Vec::<u8>::new(), |_| async { Ok(()) })
-            .await
-            .is_ok());
+        assert!(matches!(
+            interrupt_all(vec![1, 2], |_| async { Ok(()) }).await,
+            InterruptOutcome::Ok
+        ));
+        assert!(matches!(
+            interrupt_all(Vec::<u8>::new(), |_| async { Ok(()) }).await,
+            InterruptOutcome::Ok
+        ));
     }
     #[test]
     fn status_only_child_uses_latest_turn_and_missing_turn_is_an_error() {

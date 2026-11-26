@@ -51,6 +51,14 @@ PROVIDERS = {
     ),
 }
 
+RELEASE_NOTES = {
+    ("cursor", "0.1.1"): (
+        "Recognize CadencR-attached MCP tools when creating or restoring a Cursor session. "
+        "CadencR v0.16.4 can approve eligible calls once in Auto Review. "
+        "Cursor launcher ports stay out of the project's port list."
+    ),
+}
+
 
 def require(condition, message):
     if not condition:
@@ -143,7 +151,7 @@ def prepare(args):
     (args.output / "package.json").write_bytes(package)
     submission = {"schema_version": 2, "package": metadata, "source": {
         "repository": f"https://github.com/{REPOSITORY}", "commit": args.source_commit, "tag": tag},
-        "changelog": provider.changelog}
+        "changelog": RELEASE_NOTES.get((provider.id, version), provider.changelog)}
     (args.output / "submission.json").write_bytes(json_bytes(submission))
     (args.output / "qualification.json").write_bytes(json_bytes(evidence))
     for command, path in (("validate-metadata", "package.json"), ("validate-submission", "submission.json")):

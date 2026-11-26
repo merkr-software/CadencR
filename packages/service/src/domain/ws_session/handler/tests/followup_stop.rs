@@ -690,4 +690,131 @@ async fn a_follow_up_acknowledged_before_the_stopped_turn_ended_stays_received()
     );
 }
 
+/// Regression for session 4442: a queued user prompt dispatched to an ACP
+/// runtime must return once `session/prompt` hits the wire (not wait for the
+/// entire turn), so post-turn queue draining and `StreamReaderTask` never
+/// deadlock while the new turn streams events.
+#[tokio::test]
+async fn queued_user_prompt_returns_on_acp_wire_submission_before_turn_ends() {
+    use crate::domain::agents::acp::runtime::test_support::{
+        build_in_memory_client, read_request, send_response,
+    };
+    use crate::domain::ws_session::runtime::application::dispatch_queued_user_prompt;
+    use std::time::Duration;
+
+    let fixture = fixture(false).await;
+    let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+    let (_runtime, mut events) = fixture.install_acp(&client, true).await;
+
+    let state = fixture.app_state.clone();
+    let id = fixture.db_id;
+    let dispatch = tokio::spawn(async move {
+        dispatch_queued_user_prompt(&state, 1, id, "/finish-job", FOLLOW_UP.parse().unwrap()).await
+    });
+
+    let request = tokio::time::timeout(Duration::from_secs(3), read_request(&mut stdin))
+        .await
+        .expect("queued prompt must reach ACP stdin");
+    assert_eq!(request["method"], "session/prompt");
+
+    // Must return immediately after wire submission — BEFORE the ACP agent
+    // replies to `session/prompt`!
+    tokio::time::timeout(Duration::from_secs(2), dispatch)
+        .await
+        .expect("queued user prompt must not block waiting for the full ACP turn")
+        .unwrap()
+        .expect("queued user prompt submission should succeed");
+
+    // Now the agent finishes the turn; settlement still runs in the background
+    // and publishes the Result event + marks dispatch succeeded.
+    send_response(
+        &mut stdout,
+        request["id"].clone(),
+        serde_json::json!({ "stopReason": "end_turn" }),
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(item) = events.recv().await {
+            if item.expect("event").is_result() {
+                return;
+            }
+        }
+        panic!("ACP stream closed without Result");
+    })
+    .await
+    .expect("background settlement must emit Result");
+    assert_eq!(fixture.dispatch_status().await, "dispatched");
+}
+
+/// When a queued user prompt fails on ACP *after* wire submission (the caller
+/// already returned `Ok(())`), its error must still be broadcast as a visible
+/// `session.error` frame rather than being lost in a dropped headless collector.
+#[tokio::test]
+async fn queued_user_prompt_post_submission_failure_broadcasts_visible_error() {
+    use crate::domain::agents::acp::runtime::test_support::{build_in_memory_client, read_request};
+    use crate::domain::ws_session::runtime::application::dispatch_queued_user_prompt;
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+
+    let fixture = fixture(false).await;
+    let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+    let (_runtime, mut events) = fixture.install_acp(&client, false).await;
+
+    let state = fixture.app_state.clone();
+    let id = fixture.db_id;
+    let dispatch = tokio::spawn(async move {
+        dispatch_queued_user_prompt(
+            &state,
+            1,
+            id,
+            "fail after submit",
+            FOLLOW_UP.parse().unwrap(),
+        )
+        .await
+    });
+
+    let request = tokio::time::timeout(Duration::from_secs(3), read_request(&mut stdin))
+        .await
+        .expect("queued prompt must reach ACP stdin");
+    tokio::time::timeout(Duration::from_secs(2), dispatch)
+        .await
+        .expect("returns immediately on wire submission")
+        .unwrap()
+        .unwrap();
+
+    // Agent rejects the prompt AFTER submission returned Ok(()).
+    let frame = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": request["id"],
+        "error": { "code": -32000, "message": "agent rejected prompt" }
+    });
+    stdout
+        .write_all(format!("{frame}\n").as_bytes())
+        .await
+        .unwrap();
+
+    // PromptDeliveryFailed surfaces as Result with error on the ACP stream and
+    // marks the dispatch row failed in DB.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(item) = events.recv().await {
+            if let Ok(event) = item {
+                if event.is_result() && event.result_error().is_some() {
+                    return;
+                }
+            }
+        }
+        panic!("expected surfaced result error on ACP stream");
+    })
+    .await
+    .expect("post-submission ACP rejection must surface on stream");
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fixture.dispatch_status().await != "error" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("post-submission rejection must record dispatch failure");
+}
+
 mod checkpoint_window;

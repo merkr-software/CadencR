@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeError, RuntimePermissionMode};
-use crate::domain::agents::permission_modes::{parse_permission_mode, permission_mode_wire};
+use crate::domain::agents::permission_modes::{parse_permission_mode_wire, permission_mode_wire};
 use crate::domain::ws_session::persistence::SessionRow;
 use crate::domain::ws_session::runtime::helpers::send_warning;
 
@@ -10,13 +10,14 @@ use super::{send_error, WsSender};
 
 const DISCOVERY_FAILED: &str = "PROVIDER_MODE_DISCOVERY_FAILED";
 
+pub(super) struct OfflineFallback {
+    pub wire: Option<String>,
+    pub warning: RuntimeError,
+}
+
 pub(super) struct Prepared {
     pub mode: Option<RuntimePermissionMode>,
-    pub wire: Option<String>,
-    pub warning: Option<RuntimeError>,
-    /// The resolved mode to save, when it differs from the saved one (with
-    /// the init's other writes, see `writes`).
-    pub persist: Option<String>,
+    pub offline: Option<OfflineFallback>,
 }
 
 #[bon::builder]
@@ -51,23 +52,19 @@ pub(super) async fn prepare(
                 send_error(sender, ref_id, DISCOVERY_FAILED, &error.to_string());
                 return None;
             }
-            let mode = saved
-                .map(parse_permission_mode)
-                .filter(|mode| Some(permission_mode_wire(mode).as_str()) == saved);
+            let mode = saved.and_then(parse_permission_mode_wire);
             return Some(Prepared {
                 mode,
-                wire: saved.map(str::to_owned),
-                warning: Some(error),
-                persist: None,
+                offline: Some(OfflineFallback {
+                    wire: saved.map(str::to_owned),
+                    warning: error,
+                }),
             });
         }
     };
-    let (wire, persist) = resolved_wire(saved, mode.as_ref());
     Some(Prepared {
         mode,
-        wire,
-        warning: None,
-        persist,
+        offline: None,
     })
 }
 
@@ -99,15 +96,27 @@ async fn is_restoring(
     super::super::session_control::session_has_messages(pool, row.id).await
 }
 
-/// The provider's resolved initial mode for the initialized reply, and the
-/// wire to save when it differs from the saved one.
-pub(super) fn resolved_wire(
-    saved: Option<&str>,
-    mode: Option<&RuntimePermissionMode>,
-) -> (Option<String>, Option<String>) {
-    let wire = mode.map(permission_mode_wire);
-    let persist = wire.clone().filter(|wire| Some(wire.as_str()) != saved);
-    (wire, persist)
+/// Reconcile the init reply's mode wire, persistence write, and offline warning
+/// after `profile::resolve` (which may downgrade `bypassPermissions` when opt-in
+/// is off) and `inherit_last_prompt` (whose controls land atomically through
+/// `SelectionWrite::Inherited`).
+pub(super) fn finalize(
+    offline: Option<OfflineFallback>,
+    saved_in_db: Option<&str>,
+    inherited: bool,
+    effective_mode: Option<&RuntimePermissionMode>,
+) -> (Option<String>, Option<String>, Option<RuntimeError>) {
+    if let Some(offline) = offline {
+        return (offline.wire, None, Some(offline.warning));
+    }
+    let wire = effective_mode.map(permission_mode_wire);
+    let persist = if inherited {
+        None
+    } else {
+        wire.clone()
+            .filter(|wire| Some(wire.as_str()) != saved_in_db)
+    };
+    (wire, persist, None)
 }
 
 #[cfg(test)]
@@ -191,8 +200,8 @@ mod tests {
                     .await
                     .expect("saved history should initialize");
                 assert_eq!(prepared.mode, Some(RuntimePermissionMode::Plan));
-                assert_eq!(prepared.wire.as_deref(), Some("plan"));
-                assert!(prepared.warning.is_some());
+                let offline = prepared.offline.as_ref().expect("offline fallback");
+                assert_eq!(offline.wire.as_deref(), Some("plan"));
             }
             let stored = WsSessionPersistence::get_session_row(&state.read_pool, id)
                 .await
@@ -251,7 +260,8 @@ mod tests {
                 .resolve_initial_permission_mode(&std::env::temp_dir(), requested_mode)
                 .await
                 .unwrap();
-            let (wire, persist) = resolved_wire(requested_mode, mode.as_ref());
+            let (wire, persist, warning) = finalize(None, requested_mode, false, mode.as_ref());
+            assert!(warning.is_none());
             super::super::writes::InitWrites {
                 permission_mode: persist,
                 ..Default::default()
@@ -266,5 +276,29 @@ mod tests {
                 .unwrap();
             assert_eq!(stored.permission_mode.as_deref(), Some(expected_mode));
         }
+    }
+
+    #[test]
+    fn finalize_reflects_post_profile_downgrades_and_defers_inherited_persistence() {
+        let (wire, persist, warning) =
+            finalize(None, None, false, Some(&RuntimePermissionMode::Auto));
+        assert_eq!(
+            (wire.as_deref(), persist.as_deref()),
+            (Some("auto"), Some("auto"))
+        );
+        assert!(warning.is_none());
+
+        let (wire, persist, warning) =
+            finalize(None, None, true, Some(&RuntimePermissionMode::Auto));
+        assert_eq!((wire.as_deref(), persist.as_deref()), (Some("auto"), None));
+        assert!(warning.is_none());
+
+        let offline = OfflineFallback {
+            wire: Some("plan".into()),
+            warning: RuntimeError::new("offline"),
+        };
+        let (wire, persist, warning) = finalize(Some(offline), Some("plan"), false, None);
+        assert_eq!((wire.as_deref(), persist.as_deref()), (Some("plan"), None));
+        assert!(warning.is_some());
     }
 }

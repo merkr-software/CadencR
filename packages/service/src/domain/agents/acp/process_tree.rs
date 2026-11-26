@@ -13,10 +13,8 @@ use super::process_tree_windows as windows_job;
 #[cfg(windows)]
 use crate::shared::process_group::wait_bounded;
 
-/// Bound on the drain that follows the SIGKILL of a group whose leader
-/// exited, so a lease-holding worker cannot outlive `ProcessExited`.
 #[cfg(unix)]
-const CLEANUP_GRACE: Duration = Duration::from_secs(1);
+const GROUP_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +100,7 @@ impl ProcessTreeControl {
                         Some(pid) => {
                             crate::shared::process_group::kill_group_after_leader_exit_and_drain(
                                 pid,
-                                CLEANUP_GRACE,
+                                GROUP_DRAIN_TIMEOUT,
                             )
                             .await
                         }
@@ -183,7 +181,10 @@ fn validate_policy(policy: AcpProcessTreePolicy) -> io::Result<()> {
     Ok(())
 }
 
-fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::Result<()> {
+fn prepare_command(
+    #[cfg_attr(not(unix), allow(unused_variables))] command: &mut Command,
+    policy: AcpProcessTreePolicy,
+) -> io::Result<()> {
     if matches!(policy, AcpProcessTreePolicy::Inherit) {
         return Ok(());
     }
@@ -194,7 +195,7 @@ fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::R
     }
     #[cfg(windows)]
     {
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(unix, windows)))]
     Err(io::Error::new(
@@ -257,97 +258,67 @@ mod windows_tests {
 
 #[cfg(all(test, unix))]
 mod unix_tests {
-    use super::{AcpProcessTreePolicy, ProcessTreeControl};
+    use std::fs::{File, TryLockError};
     use std::path::Path;
-    use std::process::Stdio;
     use std::time::Duration;
 
     use tokio::process::Command;
 
-    /// Spawns a descendant, publishes its pid, then waits for it.
+    use super::{AcpProcessTreePolicy, ProcessTreeControl};
+    use crate::domain::agents::acp::client::{AcpClient, AcpSpawnOptions};
+    use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+    use crate::shared::test_processes::{
+        publish_pid, sleeping_child_command, wait_for_published_pid, KillOnDrop,
+    };
+
+    const STOP_LAUNCHER: &str = r#"trap '' TERM; "$@" >/dev/null 2>&1 & wait"#;
+    const NATURAL_EXIT_LAUNCHER: &str = r#"
+        "$@" >/dev/null 2>&1 &
+        while [ ! -e "$PROCESS_TREE_TEST_EXIT_FILE" ]; do sleep 0.02; done
+    "#;
+
+    /// Acts as the provider worker, holding an OS lock until it is killed.
     #[test]
-    fn grouped_descendant_helper() {
-        let Some(pid_file) = std::env::var_os("PROCESS_TREE_TEST_PID_FILE") else {
+    fn lease_worker() {
+        let Ok(pid_file) = std::env::var("PROCESS_TREE_TEST_PID_FILE") else {
             return;
         };
-        let mut descendant = std::process::Command::new("/bin/sleep")
-            .arg("60")
-            .spawn()
-            .expect("spawn descendant");
-        crate::shared::test_processes::publish_pid(Path::new(&pid_file), descendant.id())
-            .expect("publish descendant pid");
-        let _ = descendant.wait();
+        let pid_file = Path::new(&pid_file);
+        let lease = File::create(pid_file.with_extension("lock")).expect("create worker lease");
+        lease.try_lock().expect("acquire worker lease");
+        publish_pid(pid_file, std::process::id()).expect("publish descendant pid");
+        std::thread::sleep(Duration::from_secs(30));
     }
 
-    fn helper_command(pid_file: &Path) -> Command {
+    fn launcher_command(script: &str, pid_file: &Path, exit_file: &Path) -> Command {
         let executable = std::env::current_exe().expect("current test executable");
         let test_module = module_path!()
             .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
             .unwrap_or(module_path!());
-        let mut command = Command::new(executable);
+        let mut command = Command::new("/bin/sh");
         command
-            .args([
-                "--exact",
-                &format!("{test_module}::grouped_descendant_helper"),
-                "--nocapture",
-            ])
+            .args(["-c", script, "process-tree-test"])
+            .arg(executable)
+            .args(["--exact", &format!("{test_module}::lease_worker")])
             .env("PROCESS_TREE_TEST_PID_FILE", pid_file)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .env("PROCESS_TREE_TEST_EXIT_FILE", exit_file);
         command
-    }
-
-    /// Whether `pid` is gone or a zombie (exited but not yet reaped).
-    fn process_dead_or_zombie(pid: libc::pid_t) -> bool {
-        // SAFETY: kill with signal 0 only probes the process table.
-        if unsafe { libc::kill(pid, 0) } != 0 {
-            // Only ESRCH says the pid is gone; EPERM is a live process this
-            // one may not signal.
-            return std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
-        }
-        // On Linux, read /proc/<pid>/stat: state Z means zombie (exited).
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                if let Some(state) = stat
-                    .rsplit(')')
-                    .next()
-                    .and_then(|s| s.trim_start().chars().next())
-                {
-                    if state == 'Z' {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
     }
 
     #[tokio::test]
     async fn grouped_policy_leads_a_new_process_group() {
-        // Start `sleep` directly: if grouping regresses, the only process this
-        // test started is the one the cleanup guard covers.
-        let mut command = crate::shared::test_processes::sleeping_child_command();
+        let mut command = sleeping_child_command();
         let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
             .expect("prepare grouped command");
         let mut child = command.spawn().expect("spawn sleep");
         let pid = child.id().expect("sleep pid");
-        let _cleanup = crate::shared::test_processes::KillOnDrop::default().process(pid);
+        let _cleanup = KillOnDrop::default().process(pid);
         control.attach(&child).expect("attach grouped control");
-
-        let mut group = -1;
-        for _ in 0..50 {
-            // SAFETY: getpgid only reads the process table.
-            group = unsafe { libc::getpgid(pid as libc::pid_t) };
-            if group == pid as libc::pid_t {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        // SAFETY: getpgid only reads the process table. The process group is
+        // set before spawn returns.
         assert_eq!(
-            group, pid as libc::pid_t,
-            "a grouped provider must lead its own process group"
+            unsafe { libc::getpgid(pid as libc::pid_t) },
+            pid as libc::pid_t
         );
 
         control
@@ -357,40 +328,61 @@ mod unix_tests {
     }
 
     #[tokio::test]
-    async fn grouped_policy_terminates_descendants() {
-        let directory = tempfile::tempdir().expect("test directory");
-        let pid_file = directory.path().join("descendant.pid");
-        let mut command = helper_command(&pid_file);
-        let control = ProcessTreeControl::prepare(&mut command, AcpProcessTreePolicy::Grouped)
-            .expect("prepare grouped command");
-        let mut child = command.spawn().expect("spawn helper");
-        let pid = child.id().expect("helper pid");
-        // Keep a failing regression from leaving its own helper behind.
-        let _cleanup = crate::shared::test_processes::KillOnDrop::default()
-            .process(pid)
-            .group_of_pid_in(&pid_file);
-        control.attach(&child).expect("attach grouped control");
+    async fn stopping_a_term_resistant_launcher_releases_the_lease_before_process_exit() {
+        assert_lease_released(STOP_LAUNCHER, Some(libc::SIGKILL)).await;
+    }
 
-        let descendant = crate::shared::test_processes::wait_for_published_pid(
-            &pid_file,
-            Duration::from_secs(5),
+    #[tokio::test]
+    async fn natural_launcher_exit_releases_the_lease_before_process_exit() {
+        assert_lease_released(NATURAL_EXIT_LAUNCHER, None).await;
+    }
+
+    async fn assert_lease_released(script: &str, stop_signal: Option<i32>) {
+        let directory = tempfile::tempdir().expect("test directory");
+        let pid_file = directory.path().join("worker.pid");
+        let exit_file = directory.path().join("exit");
+        let client = AcpClient::spawn(
+            AcpSpawnOptions::builder()
+                .command(launcher_command(script, &pid_file, &exit_file))
+                .client_info(AcpClientInfo::default())
+                .process_tree_policy(AcpProcessTreePolicy::Grouped)
+                .build(),
         )
         .await
-        .expect("helper never published its descendant pid");
-        // Register the descendant itself so a failed assertion cannot leave it running.
-        let _descendant_cleanup =
-            crate::shared::test_processes::KillOnDrop::default().process(descendant as u32);
-        control
-            .terminate(&mut child, Duration::from_secs(1))
+        .expect("spawn grouped ACP launcher");
+        let mut events = client.subscribe_reliable();
+        let _launcher_cleanup = KillOnDrop::default()
+            .process(client.pid().expect("launcher pid"))
+            .group_of_pid_in(&pid_file);
+        let worker = wait_for_published_pid(&pid_file, Duration::from_secs(5))
             .await
-            .expect("terminate helper");
+            .expect("worker published its pid");
+        let _worker_cleanup = KillOnDrop::default().process(worker as u32);
+        let lease = File::open(pid_file.with_extension("lock")).expect("open worker lease");
+        assert!(matches!(lease.try_lock(), Err(TryLockError::WouldBlock)));
+        drop(lease);
 
-        for _ in 0..50 {
-            if process_dead_or_zombie(descendant) {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+        if stop_signal.is_some() {
+            client.shutdown().await;
+        } else {
+            std::fs::write(exit_file, []).expect("release launcher");
         }
-        panic!("grouped descendant {descendant} survived tree termination");
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .expect("ProcessExited must be published");
+        assert!(
+            matches!(
+                event,
+                Some(AcpEvent::ProcessExited { status, signal })
+                    if signal == stop_signal && (signal.is_some() || status == Some(0))
+            ),
+            "{event:?}"
+        );
+        // Reopen as an immediate session/load would, without a retry.
+        let lease = File::open(pid_file.with_extension("lock")).expect("reopen worker lease");
+        lease
+            .try_lock()
+            .expect("session lease released by ProcessExited");
+        client.shutdown().await;
     }
 }

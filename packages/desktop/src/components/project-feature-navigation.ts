@@ -126,14 +126,14 @@ export function navigateToFeatureOrHome(
   navigateToFeatureIdOrHome(navigate, projectId, feature?.id);
 }
 
-/** Open a conversation (`navigateToConversation`), or the home page without one. */
+/** Open a conversation (`navigateToConversation`), or the project's home screen when none remains. */
 export function navigateToFeatureIdOrHome(
   navigate: NavigateFn,
   projectId: number,
   featureId: number | null | undefined,
 ): void {
   if (featureId == null) {
-    void navigate({ to: "/" });
+    void navigate(projectId > 0 ? { to: "/", search: { projectId } } : { to: "/" });
     return;
   }
   navigateToConversation(navigate, projectId, featureId);

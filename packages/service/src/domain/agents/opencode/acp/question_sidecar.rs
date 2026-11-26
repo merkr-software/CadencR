@@ -35,8 +35,8 @@ impl QuestionSidecar {
         }
     }
 
-    pub(super) fn with_instructions_dir(mut self, instructions_dir: TempDir) -> Self {
-        self._instructions_dir = Some(instructions_dir);
+    pub(super) fn with_instructions_dir(mut self, instructions_dir: Option<TempDir>) -> Self {
+        self._instructions_dir = instructions_dir;
         self
     }
 

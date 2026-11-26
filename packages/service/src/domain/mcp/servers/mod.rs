@@ -35,6 +35,14 @@ impl AgentType {
     pub const ALL: &'static [AgentType] =
         &[AgentType::Browser, AgentType::Project, AgentType::Workspace];
 
+    pub(crate) fn owns_tool(self, tool: &str) -> bool {
+        match self {
+            Self::Browser => super::tools::browser::BROWSER_TOOL_NAMES.contains(&tool),
+            Self::Project => project_schema::PROJECT_TOOL_NAMES.contains(&tool),
+            Self::Workspace => workspace::WORKSPACE_TOOL_NAMES.contains(&tool),
+        }
+    }
+
     /// Short identifier used in MCP server names (`cadencr-<short>`).
     pub fn short_name(self) -> &'static str {
         match self {
@@ -142,6 +150,16 @@ fn tool_list_result(_ctx: &McpContext, tools: Vec<Tool>) -> ListToolsResult {
         .with_cache_scope(CacheScope::Private)
 }
 
+/// Normalize omitted MCP `tools/call` arguments (`None`) to an empty JSON object
+/// so downstream handlers always receive an object payload.
+fn normalize_tool_args(
+    arguments: Option<serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
+    arguments
+        .map(serde_json::Value::Object)
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
 /// Build the `initialize` result for the named Cadencr server: tools-only
 /// capabilities, a legacy fallback version, and orchestration instructions
 /// for `cadencr-project`.
@@ -159,7 +177,10 @@ fn server_info(name: &str) -> ServerInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{cadencr_mcp_required_tools, mcp_server_name, server_info, AgentType};
+    use super::{
+        cadencr_mcp_required_tools, mcp_server_name, normalize_tool_args, server_info, AgentType,
+    };
+    use serde_json::json;
 
     #[test]
     fn mcp_server_name_uses_current_cadencr_prefix() {
@@ -206,5 +227,14 @@ mod tests {
         assert!(instructions.contains("steer active turns by default"));
         assert!(instructions.contains("do not poll"));
         assert!(instructions.contains("delivery=next_turn"));
+    }
+
+    #[test]
+    fn normalize_tool_args_defaults_none_to_empty_object() {
+        assert_eq!(normalize_tool_args(None), json!({}));
+
+        let mut map = serde_json::Map::new();
+        map.insert("tab_id".to_string(), json!("t1"));
+        assert_eq!(normalize_tool_args(Some(map)), json!({ "tab_id": "t1" }));
     }
 }

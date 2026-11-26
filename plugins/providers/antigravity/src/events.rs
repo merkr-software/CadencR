@@ -7,17 +7,20 @@ mod detached;
 mod mcp;
 mod permissions;
 mod questions;
+mod receipts;
 mod subagents;
 mod tools;
 mod working;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tokio::time::Instant;
 
 use self::questions::Question;
-pub(crate) use self::subagents::{SubagentOperation, SubagentTracker};
+pub(crate) use self::receipts::{ObservedUserInput, ReceiptOperation, ReceiptTracker};
+pub(crate) use self::subagents::{native_brain, SubagentOperation, SubagentTracker};
 
 #[derive(Default)]
 pub(crate) struct EventMapper {
@@ -25,14 +28,27 @@ pub(crate) struct EventMapper {
     working: working::Working,
     mcp: mcp::SessionServers,
     questions: HashMap<String, Question>,
+    receipts: receipts::PromptReceipts,
     subagents: subagents::Subagents,
 }
 
 impl EventMapper {
+    pub(crate) fn new(brain: Option<PathBuf>) -> Self {
+        Self {
+            receipts: receipts::PromptReceipts::with_brain(brain),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn set_mcp_config_home(&mut self, home: PathBuf) {
+        self.mcp.home = Some(home);
+    }
+
     pub(crate) fn map_agent(&mut self, message: &mut Value) {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => {
                 self.subagents.observe_update(message);
+                self.receipts.observe_update(message);
                 if !self.working.observe_update(message) {
                     self.detached.observe_update(message, Instant::now);
                 }
@@ -49,6 +65,7 @@ impl EventMapper {
             }
             None => {
                 self.mcp.observe_response(message);
+                self.receipts.observe_response(message);
                 match self.detached.observe_response(message) {
                     Some(detached::PromptEnd::Completed(ended)) => {
                         self.working
@@ -66,6 +83,7 @@ impl EventMapper {
 
     pub(crate) fn map_host(&mut self, message: &mut Value) {
         self.subagents.observe_request(message);
+        self.receipts.observe_request(message);
         if message["method"] == "$/cancel_request" {
             if let Some(ended) = message
                 .pointer("/params/requestId")
@@ -96,6 +114,14 @@ impl EventMapper {
 
     pub(crate) fn take_subagent_operations(&mut self) -> Vec<SubagentOperation> {
         self.subagents.take_operations()
+    }
+
+    pub(crate) fn take_receipt_operations(&mut self) -> Vec<ReceiptOperation> {
+        self.receipts.take_operations()
+    }
+
+    pub(crate) fn observe_user_input(&mut self, input: ObservedUserInput) -> Option<Value> {
+        self.receipts.observe_user_input(input)
     }
 
     pub(crate) fn can_forward_subagent(&self, frame: &Value) -> bool {
@@ -153,24 +179,40 @@ impl EventMapper {
     }
 
     fn map_permission(&mut self, message: &mut Value) {
-        let id = message
-            .get("id")
-            .filter(|id| id.is_string() || id.is_number())
-            .map(Value::to_string);
+        let id = request_id(message.get("id"));
         let Some(params) = message.get_mut("params") else {
             return;
         };
+        let mut verified = None;
         if let (Some(id), Some(question)) = (id, Question::from_permission(params)) {
             question.rewrite_permission(params);
             self.questions.insert(id, question);
         } else {
             let names = self.mcp.for_params(Some(params));
+            let native = self.mcp.native(params);
+            let ordinary = permissions::ordinary_once(params);
             if let Some(call) = params.get_mut("toolCall") {
+                if ordinary {
+                    verified = mcp::approval_name(call, names, native);
+                }
                 tools::normalize_permission(call, names);
             }
             permissions::display_security_warnings(params);
         }
+        cadencr_provider_sdk::meta::set_attached_mcp_approval(params, verified.as_deref());
     }
+}
+
+fn request_id(id: Option<&Value>) -> Option<String> {
+    id.filter(|id| id.is_string() || id.is_number())
+        .map(Value::to_string)
+}
+
+fn validated_session_id(message: &Value) -> Option<&str> {
+    message
+        .pointer("/params/sessionId")
+        .and_then(Value::as_str)
+        .filter(|id| subagents::uuid_segment(id))
 }
 
 fn is_terminal_tool_status(status: Option<&str>) -> bool {

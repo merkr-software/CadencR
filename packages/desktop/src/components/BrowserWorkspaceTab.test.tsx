@@ -148,6 +148,9 @@ function bridge(): CadencrBrowserBridge {
     clearBrowserSiteData: vi.fn(),
     setBrowserAgentSharing: vi.fn(),
     resolveBrowserPermissionRequest: vi.fn(() => Promise.resolve()),
+    listBrowserAgentAccessRequests: vi.fn(() => Promise.resolve([])),
+    resolveBrowserAgentAccessRequest: vi.fn(() => Promise.resolve()),
+    clearBrowserError: vi.fn(() => Promise.resolve()),
     browserBack: vi.fn(),
     browserForward: vi.fn(),
     browserReload: vi.fn(),
@@ -182,6 +185,8 @@ function bridge(): CadencrBrowserBridge {
     onBrowserCommentBadgeClick: vi.fn(() => () => undefined),
     onBrowserPermissionRequest: vi.fn(() => () => undefined),
     onBrowserPermissionRequestCancelled: vi.fn(() => () => undefined),
+    onBrowserAgentAccessRequest: vi.fn(() => () => undefined),
+    onBrowserAgentAccessRequestCancelled: vi.fn(() => () => undefined),
     onBrowserPopupRequestsChanged: vi.fn(() => () => undefined),
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
@@ -734,51 +739,182 @@ describe("BrowserWorkspaceTab", () => {
     expect(mockBridge.navigateBrowserTab).not.toHaveBeenCalled();
   });
 
-  it("lets the user dismiss persistent browser navigation errors", async () => {
+  it("lets the user dismiss persistent browser chrome errors through the main process", async () => {
+    let stateRelay: ((snapshot: BrowserStateSnapshot) => void) | null = null;
     const mockBridge = bridge();
-    mockBridge.listBrowserTabs = vi.fn(() =>
-      Promise.resolve<BrowserStateSnapshot>({
-        tabs: [
-          {
-            id: "tab-1",
-            title: "Failed page",
-            url: "http://localhost:5175/signup",
-            loading: false,
-            canGoBack: false,
-            canGoForward: false,
-            sessionProfileId: "ephemeral",
-            isActive: true,
-            devToolsOpen: false,
-            pinned: false,
-            suspended: false,
-            zoomPercent: 100,
-            responsive: {
-              enabled: false,
-              preset: "mobile",
-              width: 390,
-              height: 844,
-              deviceScaleFactor: 3,
-              mobile: true,
-              touch: true,
-              colorScheme: "system",
-              status: "ready",
-            },
-            scopeId: 1,
+    const initialSnapshot: BrowserStateSnapshot = {
+      tabs: [
+        {
+          id: "tab-1",
+          title: "Blocked page",
+          url: "http://localhost:5175/signup",
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+          sessionProfileId: "ephemeral",
+          isActive: true,
+          devToolsOpen: false,
+          pinned: false,
+          suspended: false,
+          zoomPercent: 100,
+          responsive: {
+            enabled: false,
+            preset: "mobile",
+            width: 390,
+            height: 844,
+            deviceScaleFactor: 3,
+            mobile: true,
+            touch: true,
+            colorScheme: "system",
+            status: "ready",
           },
-        ],
-        activeTabId: "tab-1",
-        scopeId: 1,
-        error: "ERR_CONNECTION_REFUSED (-102) loading 'http://localhost:5175/signup'",
-      }),
-    );
+          scopeId: 1,
+        },
+      ],
+      activeTabId: "tab-1",
+      scopeId: 1,
+      error: null,
+      tabError: {
+        kind: "blocked",
+        title: "Navigation blocked",
+        description: "Only http:// and https:// URLs can be opened.",
+      },
+    };
+    mockBridge.listBrowserTabs = vi.fn(() => Promise.resolve(initialSnapshot));
+    mockBridge.onBrowserState = vi.fn((cb) => {
+      stateRelay = cb;
+      return () => undefined;
+    });
+    mockBridge.clearBrowserError = vi.fn(async () => {
+      stateRelay?.({ ...initialSnapshot, tabError: null, error: null });
+    });
     setDesktopBridgeOverrideForTests(mockBridge);
     render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
 
-    expect(await screen.findByText(/ERR_CONNECTION_REFUSED/)).toBeInTheDocument();
+    expect(await screen.findByText("Navigation blocked")).toBeInTheDocument();
+    expect(screen.getByText("Only http:// and https:// URLs can be opened.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Dismiss browser error" }));
 
-    expect(screen.queryByText(/ERR_CONNECTION_REFUSED/)).not.toBeInTheDocument();
+    expect(mockBridge.clearBrowserError).toHaveBeenCalledWith(1, "tab-1");
+    await waitFor(() => {
+      expect(screen.queryByText("Navigation blocked")).not.toBeInTheDocument();
+    });
+  });
+
+  it("clears only the scope error when dismissing a scope-wide banner alongside a page error", async () => {
+    let stateRelay: ((snapshot: BrowserStateSnapshot) => void) | null = null;
+    const mockBridge = bridge();
+    const initialSnapshot = await mockBridge.listBrowserTabs(1);
+    initialSnapshot.error = "Tab limit reached";
+    initialSnapshot.tabError = {
+      kind: "load",
+      title: "This site can’t be reached",
+      description: "localhost refused to connect.",
+      url: "http://localhost:5175/",
+      code: "ERR_CONNECTION_REFUSED",
+      retryable: true,
+    };
+    mockBridge.listBrowserTabs = vi.fn(() => Promise.resolve(initialSnapshot));
+    mockBridge.onBrowserState = vi.fn((cb) => {
+      stateRelay = cb;
+      return () => undefined;
+    });
+    mockBridge.clearBrowserError = vi.fn(async () => {
+      stateRelay?.({ ...initialSnapshot, error: null });
+    });
+    setDesktopBridgeOverrideForTests(mockBridge);
+    render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    expect(await screen.findByText("Tab limit reached")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This site can’t be reached" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss browser error" }));
+
+    expect(mockBridge.clearBrowserError).toHaveBeenCalledWith(1, null);
+    await waitFor(() => {
+      expect(screen.queryByText("Tab limit reached")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("heading", { name: "This site can’t be reached" })).toBeVisible();
+  });
+
+  it("renders in-viewport BrowserPageError without global suppression or overlay screenshots, and retries via navigate", async () => {
+    const mockBridge = bridge();
+    const snapshot = await mockBridge.listBrowserTabs(1);
+    snapshot.tabError = {
+      kind: "load",
+      title: "This site can’t be reached",
+      description: "localhost refused to connect.",
+      url: "http://localhost:5175/signup",
+      code: "ERR_CONNECTION_REFUSED",
+      retryable: true,
+    };
+    mockBridge.listBrowserTabs = vi.fn(() => Promise.resolve(snapshot));
+    setDesktopBridgeOverrideForTests(mockBridge);
+    const { user } = render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "This site can’t be reached" }),
+    ).toBeVisible();
+    expect(screen.getByText("ERR_CONNECTION_REFUSED")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Dismiss browser error" })).not.toBeInTheDocument();
+    expect(mockBridge.setBrowserSuppressed).not.toHaveBeenCalledWith(true);
+
+    // Opening a toolbar menu while a page error is displayed must not capture a screenshot
+    // from a crashed/detached WebContents or toggle global suppression.
+    await user.click(screen.getByRole("button", { name: "Choose browser tab type" }));
+    expect(screen.getByRole("menuitem", { name: "New tab (normal)" })).toBeInTheDocument();
+    expect(mockBridge.getBrowserScreenshot).not.toHaveBeenCalled();
+    expect(mockBridge.setBrowserSuppressed).not.toHaveBeenCalledWith(true);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mockBridge.navigateBrowserTab).toHaveBeenCalledWith(
+      "tab-1",
+      "http://localhost:5175/signup",
+    );
+  });
+
+  it("renders security tab errors in the viewport using BrowserPageError", async () => {
+    const mockBridge = bridge();
+    const snapshot = await mockBridge.listBrowserTabs(1);
+    snapshot.tabError = {
+      kind: "security",
+      title: "Your connection is not private",
+      description: "The site certificate could not be verified.",
+      url: "https://self-signed.local/",
+      code: "ERR_CERT_AUTHORITY_INVALID",
+      retryable: true,
+    };
+    mockBridge.listBrowserTabs = vi.fn(() => Promise.resolve(snapshot));
+    setDesktopBridgeOverrideForTests(mockBridge);
+    render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Your connection is not private" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Dismiss browser error" })).not.toBeInTheDocument();
+  });
+
+  it("renders the agent access approval banner above the viewport", async () => {
+    const mockBridge = bridge();
+    mockBridge.listBrowserAgentAccessRequests = vi.fn(async () => [
+      {
+        requestId: "req-banner-1",
+        tabId: "tab-1",
+        scopeId: 1,
+        origin: "http://localhost:1420",
+        url: "http://localhost:1420/",
+        title: "Local app",
+        privacy: "normal" as const,
+      },
+    ]);
+    setDesktopBridgeOverrideForTests(mockBridge);
+    render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    expect(await screen.findByText("Agent is requesting access to this tab")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Allow access" }));
+    expect(mockBridge.resolveBrowserAgentAccessRequest).toHaveBeenCalledWith("req-banner-1", true);
   });
 
   it("batches element comments and sends them as one message with screenshots", async () => {

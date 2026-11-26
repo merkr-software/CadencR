@@ -1,9 +1,10 @@
+use std::time::Duration;
 use tracing::info;
 
 use crate::domain::agents::adapter::{RuntimeSessionWeakHandle, RuntimeSpawnConfig};
 
 use super::super::session_init_resume::persistable_resume_session_id_for_provider;
-use super::super::{QueryState, SdkHandle};
+use super::super::{QueryState, SdkHandle, SdkSessions};
 use super::mcp_servers::mcp_servers_message_from_servers;
 use super::stream_reader_task::StreamReaderTask;
 
@@ -73,6 +74,45 @@ impl StreamReaderTask {
         );
         handle.state = QueryState::Pending(options);
     }
+}
+
+/// Transition `db_session_id` from `Active` to `Pending` when `target` is still
+/// the live runtime (used by the Stop watchdog after force-settling an
+/// unresponsive runtime so the next prompt spawns fresh and any late stream
+/// reader is treated as superseded).
+pub(in crate::domain::ws_session) async fn retire_active_runtime_to_pending(
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+    target: &RuntimeSessionWeakHandle,
+) {
+    let mut sessions = sdk_sessions.lock().await;
+    let Some(handle) = sessions.get_mut(&db_session_id) else {
+        return;
+    };
+    let QueryState::Active { ref query, .. } = handle.state else {
+        return;
+    };
+    if !std::sync::Weak::ptr_eq(&std::sync::Arc::downgrade(query), target) {
+        return;
+    }
+    let resume_session_id = match tokio::time::timeout(Duration::from_secs(1), query.read()).await {
+        Ok(q) => {
+            let runtime_session_id = q.session_id().await;
+            handle.runtime_control_endpoint = q.runtime_control_endpoint();
+            persistable_resume_session_id_for_provider(
+                &handle.runtime_provider,
+                runtime_session_id.as_deref(),
+                q.allows_resume_persistence(),
+            )
+        }
+        Err(_) => handle.resume_session_id.clone(),
+    };
+    let options = pending_options(handle, resume_session_id);
+    info!(
+        db_session_id,
+        "stop escalation force-settled; transitioning Active -> Pending for resume"
+    );
+    handle.state = QueryState::Pending(options);
 }
 
 pub(super) fn pending_options(

@@ -186,6 +186,21 @@ contain a non-empty `select` option whose `category` is `model`.
 - `_meta.cadencr` is optional host presentation metadata. Unknown or invalid
   values are rejected rather than guessed.
 
+### Approvals for attached MCP tools
+
+For an ordinary MCP tool approval, a connector can set
+`params._meta.cadencr.attachedMcpApproval` to the exact canonical
+`toolCall.name` (for example, `mcp__cadencr-workspace__workspace_list_projects`).
+Set it only after identifying the server attached to this session and ruling out
+a conflicting native registration. Strip any incoming value before forwarding
+a native request. Keep the field absent for questions and native safety-policy
+requests. The Rust SDK provides `meta::set_attached_mcp_approval`.
+
+In Auto or Auto Review, Cadencr can select the offered `allow_once` option for
+known tools from its own connected servers. The provider handles
+`browser_evaluate`, `browser_open_external_url`, and `project_respond_gate`
+under its regular approval policy.
+
 ### Mode and access-mode selectors
 
 Besides the mandatory model selector, the array may carry two optional ACP

@@ -4,11 +4,10 @@ use super::super::types::{QueryState, SdkSessions};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSessionHandle};
 use crate::domain::ws_session::runtime::output::CommandError;
-use crate::domain::ws_session::runtime::prompt::followup_withdrawal::{
-    end_turn_idle, fail_stopped_followups,
-};
+use crate::domain::ws_session::runtime::prompt::followup_withdrawal::fail_stopped_followups;
 
 mod owed_resume;
+mod watchdog;
 
 /// Nothing is running: the turn already ended. The user asked for a stop, so
 /// clients treat it as done.
@@ -36,6 +35,7 @@ pub(crate) async fn stop_session(
     // The live turn may be owned by another connection (e.g. the host stopping a
     // conversation started on a remote device), or by none (a schedule, MCP).
     let Some(sessions) = owner_sessions(app_state, own, db_session_id).await else {
+        watchdog::reconcile_orphaned_busy_session(app_state, db_session_id).await;
         return Err(nothing_to_stop());
     };
     // Nothing working (a live runtime between turns included): interrupting
@@ -52,33 +52,10 @@ pub(crate) async fn stop_session(
     {
         return Err(nothing_to_stop());
     }
-    let (query, feature_id) = {
-        let sessions = sessions.lock().await;
-        let Some(handle) = sessions.get(&db_session_id) else {
-            return Err(CommandError::new("SESSION_NOT_FOUND", "Session not found"));
-        };
-        // A compaction whose runtime was not asked to compact yet (spawning,
-        // or up a moment before the request) has no turn to interrupt: it
-        // gives up before it starts and reports the session idle.
-        if handle.manual_compact_spawn_pending.load(Ordering::SeqCst)
-            && handle.manual_compact_start.cancel()
-        {
-            return Ok(());
-        }
-        let query = match &handle.state {
-            QueryState::Active { query, .. } => Some(std::sync::Arc::clone(query)),
-            QueryState::Pending(_) => None,
-        };
-        (query, handle.feature_id)
-    };
-    let Some(query) = query else {
-        if app_state.session_runtimes.is_spawning(db_session_id).await {
-            return Err(CommandError::new(
-                AGENT_STARTING,
-                "The agent is still starting. Stop it again once it runs.",
-            ));
-        }
-        return Err(nothing_to_stop());
+    let (query, feature_id) = match resolve_stop_target(app_state, &sessions, db_session_id).await?
+    {
+        StopTarget::CompactCancelled => return Ok(()),
+        StopTarget::Active { query, feature_id } => (query, feature_id),
     };
 
     // Stop is an intentional user control, not a responder failure. Mark it
@@ -102,18 +79,12 @@ pub(crate) async fn stop_session(
         // The prompt that reserved this turn has not reached the runtime (it
         // waits for its pre-turn checkpoint): it is withdrawn, and interrupting
         // a runtime that runs nothing would leave a mark on its next turn.
-        end_turn_idle()
-            .pool(&app_state.write_pool)
-            .feature_senders(&app_state.ws_feature_senders)
-            .status(&app_state.session_status_tx)
-            .active_turns(turns)
-            .session_id(db_session_id)
-            .feature_id(feature_id)
-            .maybe_generation(current_turn)
-            .call()
-            .await;
+        watchdog::end_turn_idle_for(app_state, db_session_id, feature_id, current_turn).await;
         return withdrawn.and(recorded);
     }
+    // Subscribe before interrupting so fast transitions to Idle are never missed
+    // by the stop-escalation watchdog or the NothingToInterrupt reconciler.
+    let status_rx = app_state.session_status_tx.subscribe();
     let interrupted = interrupt_as_intended(
         app_state,
         &query,
@@ -126,11 +97,137 @@ pub(crate) async fn stop_session(
     if interrupted.is_err() {
         owed_resume::restore(app_state, &query, db_session_id, feature_id).await;
     }
+    finish_user_stop()
+        .app_state(app_state)
+        .sessions(&sessions)
+        .query(&query)
+        .db_session_id(db_session_id)
+        .feature_id(feature_id)
+        .maybe_current_turn(current_turn)
+        .status_rx(status_rx)
+        .interrupted(interrupted)
+        .withdrawn(withdrawn)
+        .recorded(recorded)
+        .call()
+}
+
+enum StopTarget {
+    CompactCancelled,
+    Active {
+        query: RuntimeSessionHandle,
+        feature_id: i64,
+    },
+}
+
+/// Resolve the live runtime for `stop_session`, cancelling a pending compaction
+/// spawn or reconciling a ghost-busy `Pending` session without racing a spawn
+/// that completes between lock acquisitions.
+async fn resolve_stop_target(
+    app_state: &AppState,
+    sessions: &SdkSessions,
+    db_session_id: i64,
+) -> Result<StopTarget, CommandError> {
+    let generation_before = app_state
+        .active_turns
+        .current_generation(db_session_id)
+        .await;
+    let feature_id = {
+        let guard = sessions.lock().await;
+        let Some(handle) = guard.get(&db_session_id) else {
+            return Err(CommandError::new("SESSION_NOT_FOUND", "Session not found"));
+        };
+        if handle.manual_compact_spawn_pending.load(Ordering::SeqCst)
+            && handle.manual_compact_start.cancel()
+        {
+            return Ok(StopTarget::CompactCancelled);
+        }
+        if let QueryState::Active { query, .. } = &handle.state {
+            return Ok(StopTarget::Active {
+                query: std::sync::Arc::clone(query),
+                feature_id: handle.feature_id,
+            });
+        }
+        handle.feature_id
+    };
+    if app_state.session_runtimes.is_spawning(db_session_id).await {
+        return Err(CommandError::new(
+            AGENT_STARTING,
+            "The agent is still starting. Stop it again once it runs.",
+        ));
+    }
+    // Re-check under the cell lock: a spawn that finished right before
+    // `is_spawning()` became `false` installed an `Active` runtime we must stop
+    // rather than wipe to `Idle`.
+    {
+        let guard = sessions.lock().await;
+        if let Some(handle) = guard.get(&db_session_id) {
+            if let QueryState::Active { query, .. } = &handle.state {
+                return Ok(StopTarget::Active {
+                    query: std::sync::Arc::clone(query),
+                    feature_id: handle.feature_id,
+                });
+            }
+        }
+    }
+    if !app_state.session_runtimes.is_spawning(db_session_id).await {
+        watchdog::end_turn_idle_for(app_state, db_session_id, feature_id, generation_before).await;
+    }
+    Err(nothing_to_stop())
+}
+
+#[bon::builder]
+fn finish_user_stop(
+    app_state: &AppState,
+    sessions: &SdkSessions,
+    query: &RuntimeSessionHandle,
+    db_session_id: i64,
+    feature_id: i64,
+    current_turn: Option<u64>,
+    status_rx: tokio::sync::broadcast::Receiver<crate::domain::session_status::SessionStatusEvent>,
+    interrupted: Result<(), RuntimeError>,
+    withdrawn: Result<(), CommandError>,
+    recorded: Result<(), CommandError>,
+) -> Result<(), CommandError> {
     match interrupted {
-        Ok(()) => withdrawn.and(recorded),
+        Ok(()) => {
+            if app_state
+                .session_status_tx
+                .busy_non_gate_feature_id(db_session_id)
+                .is_some()
+            {
+                watchdog::StopWatch::builder()
+                    .app_state(app_state.clone())
+                    .sessions(sessions.clone())
+                    .query(std::sync::Arc::downgrade(query))
+                    .db_session_id(db_session_id)
+                    .feature_id(feature_id)
+                    .maybe_generation(current_turn)
+                    .status_rx(status_rx)
+                    .grace(watchdog::WATCHDOG_GRACE)
+                    .build()
+                    .spawn_escalation();
+            }
+            withdrawn.and(recorded)
+        }
         // The status said busy, but the runtime had no turn to stop (it
-        // ended a moment ago): its mark is cleared, nothing will end.
+        // ended a moment ago): its mark is cleared, nothing will end. Reconcile
+        // shortly if no Result ever arrives to clear the busy status.
         Err(error) if error.is_nothing_to_interrupt() => {
+            if app_state
+                .session_status_tx
+                .busy_non_gate_feature_id(db_session_id)
+                .is_some()
+            {
+                watchdog::StopWatch::builder()
+                    .app_state(app_state.clone())
+                    .db_session_id(db_session_id)
+                    .feature_id(feature_id)
+                    .maybe_generation(current_turn)
+                    .status_rx(status_rx)
+                    .grace(watchdog::GHOST_BUSY_RECONCILE_GRACE)
+                    .build()
+                    .spawn_nothing_to_interrupt_reconciler();
+            }
             withdrawn?;
             Err(nothing_to_stop())
         }

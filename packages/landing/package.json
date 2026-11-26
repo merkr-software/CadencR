@@ -1,17 +1,10 @@
 {
   "name": "@cadencr/landing",
-  "version": "0.16.3",
+  "version": "0.16.4",
   "private": true,
   "description": "Cadencr marketing site, docs and news.",
   "license": "Apache-2.0",
   "type": "module",
-  "devEngines": {
-    "runtime": {
-      "name": "node",
-      "version": "22.23.5",
-      "onFail": "download"
-    }
-  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
@@ -44,5 +37,12 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.0",
     "vitest": "4.1.12"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "22.23.5",
+      "onFail": "download"
+    }
   }
 }

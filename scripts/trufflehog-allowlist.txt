@@ -212,3 +212,7 @@ d0bac2516010ab301c0f1ea0fc930cd5a4b2092dea4459bd8eb56188d96ad4db
 # v0.16.2 synthetic user:pass@proxy URI in cli_stderr secret-masking tests.
 # Exact detector/value/commit/file/line binding, independently reviewed.
 fea9faa98751ac6e1d6a3e06f599eeea32bebd060eea918e8a5097708edc138a
+
+# v0.16.4 browser-popup-controller.test.ts:60 (7f826b3ed).
+# Synthetic example.com credentials in a popup URL denied before navigation.
+8cc75fd63c88be8586aef1ad228eec985731ab1d75e2b6e9f1e3cbc148ebfc17

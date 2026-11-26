@@ -47,7 +47,11 @@ export class BrowserTabLifecycle {
     });
     const metadata = restoredMetadata ?? metadataFor(randomUUID(), selectionId, scopeId);
     const tab: ManagedTab = {
-      metadata: { ...metadata, temporary: temporary || undefined },
+      metadata: {
+        ...metadata,
+        agentAccess: automationAccess,
+        temporary: temporary || undefined,
+      },
       automationAccess,
       profile,
       view,

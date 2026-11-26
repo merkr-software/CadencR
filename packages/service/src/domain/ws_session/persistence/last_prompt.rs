@@ -21,6 +21,7 @@ impl SessionRow {
             || self.runtime_overrides.is_some()
             || self.model.is_some()
             || self.thinking_effort.is_some()
+            || self.permission_mode.is_some()
             || self.fast_mode
         {
             return Ok(false);
@@ -49,6 +50,7 @@ impl SessionRow {
         self.profile = saved.profile;
         self.thinking_effort = saved.thinking_effort;
         self.fast_mode = saved.fast_mode;
+        self.permission_mode = saved.permission_mode;
         Ok(true)
     }
 
@@ -58,10 +60,10 @@ impl SessionRow {
     ) -> Result<(), AppError> {
         let updated = sqlx::query(
             "UPDATE agent_sessions SET runtime_provider = ?, model = ?, profile = ?,
-             thinking_effort = ?, fast_mode = ?, runtime_overrides = ?
+             thinking_effort = ?, fast_mode = ?, runtime_overrides = ?, permission_mode = ?
              WHERE id = ? AND runtime_provider IS NULL AND runtime_session_id IS NULL
              AND model IS NULL AND profile IS NULL AND thinking_effort IS NULL AND fast_mode = 0
-             AND runtime_overrides IS NULL",
+             AND runtime_overrides IS NULL AND permission_mode IS NULL",
         )
         .bind(&self.runtime_provider)
         .bind(&self.model)
@@ -69,6 +71,7 @@ impl SessionRow {
         .bind(&self.thinking_effort)
         .bind(self.fast_mode)
         .bind(&self.runtime_overrides)
+        .bind(&self.permission_mode)
         .bind(self.id)
         .execute(pool)
         .await?;
@@ -81,6 +84,7 @@ impl SessionRow {
                     && r.thinking_effort == self.thinking_effort
                     && r.fast_mode == self.fast_mode
                     && r.runtime_overrides == self.runtime_overrides
+                    && r.permission_mode == self.permission_mode
             }) {
                 return Err(AppError::Conflict(
                     "Conversation controls changed during initialization".into(),

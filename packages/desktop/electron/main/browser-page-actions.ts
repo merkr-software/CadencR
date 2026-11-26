@@ -24,8 +24,9 @@ import { browserScreenshotClipScale } from "./browser-screenshot";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserBounds } from "./browser-types";
 
-// A tab approved via the external opener may be automated only while it stays on
-// the approved origin; otherwise fall back to the localhost-only gate.
+// A tab unlocked via `browser_open_external_url` or explicit user sharing may
+// be mutated only while it stays on the approved origin; otherwise fall back to
+// the localhost-only gate.
 function assertMutatingAllowed(tab: ManagedTab): void {
   const liveUrl = tab.webContents.getURL();
   if (externalAutomationMatches(liveUrl, tab.externalAutomationOrigin)) return;

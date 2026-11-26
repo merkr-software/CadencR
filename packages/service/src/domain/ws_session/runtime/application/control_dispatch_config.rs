@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
-use crate::domain::agents::permission_modes::effective_permission_mode;
+use crate::domain::agents::permission_modes::{effective_permission_mode, permission_mode_wire};
 use crate::domain::agents::{default_provider_id, resolve_effective_provider, runtime_adapter};
 use crate::domain::settings;
 use crate::domain::workflow::worktree;
@@ -27,9 +27,17 @@ pub(in crate::domain::ws_session) async fn build_pending_handle(
             .inherit_last_prompt(&app_state.read_pool, &runtime_cwd)
             .await?;
     let provider = effective_provider(app_state, project_id, &runtime_cwd, &row).await?;
-    let (options, claude_profile) =
-        runtime_options(app_state, project_id, runtime_cwd, &provider, &row).await?;
+    let (options, claude_profile) = runtime_options(
+        app_state,
+        project_id,
+        runtime_cwd,
+        &provider,
+        &row,
+        inherited,
+    )
+    .await?;
     if inherited {
+        row.permission_mode = options.permission_mode.as_ref().map(permission_mode_wire);
         row.persist_inherited_controls(&app_state.write_pool)
             .await?;
     } else {
@@ -111,13 +119,16 @@ async fn runtime_options(
     cwd: std::path::PathBuf,
     provider: &str,
     row: &SessionRow,
+    inherited: bool,
 ) -> Result<(RuntimeSpawnConfig, Option<String>), AppError> {
     let mut options = RuntimeSpawnConfig {
         cwd,
         model: row.model.clone(),
         thinking_effort: row.thinking_effort.clone(),
         fast_mode: row.fast_mode,
-        permission_mode: effective_permission_mode(provider, row.permission_mode.as_deref()),
+        permission_mode: (!inherited)
+            .then(|| effective_permission_mode(provider, row.permission_mode.as_deref()))
+            .flatten(),
         resume_session_id: row.runtime_session_id.clone(),
         ..Default::default()
     };
@@ -138,6 +149,12 @@ async fn runtime_options(
         // Returning options here does not authorize a runtime or choose a fallback.
         return Ok((options, None));
     };
+    if inherited {
+        options.permission_mode = adapter
+            .resolve_initial_permission_mode(&options.cwd, row.permission_mode.as_deref())
+            .await
+            .map_err(|error| AppError::internal(error.to_string()))?;
+    }
     if row.runtime_overrides.is_none() && adapter.supports_profile_config_inheritance() {
         crate::domain::ws_session::persistence::WsSessionPersistence::update_runtime_overrides_static(
             &app_state.write_pool,
@@ -240,6 +257,7 @@ mod tests {
                 PathBuf::from("/tmp"),
                 "missing_provider",
                 &row,
+                false,
             )
             .await
             .expect("missing adapters are rejected by the ordinary dispatch cleanup");
@@ -260,6 +278,7 @@ mod tests {
             PathBuf::from("/tmp"),
             "missing_provider",
             &row,
+            false,
         )
         .await
         .err()
@@ -292,9 +311,16 @@ mod tests {
             runtime_overrides: None,
         };
 
-        let (options, _) = runtime_options(&app_state, 1, PathBuf::from("/tmp"), "opencode", &row)
-            .await
-            .unwrap();
+        let (options, _) = runtime_options(
+            &app_state,
+            1,
+            PathBuf::from("/tmp"),
+            "opencode",
+            &row,
+            false,
+        )
+        .await
+        .unwrap();
         assert!(options.permission_mode.is_none());
     }
 

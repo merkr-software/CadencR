@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { metadataFor } from "./browser-manager-utils";
 import type { ManagedTab, TabEventHost } from "./browser-tab-events";
 import { installBrowserFaviconEvents } from "./browser-tab-favicon-events";
+import type { BrowserTabError } from "./browser-types";
 
 function pngResponse(): Response {
   return new Response(new Uint8Array([137, 80, 78, 71]), {
@@ -25,13 +26,17 @@ function setup() {
     webContents: contents,
     pendingSessionTasks: new Set<Promise<void>>(),
   } as unknown as ManagedTab;
-  let error: string | null = "Previous failure";
+  let error: BrowserTabError | null = {
+    kind: "load",
+    title: "Previous failure",
+    description: "Old failure",
+  };
   const emitState = vi.fn(() => ({ error, loading: tab.metadata.loading }));
   const host = {
     emitState,
-    setTabError: vi.fn((message: string | null) => {
-      const changed = error !== message;
-      error = message;
+    setTabError: vi.fn((next: BrowserTabError | null) => {
+      const changed = error !== next;
+      error = next;
       return changed;
     }),
     invalidateFind: vi.fn(),
@@ -149,5 +154,30 @@ describe("installBrowserFaviconEvents", () => {
     await flush(tab);
     expect(contents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledOnce();
     expect(tab.metadata.faviconUrl).toMatch(/^data:image\/png/);
+  });
+
+  it("does not surface a tab error when favicon discovery or fetching fails", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    try {
+      const { contents, tab, host, emitState } = setup();
+      contents.session.fetch.mockRejectedValueOnce(new Error("favicon fetch timed out"));
+      contents.emit("page-favicon-updated", {}, ["https://example.com/broken.png"]);
+      await flush(tab);
+      expect(host.setTabError).not.toHaveBeenCalled();
+      expect(emitState).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith("[browser] favicon load skipped", expect.any(Error));
+
+      contents.executeJavaScriptInIsolatedWorld.mockRejectedValueOnce(new Error("guest crashed"));
+      contents.emit("did-start-loading");
+      emitState.mockClear();
+      vi.mocked(host.setTabError).mockClear();
+      contents.emit("did-stop-loading");
+      await flush(tab);
+      expect(host.setTabError).not.toHaveBeenCalled();
+      expect(emitState).toHaveBeenCalledOnce();
+      expect(emitState.mock.results[0]?.value).toEqual({ error: null, loading: false });
+    } finally {
+      debug.mockRestore();
+    }
   });
 });

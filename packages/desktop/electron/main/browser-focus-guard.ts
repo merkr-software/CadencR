@@ -20,14 +20,26 @@ const RECLAIM_TAIL_MS = 250;
 export class BrowserFocusGuard {
   // >0 while an agent tool that started with the renderer focused is settling.
   private settling = 0;
+  // >0 while waiting on user interaction in the browser (e.g. tab access prompt).
+  private paused = 0;
 
   constructor(private readonly getMainWindow: () => BrowserWindow | null) {}
 
   /** Wire a guest webContents so it can't keep focus mid-agent-action. */
   watch(contents: WebContents): void {
     contents.on("focus", () => {
-      if (this.settling > 0) this.reclaim();
+      if (this.settling > 0 && this.paused === 0) this.reclaim();
     });
+  }
+
+  /** Temporarily pause focus reclamation so the user can inspect/scroll a tab. */
+  async suspend<T>(action: () => Promise<T>): Promise<T> {
+    this.paused += 1;
+    try {
+      return await action();
+    } finally {
+      this.paused = Math.max(0, this.paused - 1);
+    }
   }
 
   /** Run an agent browser tool, shielding renderer focus around it. */

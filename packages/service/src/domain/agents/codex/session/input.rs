@@ -6,15 +6,72 @@ use tracing::warn;
 
 use super::CodexSession;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeError, RuntimePermissionResponse,
+    AgentRuntimeSession, RuntimeAccessMode, RuntimeEffectiveConfig, RuntimeError,
+    RuntimePermissionMode, RuntimePermissionResponse,
 };
 use crate::domain::agents::codex::input::user_input_from_content;
 use crate::domain::agents::codex::session_permissions::plan_approval_prompt;
+use crate::domain::agents::codex::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::codex::turn_steer_recovery::{
     steer_failure_recovery, SteerFailureRecovery,
 };
 
 impl CodexSession {
+    pub(super) async fn start_turn(
+        &self,
+        input: Vec<Value>,
+        client_message_id: Option<&str>,
+    ) -> Result<(), RuntimeError> {
+        let model = self.model.read().await.clone();
+        let effort = self.effort.read().await.clone();
+        let collaboration_model = self.effective_model.read().await.clone();
+        // Before `turn/start`: its `turn/started` can arrive before the reply.
+        *self.turn_model.write().await = collaboration_model.clone();
+        let collaboration_effort = self.effective_effort.read().await.clone();
+        let fast_mode = *self.fast_mode.read().await;
+        let controls = RuntimeEffectiveConfig {
+            model: collaboration_model.clone(),
+            thinking_effort: collaboration_effort.clone(),
+            fast_mode: fast_mode.unwrap_or(self.native_fast_mode),
+        };
+        let permission_mode = self.permission_mode.read().await.clone();
+        let access_mode = self.access_mode.read().await.clone();
+        let mut params = turn_start_params(
+            &self.thread_id,
+            input,
+            TurnStartOptions {
+                cwd: &self.cwd,
+                permission_mode: permission_mode.as_ref(),
+                access_mode: access_mode.as_ref(),
+                model,
+                effort,
+                collaboration_model,
+                collaboration_effort,
+                summary: self.summary.clone(),
+                fast_mode,
+            },
+        );
+        if let Some(client_message_id) = client_message_id {
+            params["clientUserMessageId"] = Value::String(client_message_id.to_string());
+        }
+        let _starting = self.turn_start.lock().await;
+        self.automatic_mcp.lock().await.start(
+            access_mode == Some(RuntimeAccessMode::AutoReview)
+                && permission_mode != Some(RuntimePermissionMode::Plan),
+        );
+        let turn = match self.client.turn_start(params).await {
+            Ok(turn) => turn,
+            Err(error) => {
+                self.automatic_mcp.lock().await.start(false);
+                return Err(error.into());
+            }
+        };
+        self.automatic_mcp.lock().await.started(&turn.id);
+        *self.delivered_controls.write().await = controls;
+        *self.active_turn_id.write().await = Some(turn.id.clone());
+        *self.last_root_turn_id.write().await = Some(turn.id);
+        Ok(())
+    }
     pub(super) async fn convert_input(&self, content: Value) -> Result<Vec<Value>, RuntimeError> {
         let mut new_files = Vec::new();
         let input = user_input_from_content(content, &mut new_files)?;
