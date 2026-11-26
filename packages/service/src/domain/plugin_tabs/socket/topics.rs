@@ -119,15 +119,21 @@ async fn git_status(
     emitter: Emitter,
 ) -> Result<Started, StartError> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let snapshot = match state
+    let outcome = state
         .git_watcher
-        .subscribe(state, feature_id, tx.clone())
-        .await
-    {
+        .subscribe(state, feature_id, tx.clone(), std::convert::identity)
+        .await;
+    let snapshot = match outcome
+        .status
+        .map_err(|error| ("GIT_STATUS_ERROR", error.to_string()))
+        .and_then(|snapshot| match outcome.watcher {
+            Some(Err(error)) => Err(("WATCHER_ERROR", error.to_string())),
+            _ => Ok(snapshot),
+        }) {
         Ok(snapshot) => snapshot,
         Err(error) => {
             state.git_watcher.unsubscribe_sender(&tx).await;
-            return Err(("WATCHER_ERROR", error.to_string()));
+            return Err(error);
         }
     };
     let run = async move {

@@ -61,7 +61,7 @@ const STATUS: GitStatusSnapshot = {
 };
 
 beforeEach(() => {
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
 });
 
 describe("GitTabBody missing target", () => {
@@ -69,7 +69,6 @@ describe("GitTabBody missing target", () => {
     mocks.diffViewer.mockClear();
     useGitStatusStore.setState({
       byFeature: { 4: { ...STATUS, target_branch: "main" } },
-      errorByFeature: {},
     });
     const { getByRole } = render(
       <GitTabBody

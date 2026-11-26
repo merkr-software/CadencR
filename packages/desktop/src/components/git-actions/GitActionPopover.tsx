@@ -118,7 +118,7 @@ export function GitActionPopover({
                   <Icon className="size-3.5 shrink-0" />
                   <span className="truncate">{label}</span>
                 </span>
-                {reason && (
+                {reason && !state.statusUnavailable && (
                   <span className="ml-3 max-w-[170px] truncate text-[10px] text-muted-foreground">
                     {reason}
                   </span>

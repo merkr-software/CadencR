@@ -71,6 +71,12 @@ impl WatcherHandle {
     }
 }
 
+impl Drop for WatcherHandle {
+    fn drop(&mut self) {
+        self.compute_task.abort();
+    }
+}
+
 /// Inner registry state — a `HashMap` keyed by canonicalized worktree path.
 ///
 /// Held only for bookkeeping, never across a Git command or a filesystem walk:
@@ -105,7 +111,7 @@ pub(super) async fn spawn_handle(
     let epoch = Arc::new(AtomicU64::new(0));
     let (ping_tx, ping_rx) = mpsc::unbounded_channel::<RecomputePing>();
 
-    let extra_git_roots = resolve_git_roots(&worktree_path).await;
+    let extra_git_roots = resolve_git_roots(&worktree_path).await?;
     let watcher = tokio::task::spawn_blocking({
         let worktree_path = worktree_path.clone();
         let ping_tx = ping_tx.clone();
@@ -163,10 +169,12 @@ pub(super) fn schedule_grace_drop(
     let path_owned = path.to_path_buf();
     let task = tokio::spawn(async move {
         tokio::time::sleep(GRACE_PERIOD).await;
+        let repo = repo_lock(&registry, &path_owned).await;
+        let _repo = repo.lock().await;
+        let mut inner = registry.lock().await;
         if epoch.load(Ordering::Relaxed) != epoch_at_schedule {
             return;
         }
-        let mut inner = registry.lock().await;
         if let Some(handle) = inner.handles.get(&path_owned) {
             if !handle.subscribers.is_empty() {
                 return;
@@ -175,7 +183,6 @@ pub(super) fn schedule_grace_drop(
         if let Some(mut handle) = inner.handles.remove(&path_owned) {
             handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
-            handle.compute_task.abort();
             debug!(path = %path_owned.display(), "git watcher dropped after grace");
         }
     });

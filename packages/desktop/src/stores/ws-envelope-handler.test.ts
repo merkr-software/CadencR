@@ -658,7 +658,7 @@ describe("handleEnvelope workflow worktree events", () => {
     // The git-status subscription hook listens to this counter so it can
     // re-issue subscribe and force the backend to re-resolve `worktree_path`
     // once the worktree exists. Drives both feature-view and ws-session.
-    useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
     const ctx = createTestContext(createSessionEntry());
 
     handleEnvelope(ctx, "s1", {
@@ -671,7 +671,7 @@ describe("handleEnvelope workflow worktree events", () => {
   });
 
   it("also bumps on worktree.ready (re-emit path on a fresh frontend session)", () => {
-    useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: { 42: 5 } });
+    useGitStatusStore.setState({ ...useGitStatusStore.getInitialState(), watcherEpoch: { 42: 5 } });
     const ctx = createTestContext(createSessionEntry());
 
     handleEnvelope(ctx, "s1", {
@@ -684,7 +684,7 @@ describe("handleEnvelope workflow worktree events", () => {
   });
 
   it("does not bump for unrelated workflow envelopes", () => {
-    useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
     const ctx = createTestContext(createSessionEntry());
 
     handleEnvelope(ctx, "s1", {

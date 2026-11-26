@@ -100,7 +100,7 @@ beforeEach(() => {
   mocks.updateTarget.mockReset().mockResolvedValue({ success: true });
   mocks.linkBranch.mockReset().mockResolvedValue({ success: true });
   mocks.unlinkBranch.mockReset().mockResolvedValue({ success: true });
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
   usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
 });
 

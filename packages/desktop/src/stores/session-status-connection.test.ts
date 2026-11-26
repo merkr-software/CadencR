@@ -4,6 +4,7 @@ import { createAppWsConnection } from "./session-status-connection";
 import type { SessionStatusState } from "./session-status-store";
 import { registerReconnector, scheduleReconnect } from "@/lib/ws-reconnect";
 import { subscribeForgeStatus } from "./forge-visibility";
+import { useGitStatusStore } from "./useGitStatusStore";
 
 vi.mock("@/lib/ws-reconnect", () => ({
   registerReconnector: vi.fn(),
@@ -147,5 +148,32 @@ describe("private app WebSocket controller", () => {
       payload: { project_id: 1, feature_id: 7 },
     });
     store.getState().disconnect();
+  });
+
+  it("settles Git retry only on the current subscription reply", () => {
+    const { store, dispatch } = harness();
+    store.getState().connect();
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    const unsubscribe = store.getState().subscribeGitStatus(7);
+    const firstId = JSON.parse(ws.sent.at(-1)!).id;
+    unsubscribe();
+    const unsubscribeRetry = store.getState().subscribeGitStatus(7);
+    const retryId = JSON.parse(ws.sent.at(-1)!).id;
+    const payload = { feature_id: 7, error: "bad index", watcher_error: null };
+    const reply = (ref?: string) =>
+      ws.fire("message", {
+        data: JSON.stringify({ id: "reply", domain: "git", action: "status_error", ref, payload }),
+      });
+    reply(firstId);
+    reply();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(useGitStatusStore.getState().subscriptionByFeature[7]).toBe("pending");
+    reply(retryId);
+    expect(dispatch).toHaveBeenCalledWith("git", "status_error", payload);
+    expect(useGitStatusStore.getState().subscriptionByFeature[7]).toBe("answered");
+    unsubscribeRetry();
+    store.getState().disconnect();
+    expect(useGitStatusStore.getState().subscriptionByFeature[7]).toBeUndefined();
   });
 });

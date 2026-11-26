@@ -1,8 +1,14 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { toast } from "sonner";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 
-import { selectGitStatus, useGitStatusStore } from "@/stores/useGitStatusStore";
-import { getCompareUrl, type GitStatusSnapshot } from "@/api/generated";
+import {
+  selectGitStatus,
+  selectGitStatusHealth,
+  useGitStatusStore,
+} from "@/stores/useGitStatusStore";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+import { getCompareUrl, getGetGitStatusQueryKey, type GitStatusSnapshot } from "@/api/generated";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { toastError } from "@/lib/api-errors";
 import { openExternalUrl } from "@/lib/open-external";
@@ -19,6 +25,7 @@ import { usePushSubmission } from "./usePushSubmission";
 import { useGitUpdatePending } from "./useGitUpdatePending";
 import { GitActionDialogs, type GitActionDialog } from "./GitActionDialogs";
 import { GitActionControls } from "./GitActionControls";
+import type { GitStatusRetry } from "./GitActionPopoverContent";
 import { useGitActionShortcuts } from "./useGitActionShortcuts";
 import { useStashMutationCoordinator } from "../diff/useStashMutationCoordinator";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
@@ -58,15 +65,57 @@ function useGitActionButtonState(featureId: number): {
   getStashMutationBlockedReason: () => string | null;
 } {
   const snapshot = useGitStatusStore(selectGitStatus(featureId));
+  const statusError = useGitStatusStore((state) => state.healthByFeature[featureId]?.statusError);
   const pr = usePrStatusStore(selectPrStatus(featureId))?.pr ?? undefined;
   const updatePending = useGitUpdatePending(featureId);
   const { blockedReason: stashBlockedReason, getBlockedReason: getStashMutationBlockedReason } =
     useStashMutationCoordinator(featureId);
-  const state = useGitAction(snapshot, updatePending, stashBlockedReason, pr);
+  const state = useGitAction(snapshot, {
+    updatePending,
+    stashMutationBlockedReason: stashBlockedReason,
+    existingPr: pr,
+    statusError,
+  });
   return useMemo(
     () => ({ snapshot, state, prUrl: pr?.url, getStashMutationBlockedReason }),
     [getStashMutationBlockedReason, pr?.url, snapshot, state],
   );
+}
+
+function useGitStatusRetry(featureId: number): GitStatusRetry {
+  const queryClient = useQueryClient();
+  const health = useGitStatusStore(selectGitStatusHealth(featureId));
+  const queryKey = useMemo(() => getGetGitStatusQueryKey({ feature_id: featureId }), [featureId]);
+  const isFetching = useIsFetching({ queryKey, exact: true }) > 0;
+  const isConnected = useSessionStatusStore((state) => state.isConnected);
+  const subscribing = useGitStatusStore(
+    (state) => state.subscriptionByFeature[featureId] === "pending",
+  );
+  const run = useCallback((): void => {
+    const socket = useSessionStatusStore.getState();
+    const git = useGitStatusStore.getState();
+    if (socket.isConnected) {
+      git.bumpWatcherEpoch(featureId);
+    } else {
+      void queryClient.refetchQueries({ queryKey, exact: true, type: "active" });
+      if (git.healthByFeature[featureId]?.watcherError) socket.connect();
+    }
+  }, [featureId, queryClient, queryKey]);
+  const pending = subscribing || (!isConnected && isFetching);
+  return useMemo(() => {
+    const watch = health?.watcherError
+      ? { label: "Git live updates unavailable", detail: health.watcherError }
+      : undefined;
+    const issue = health?.statusError
+      ? {
+          label: "Git status unavailable",
+          detail: watch
+            ? `${health.statusError}\n${watch.label}. ${watch.detail}`
+            : health.statusError,
+        }
+      : watch;
+    return { run, pending, issue };
+  }, [health, pending, run]);
 }
 
 /** Submitting ⇒ running; a failed run stays discoverable until dismissed. */
@@ -82,6 +131,7 @@ export const GitActionButton = memo(function GitActionButton({
   const { snapshot, state, prUrl, getStashMutationBlockedReason } =
     useGitActionButtonState(featureId);
   const isMobile = useIsMobile();
+  const statusRetry = useGitStatusRetry(featureId);
   const [activeDialog, setActiveDialog] = useState<GitActionDialog>(null);
   const handleDialogOpenChange = useCallback((open: boolean) => {
     if (!open) setActiveDialog(null);
@@ -159,6 +209,7 @@ export const GitActionButton = memo(function GitActionButton({
         checkedOut={snapshot?.current_branch || undefined}
         state={state}
         activities={activities}
+        statusRetry={statusRetry}
         popoverOpen={popoverOpen}
         onPopoverOpenChange={setPopoverOpen}
         onAction={runAction}

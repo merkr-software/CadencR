@@ -11,9 +11,9 @@ use tokio::sync::{mpsc, Mutex};
 use super::handle::Subscriber;
 use super::handle::{repo_lock, schedule_grace_drop, sender_eq, spawn_handle, RegistryInner};
 use super::pending::PendingSubscriptions;
-use super::subscription::{push_subscriber_dedup, resolve_paths};
+use super::subscription::{push_subscriber_dedup, resolve_worktree_path};
 use crate::app_state::AppState;
-use crate::domain::git::git_status::{self, GitStatusSnapshot};
+use crate::domain::git::git_status::GitStatusSnapshot;
 use crate::domain::git::workflow_service;
 use crate::error::AppError;
 use crate::shared::keyed_locks::KeyedLocks;
@@ -22,6 +22,12 @@ use crate::shared::keyed_locks::KeyedLocks;
 pub struct GitWatcherRegistry {
     pub(super) inner: Arc<Mutex<RegistryInner>>,
     pending: Arc<PendingSubscriptions>,
+}
+
+pub(crate) struct GitStatusSubscription {
+    pub status: Result<GitStatusSnapshot, AppError>,
+    /// None when path resolution failed before watcher setup could run.
+    pub watcher: Option<Result<(), AppError>>,
 }
 
 impl GitWatcherRegistry {
@@ -38,83 +44,107 @@ impl GitWatcherRegistry {
     /// [`Self::subscribe`] without holding up the caller: a WebSocket hands
     /// the result to `respond` while it goes on with its next commands. A
     /// later unsubscribe or disconnect of `sender` cancels it.
-    pub fn subscribe_in_background<R>(
+    pub(crate) fn subscribe_in_background<R>(
         &self,
         state: &AppState,
         feature_id: i64,
         sender: mpsc::UnboundedSender<Message>,
         respond: R,
     ) where
-        R: FnOnce(Result<GitStatusSnapshot, AppError>) + Send + 'static,
+        R: FnOnce(GitStatusSubscription) + Send + 'static,
     {
         let state = state.clone();
         let subscriber = sender.clone();
         self.pending.start(feature_id, sender, async move {
-            respond(
-                state
-                    .git_watcher
-                    .subscribe(&state, feature_id, subscriber)
-                    .await,
-            );
+            state
+                .git_watcher
+                .subscribe(&state, feature_id, subscriber, respond)
+                .await;
         });
     }
 
-    /// Register a `(feature_id, sender)` subscription. Returns an initial
-    /// snapshot the caller should send as the first envelope on this WS.
-    /// Spawns the underlying fs watcher if this is the first subscriber for
-    /// the resolved worktree path.
+    /// Register a `(feature_id, sender)` subscription and report its initial
+    /// status and watcher setup independently. A watcher that could be started
+    /// can recover a failed first calculation on the next filesystem event.
     ///
     /// Git runs under the repository's own lock, never under the registry's:
     /// a repository whose Git hangs (network filesystem, huge checkout) only
     /// delays its own subscribers.
-    pub async fn subscribe(
+    pub(crate) async fn subscribe<T>(
         &self,
         state: &AppState,
         feature_id: i64,
         sender: mpsc::UnboundedSender<Message>,
-    ) -> Result<GitStatusSnapshot, AppError> {
-        let (worktree_path, target_branch) = resolve_paths(state, feature_id).await?;
+        respond: impl FnOnce(GitStatusSubscription) -> T,
+    ) -> T {
+        let worktree_path = match resolve_worktree_path(state, feature_id).await {
+            Ok(path) => path,
+            Err(error) => {
+                return respond(GitStatusSubscription {
+                    status: Err(error),
+                    watcher: None,
+                });
+            }
+        };
         let repo_lock = repo_lock(&self.inner, &worktree_path).await;
         let _repo = repo_lock.lock().await;
-        let mut snapshot =
-            git_status::compute_status_or_empty(&worktree_path, feature_id, &target_branch).await?;
-        workflow_service::enrich_snapshot(state, &mut snapshot, &worktree_path.to_string_lossy())
-            .await;
-
-        if !crate::shared::git_context::has_git_metadata(&worktree_path).await? {
-            return Ok(snapshot);
-        }
-        if self.attach(&worktree_path, feature_id, &sender).await {
-            return Ok(snapshot);
-        }
-        // The repository lock keeps a concurrent subscriber of this worktree
-        // from starting a second watcher while this one is being built.
-        let mut handle =
-            spawn_handle(self.inner.clone(), worktree_path.clone(), state.clone()).await?;
-        push_subscriber_dedup(&mut handle.subscribers, feature_id, sender);
-        self.inner
-            .lock()
-            .await
-            .handles
-            .insert(worktree_path, handle);
-        Ok(snapshot)
-    }
-
-    /// Add the subscriber to an existing watcher; false when there is none.
-    async fn attach(
-        &self,
-        worktree_path: &std::path::Path,
-        feature_id: i64,
-        sender: &mpsc::UnboundedSender<Message>,
-    ) -> bool {
-        let mut inner = self.inner.lock().await;
-        let Some(handle) = inner.handles.get_mut(worktree_path) else {
-            return false;
+        let has_git = match crate::shared::git_context::has_git_metadata(&worktree_path).await {
+            Ok(has_git) => has_git,
+            Err(error) => {
+                return respond(GitStatusSubscription {
+                    status: Err(error),
+                    watcher: None,
+                });
+            }
         };
-        push_subscriber_dedup(&mut handle.subscribers, feature_id, sender.clone());
-        handle.cancel_grace();
-        handle.epoch.fetch_add(1, Ordering::Relaxed);
-        true
+        // Start watching before the scan so edits during it queue a refresh.
+        // Commit the subscriber only after all cancellable work is finished.
+        let prepare_watcher = async {
+            if has_git && !self.inner.lock().await.handles.contains_key(&worktree_path) {
+                spawn_handle(self.inner.clone(), worktree_path.clone(), state.clone())
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        };
+        let (watcher, target) = tokio::join!(
+            prepare_watcher,
+            workflow_service::resolve_target_branch(state, feature_id, &worktree_path),
+        );
+        let status = match target {
+            Ok(target) => {
+                workflow_service::compute_feature_status(state, feature_id, &worktree_path, &target)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        let watcher = match watcher {
+            Ok(new_handle) if has_git => {
+                let mut inner = self.inner.lock().await;
+                if let Some(handle) = new_handle {
+                    inner.handles.insert(worktree_path.clone(), handle);
+                }
+                if let Some(handle) = inner.handles.get_mut(&worktree_path) {
+                    push_subscriber_dedup(&mut handle.subscribers, feature_id, sender);
+                    handle.cancel_grace();
+                    handle.epoch.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                } else {
+                    Err(AppError::internal(
+                        "Git watcher was shut down during subscription",
+                    ))
+                }
+            }
+            Ok(_) => Ok(()),
+            Err(error) => Err(error),
+        };
+        // Reply under the repository lock so a queued recompute cannot lead
+        // this initial result on the wire.
+        respond(GitStatusSubscription {
+            status,
+            watcher: Some(watcher),
+        })
     }
 
     /// Drop every subscription for a given `feature_id`. Provided for
@@ -247,7 +277,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel::<Message>();
         let snapshot = state
             .git_watcher
-            .subscribe(&state, 1, tx.clone())
+            .subscribe(&state, 1, tx.clone(), |result| result.status)
             .await
             .unwrap();
         assert_eq!(snapshot.current_branch, "");
@@ -256,7 +286,11 @@ mod tests {
         // Detection is not cached: initializing Git later enables the watcher
         // on the next subscription without recreating the project.
         git_init(dir.path());
-        state.git_watcher.subscribe(&state, 1, tx).await.unwrap();
+        state
+            .git_watcher
+            .subscribe(&state, 1, tx, |result| result.status)
+            .await
+            .unwrap();
         assert_eq!(state.git_watcher.handle_count().await, 1);
         state.git_watcher.shutdown().await;
     }
@@ -399,7 +433,12 @@ mod tests {
         let (stalled_tx, _stalled_rx) = mpsc::unbounded_channel::<Message>();
         let slow = tokio::spawn({
             let state = state.clone();
-            async move { state.git_watcher.subscribe(&state, 1, stalled_tx).await }
+            async move {
+                state
+                    .git_watcher
+                    .subscribe(&state, 1, stalled_tx, |result| result.status)
+                    .await
+            }
         });
         let (probe_tx, _probe_rx) = mpsc::unbounded_channel::<Message>();
         let mut worst = std::time::Duration::ZERO;
@@ -423,7 +462,9 @@ mod tests {
         let (fast_tx, _fast_rx) = mpsc::unbounded_channel::<Message>();
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            state.git_watcher.subscribe(&state, 2, fast_tx),
+            state
+                .git_watcher
+                .subscribe(&state, 2, fast_tx, |result| result.status),
         )
         .await
         .expect("subscribing a healthy repository must not wait")
@@ -448,7 +489,11 @@ mod tests {
                 &state,
                 feature_id,
                 socket.clone(),
-                move |result| results_tx.send((feature_id, result.is_ok())).unwrap(),
+                move |result| {
+                    results_tx
+                        .send((feature_id, result.status.is_ok()))
+                        .unwrap()
+                },
             );
         }
         let first = tokio::time::timeout(std::time::Duration::from_secs(5), results.recv())

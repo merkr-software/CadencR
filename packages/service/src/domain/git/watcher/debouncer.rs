@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use super::filter::is_relevant;
 use super::handle::{RecomputePing, RegistryInner};
@@ -123,23 +123,12 @@ fn has_relevant_path(worktree_root: &Path, git_roots: &[PathBuf], paths: &[PathB
 
 /// Resolve the worktree-specific gitdir and the shared common dir for
 /// `worktree_path`. Returns canonicalized paths, deduped.
-pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
-    let output = match run_git_background(
+pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Result<Vec<PathBuf>, AppError> {
+    let output = run_git_background(
         &["rev-parse", "--git-dir", "--git-common-dir"],
         worktree_path,
     )
-    .await
-    {
-        Ok(output) => output,
-        Err(error) => {
-            warn!(
-                path = %worktree_path.display(),
-                %error,
-                "git watcher: Git dirs unknown; HEAD, index and refs are not watched"
-            );
-            return Vec::new();
-        }
-    };
+    .await?;
     let mut roots: Vec<PathBuf> = Vec::with_capacity(2);
     for raw in output.lines().filter(|line| !line.is_empty()) {
         let candidate = worktree_path.join(raw);
@@ -150,7 +139,7 @@ pub(super) async fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
             roots.push(canonical);
         }
     }
-    roots
+    Ok(roots)
 }
 
 /// Spawn the long-lived compute task. Exits when `RecomputePing::Shutdown`

@@ -102,6 +102,10 @@ impl WatchTree {
         &self.worktree
     }
 
+    pub(super) fn is_required_root(&self, path: &Path) -> bool {
+        path == self.worktree || self.git_dirs.iter().any(|dir| dir == path)
+    }
+
     fn outside_git_dirs(&self) -> impl Iterator<Item = &PathBuf> {
         self.git_dirs
             .iter()

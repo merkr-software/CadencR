@@ -27,15 +27,23 @@ pub async fn get_git_status(
         .ok_or_else(|| {
             AppError::NotFound(format!("feature {} has no git path", params.feature_id))
         })?;
-    let target = resolve_target_branch(state, params.feature_id, Path::new(&git_path)).await?;
+    let git_path = Path::new(&git_path);
+    let target = resolve_target_branch(state, params.feature_id, git_path).await?;
+    compute_feature_status(state, params.feature_id, git_path, &target).await
+}
+
+pub(crate) async fn compute_feature_status(
+    state: &AppState,
+    feature_id: i64,
+    git_path: &Path,
+    target: &str,
+) -> Result<GitStatusSnapshot, AppError> {
     // `compute_status_or_empty` returns a degraded snapshot when the worktree
     // path doesn't exist yet (or has been deleted) instead of bubbling a 500.
     // That keeps the header chip + action button populated rather than stuck
     // on "Loading…", and avoids spamming the error log on every refetch.
-    let mut snapshot =
-        git_status::compute_status_or_empty(Path::new(&git_path), params.feature_id, &target)
-            .await?;
-    enrich_snapshot(state, &mut snapshot, &git_path).await;
+    let mut snapshot = git_status::compute_status_or_empty(git_path, feature_id, target).await?;
+    enrich_snapshot(state, &mut snapshot, &git_path.to_string_lossy()).await;
     Ok(snapshot)
 }
 

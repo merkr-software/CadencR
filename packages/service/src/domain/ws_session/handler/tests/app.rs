@@ -4,6 +4,109 @@
 use super::support::*;
 
 #[tokio::test]
+async fn app_git_status_recovers_from_initial_and_later_scan_failures() {
+    use crate::domain::git::{models::GetGitStatusParams, workflow_service::get_git_status};
+    use crate::shared::git_cli::run_git;
+
+    let repo = tempfile::tempdir().unwrap();
+    run_git(&["init", "-q", "-b", "main"], repo.path())
+        .await
+        .unwrap();
+    let index = repo.path().join(".git/index");
+    std::fs::write(&index, b"corrupt index").unwrap();
+    let pool = crate::shared::test_query_plan::migrated_pool().await;
+    let project: i64 =
+        sqlx::query_scalar("INSERT INTO projects (name, path) VALUES ('p', ?) RETURNING id")
+            .bind(repo.path().to_string_lossy().as_ref())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let feature_id: i64 =
+        sqlx::query_scalar("INSERT INTO features (project_id, title) VALUES (?, 'f') RETURNING id")
+            .bind(project)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let state = AppState::with_pool(pool);
+    let http_error = get_git_status(&state, GetGitStatusParams { feature_id })
+        .await
+        .unwrap_err();
+    assert!(http_error.to_string().contains("index"), "{http_error}");
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let request = make_envelope(
+        "app",
+        "subscribe.git_status",
+        serde_json::json!({ "feature_id": feature_id }),
+    );
+    let request_id = request.id.clone();
+    dispatch_envelope(request, &tx, &sessions, &state).await;
+    let initial = next_git_status(&mut rx, None).await;
+    assert_eq!(initial.domain, "git");
+    assert_eq!(initial.action, "status_error");
+    assert_eq!(initial.r#ref.as_deref(), Some(request_id.as_str()));
+    assert_eq!(initial.payload["feature_id"], feature_id);
+    assert!(initial.payload["error"].as_str().unwrap().contains("index"));
+    assert_eq!(initial.payload.get("watcher_error"), Some(&Value::Null));
+
+    std::fs::remove_file(&index).unwrap();
+    state
+        .git_watcher
+        .confirm_after_write(repo.path(), &state)
+        .await;
+    let recovered = next_git_status(&mut rx, Some("status")).await;
+    assert_eq!(recovered.payload["current_branch"], "main");
+    assert!(recovered.r#ref.is_none());
+    assert_eq!(
+        get_git_status(&state, GetGitStatusParams { feature_id })
+            .await
+            .unwrap()
+            .current_branch,
+        "main"
+    );
+
+    std::fs::write(&index, b"corrupt again").unwrap();
+    state
+        .git_watcher
+        .confirm_after_write(repo.path(), &state)
+        .await;
+    let later = next_git_status(&mut rx, Some("status_error")).await;
+    assert_eq!(later.payload["feature_id"], feature_id);
+    assert!(later.payload.get("watcher_error").is_none());
+
+    std::fs::remove_file(&index).unwrap();
+    std::fs::write(repo.path().join("new.txt"), "new\n").unwrap();
+    state
+        .git_watcher
+        .confirm_after_write(repo.path(), &state)
+        .await;
+    let recovered = next_git_status(&mut rx, Some("status")).await;
+    assert_eq!(recovered.payload["untracked_count"], 1);
+    state.git_watcher.shutdown().await;
+}
+
+async fn next_git_status(
+    rx: &mut mpsc::UnboundedReceiver<Message>,
+    action: Option<&str>,
+) -> WsEnvelope {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let Message::Text(text) = rx.recv().await.expect("Git status stream remains open")
+            else {
+                panic!("expected text message");
+            };
+            let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+            if action.is_none_or(|expected| envelope.action == expected) {
+                return envelope;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for Git status {action:?}"))
+}
+
+#[tokio::test]
 async fn test_app_subscribe_session_status_sends_snapshot() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));

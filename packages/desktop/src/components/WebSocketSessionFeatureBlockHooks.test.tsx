@@ -7,10 +7,44 @@ import {
   type WorkspaceActivityController,
 } from "@/components/workspace-pool/workspace-activity";
 import { useWsSessionStore } from "@/stores/ws-session-store";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
+import type { GitStatusSnapshot } from "@/api/generated";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
-import { claudeProfileForPrompt, useWsSessionEffects } from "./WebSocketSessionFeatureBlockHooks";
+import {
+  claudeProfileForPrompt,
+  useSessionFeatureData,
+  useWsSessionEffects,
+} from "./WebSocketSessionFeatureBlockHooks";
 
 vi.mock("@/hooks/useAgentLetterFocus", () => ({ useAgentLetterFocus: vi.fn() }));
+const gitStatusQuery = vi.hoisted(() =>
+  vi.fn<() => { data?: GitStatusSnapshot; isError?: boolean; error?: unknown }>(),
+);
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
+  useGetGitStatus: gitStatusQuery,
+  useGetBranch: () => ({}),
+  useGetFeatureSettings: () => ({}),
+  useListFeatureWorktrees: () => ({}),
+  useListProjects: () => ({}),
+}));
+
+describe("useSessionFeatureData Git hydration", () => {
+  afterEach(() => {
+    gitStatusQuery.mockReset();
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
+  });
+
+  it("surfaces the initial HTTP failure on the right feature", () => {
+    gitStatusQuery.mockReturnValue({ isError: true, error: new Error("Cannot read Git status") });
+    renderHook(() => useSessionFeatureData("ws-feature-7", "/repo", 7, 1));
+    const { healthByFeature } = useGitStatusStore.getState();
+    expect(healthByFeature[7]).toMatchObject({
+      statusError: "Cannot read Git status",
+    });
+    expect(healthByFeature[1]).toBeUndefined();
+  });
+});
 
 type EffectsArgs = Parameters<typeof useWsSessionEffects>[0];
 

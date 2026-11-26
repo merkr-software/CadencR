@@ -91,7 +91,6 @@ impl GitWatcherRegistry {
         for (_, mut handle) in drained {
             handle.ping_tx.send(RecomputePing::Shutdown).ignore_closed();
             handle.cancel_grace();
-            handle.compute_task.abort();
         }
     }
 }

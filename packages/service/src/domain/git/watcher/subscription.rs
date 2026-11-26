@@ -1,5 +1,5 @@
 //! Subscription-level helpers used by `GitWatcherRegistry`: dedupe on
-//! sender identity, resolve the worktree path/target-branch pair for a
+//! sender identity, resolve the worktree path for a
 //! feature, and the synchronous `recompute_and_broadcast` entrypoint used by
 //! the commit/push/target-branch handlers.
 
@@ -11,7 +11,6 @@ use tokio::sync::mpsc;
 
 use super::handle::{sender_eq, Subscriber};
 use crate::app_state::AppState;
-use crate::domain::git::workflow_service;
 use crate::domain::ws_session::protocol::WsEnvelope;
 use crate::error::AppError;
 
@@ -29,6 +28,10 @@ pub(super) fn broadcast_envelope(
         tx.send(Message::Text(payload.clone().into()))
             .ignore_closed();
     }
+}
+
+pub(crate) fn status_error_payload(feature_id: i64, error: &AppError) -> serde_json::Value {
+    serde_json::json!({ "feature_id": feature_id, "error": error.to_string() })
 }
 
 /// Insert a `(feature_id, sender)` subscription, but skip the insert if a
@@ -50,21 +53,20 @@ pub(super) fn push_subscriber_dedup(
     subscribers.push(Subscriber { feature_id, sender });
 }
 
-/// Resolve `(canonical_git_path, target_branch)` for a feature. The shared Git
+/// Resolve the canonical checkout path for a feature. The shared Git
 /// path resolver rejects stale worktree settings and falls back to the project
 /// root before this function canonicalizes the result.
-pub(super) async fn resolve_paths(
+pub(super) async fn resolve_worktree_path(
     state: &AppState,
     feature_id: i64,
-) -> Result<(PathBuf, String), AppError> {
+) -> Result<PathBuf, AppError> {
     let git_path = crate::domain::git::service::resolve_feature_working_path(state, feature_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
     let canonical = tokio::fs::canonicalize(&git_path)
         .await
         .unwrap_or_else(|_| PathBuf::from(&git_path));
-    let target = workflow_service::resolve_target_branch(state, feature_id, &canonical).await?;
-    Ok((canonical, target))
+    Ok(canonical)
 }
 
 /// Recompute and broadcast the snapshot for a single feature immediately
@@ -84,7 +86,7 @@ pub(super) async fn resolve_paths(
 /// "1 commit to push" indicator linger for up to one second after the push
 /// completed — long enough to read as a bug rather than a refresh hop.
 pub async fn recompute_and_broadcast(state: &AppState, feature_id: i64) -> Result<(), AppError> {
-    let (worktree_path, _target) = resolve_paths(state, feature_id).await?;
+    let worktree_path = resolve_worktree_path(state, feature_id).await?;
     state
         .git_watcher
         .confirm_after_write(&worktree_path, state)

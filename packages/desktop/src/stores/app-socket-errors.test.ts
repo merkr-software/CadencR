@@ -11,7 +11,7 @@ describe("handleAppSocketError", () => {
   it("surfaces a watcher failure with the service's actionable message", () => {
     const message = "inotify watch limit reached; raise fs.inotify.max_user_watches";
     expect(handleAppSocketError("session", "error", { code: "WATCHER_ERROR", message })).toBe(true);
-    expect(toastError).toHaveBeenCalledWith("File watching stopped", {
+    expect(toastError).toHaveBeenCalledWith("Editor file watching stopped", {
       id: "app-socket-error:WATCHER_ERROR",
       description: message,
     });
@@ -28,6 +28,9 @@ describe("handleAppSocketError", () => {
   it("ignores every other envelope", () => {
     expect(handleAppSocketError("app", "session_status.update", {})).toBe(false);
     expect(handleAppSocketError("git", "error", {})).toBe(false);
+    expect(handleAppSocketError("git", "status_error", { feature_id: 1, error: "bad index" })).toBe(
+      false,
+    );
     expect(toastError).not.toHaveBeenCalled();
   });
 });

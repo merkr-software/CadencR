@@ -95,7 +95,7 @@ describe("FeatureGitTab stash conflicts", () => {
     vi.clearAllMocks();
     mocks.shortcutCallbacks.clear();
     mocks.settingPending = false;
-    useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+    useGitStatusStore.setState(useGitStatusStore.getInitialState());
     usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
     useGitStatusStore.getState().setStatus({
       feature_id: 9,

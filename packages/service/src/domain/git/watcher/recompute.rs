@@ -5,26 +5,24 @@
 //! divergence probes across features sharing that checkout, and broadcasts
 //! tailored `git.status` / `git.status_error` envelopes.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use axum::extract::ws::Message;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tracing::warn;
 
 use super::handle::{repo_lock, RegistryInner};
-use super::subscription::broadcast_envelope;
+use super::subscription::{broadcast_envelope, status_error_payload};
 use crate::app_state::AppState;
 use crate::domain::git::git_status::{self, WorktreeStatusBase};
 use crate::domain::git::workflow_service;
 use crate::domain::ws_session::protocol::WsEnvelope;
 use crate::error::AppError;
 
-type FeatureSenders = Vec<mpsc::UnboundedSender<Message>>;
-type ReadyFeature = (i64, String, FeatureSenders);
+type ReadyFeature = (i64, String);
 
 /// Compute the worktree-level Git base once for `worktree_path`, resolve each
 /// subscribed feature's target branch, deduplicate divergence checks, and
@@ -70,38 +68,47 @@ where
         return false;
     }
 
-    let by_feature = snapshot_subscribers_by_feature(registry, worktree_path).await;
-    if by_feature.is_empty() {
+    let features: HashSet<_> = registry
+        .lock()
+        .await
+        .handles
+        .get(worktree_path)
+        .into_iter()
+        .flat_map(|handle| {
+            handle
+                .subscribers
+                .iter()
+                .map(|subscriber| subscriber.feature_id)
+        })
+        .collect();
+    if features.is_empty() {
         return false;
     }
+    let broadcast = StatusBroadcast {
+        registry,
+        worktree_path,
+        expected_write_generation: &expected_write_generation,
+    };
 
     let base = match compute_base(worktree_path.to_path_buf()).await {
         Ok(base) => base,
         Err(err) => {
-            if !generation_changed(&expected_write_generation) {
-                for (fid, senders) in by_feature {
-                    broadcast_status_error(fid, worktree_path, &err, &senders);
-                }
+            for fid in features {
+                broadcast.error(fid, &err).await;
             }
             return true;
         }
     };
 
-    let (ready_features, distinct_targets) = resolve_feature_targets(
-        state,
-        worktree_path,
-        by_feature,
-        &base,
-        &expected_write_generation,
-    )
-    .await;
+    let (ready_features, distinct_targets) =
+        resolve_feature_targets(state, worktree_path, features, &base, &broadcast).await;
     resolve_and_broadcast_snapshots(
         state,
         worktree_path,
         &base,
         ready_features,
         &distinct_targets,
-        &expected_write_generation,
+        &broadcast,
     )
     .await;
     true
@@ -110,41 +117,36 @@ where
 async fn resolve_feature_targets(
     state: &AppState,
     worktree_path: &Path,
-    by_feature: HashMap<i64, FeatureSenders>,
+    features: HashSet<i64>,
     base: &WorktreeStatusBase,
-    expected_write_generation: &Option<(Arc<AtomicU64>, u64)>,
+    broadcast: &StatusBroadcast<'_>,
 ) -> (Vec<ReadyFeature>, Vec<String>) {
     let checked_out = base.checked_out_branch();
     let has_git = base.has_git();
-    let resolved =
-        futures::future::join_all(by_feature.into_iter().map(|(fid, senders)| async move {
-            let result = workflow_service::resolve_target_branch_with_head(
-                state,
-                fid,
-                worktree_path,
-                checked_out,
-                has_git,
-            )
-            .await;
-            (fid, senders, result)
-        }))
+    let resolved = futures::future::join_all(features.into_iter().map(|fid| async move {
+        let result = workflow_service::resolve_target_branch_with_head(
+            state,
+            fid,
+            worktree_path,
+            checked_out,
+            has_git,
+        )
         .await;
+        (fid, result)
+    }))
+    .await;
 
     let mut ready_features = Vec::with_capacity(resolved.len());
     let mut distinct_targets: Vec<String> = Vec::new();
-    for (fid, senders, result) in resolved {
+    for (fid, result) in resolved {
         match result {
             Ok(target) => {
                 if !distinct_targets.contains(&target) {
                     distinct_targets.push(target.clone());
                 }
-                ready_features.push((fid, target, senders));
+                ready_features.push((fid, target));
             }
-            Err(err) => {
-                if !generation_changed(expected_write_generation) {
-                    broadcast_status_error(fid, worktree_path, &err, &senders);
-                }
-            }
+            Err(err) => broadcast.error(fid, &err).await,
         }
     }
     (ready_features, distinct_targets)
@@ -156,81 +158,73 @@ async fn resolve_and_broadcast_snapshots(
     base: &WorktreeStatusBase,
     ready_features: Vec<ReadyFeature>,
     distinct_targets: &[String],
-    expected_write_generation: &Option<(Arc<AtomicU64>, u64)>,
+    broadcast: &StatusBroadcast<'_>,
 ) {
     let metrics_by_target =
         git_status::resolve_targets_for_base(worktree_path, base, distinct_targets).await;
     let path_str = worktree_path.to_string_lossy().into_owned();
-    let fanout = ready_features.into_iter().map(|(fid, target, senders)| {
+    let fanout = ready_features.into_iter().map(|(fid, target)| {
         let metrics_result = metrics_by_target.get(&target);
         let path_str = &path_str;
         async move {
             let metrics = match metrics_result {
                 Some(Ok(metrics)) => Some(metrics),
                 Some(Err(err)) => {
-                    if !generation_changed(expected_write_generation) {
-                        broadcast_status_error(fid, worktree_path, err, &senders);
-                    }
+                    broadcast.error(fid, err).await;
                     return;
                 }
                 None => None,
             };
             let mut snap = git_status::build_snapshot(base, fid, &target, metrics);
             workflow_service::enrich_snapshot(state, &mut snap, path_str).await;
-            if generation_changed(expected_write_generation) {
-                return;
-            }
             let env = WsEnvelope::new("git", "status", serde_json::to_value(&snap).unwrap());
-            broadcast_envelope(&senders, &env);
+            broadcast.send(fid, &env).await;
         }
     });
 
     futures::future::join_all(fanout).await;
 }
 
-async fn snapshot_subscribers_by_feature(
-    registry: &Arc<Mutex<RegistryInner>>,
-    worktree_path: &Path,
-) -> HashMap<i64, FeatureSenders> {
-    let snapshot_inputs: Vec<(i64, mpsc::UnboundedSender<Message>)> = {
-        let inner = registry.lock().await;
-        match inner.handles.get(worktree_path) {
-            Some(handle) => handle
-                .subscribers
-                .iter()
-                .map(|s| (s.feature_id, s.sender.clone()))
-                .collect(),
-            None => return HashMap::new(),
-        }
-    };
-    let mut by_feature: HashMap<i64, FeatureSenders> = HashMap::new();
-    for (fid, tx) in snapshot_inputs {
-        by_feature.entry(fid).or_default().push(tx);
-    }
-    by_feature
+struct StatusBroadcast<'a> {
+    registry: &'a Mutex<RegistryInner>,
+    worktree_path: &'a Path,
+    expected_write_generation: &'a Option<(Arc<AtomicU64>, u64)>,
 }
 
-fn broadcast_status_error(
-    feature_id: i64,
-    worktree_path: &Path,
-    err: &AppError,
-    senders: &[mpsc::UnboundedSender<Message>],
-) {
-    warn!(
-        feature_id,
-        path = %worktree_path.display(),
-        error = %err,
-        "git watcher: compute_status failed"
-    );
-    let env = WsEnvelope::new(
-        "git",
-        "status_error",
-        serde_json::json!({
-            "feature_id": feature_id,
-            "error": err.to_string(),
-        }),
-    );
-    broadcast_envelope(senders, &env);
+impl StatusBroadcast<'_> {
+    async fn send(&self, feature_id: i64, envelope: &WsEnvelope) {
+        // A feature can change checkouts while Git runs. Check the live
+        // subscription under the same lock that removes the old checkout.
+        let inner = self.registry.lock().await;
+        if generation_changed(self.expected_write_generation) {
+            return;
+        }
+        let Some(handle) = inner.handles.get(self.worktree_path) else {
+            return;
+        };
+        let senders = handle
+            .subscribers
+            .iter()
+            .filter(|subscriber| subscriber.feature_id == feature_id)
+            .map(|subscriber| subscriber.sender.clone())
+            .collect::<Vec<_>>();
+        broadcast_envelope(&senders, envelope);
+    }
+
+    async fn error(&self, feature_id: i64, error: &AppError) {
+        warn!(
+            feature_id,
+            path = %self.worktree_path.display(),
+            %error,
+            "git watcher: compute_status failed"
+        );
+        let env = WsEnvelope::new(
+            "git",
+            "status_error",
+            status_error_payload(feature_id, error),
+        );
+        self.send(feature_id, &env).await;
+    }
 }
 
 fn generation_changed(expected: &Option<(Arc<AtomicU64>, u64)>) -> bool {
@@ -241,7 +235,10 @@ fn generation_changed(expected: &Option<(Arc<AtomicU64>, u64)>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use axum::extract::ws::Message;
+    use std::collections::HashMap;
     use std::sync::atomic::AtomicUsize;
+    use tokio::sync::mpsc;
 
     use super::super::handle::{spawn_handle, Subscriber};
     use super::super::registry::GitWatcherRegistry;
@@ -261,6 +258,73 @@ mod tests {
             args.join(" "),
             String::from_utf8_lossy(&out.stderr)
         );
+    }
+
+    #[tokio::test]
+    async fn an_old_checkout_cannot_report_a_failure_after_the_feature_rebinds() {
+        let old = tempfile::tempdir().unwrap();
+        let current = tempfile::tempdir().unwrap();
+        run_git_sync(old.path(), &["init", "-q", "-b", "old"]);
+        run_git_sync(current.path(), &["init", "-q", "-b", "current"]);
+        let pool = crate::shared::test_query_plan::migrated_pool().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'p', ?)")
+            .bind(old.path().to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'f')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+        let (sender, mut rx) = mpsc::unbounded_channel();
+        let first = state
+            .git_watcher
+            .subscribe(&state, 1, sender.clone(), std::convert::identity)
+            .await;
+        assert_eq!(first.status.unwrap().current_branch, "old");
+        first.watcher.unwrap().unwrap();
+
+        let old_path = std::fs::canonicalize(old.path()).unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let recompute = tokio::spawn({
+            let state = state.clone();
+            async move {
+                recompute_for_path_with_base(
+                    &state.git_watcher.inner,
+                    &old_path,
+                    &state,
+                    None,
+                    |_| async {
+                        started_tx.send(()).unwrap();
+                        release_rx.await.unwrap();
+                        Err(AppError::git_command("old checkout scan failed"))
+                    },
+                )
+                .await
+            }
+        });
+        started_rx.await.unwrap();
+        state.git_watcher.unsubscribe_one(1, &sender).await;
+        sqlx::query("UPDATE projects SET path = ? WHERE id = 1")
+            .bind(current.path().to_string_lossy().as_ref())
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+        let rebound = state
+            .git_watcher
+            .subscribe(&state, 1, sender, std::convert::identity)
+            .await;
+        assert_eq!(rebound.status.unwrap().current_branch, "current");
+        rebound.watcher.unwrap().unwrap();
+
+        release_tx.send(()).unwrap();
+        assert!(recompute.await.unwrap());
+        while let Ok(Message::Text(text)) = rx.try_recv() {
+            assert!(!text.contains("old checkout scan failed"), "{text}");
+        }
+        state.git_watcher.shutdown().await;
     }
 
     #[tokio::test]

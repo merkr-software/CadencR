@@ -11,8 +11,8 @@ import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusS
  * starts a `notify` watcher on first subscription and tears it down after
  * the last unsubscribe.
  *
- * The first event the backend pushes after subscribing is the initial
- * snapshot, which `ws-git-status-handler` writes into `useGitStatusStore`.
+ * The backend replies with the initial snapshot or calculation error and the
+ * watcher setup outcome. A Retry bumps the epoch to start a fresh subscription.
  *
  * **Re-subscribes on worktree transitions.** The backend resolves the
  * watcher's path *at subscribe time* (`worktree_path` setting → project path

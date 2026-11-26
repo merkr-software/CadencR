@@ -1,15 +1,6 @@
-/**
- * WS dispatcher for `domain="git"` envelopes (action: `status` and
- * `status_error`). Lives next to `session-status-store.ts` because the same
- * app-level WebSocket carries both — but extracted to keep the store under
- * the 400-line cap.
- *
- * Per `no-optimistic-updates.md`, the `useGitStatusStore` mutates only on
- * these envelopes. Per `error-handling.md`, `status_error` surfaces a toast
- * and never silently no-ops.
- */
+/** Feature-scoped Git status, action output and pull request events. */
 import { toast } from "sonner";
-import { scopedToastDescription } from "@/components/ToastScope";
+import { notifyGitStatusHealth, statusHealthSchema } from "./git-status-health";
 import {
   CiState,
   PrState,
@@ -78,31 +69,8 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
     handlePrStatusEnvelope(payload);
     return;
   }
-  if (action === "status") {
-    const snapshot = parseGitStatusSnapshot(payload);
-    if (!snapshot) return;
-    const existing = useGitStatusStore.getState().byFeature[snapshot.feature_id];
-    const prefixes = getGitInvalidationPrefixes(existing, snapshot);
-    // Live status (branch chip, counts) updates immediately — it's cheap.
-    useGitStatusStore.getState().setStatus(snapshot);
-    // The heavy git *content* queries (diff, changed-files, …) are coalesced:
-    // during a terminal rebase/merge the watcher pushes a snapshot per second
-    // for the whole operation, and refetching + re-rendering an unbounded diff
-    // on every push freezes the UI. See `scheduleGitInvalidation`.
-    if (prefixes.length > 0) scheduleGitInvalidation(snapshot.feature_id, prefixes);
-    return;
-  }
-  if (action === "status_error") {
-    const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
-    const error = typeof payload.error === "string" ? payload.error : null;
-    if (featureId == null || !error) return;
-    useGitStatusStore.getState().setStatusError({ feature_id: featureId, error });
-    // Pushed for any watched worktree, not just the one on screen, and again
-    // on every watcher tick while it fails: one toast per feature.
-    toast.error("Git status error", {
-      id: `git-status-error-${featureId}`,
-      description: scopedToastDescription({ featureId }, error),
-    });
+  if (action === "status" || action === "status_error") {
+    handleStatusEnvelope(action, payload);
     return;
   }
   // Streaming commit lifecycle: drives the commit dialog's terminal pane
@@ -174,6 +142,38 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
   }
 }
 
+function handleStatusEnvelope(
+  action: "status" | "status_error",
+  payload: Record<string, unknown>,
+): void {
+  const parsed = statusHealthSchema.safeParse(payload);
+  if (!parsed.success) return;
+  const { feature_id: featureId, error, watcher_error: watcherError } = parsed.data;
+  const previous = useGitStatusStore.getState();
+  if (action === "status_error") {
+    if (!error) return;
+    previous.setStatusError({ feature_id: featureId, error }, watcherError);
+  } else {
+    const snapshot = parseGitStatusSnapshot(payload);
+    if (!snapshot) return;
+    previous.setStatus(snapshot, watcherError);
+  }
+  const next = useGitStatusStore.getState();
+  const before = previous.healthByFeature[featureId];
+  const after = next.healthByFeature[featureId];
+  notifyGitStatusHealth(featureId, before, after);
+
+  const snapshot = next.byFeature[featureId];
+  const existing = previous.byFeature[featureId];
+  if (action !== "status" || !snapshot || next === previous) return;
+  const recovered =
+    (before?.statusError && !after?.statusError) || (before?.watcherError && !after?.watcherError);
+  const prefixes = recovered
+    ? GIT_STATUS_INVALIDATION_PREFIXES
+    : getGitInvalidationPrefixes(existing, snapshot);
+  if (prefixes.length > 0) scheduleGitInvalidation(featureId, prefixes);
+}
+
 function handlePrStatusEnvelope(payload: Record<string, unknown>): void {
   const snapshot = parsePrStatusSnapshot(payload);
   if (!snapshot) {
@@ -201,7 +201,6 @@ function getGitInvalidationPrefixes(
   snapshot: GitStatusSnapshot,
 ): readonly string[] {
   if (!existing) return [];
-  if (existing.computed_at > snapshot.computed_at) return [];
   if (!gitStatusSnapshotsEqual(existing, snapshot)) {
     return historyMoved(existing, snapshot)
       ? GIT_STATUS_INVALIDATION_PREFIXES

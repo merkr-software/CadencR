@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, within } from "@testing-library/react";
 import { render, screen } from "@/test-utils";
 import type { GitStatusSnapshot } from "@/api/generated";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";
 import { GitActionButton } from "./GitActionButton";
@@ -81,10 +83,65 @@ function makeDirtyMergeableSnapshot(featureId: number): GitStatusSnapshot {
 beforeEach(() => {
   buttonMocks.isMobile = false;
   buttonMocks.updatePending = false;
-  useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+  useGitStatusStore.setState(useGitStatusStore.getInitialState());
+  useSessionStatusStore.setState({ isConnected: false });
   useCommitOutputStore.setState({ byFeature: {} });
   usePushOutputStore.setState({ byFeature: {} });
   resetStashMutationCoordinatorForTest();
+});
+
+afterEach(() => useSessionStatusStore.setState(useSessionStatusStore.getInitialState()));
+
+function SubscribedGitActionButton() {
+  useGitStatusSubscription(42);
+  return <GitActionButton featureId={42} projectId={7} />;
+}
+
+describe("GitActionButton status recovery", () => {
+  it("offers a retry for an initial failure and restores actions after the status arrives", async () => {
+    const git = useGitStatusStore.getState();
+    const unsubscribe = vi.fn((featureId: number) => git.setSubscription(featureId));
+    const subscribeGitStatus = vi.fn((featureId: number) => {
+      git.setSubscription(featureId, "pending");
+      return () => unsubscribe(featureId);
+    });
+    useSessionStatusStore.setState({ isConnected: true, subscribeGitStatus });
+    const { user } = render(<SubscribedGitActionButton />);
+    expect(screen.getByRole("button", { name: "Loading…" })).toBeDisabled();
+    act(() => {
+      git.setSubscription(42, "answered");
+      git.setStatusError({ feature_id: 42, error: "Cannot read Git status" });
+    });
+    await user.click(screen.getByRole("button", { name: "Git status unavailable" }));
+    expect(unsubscribe).toHaveBeenCalledWith(42);
+    expect(subscribeGitStatus.mock.calls).toEqual([[42], [42]]);
+    expect(screen.getByRole("button", { name: "Refreshing Git status…" })).toBeDisabled();
+    act(() => {
+      git.setSubscription(42, "answered");
+      git.setStatus(makeDirtyMergeableSnapshot(42), null);
+    });
+    expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
+  });
+
+  it("offers retry on mobile when watcher setup fails after a valid snapshot", async () => {
+    buttonMocks.isMobile = true;
+    useSessionStatusStore.setState({ isConnected: true });
+    const git = useGitStatusStore.getState();
+    const snapshot = makeDirtyMergeableSnapshot(42);
+    git.setStatus(snapshot);
+    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+    act(() => git.setStatus({ ...snapshot, computed_at: 2 }, "inotify limit"));
+    await user.click(screen.getByRole("button", { name: "Git live updates unavailable" }));
+    expect(screen.getByText(/inotify limit/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Commit" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry Git status" }));
+    expect(useGitStatusStore.getState().watcherEpoch[42]).toBe(1);
+    act(() => git.setStatus({ ...snapshot, computed_at: 3 }, null));
+    expect(screen.queryByText(/inotify limit/)).not.toBeInTheDocument();
+  });
 });
 
 describe("GitActionButton shortcuts", () => {

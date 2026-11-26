@@ -36,6 +36,7 @@ pub(crate) use default_branch::resolve_default_branch_verified;
 pub use default_branch::{resolve_default_branch, same_branch_identity};
 pub use merge::{merge_feature_branch, MergeFeatureBranchBody};
 pub use push::{push, push_input};
+pub(crate) use status::compute_feature_status;
 pub use status::{enrich_snapshot, get_compare_url, get_git_status};
 pub(crate) use target_branch::{branch_exists, resolve_target_branch_with_head};
 pub use target_branch::{resolve_target_branch, update_target_branch};

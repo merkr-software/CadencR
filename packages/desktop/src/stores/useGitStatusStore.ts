@@ -3,8 +3,8 @@
  *
  * Mirrors the `GitStatusSnapshot` envelopes the backend pushes on
  * `domain="git" action="status"` and `action="status_error"`. The store is the
- * single source of truth for live git counts; per `no-optimistic-updates.md`
- * we never mutate it from action handlers — only the WS dispatcher writes here.
+ * single source of truth for live Git counts. HTTP supplies the initial result
+ * until the active subscription has reported a status or calculation error.
  *
  * Consumers must read via the exported selectors (per
  * `frontend-performance.md` — never call the store hook without a selector).
@@ -12,9 +12,15 @@
 import { create } from "zustand";
 import type { GitStatusSnapshot } from "@/api/generated";
 
+export interface GitStatusHealth {
+  statusError?: string;
+  watcherError?: string;
+}
+
 interface GitStatusState {
   byFeature: Record<number, GitStatusSnapshot>;
-  errorByFeature: Record<number, string>;
+  healthByFeature: Record<number, GitStatusHealth>;
+  subscriptionByFeature: Record<number, "pending" | "answered">;
   /**
    * Per-feature counter the WS envelope handler bumps on every
    * `workflow/worktree.created` / `workflow/worktree.ready` event. The
@@ -27,57 +33,74 @@ interface GitStatusState {
    * leaves the base branch.
    */
   watcherEpoch: Record<number, number>;
-  setStatus: (snapshot: GitStatusSnapshot) => void;
-  setStatusError: (params: { feature_id: number; error: string }) => void;
+  hydrateStatus: (featureId: number, result: GitStatusSnapshot | string) => void;
+  setStatus: (snapshot: GitStatusSnapshot, watcherError?: string | null) => void;
+  setStatusError: (
+    params: { feature_id: number; error: string },
+    watcherError?: string | null,
+  ) => void;
+  setSubscription: (featureId: number, subscription?: "pending" | "answered") => void;
   bumpWatcherEpoch: (featureId: number) => void;
   clearStatus: (featureId: number) => void;
 }
 
 export const useGitStatusStore = create<GitStatusState>((set) => ({
   byFeature: {},
-  errorByFeature: {},
+  healthByFeature: {},
+  subscriptionByFeature: {},
   watcherEpoch: {},
 
-  setStatus(snapshot) {
+  hydrateStatus(featureId, result) {
     set((state) => {
-      // Two writers feed this store: the WS push (live, from the backend's
-      // notify watcher) and the one-shot HTTP `useGetGitStatus` query (used
-      // for first-paint hydration). They can race during worktree setup —
-      // the HTTP response computed at T can land after a WS push computed at
-      // T+Δ and clobber the fresher value, causing the branch chip to flicker
-      // between the base branch and the new feature branch.
-      //
-      // Guard with `computed_at` (unix millis): drop the incoming snapshot
-      // when we already hold a strictly newer one. Equal timestamps still
-      // overwrite — that lets a re-send with the same `computed_at` (e.g. an
-      // explicit recompute after a write) refresh derived fields like
-      // `shared_with` without being treated as stale.
-      const existing = state.byFeature[snapshot.feature_id];
-      if (existing && existing.computed_at > snapshot.computed_at) {
-        return state;
+      if (state.subscriptionByFeature[featureId] === "answered") return state;
+      const watcherError = state.healthByFeature[featureId]?.watcherError;
+      if (typeof result === "string") {
+        return updateHealth(state, featureId, {
+          statusError: result,
+          watcherError,
+        });
       }
-      // Drop the stored error for this feature on a successful update so the
-      // UI doesn't keep showing a stale toast/inline message.
-      const { [snapshot.feature_id]: _droppedErr, ...remainingErrors } = state.errorByFeature;
-      if (existing && gitStatusSnapshotsEqual(existing, snapshot)) {
-        const hasError = state.errorByFeature[snapshot.feature_id] !== undefined;
-        if (!hasError && existing.computed_at === snapshot.computed_at) return state;
-        return {
-          byFeature: { ...state.byFeature, [snapshot.feature_id]: snapshot },
-          errorByFeature: remainingErrors,
-        };
-      }
-      return {
-        byFeature: { ...state.byFeature, [snapshot.feature_id]: snapshot },
-        errorByFeature: remainingErrors,
-      };
+      if (result.feature_id !== featureId) return state;
+      return updateSnapshot(state, result, { watcherError });
     });
   },
 
-  setStatusError({ feature_id, error }) {
-    set((state) => ({
-      errorByFeature: { ...state.errorByFeature, [feature_id]: error },
-    }));
+  setStatus(snapshot, watcherError) {
+    set((state) => {
+      const featureId = snapshot.feature_id;
+      const health = liveHealth(state, featureId, watcherError);
+      const current = state.byFeature[featureId];
+      if (current && current.computed_at > snapshot.computed_at && watcherError !== undefined) {
+        // An old scan can still acknowledge the current subscription's watch.
+        return updateHealth(state, featureId, {
+          ...health,
+          statusError: state.healthByFeature[featureId]?.statusError,
+        });
+      }
+      return updateSnapshot(state, snapshot, health);
+    });
+  },
+
+  setStatusError({ feature_id, error }, watcherError) {
+    set((state) =>
+      updateHealth(state, feature_id, {
+        ...liveHealth(state, feature_id, watcherError),
+        statusError: error,
+      }),
+    );
+  },
+
+  setSubscription(featureId, subscription) {
+    set((state) => {
+      if (state.subscriptionByFeature[featureId] === subscription) return state;
+      if (subscription) {
+        return {
+          subscriptionByFeature: { ...state.subscriptionByFeature, [featureId]: subscription },
+        };
+      }
+      const { [featureId]: _ended, ...remaining } = state.subscriptionByFeature;
+      return { subscriptionByFeature: remaining };
+    });
   },
 
   bumpWatcherEpoch(featureId) {
@@ -92,11 +115,58 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
   clearStatus(featureId) {
     set((state) => {
       const { [featureId]: _droppedSnap, ...remainingSnap } = state.byFeature;
-      const { [featureId]: _droppedErr, ...remainingErr } = state.errorByFeature;
-      return { byFeature: remainingSnap, errorByFeature: remainingErr };
+      const { [featureId]: _droppedHealth, ...remainingHealth } = state.healthByFeature;
+      return { byFeature: remainingSnap, healthByFeature: remainingHealth };
     });
   },
 }));
+
+function liveHealth(
+  state: GitStatusState,
+  featureId: number,
+  watcherError: string | null | undefined,
+): GitStatusHealth {
+  return {
+    watcherError:
+      watcherError === undefined
+        ? state.healthByFeature[featureId]?.watcherError
+        : (watcherError ?? undefined),
+  };
+}
+
+function updateHealth(
+  state: GitStatusState,
+  featureId: number,
+  next: GitStatusHealth,
+): GitStatusState {
+  const previous = state.healthByFeature[featureId];
+  if (previous?.statusError === next.statusError && previous?.watcherError === next.watcherError) {
+    return state;
+  }
+  if (!next.statusError && !next.watcherError) {
+    const { [featureId]: _recovered, ...remaining } = state.healthByFeature;
+    return { ...state, healthByFeature: remaining };
+  }
+  return { ...state, healthByFeature: { ...state.healthByFeature, [featureId]: next } };
+}
+
+function updateSnapshot(
+  state: GitStatusState,
+  snapshot: GitStatusSnapshot,
+  health: GitStatusHealth,
+): GitStatusState {
+  const featureId = snapshot.feature_id;
+  const previous = state.byFeature[featureId];
+  if (previous && previous.computed_at > snapshot.computed_at) return state;
+  const next = updateHealth(state, featureId, health);
+  if (
+    previous?.computed_at === snapshot.computed_at &&
+    gitStatusSnapshotsEqual(previous, snapshot)
+  ) {
+    return next;
+  }
+  return { ...next, byFeature: { ...next.byFeature, [featureId]: snapshot } };
+}
 
 export function gitStatusSnapshotsEqual(a: GitStatusSnapshot, b: GitStatusSnapshot): boolean {
   return (
@@ -207,11 +277,11 @@ export function selectGitBehindRemote(
   return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.behind_remote);
 }
 
-/** Narrow selector: latest error for one feature (cleared on next success). */
-export function selectGitStatusError(
+/** Only subscription replies can clear a watcher setup failure. */
+export function selectGitStatusHealth(
   featureId: number | null | undefined,
-): (state: GitStatusState) => string | undefined {
-  return (state) => (featureId == null ? undefined : state.errorByFeature[featureId]);
+): (state: GitStatusState) => GitStatusHealth | undefined {
+  return (state) => (featureId == null ? undefined : state.healthByFeature[featureId]);
 }
 
 /** Narrow selector: WS-watcher epoch counter for one feature. Bumped by the

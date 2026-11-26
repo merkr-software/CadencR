@@ -14,7 +14,11 @@ import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import { cn } from "@/lib/utils";
 import { gitActionIcon } from "./GitActionPopover";
-import { GitActionPopoverContent } from "./GitActionPopoverContent";
+import {
+  GitActionPopoverContent,
+  REFRESHING_GIT_STATUS,
+  type GitStatusRetry,
+} from "./GitActionPopoverContent";
 import {
   activeGitActivity,
   gitActivityHint,
@@ -41,6 +45,7 @@ export interface GitActionControlsProps {
   checkedOut: string | undefined;
   state: GitActionState;
   activities: GitActivities;
+  statusRetry: GitStatusRetry;
   popoverOpen: boolean;
   onPopoverOpenChange: (open: boolean) => void;
   onAction: (action: GitAction) => void;
@@ -57,71 +62,68 @@ function MobileGitActionControl({
   checkedOut,
   state,
   activities,
+  statusRetry,
   popoverOpen,
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
   const active = activeGitActivity(activities);
-  if (active) {
-    return (
-      <div className="inline-flex items-center">
+  return (
+    <div className="inline-flex items-center">
+      {active && (
         <GitActivityButton
           action={active.action}
           activity={active.activity}
           onSelect={onAction}
           className="rounded-r-none border-r-0"
         />
-        <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="xs"
-              className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
-              aria-label="More git actions"
-            >
+      )}
+      <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="xs"
+            className={cn(GIT_ACTION_BUTTON_CLASS, active ? "rounded-l-none px-1.5" : "min-w-0")}
+            aria-label={
+              active
+                ? "More git actions"
+                : (statusRetry.issue?.label ??
+                  (checkedOut ? `Git actions, on ${checkedOut}` : "Git actions"))
+            }
+          >
+            {active ? (
               <ChevronDown className="size-3.5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 p-0">
-            <GitActionPopoverContent
-              featureId={featureId}
-              projectId={projectId}
-              state={state}
-              activities={activities}
-              onPick={onAction}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-    );
-  }
-  return (
-    <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="xs"
-          className={`${GIT_ACTION_BUTTON_CLASS} min-w-0`}
-          aria-label={checkedOut ? `Git actions, on ${checkedOut}` : "Git actions"}
-        >
-          <GitBranch className="size-3.5" />
-          {checkedOut ? (
-            <span className="max-w-24 truncate font-mono">{checkedOut}</span>
-          ) : (
-            <span>Git</span>
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
-        <GitActionPopoverContent
-          featureId={featureId}
-          projectId={projectId}
-          state={state}
-          activities={activities}
-          onPick={onAction}
-        />
-      </PopoverContent>
-    </Popover>
+            ) : (
+              <>
+                {statusRetry.issue ? (
+                  <CircleAlert className="size-3.5 text-destructive" />
+                ) : (
+                  <GitBranch className="size-3.5" />
+                )}
+                <span
+                  className={cn(
+                    "max-w-24 truncate",
+                    checkedOut && !statusRetry.issue && "font-mono",
+                  )}
+                >
+                  {statusRetry.issue?.label ?? checkedOut ?? "Git"}
+                </span>
+              </>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 p-0">
+          <GitActionPopoverContent
+            featureId={featureId}
+            projectId={projectId}
+            state={state}
+            activities={activities}
+            statusRetry={statusRetry}
+            onPick={onAction}
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -130,6 +132,7 @@ function DesktopGitActionControl({
   projectId,
   state,
   activities,
+  statusRetry,
   popoverOpen,
   onPopoverOpenChange,
   onAction,
@@ -137,12 +140,16 @@ function DesktopGitActionControl({
   const gitActionsKeys = useShortcutKeys("git-actions");
   const active = activeGitActivity(activities);
   const primaryAction = active?.action ?? state.primary;
-  const PrimaryIcon = state.updatePending
+  const retrying = !!statusRetry.issue && statusRetry.pending;
+  const spinning = retrying || state.updatePending;
+  const PrimaryIcon = spinning
     ? Loader2
-    : primaryAction
-      ? gitActionIcon(primaryAction)
-      : GitCommit;
-  const primaryDisabled = primaryAction === null;
+    : statusRetry.issue
+      ? CircleAlert
+      : primaryAction
+        ? gitActionIcon(primaryAction)
+        : GitCommit;
+  const primaryDisabled = statusRetry.issue ? retrying : primaryAction === null;
   return (
     <div className="inline-flex items-center">
       {active ? (
@@ -158,12 +165,28 @@ function DesktopGitActionControl({
           size="xs"
           className={`${GIT_ACTION_BUTTON_CLASS} rounded-r-none border-r-0`}
           disabled={primaryDisabled}
-          onClick={() => primaryAction && onAction(primaryAction)}
-          title={primaryDisabled ? (state.disabled.commit ?? state.label) : state.label}
+          onClick={
+            statusRetry.issue ? statusRetry.run : () => primaryAction && onAction(primaryAction)
+          }
+          title={
+            statusRetry.issue
+              ? `${statusRetry.issue.detail}\nRetry Git status`
+              : primaryDisabled
+                ? (state.disabled.commit ?? state.label)
+                : state.label
+          }
           aria-live="polite"
         >
-          <PrimaryIcon className={state.updatePending ? "size-3.5 animate-spin" : "size-3.5"} />
-          <span>{state.label}</span>
+          <PrimaryIcon
+            className={cn(
+              "size-3.5",
+              spinning && "animate-spin",
+              statusRetry.issue && !spinning && "text-destructive",
+            )}
+          />
+          <span>
+            {retrying ? REFRESHING_GIT_STATUS : (statusRetry.issue?.label ?? state.label)}
+          </span>
         </Button>
       )}
       <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
@@ -185,6 +208,7 @@ function DesktopGitActionControl({
             projectId={projectId}
             state={state}
             activities={activities}
+            statusRetry={statusRetry}
             onPick={onAction}
           />
         </PopoverContent>

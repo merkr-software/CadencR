@@ -33,3 +33,4 @@ mod subscription;
 
 pub use registry::GitWatcherRegistry;
 pub use subscription::recompute_and_broadcast;
+pub(crate) use subscription::status_error_payload;

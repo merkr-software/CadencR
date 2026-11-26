@@ -5,6 +5,7 @@ use tracing::{debug, warn};
 use super::super::protocol::WsEnvelope;
 use super::WsSender;
 use crate::app_state::AppState;
+use crate::domain::git::watcher::status_error_payload;
 
 /// Handle `app` domain actions (cross-feature, app-level concerns).
 pub(super) async fn handle_app_action(
@@ -81,9 +82,8 @@ pub(super) async fn handle_app_action(
 }
 
 /// Subscribe the client to real-time `git.status` envelopes for a feature's
-/// worktree. Sends an initial snapshot (as the first `git.status` event) once
-/// it is computed, in the background, then the watcher pushes updates
-/// whenever the worktree changes.
+/// worktree. The initial reply reports the computation and watcher setup
+/// independently. The watcher then pushes updates when the worktree changes.
 async fn handle_subscribe_git_status(
     envelope: WsEnvelope,
     sender: &WsSender,
@@ -105,21 +105,31 @@ async fn handle_subscribe_git_status(
         app_state,
         feature_id,
         sender.clone(),
-        move |result| match result {
-            Ok(snapshot) => {
-                let env = WsEnvelope::new(
-                    "git",
+        move |result| {
+            let (action, mut payload) = match result.status {
+                Ok(snapshot) => (
                     "status",
-                    serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({})),
-                );
-                reply
-                    .send(Message::Text(String::from(env).into()))
-                    .ignore_closed();
+                    serde_json::to_value(snapshot).expect("Git status serializes"),
+                ),
+                Err(error) => {
+                    warn!(%error, feature_id, "initial Git status failed");
+                    ("status_error", status_error_payload(feature_id, &error))
+                }
+            };
+            if let Some(watcher) = result.watcher {
+                // Only an attempted setup can replace the last watcher outcome.
+                payload["watcher_error"] = match watcher {
+                    Ok(()) => serde_json::Value::Null,
+                    Err(error) => {
+                        warn!(%error, feature_id, "failed to install Git watcher");
+                        serde_json::Value::String(error.to_string())
+                    }
+                };
             }
-            Err(e) => {
-                warn!(error = %e, feature_id, "failed to subscribe git watcher");
-                super::send_error(&reply, &envelope.id, "WATCHER_ERROR", &e.to_string());
-            }
+            let env = WsEnvelope::reply(&envelope.id, "git", action, payload);
+            reply
+                .send(Message::Text(String::from(env).into()))
+                .ignore_closed();
         },
     );
 }
