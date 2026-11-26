@@ -254,7 +254,10 @@ describe("PluginTabBroker native events", () => {
         },
       }),
     );
-    const subscribing = guest.request("backend.subscribe", { topic: "clock.tick" });
+    const subscribing = guest.request("backend.subscribe", {
+      topic: "clock.tick",
+      ackResync: true,
+    });
     await vi.waitFor(() => expect(sockets).toHaveLength(1));
     const socket = sockets[0]!;
     socket.open();
@@ -304,6 +307,23 @@ describe("PluginTabBroker native events", () => {
         },
       }),
     );
+    const resync = () =>
+      socket.receive({
+        id: "resync",
+        domain: "plugin",
+        action: "resync",
+        payload: { subscription_id: "server-native" },
+      });
+    const resyncEvents = () =>
+      guest.events.filter((event) => event.kind === "event" && event.event === "backend.resync");
+    resync();
+    resync();
+    await vi.waitFor(() => expect(resyncEvents()).toHaveLength(1));
+    expect(resyncEvents()[0]).toMatchObject({ payload: { subscriptionId, resyncId: 1 } });
+
+    expect(ok(await guest.request("backend.ack", { subscriptionId, resyncId: 1 }))).toBe(null);
+    await vi.waitFor(() => expect(resyncEvents()).toHaveLength(2));
+    expect(resyncEvents()[1]).toMatchObject({ payload: { subscriptionId, resyncId: 2 } });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { CadencrError, toCadencrError } from "./errors.js";
-import type { EventMap } from "./protocol.js";
+import type { EventMap, MethodParams } from "./protocol.js";
 import type { Requester } from "./requester.js";
 
 export type BackendEvent = Omit<EventMap["backend.event"], "subscriptionId">;
@@ -123,8 +123,14 @@ export class BackendStreams {
   ): void {
     const sub = this.byId.get(payload.subscriptionId);
     if (!sub?.active) return;
-    if (event === "backend.resync") sub.options.onResync?.();
-    else if (event === "backend.error") {
+    if (event === "backend.resync") {
+      const { subscriptionId, resyncId } = payload as EventMap["backend.resync"];
+      try {
+        sub.options.onResync?.();
+      } finally {
+        if (resyncId !== undefined) this.acknowledge(sub, { subscriptionId, resyncId });
+      }
+    } else if (event === "backend.error") {
       this.fail(sub, CadencrError.fromWire((payload as EventMap["backend.error"]).error));
     } else {
       this.deliver(sub, payload as EventMap["backend.event"]);
@@ -147,12 +153,17 @@ export class BackendStreams {
     try {
       this.consume(sub, event);
     } finally {
-      void this.send("backend.ack", { subscriptionId: event.subscriptionId, seq: event.seq }).catch(
-        (error: unknown) => {
-          if (sub.active) this.fail(sub, toCadencrError(error));
-        },
-      );
+      this.acknowledge(sub, { subscriptionId: event.subscriptionId, seq: event.seq });
     }
+  }
+
+  private acknowledge(sub: Subscription, params: MethodParams<"backend.ack">): void {
+    const generation = this.connectionGeneration;
+    if (!sub.active || sub.id !== params.subscriptionId) return;
+    void this.send("backend.ack", params).catch((error: unknown) => {
+      if (sub.active && generation === this.connectionGeneration)
+        this.fail(sub, toCadencrError(error));
+    });
   }
 
   private consume(sub: Subscription, event: EventMap["backend.event"]): void {
@@ -174,7 +185,11 @@ export class BackendStreams {
     this.checkSupport();
     const attempt = ++sub.attempt;
     // Allow socket connection (10s) and native startup (30s), plus relay time.
-    const { subscriptionId } = await this.send("backend.subscribe", { topic: sub.topic }, 45_000);
+    const { subscriptionId } = await this.send(
+      "backend.subscribe",
+      { topic: sub.topic, ackResync: true },
+      45_000,
+    );
     if (!sub.active) {
       await this.release(subscriptionId);
       return;

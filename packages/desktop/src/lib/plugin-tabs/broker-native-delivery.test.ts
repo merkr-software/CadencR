@@ -4,7 +4,7 @@ import { NativeDelivery } from "./broker-native-delivery";
 it("bounds unread guest events, owes a resync and releases every window on reload", () => {
   const publish = vi.fn();
   const delivery = new NativeDelivery(publish, 2);
-  delivery.register("b1");
+  delivery.register("b1", false);
   const event = (seq: number) => ({
     subscriptionId: "b1",
     topic: "clock.tick",
@@ -26,10 +26,10 @@ it("bounds unread guest events, owes a resync and releases every window on reloa
   expect(publish).toHaveBeenCalledTimes(4);
 });
 
-it("re-arms resync on the guest ack, coalesces while one is owed", () => {
+it("retains data acknowledgements as the resync fallback for older SDKs", () => {
   const publish = vi.fn();
   const delivery = new NativeDelivery(publish);
-  delivery.register("b1");
+  delivery.register("b1", false);
   // First resync is sent.
   delivery.resync("b1");
   expect(publish).toHaveBeenCalledTimes(1);
@@ -37,8 +37,7 @@ it("re-arms resync on the guest ack, coalesces while one is owed", () => {
   delivery.resync("b1");
   delivery.resync("b1");
   expect(publish).toHaveBeenCalledTimes(1);
-  // Only the guest's ack proves it read the previous resync: the next one is
-  // sent once a delivered event is acknowledged.
+  // The older SDK acknowledges a delivered data event after the resync.
   delivery.event({
     subscriptionId: "b1",
     topic: "t",
@@ -51,4 +50,28 @@ it("re-arms resync on the guest ack, coalesces while one is owed", () => {
   delivery.resync("b1");
   expect(publish).toHaveBeenCalledTimes(3); // event + resync
   expect(publish).toHaveBeenLastCalledWith("backend.resync", { subscriptionId: "b1" });
+});
+
+it("coalesces unread resyncs and re-arms after an exact acknowledgement without data", () => {
+  const publish = vi.fn();
+  const delivery = new NativeDelivery(publish);
+  delivery.register("b1", true);
+  for (let i = 0; i < 1000; i++) delivery.resync("b1");
+  expect(publish.mock.calls).toEqual([["backend.resync", { subscriptionId: "b1", resyncId: 1 }]]);
+
+  delivery.ackResync("b1", 999);
+  expect(publish).toHaveBeenCalledTimes(1);
+  delivery.ackResync("b1", 1);
+  expect(publish).toHaveBeenLastCalledWith("backend.resync", { subscriptionId: "b1", resyncId: 2 });
+
+  delivery.resync("b1");
+  delivery.ackResync("b1", 1);
+  expect(publish).toHaveBeenCalledTimes(2);
+  delivery.ackResync("b1", 2);
+  expect(publish).toHaveBeenLastCalledWith("backend.resync", { subscriptionId: "b1", resyncId: 3 });
+
+  delivery.ackResync("b1", 3);
+  expect(publish).toHaveBeenCalledTimes(3);
+  delivery.resync("b1");
+  expect(publish).toHaveBeenLastCalledWith("backend.resync", { subscriptionId: "b1", resyncId: 4 });
 });

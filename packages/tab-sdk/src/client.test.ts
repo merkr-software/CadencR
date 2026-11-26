@@ -230,8 +230,7 @@ describe("editor surfaces", () => {
     host.emit("focus.changed", { focused: true });
     await flush();
     host.disconnect();
-    await flush();
-    expect(client.focused).toBe(false);
+    await vi.waitFor(() => expect(client.focused).toBe(false));
     client.close();
     host.close();
   });

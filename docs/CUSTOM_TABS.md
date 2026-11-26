@@ -947,9 +947,9 @@ type HostToGuest =
 | `net.fetch`                                                       | `{url, method?, headers?, body?: ArrayBuffer}` → `{status, headers, body: ArrayBuffer}`                                                  |
 | `exec.run`                                                        | `{program, args?, timeoutMs?}` → `{exitCode: number\|null, success, stdout, stderr, durationMs}` (§4.6)                                  |
 | `backend.request`                                                 | `{method, params?, timeoutMs?}` → `{result?}` or `{error?: {code, message}}` — the backend's own answer (§4.7)                           |
-| `backend.subscribe`                                               | `{topic}` → `{subscriptionId}`; requires native protocol 2                                                                               |
+| `backend.subscribe`                                               | `{topic, ackResync?}` → `{subscriptionId}`; requires native protocol 2                                                                               |
 | `backend.unsubscribe`                                             | `{subscriptionId}` → `null`                                                                                                              |
-| `backend.ack`                                                     | `{subscriptionId, seq}` → `null`; internal SDK consumption acknowledgement                                                               |
+| `backend.ack`                                                     | `{subscriptionId, seq}` or `{subscriptionId, resyncId}` → `null`; internal SDK consumption acknowledgement |
 | `ui.toast`                                                        | `{title, description?, variant?: "default"\|"success"\|"error"}`                                                                         |
 | `ui.openExternal`                                                 | `{url}` — `https:` only, after a host confirmation                                                                                       |
 | `ui.setBadge`                                                     | `{text: string\|null}` — ≤ 4 chars, shown on the tab trigger                                                                             |
@@ -988,10 +988,14 @@ returns current values, including for hidden/recycled guests. On older hosts,
 the SDK falls back to a tab identity, `focused=false` and no editor appearance.
 
 Native guest events are `backend.event {subscriptionId, topic, runId, seq,
-processSeq, payload}`, `backend.resync {subscriptionId}` and `backend.error
+processSeq, payload}`, `backend.resync {subscriptionId, resyncId?}` and `backend.error
 {subscriptionId, error}`. `seq` increases per subscription across socket
 reconnects, while `processSeq` is the backend process's sequence. The SDK
-calls `onResync` on a gap, reconnect or changed `runId`. `hello.capabilities`
+calls `onResync` on a gap, reconnect or changed `runId`. Subscriptions
+with `ackResync: true` receive a `resyncId` and acknowledge it after calling
+the resync handler. The host coalesces further resyncs until it receives that
+acknowledgement. Older SDKs omit `ackResync` and release pending resyncs
+through data-event acknowledgements. `hello.capabilities`
 announces `backend.subscribe`, `backend.unsubscribe` and `backend.ack` only for protocol 2.
 An SDK on an older host rejects subscription with `CAPABILITY_DENIED`.
 

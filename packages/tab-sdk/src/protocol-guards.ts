@@ -56,7 +56,10 @@ const EVENT_PAYLOADS: { [E in EventName]: (payload: Record<string, unknown>) => 
     Number.isSafeInteger(payload.processSeq) &&
     Number(payload.processSeq) > 0 &&
     "payload" in payload,
-  "backend.resync": hasSubscription,
+  "backend.resync": (payload) =>
+    hasSubscription(payload) &&
+    (payload.resyncId === undefined ||
+      (Number.isSafeInteger(payload.resyncId) && Number(payload.resyncId) > 0)),
   "backend.error": (payload) => hasSubscription(payload) && isWireError(payload.error),
   shortcut: ({ id }) => typeof id === "string",
 };

@@ -98,18 +98,19 @@ export const RUN_METHODS: Readonly<Record<string, MethodHandler>> = {
   "exec.run": execRun,
   "backend.request": backendRequest,
   "backend.subscribe": async (params, runtime) => {
-    const { topic } = parseParams(
+    const { topic, ackResync } = parseParams(
       z.object({
         topic: z
           .string()
           .min(1)
           .refine((name) => new TextEncoder().encode(name).length <= 128 && !/\p{Cc}/u.test(name)),
+        ackResync: z.boolean().optional(),
       }),
       params,
       "backend.subscribe",
     );
     const subscriptionId = await runtime.streams.subscribe("backend.events", { topic }, true);
-    runtime.nativeDelivery.register(subscriptionId);
+    runtime.nativeDelivery.register(subscriptionId, ackResync === true);
     return { result: { subscriptionId } };
   },
   "backend.unsubscribe": async (params, runtime) => {
@@ -123,12 +124,16 @@ export const RUN_METHODS: Readonly<Record<string, MethodHandler>> = {
     return { result: null };
   },
   "backend.ack": async (params, runtime) => {
-    const { subscriptionId, seq } = parseParams(
-      z.object({ subscriptionId: z.string(), seq: z.number().int().positive() }),
+    const ack = parseParams(
+      z.union([
+        z.strictObject({ subscriptionId: z.string(), seq: z.number().int().positive() }),
+        z.strictObject({ subscriptionId: z.string(), resyncId: z.number().int().positive() }),
+      ]),
       params,
       "backend.ack",
     );
-    runtime.nativeDelivery.ack(subscriptionId, seq);
+    if ("seq" in ack) runtime.nativeDelivery.ack(ack.subscriptionId, ack.seq);
+    else runtime.nativeDelivery.ackResync(ack.subscriptionId, ack.resyncId);
     return { result: null };
   },
 };

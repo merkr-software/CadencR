@@ -258,9 +258,15 @@ export interface MethodMap {
   "net.fetch": { params: NetFetchParams; result: NetFetchResult };
   "exec.run": { params: ExecRunParams; result: ExecRunResult };
   "backend.request": { params: BackendRequestParams; result: BackendRequestResult };
-  "backend.subscribe": { params: { topic: string }; result: { subscriptionId: string } };
+  "backend.subscribe": {
+    params: { topic: string; ackResync?: boolean };
+    result: { subscriptionId: string };
+  };
   "backend.unsubscribe": { params: { subscriptionId: string }; result: null };
-  "backend.ack": { params: { subscriptionId: string; seq: number }; result: null };
+  "backend.ack": {
+    params: { subscriptionId: string } & ({ seq: number } | { resyncId: number });
+    result: null;
+  };
   "ui.toast": { params: ToastParams; result: null };
   "ui.openExternal": { params: { url: string }; result: null };
   "ui.setBadge": { params: { text: string | null }; result: null };
@@ -318,7 +324,7 @@ export interface EventMap {
     processSeq: number;
     payload: JsonValue;
   };
-  "backend.resync": { subscriptionId: string };
+  "backend.resync": { subscriptionId: string; resyncId?: number };
   "backend.error": { subscriptionId: string; error: WireError };
   /** One of the manifest's `shortcuts` was pressed while the tab had focus. */
   shortcut: { id: string };

@@ -25,7 +25,7 @@ it("awaits registration, detects gaps and process changes, and releases the subs
   try {
     const subscription = await client.backend.subscribe("clock.tick", seen, { onResync, onError });
     const request = host.requests.find((r) => r.method === "backend.subscribe");
-    expect(request?.params).toEqual({ topic: "clock.tick" });
+    expect(request?.params).toEqual({ topic: "clock.tick", ackResync: true });
     const [id] = host.subscriptions.keys();
     const emit = (seq: number, runId: string) =>
       host.emit("backend.event", {
@@ -218,6 +218,26 @@ it("propagates a terminal registration failure", async () => {
     await expect(client.backend.subscribe("clock.tick", () => {})).rejects.toMatchObject({
       code: "HOST_ERROR",
     });
+  } finally {
+    client.close();
+    host.close();
+  }
+});
+
+it("acknowledges two quiet resyncs and handles an older host's resync without an ID", async () => {
+  const { host, client } = await connected({ capabilities: ["backend.subscribe"] });
+  const onResync = vi.fn();
+  try {
+    await client.backend.subscribe("clock.tick", () => {}, { onResync });
+    const [subscriptionId] = host.subscriptions.keys();
+    for (const resyncId of [7, 8]) {
+      const ack = host.nextRequest("backend.ack");
+      host.emit("backend.resync", { subscriptionId: subscriptionId!, resyncId });
+      expect((await ack).params).toEqual({ subscriptionId, resyncId });
+    }
+    host.emit("backend.resync", { subscriptionId: subscriptionId! });
+    await vi.waitFor(() => expect(onResync).toHaveBeenCalledTimes(3));
+    expect(host.requests.filter(({ method }) => method === "backend.ack")).toHaveLength(2);
   } finally {
     client.close();
     host.close();

@@ -4,8 +4,9 @@ type Publish = <E extends EventName>(name: E, payload: EventMap[E]) => void;
 type NativeEvent = EventMap["backend.event"];
 interface Window {
   pending: Set<number>;
+  explicitResyncAck: boolean;
   owed: boolean;
-  resyncSent: boolean;
+  resyncId: number | null;
   errorSent: boolean;
 }
 
@@ -13,13 +14,20 @@ interface Window {
  * WebSocket backpressure alone cannot see an unread MessagePort. */
 export class NativeDelivery {
   private readonly windows = new Map<string, Window>();
+  private nextResyncId = 0;
   constructor(
     private readonly publish: Publish,
     private readonly capacity = 32,
   ) {}
 
-  register(id: string): void {
-    this.windows.set(id, { pending: new Set(), owed: false, resyncSent: false, errorSent: false });
+  register(id: string, explicitResyncAck: boolean): void {
+    this.windows.set(id, {
+      pending: new Set(),
+      explicitResyncAck,
+      owed: false,
+      resyncId: null,
+      errorSent: false,
+    });
   }
 
   release(id: string): void {
@@ -45,8 +53,16 @@ export class NativeDelivery {
   ack(id: string, seq: number): void {
     const window = this.windows.get(id);
     if (!window?.pending.delete(seq)) return;
-    window.resyncSent = false;
+    // Earlier SDKs only acknowledge data events.
+    if (!window.explicitResyncAck) window.resyncId = null;
     window.errorSent = false;
+    this.pay(id, window);
+  }
+
+  ackResync(id: string, resyncId: number): void {
+    const window = this.windows.get(id);
+    if (!window?.explicitResyncAck || window.resyncId !== resyncId) return;
+    window.resyncId = null;
     this.pay(id, window);
   }
 
@@ -60,17 +76,20 @@ export class NativeDelivery {
   resync(id: string): void {
     const window = this.windows.get(id);
     if (!window) return;
-    // Repeated notifications coalesce into the one already sent: only the
-    // guest's ack proves it read the previous resync, so a guest that stopped
-    // reading its port cannot grow the queue with one resync per notification.
     window.owed = true;
     this.pay(id, window);
   }
 
   private pay(id: string, window: Window): void {
-    if (!window.owed || window.resyncSent || window.pending.size >= this.capacity) return;
+    if (!window.owed || window.resyncId !== null || window.pending.size >= this.capacity) return;
     window.owed = false;
-    window.resyncSent = true;
-    this.publish("backend.resync", { subscriptionId: id });
+    // Keep at most one unread resync plus one owed notification, even if
+    // repeated reconnects come from a quiet backend with no data events.
+    const resyncId = ++this.nextResyncId;
+    window.resyncId = resyncId;
+    this.publish("backend.resync", {
+      subscriptionId: id,
+      ...(window.explicitResyncAck ? { resyncId } : {}),
+    });
   }
 }
