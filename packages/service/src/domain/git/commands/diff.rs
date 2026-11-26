@@ -13,7 +13,7 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 
-use crate::domain::git::models::GitStats;
+use crate::domain::git::models::{DiffResponse, GitStats};
 use crate::error::AppError;
 use crate::shared::git_cli::{
     bytes_to_string_lossy, guard_positionals, run_git_background, run_git_background_bounded,
@@ -87,13 +87,10 @@ pub(super) fn parse_stat_line(output: &str) -> GitStats {
             files_changed: caps.get(1).map_or(0, |m| m.as_str().parse().unwrap_or(0)),
             insertions: caps.get(2).map_or(0, |m| m.as_str().parse().unwrap_or(0)),
             deletions: caps.get(3).map_or(0, |m| m.as_str().parse().unwrap_or(0)),
+            unavailable_line_counts: 0,
         }
     } else {
-        GitStats {
-            files_changed: 0,
-            insertions: 0,
-            deletions: 0,
-        }
+        GitStats::default()
     }
 }
 
@@ -166,10 +163,17 @@ pub async fn get_stats(
     // stream (bounded memory, not a full read-into-String of every file) and
     // binaries are skipped.
     for file in git_z::paths(&untracked) {
-        let full_path = worktree_path.join(file);
-        if let Some(line_count) = count_untracked_lines(&full_path).await {
-            stats_unstaged.files_changed += 1;
-            stats_unstaged.insertions += line_count as i32;
+        match count_untracked_lines(&worktree_path.join(file)).await {
+            Ok(Some(line_count)) => {
+                stats_unstaged.files_changed += 1;
+                stats_unstaged.insertions += line_count as i32;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, "untracked file line count unavailable");
+                stats_unstaged.files_changed += 1;
+                stats_unstaged.unavailable_line_counts += 1;
+            }
         }
     }
 
@@ -181,7 +185,7 @@ pub async fn get_diff(
     worktree_path: &Path,
     mode: &str,
     target_branch: Option<&str>,
-) -> Result<String, AppError> {
+) -> Result<DiffResponse, AppError> {
     get_diff_with_limit(worktree_path, mode, target_branch, MAX_AGGREGATE_DIFF_BYTES).await
 }
 
@@ -190,9 +194,13 @@ async fn get_diff_with_limit(
     mode: &str,
     target_branch: Option<&str>,
     max_bytes: usize,
-) -> Result<String, AppError> {
+) -> Result<DiffResponse, AppError> {
     if mode == "branch" {
-        return branch_diff(worktree_path, target_branch, &[], max_bytes).await;
+        let diff = branch_diff(worktree_path, target_branch, &[], max_bytes).await?;
+        return Ok(DiffResponse {
+            diff,
+            ..DiffResponse::default()
+        });
     }
 
     // Worktree mode: a whole-tree dump, so unstaged (`diff`) and staged
@@ -216,16 +224,27 @@ async fn get_diff_with_limit(
     // paths, so we never synthesize a diff for an ignored file. Each remaining
     // untracked file is bounded per-file (see `untracked`) so a giant generated
     // file can't blow up the aggregate response.
+    let mut omitted_untracked_files = Vec::new();
     for file in git_z::paths(&untracked_list) {
-        if let Some(block) = synthesize_untracked_new_file_diff(worktree_path, &file).await? {
-            if result.len().saturating_add(block.len()) > max_bytes {
-                return Err(too_large());
+        match synthesize_untracked_new_file_diff(worktree_path, &file).await {
+            Ok(Some(block)) => {
+                if result.len().saturating_add(block.len()) > max_bytes {
+                    return Err(too_large());
+                }
+                result.push_str(&block);
             }
-            result.push_str(&block);
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(%error, "untracked file omitted from combined diff");
+                omitted_untracked_files.push(file);
+            }
         }
     }
 
-    Ok(result)
+    Ok(DiffResponse {
+        diff: result,
+        omitted_untracked_files,
+    })
 }
 
 #[cfg(test)]
@@ -298,6 +317,61 @@ mod test_support {
 mod tests {
     use super::test_support::{git, init_repo, too_large_message};
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_untracked_file_leaves_other_counts_and_patches_available() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        init_repo(root);
+        std::fs::write(root.join("tracked.txt"), "old\n").unwrap();
+        git(&["add", "."], root);
+        git(&["commit", "-qm", "init"], root);
+        std::fs::write(root.join("tracked.txt"), "old\nnew\n").unwrap();
+        std::fs::write(root.join("empty.txt"), "").unwrap();
+        std::fs::write(root.join("text.txt"), "one\ntwo").unwrap();
+        std::fs::write(root.join("binary.dat"), b"hey\0").unwrap();
+        // A symlink loop makes metadata fail consistently, even under root.
+        std::os::unix::fs::symlink("unreadable", root.join("unreadable")).unwrap();
+
+        let files = super::super::get_changed_files(root, "worktree", None, None)
+            .await
+            .unwrap();
+        let row = |path| files.iter().find(|file| file.file == path).unwrap();
+        assert!(row("unreadable").line_count_unavailable);
+        for file in ["empty.txt", "binary.dat"] {
+            assert_eq!(row(file).additions, 0);
+            assert!(!row(file).line_count_unavailable);
+        }
+        assert_eq!(row("text.txt").additions, 2);
+        assert_eq!(row("tracked.txt").additions, 1);
+
+        let stats = get_stats(root, "worktree", None).await.unwrap();
+        assert_eq!(
+            (stats.files_changed, stats.insertions, stats.deletions),
+            (4, 3, 0)
+        );
+        assert_eq!(stats.unavailable_line_counts, 1);
+
+        let combined = get_diff(root, "worktree", None).await.unwrap();
+        assert_eq!(combined.omitted_untracked_files, ["unreadable"]);
+        for file in ["tracked.txt", "empty.txt", "text.txt"] {
+            assert!(combined.diff.contains(file), "missing patch for {file}");
+        }
+        assert!(!combined.diff.contains("binary.dat"));
+        assert!(!combined.diff.contains("unreadable"));
+
+        std::fs::remove_file(root.join("unreadable")).unwrap();
+        std::fs::write(root.join("unreadable"), "now readable\n").unwrap();
+        let recovered = get_stats(root, "worktree", None).await.unwrap();
+        assert_eq!(recovered.insertions, 4);
+        assert_eq!(recovered.unavailable_line_counts, 0);
+        assert!(get_diff(root, "worktree", None)
+            .await
+            .unwrap()
+            .omitted_untracked_files
+            .is_empty());
+    }
 
     /// A missing target branch or an unreadable repository must fail the
     /// aggregate diff and its stats, not report a clean "0 files changed".

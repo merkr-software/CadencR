@@ -3,6 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   useGetFileBlobShas,
+  getGetFileBlobShasQueryKey,
   useGetChangedFiles,
   getGetFileContentQueryKey,
   useListDiffViewed,
@@ -20,6 +21,7 @@ import {
 } from "@/api/generated";
 import { findStalePendingCommentIds } from "@/lib/diff-comment-validity";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
+import { useQueryErrorToast } from "@/hooks/useQueryErrorToast";
 import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
 
 // Module-scoped dedupe state for the auto-invalidation effect below. Multiple
@@ -94,22 +96,6 @@ export function seedBatchFileContentCache(
  */
 export type DiffMode = "worktree" | "branch" | "uncommitted";
 
-/**
- * Why review-comment checks are paused, or `null`. A target branch that does
- * not exist pauses them by design — without it, committed files cannot be
- * told from deleted ones — and the "vs target" view already says so: no
- * second message for that.
- */
-export function blobShasErrorMessage(
-  isError: boolean,
-  error: unknown,
-  targetMissing: boolean,
-): string | null {
-  if (!isError) return null;
-  if (targetMissing && apiErrorCode(error) === "CONFLICT") return null;
-  return apiErrorMessage(error, "Failed to read file versions");
-}
-
 export function changedFilesErrorMessage(isError: boolean, error: unknown): string | null {
   return isError ? apiErrorMessage(error, "Failed to load changed files") : null;
 }
@@ -141,27 +127,43 @@ function useChangedFiles(
 }
 
 function useViewedFiles(featureId: number, queryClient: QueryClient) {
-  const blobShasQuery = useGetFileBlobShas({ feature_id: featureId });
+  const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
+  const canCheckComments = missingTargetBranch === undefined;
+  const blobShasQuery = useGetFileBlobShas(
+    { feature_id: featureId },
+    { query: { enabled: canCheckComments } },
+  );
+  useEffect(() => {
+    if (canCheckComments) return;
+    const filters = {
+      queryKey: getGetFileBlobShasQueryKey({ feature_id: featureId }),
+      exact: true,
+    };
+    // A SHA read from before target loss cannot authorize cleanup on recovery.
+    void queryClient.cancelQueries(filters);
+    void queryClient.invalidateQueries({ ...filters, refetchType: "none" });
+  }, [canCheckComments, featureId, queryClient]);
+  const missingTargetError =
+    blobShasQuery.isError && apiErrorCode(blobShasQuery.error) === "MISSING_TARGET_BRANCH";
+  const commentChecksPaused = !canCheckComments || missingTargetError;
+  useQueryErrorToast(
+    {
+      isError: canCheckComments && blobShasQuery.isError && !missingTargetError,
+      error: blobShasQuery.error,
+    },
+    "Review comment checks paused",
+    `diff-blob-shas-${featureId}`,
+  );
+  const blobShaItems = commentChecksPaused ? undefined : blobShasQuery.data;
   const blobShas: Record<string, string> = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const item of blobShasQuery.data ?? []) {
+    for (const item of blobShaItems ?? []) {
       if (item.sha) map[item.file_path] = item.sha;
     }
     return map;
-  }, [blobShasQuery.data]);
-  const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
-  const blobShasError = blobShasErrorMessage(
-    blobShasQuery.isError,
-    blobShasQuery.error,
-    missingTargetBranch !== undefined,
-  );
-  useEffect(() => {
-    if (!blobShasError) return;
-    toast.error(`Review comment checks paused: ${blobShasError}`, {
-      id: `diff-blob-shas-${featureId}`,
-    });
-  }, [blobShasError, featureId]);
+  }, [blobShaItems]);
   const viewedQuery = useListDiffViewed(featureId);
+  useQueryErrorToast(viewedQuery, "Could not load viewed files", `diff-viewed-${featureId}`);
   const viewedFilesSet = useMemo(() => {
     const set = new Set<string>();
     for (const viewed of viewedQuery.data ?? []) {
@@ -189,16 +191,30 @@ function useViewedFiles(featureId: number, queryClient: QueryClient) {
   );
   // Kept out of the memo: the timestamp moves on every refetch, and only the
   // stale-comment gate reads it.
-  return { viewed, blobShasUpdatedAt: successfulAt(blobShasQuery) };
+  const commentChecksNotice = commentChecksPaused
+    ? missingTargetBranch
+      ? `Review comment checks paused. The target branch “${missingTargetBranch}” is unavailable.`
+      : "Review comment checks paused. The target branch is unavailable."
+    : null;
+  return {
+    viewed,
+    commentChecksNotice,
+    blobShasUpdatedAt: commentChecksPaused ? null : successfulAt(blobShasQuery),
+  };
 }
 
-/** When the query last succeeded, or `null` while loading or after an error. */
-function successfulAt(query: { isSuccess: boolean; dataUpdatedAt: number }): number | null {
-  return query.isSuccess ? query.dataUpdatedAt : null;
+/** Only settled successful reads can confirm a comment is stale. */
+function successfulAt(query: {
+  isSuccess: boolean;
+  fetchStatus: "fetching" | "paused" | "idle";
+  dataUpdatedAt: number;
+}): number | null {
+  return query.isSuccess && query.fetchStatus === "idle" ? query.dataUpdatedAt : null;
 }
 
 function useCommentActions(featureId: number, queryClient: QueryClient) {
   const commentsQuery = useListDiffComments(featureId);
+  useQueryErrorToast(commentsQuery, "Could not load review comments", `diff-comments-${featureId}`);
   const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListDiffCommentsQueryKey(featureId) });
@@ -286,7 +302,7 @@ export function useDiffData(
   const queryClient = useQueryClient();
   const selectedCommit = commitSha ?? null;
   const changed = useChangedFiles(featureId, mode, targetBranch, selectedCommit);
-  const { viewed, blobShasUpdatedAt } = useViewedFiles(featureId, queryClient);
+  const { viewed, blobShasUpdatedAt, commentChecksNotice } = useViewedFiles(featureId, queryClient);
   const { actions: commentActions, commentsUpdatedAt } = useCommentActions(featureId, queryClient);
   useStaleCommentInvalidation(
     featureId,
@@ -313,8 +329,9 @@ export function useDiffData(
       updateComment: commentActions.updateComment,
       deleteComment: commentActions.deleteComment,
       comments: commentActions.comments,
+      commentChecksNotice,
       hasInitializedCollapse,
     }),
-    [changed, commentActions, selectedCommit, viewed],
+    [changed, commentActions, commentChecksNotice, selectedCommit, viewed],
   );
 }

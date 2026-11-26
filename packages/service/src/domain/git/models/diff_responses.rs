@@ -12,16 +12,27 @@ pub struct BranchResponse {
     pub branch: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, ToSchema)]
 pub struct GitStats {
     pub files_changed: i32,
     pub insertions: i32,
     pub deletions: i32,
+    /// Number of untracked files whose line counts could not be read.
+    /// When nonzero, insertions is the subtotal for files that could be read.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unavailable_line_counts: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, ToSchema)]
 pub struct DiffResponse {
     pub diff: String,
+    /// Untracked files that could not be read for a combined diff.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted_untracked_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
@@ -32,6 +43,9 @@ pub struct ChangedFile {
     pub old_file: Option<String>,
     pub additions: i32,
     pub deletions: i32,
+    /// The untracked file could not be read and its additions are unknown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub line_count_unavailable: bool,
     /// `true` when the file has staged changes (i.e. shows up in
     /// `git diff --cached`). Always `false` in branch-comparison mode.
     /// The frontend uses this to render a "staged" badge next to the file.
@@ -114,12 +128,14 @@ mod tests {
             files_changed: 3,
             insertions: 10,
             deletions: 5,
+            unavailable_line_counts: 1,
         };
         let json = serde_json::to_string(&stats).unwrap();
         let back: GitStats = serde_json::from_str(&json).unwrap();
         assert_eq!(back.files_changed, 3);
         assert_eq!(back.insertions, 10);
         assert_eq!(back.deletions, 5);
+        assert_eq!(back.unavailable_line_counts, 1);
     }
 
     #[test]
@@ -130,6 +146,7 @@ mod tests {
             old_file: None,
             additions: 5,
             deletions: 3,
+            line_count_unavailable: false,
             is_staged: false,
             stage_state: FileStageState::NotApplicable,
             conflict_kind: None,
@@ -144,6 +161,7 @@ mod tests {
             old_file: Some("old.rs".into()),
             additions: 0,
             deletions: 0,
+            line_count_unavailable: false,
             is_staged: true,
             stage_state: FileStageState::Staged,
             conflict_kind: None,

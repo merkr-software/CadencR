@@ -47,6 +47,7 @@ export function useGitTabPanes(
     // The list views carry their own per-row stats, so skip the request.
     { query: { enabled: !isListView && missingTargetBranch === undefined } },
   );
+  const partial = (statsQuery.data?.unavailable_line_counts ?? 0) > 0;
 
   return useMemo(
     () => ({
@@ -62,6 +63,7 @@ export function useGitTabPanes(
         hidden: missingTargetBranch !== undefined,
         additions: statsQuery.data?.insertions,
         deletions: statsQuery.data?.deletions,
+        partial,
       },
     }),
     [
@@ -74,6 +76,7 @@ export function useGitTabPanes(
       statsQuery.isError,
       statsQuery.isLoading,
       missingTargetBranch,
+      partial,
     ],
   );
 }

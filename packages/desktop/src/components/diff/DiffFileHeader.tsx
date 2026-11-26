@@ -158,6 +158,7 @@ export function DiffFileHeader({
           deletions={deletions}
           addColor={countColors.add}
           delColor={countColors.del}
+          notice={file.line_count_unavailable ? "Line count unavailable" : undefined}
           className="text-xs shrink-0"
         />
         <GitDiffFileHeaderActions

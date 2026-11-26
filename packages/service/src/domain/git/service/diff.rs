@@ -22,13 +22,7 @@ pub async fn get_stats(state: &AppState, params: GetStatsParams) -> Result<GitSt
     let git_path = resolve_feature_git_path(state, params.feature_id).await?;
     let git_path = match git_path {
         Some(p) => p,
-        None => {
-            return Ok(GitStats {
-                files_changed: 0,
-                insertions: 0,
-                deletions: 0,
-            })
-        }
+        None => return Ok(GitStats::default()),
     };
     commands::get_stats(
         Path::new(&git_path),
@@ -42,24 +36,22 @@ pub async fn get_diff(state: &AppState, params: GetDiffParams) -> Result<DiffRes
     let git_path = resolve_feature_git_path(state, params.feature_id).await?;
     let git_path = match git_path {
         Some(p) => p,
-        None => {
-            return Ok(DiffResponse {
-                diff: String::new(),
-            })
-        }
+        None => return Ok(DiffResponse::default()),
     };
 
-    let diff = if let Some(ref commit_sha) = params.commit_sha {
-        commands::get_commit_diff(Path::new(&git_path), commit_sha).await?
-    } else {
-        commands::get_diff(
-            Path::new(&git_path),
-            &params.mode,
-            params.target_branch.as_deref(),
-        )
-        .await?
-    };
-    Ok(DiffResponse { diff })
+    if let Some(ref commit_sha) = params.commit_sha {
+        let diff = commands::get_commit_diff(Path::new(&git_path), commit_sha).await?;
+        return Ok(DiffResponse {
+            diff,
+            ..DiffResponse::default()
+        });
+    }
+    commands::get_diff(
+        Path::new(&git_path),
+        &params.mode,
+        params.target_branch.as_deref(),
+    )
+    .await
 }
 
 pub async fn get_changed_files(
@@ -89,11 +81,7 @@ pub async fn get_file_diff(
     let git_path = resolve_feature_git_path(state, params.feature_id).await?;
     let git_path = match git_path {
         Some(p) => p,
-        None => {
-            return Ok(DiffResponse {
-                diff: String::new(),
-            })
-        }
+        None => return Ok(DiffResponse::default()),
     };
     let diff = commands::get_file_diff(
         Path::new(&git_path),
@@ -104,7 +92,10 @@ pub async fn get_file_diff(
         params.old_file_path.as_deref(),
     )
     .await?;
-    Ok(DiffResponse { diff })
+    Ok(DiffResponse {
+        diff,
+        ..DiffResponse::default()
+    })
 }
 
 /// Resolve which (old_ref, new_ref) pair the diff endpoints should use for a

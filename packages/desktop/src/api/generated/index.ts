@@ -997,6 +997,8 @@ export interface ChangedFile {
    * The frontend uses this to render a "staged" badge next to the file.
    */
   is_staged?: boolean;
+  /** The untracked file could not be read and its additions are unknown. */
+  line_count_unavailable?: boolean;
   /** @nullable */
   old_file?: string | null;
   /**
@@ -2083,6 +2085,8 @@ export interface DiffCommentsSuccessResponse {
 
 export interface DiffResponse {
   diff: string;
+  /** Untracked files that could not be read for a combined diff. */
+  omitted_untracked_files?: string[];
 }
 
 export interface DiffViewedFile {
@@ -2786,6 +2790,12 @@ export interface GitStats {
   deletions: number;
   files_changed: number;
   insertions: number;
+  /**
+   * Number of untracked files whose line counts could not be read.
+   * When nonzero, insertions is the subtotal for files that could be read.
+   * @minimum 0
+   */
+  unavailable_line_counts?: number;
 }
 
 export type GitStatusSnapshotHost = null | GitHost;
@@ -7289,6 +7299,8 @@ export interface UncommittedFile {
   change_kind: string;
   conflict_kind?: UncommittedFileConflictKind;
   deletions?: number;
+  /** The untracked file could not be read and its additions are unknown. */
+  line_count_unavailable?: boolean;
   path: string;
   /** Typed equivalent of `status`; new consumers should prefer this field. */
   stage_state?: FileStageState;

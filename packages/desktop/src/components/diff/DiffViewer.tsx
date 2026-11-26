@@ -370,6 +370,11 @@ function DiffViewerImpl({
         isViewedPending={data.markViewed.isPending || data.unmarkViewed.isPending}
       />
       {afterToolbar}
+      {mode !== "branch" && supportsViewed && data.commentChecksNotice && (
+        <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground" role="status">
+          {data.commentChecksNotice}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-hidden">{content}</div>
     </div>
   );

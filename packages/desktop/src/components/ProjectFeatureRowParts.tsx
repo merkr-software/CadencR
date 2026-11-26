@@ -138,6 +138,7 @@ export function FeatureRowMetaItems({
           <NumStat
             additions={stats.insertions}
             deletions={stats.deletions}
+            notice={stats.unavailable_line_counts ? "Partial" : undefined}
             className="text-[11px] leading-tight"
           />
         </span>
