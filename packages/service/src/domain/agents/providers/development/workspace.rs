@@ -305,6 +305,7 @@ fn descriptor(
             repository: None,
             website: None,
             authors: Vec::new(),
+            subagent_tool_names: Vec::new(),
             license: None,
             // ACP Registry repositories own a root `icon.svg`. Keep that
             // portable relative reference; the host asset root below resolves

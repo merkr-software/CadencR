@@ -35,6 +35,9 @@ pub struct InstalledAcpHooks {
     capabilities: InstalledAcpCapabilities,
     prompt_capabilities: SharedPromptCapabilities,
     slash_commands: Arc<SlashCommandCatalog>,
+    /// Carrier tool names declared by the provider descriptor, mapped onto
+    /// the canonical `Agent` sub-agent carrier.
+    subagent_tool_names: Vec<String>,
 }
 
 /// Provider-owned option ids the live session currently exposes.
@@ -55,6 +58,7 @@ impl InstalledAcpHooks {
         #[builder(default)] exclude_launcher_ports: bool,
         #[builder(default)] prompt_capabilities: SharedPromptCapabilities,
         #[builder(default)] slash_commands: Arc<SlashCommandCatalog>,
+        #[builder(default)] subagent_tool_names: Vec<String>,
     ) -> Self {
         Self {
             model_config_id,
@@ -65,6 +69,7 @@ impl InstalledAcpHooks {
             capabilities: InstalledAcpCapabilities::default(),
             prompt_capabilities,
             slash_commands,
+            subagent_tool_names,
         }
     }
 
@@ -143,6 +148,13 @@ impl AcpProviderHooks for InstalledAcpHooks {
     }
 
     fn normalize_tool_name(&self, raw: &str) -> String {
+        if self
+            .subagent_tool_names
+            .iter()
+            .any(|declared| carrier_name_matches(declared, raw))
+        {
+            return "Agent".to_string();
+        }
         raw.to_string()
     }
 
@@ -252,6 +264,17 @@ impl AcpProviderHooks for InstalledAcpHooks {
     }
 }
 
+/// A declared carrier name matches the raw ACP tool name exactly, or by its
+/// last dot-separated segment so a qualified wire name (`agents.spawn`)
+/// matches a short declaration (`spawn`).
+fn carrier_name_matches(declared: &str, raw: &str) -> bool {
+    declared == raw
+        || declared
+            .rsplit('.')
+            .next()
+            .is_some_and(|declared_tail| declared_tail == raw.rsplit('.').next().unwrap_or(raw))
+}
+
 #[cfg(test)]
 mod tests {
     use super::InstalledAcpHooks;
@@ -263,6 +286,21 @@ mod tests {
         InstalledAcpHooks::builder()
             .model_config_id(model_config_id.to_string())
             .build()
+    }
+
+    #[test]
+    fn declared_carrier_tool_names_map_onto_the_agent_carrier() {
+        let carrier = InstalledAcpHooks::builder()
+            .model_config_id("model-picker".to_string())
+            .subagent_tool_names(vec!["agents.spawn".to_string(), "spawn".to_string()])
+            .build();
+        assert_eq!(carrier.normalize_tool_name("agents.spawn"), "Agent");
+        assert_eq!(carrier.normalize_tool_name("spawn"), "Agent");
+        assert_eq!(carrier.normalize_tool_name("bash"), "bash");
+        assert_eq!(carrier.normalize_tool_name("Task"), "Task");
+
+        let plain = hooks("model-picker");
+        assert_eq!(plain.normalize_tool_name("agents.spawn"), "agents.spawn");
     }
 
     #[test]
