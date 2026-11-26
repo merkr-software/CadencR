@@ -68,6 +68,11 @@ pub(super) async fn spawn_pty_git(
     // process::Command` does by default and matches what the user gets
     // running `git` from a normal shell.
     crate::shared::security::inherit_sanitized_pty_env(&mut cmd);
+    if let Some(checkout) = crate::shared::git_cli::linked_checkout_env(cwd)? {
+        for (key, value) in checkout {
+            cmd.env(key, value);
+        }
+    }
     cmd.env("TERM", "xterm-256color");
     // The renderer is truecolor-capable. Without this, TUIs that probe
     // COLORTERM quantize their palettes to the 256-color cube.

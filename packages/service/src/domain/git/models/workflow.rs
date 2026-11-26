@@ -58,6 +58,8 @@ pub struct UpdateTargetBranchBody {
 pub struct CheckoutBody {
     pub project_id: i64,
     pub branch: String,
+    /// Scope the checkout to this feature when switching branches from its workspace.
+    pub feature_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

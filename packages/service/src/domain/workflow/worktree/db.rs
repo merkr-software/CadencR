@@ -34,32 +34,38 @@ pub async fn get_project_directory(pool: &SqlitePool, project_id: i64) -> Result
 }
 
 /// Resolve the directory a feature's agent actually runs in: its worktree when
-/// one is provisioned and live, otherwise the project directory (features can
-/// run "on branch" directly in the project folder). Delegates to the single
+/// one is assigned, otherwise the project directory (features can run "on
+/// branch" directly in the project folder). Delegates to the single
 /// resolver in [`crate::domain::git::feature_dir`] so checkpoints, rewind/fork,
 /// terminals, and Git endpoints all agree.
 pub async fn resolve_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, String> {
     crate::domain::git::feature_dir::resolve_feature_dir(pool, feature_id)
         .await
+        .and_then(|dir| dir.map(|dir| dir.cwd().map(str::to_owned)).transpose())
         .map_err(|error| format!("Failed to resolve directory for feature {feature_id}: {error}"))?
-        .map(|dir| dir.cwd)
         .ok_or_else(|| format!("Failed to look up project for feature {feature_id}: not found"))
 }
 
 /// Resolve the recorded worktree only when it still exists and is registered
 /// by the owning project repository. Verification and database failures are
 /// surfaced rather than silently routing work into a different directory.
-/// Plain projects have no Git worktree; callers keep using the project
-/// directory.
+/// Provisioning can retry when the recorded checkout is unavailable.
 pub async fn resolve_live_worktree(
     pool: &SqlitePool,
     feature_id: i64,
     project_path: &str,
 ) -> Result<Option<String>, String> {
-    crate::domain::git::feature_dir::resolve_feature_dir_in_project(pool, feature_id, project_path)
-        .await
-        .map(|dir| dir.live_worktree_cwd().map(str::to_string))
-        .map_err(|error| format!("Failed to verify feature worktree: {error}"))
+    async {
+        let dir = crate::domain::git::feature_dir::resolve_feature_dir_in_project(
+            pool,
+            feature_id,
+            project_path,
+        )
+        .await?;
+        Ok(dir.live_recorded_cwd().await?.map(str::to_owned))
+    }
+    .await
+    .map_err(|error: AppError| format!("Failed to verify feature worktree: {error}"))
 }
 
 /// Read one feature-level setting. A database failure is returned, not read
@@ -170,7 +176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plain_project_ignores_worktree_settings_but_corruption_still_errors() {
+    async fn a_legacy_project_binding_requires_git_for_provisioning_replay() {
         let pool = make_pool().await;
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path().to_str().unwrap();
@@ -343,6 +349,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(resolve_feature_cwd(&pool, 1).await.unwrap(), project_path);
+        let error = resolve_feature_cwd(&pool, 1).await.unwrap_err();
+        assert!(
+            error.contains("The feature's worktree is no longer available"),
+            "{error}"
+        );
     }
 }

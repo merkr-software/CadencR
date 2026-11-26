@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::app_state::AppState;
+use crate::domain::git::feature_dir::resolve_feature_dir;
 use crate::domain::git::git_status::{self, GitStatusSnapshot, SharedFeatureRef};
 use crate::domain::git::models::{CompareUrlResponse, GetCompareUrlParams, GetGitStatusParams};
 use crate::domain::git::repository;
-use crate::domain::git::service::resolve_feature_working_path;
 use crate::error::AppError;
 
 use super::target_branch::resolve_target_branch;
@@ -22,14 +22,17 @@ pub async fn get_git_status(
     state: &AppState,
     params: GetGitStatusParams,
 ) -> Result<GitStatusSnapshot, AppError> {
-    let git_path = resolve_feature_working_path(state, params.feature_id)
+    let checkout = resolve_feature_dir(&state.read_pool, params.feature_id)
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!("feature {} has no git path", params.feature_id))
         })?;
-    let git_path = Path::new(&git_path);
-    let target = resolve_target_branch(state, params.feature_id, git_path).await?;
-    compute_feature_status(state, params.feature_id, git_path, &target).await
+    checkout
+        .checked_read(async |git_path| {
+            let target = resolve_target_branch(state, params.feature_id, git_path).await?;
+            compute_feature_status(state, params.feature_id, git_path, &target).await
+        })
+        .await
 }
 
 pub(crate) async fn compute_feature_status(
@@ -38,10 +41,8 @@ pub(crate) async fn compute_feature_status(
     git_path: &Path,
     target: &str,
 ) -> Result<GitStatusSnapshot, AppError> {
-    // `compute_status_or_empty` returns a degraded snapshot when the worktree
-    // path doesn't exist yet (or has been deleted) instead of bubbling a 500.
-    // That keeps the header chip + action button populated rather than stuck
-    // on "Loading…", and avoids spamming the error log on every refetch.
+    // A project directory is allowed to have no Git metadata. Callers
+    // validate assigned linked checkouts separately.
     let mut snapshot = git_status::compute_status_or_empty(git_path, feature_id, target).await?;
     enrich_snapshot(state, &mut snapshot, &git_path.to_string_lossy()).await;
     Ok(snapshot)

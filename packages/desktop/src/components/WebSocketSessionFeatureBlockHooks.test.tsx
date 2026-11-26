@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-import { act, renderHook } from "@/test-utils";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { AxiosError, AxiosHeaders } from "axios";
+import { act, createTestQueryClient, renderHook, waitFor } from "@/test-utils";
 import {
   WorkspaceActivityProvider,
   createWorkspaceActivity,
@@ -8,7 +10,7 @@ import {
 } from "@/components/workspace-pool/workspace-activity";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
-import type { GitStatusSnapshot } from "@/api/generated";
+import { getGetGitStatusQueryKey, type GitStatusSnapshot } from "@/api/generated";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
 import {
   claudeProfileForPrompt,
@@ -17,32 +19,160 @@ import {
 } from "./WebSocketSessionFeatureBlockHooks";
 
 vi.mock("@/hooks/useAgentLetterFocus", () => ({ useAgentLetterFocus: vi.fn() }));
-const gitStatusQuery = vi.hoisted(() =>
-  vi.fn<() => { data?: GitStatusSnapshot; isError?: boolean; error?: unknown }>(),
-);
+const getGitStatus = vi.hoisted(() => vi.fn<() => Promise<GitStatusSnapshot>>());
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
-  useGetGitStatus: gitStatusQuery,
+  getGitStatus,
   useGetBranch: () => ({}),
   useGetFeatureSettings: () => ({}),
   useListFeatureWorktrees: () => ({}),
   useListProjects: () => ({}),
 }));
 
+const checkoutSnapshot: GitStatusSnapshot = {
+  feature_id: 7,
+  computed_at: 1,
+  current_branch: "topic",
+  target_branch: "main",
+  target_resolved: true,
+  uncommitted_count: 1,
+  staged_count: 0,
+  unstaged_count: 0,
+  untracked_count: 1,
+  ahead_of_remote: 0,
+  behind_remote: 0,
+  ahead_of_target: 0,
+  has_remote: false,
+};
+
+function mountGitStatus(
+  client = createTestQueryClient(),
+  activity = createWorkspaceActivity(true),
+) {
+  return renderHook(() => useSessionFeatureData("ws-feature-7", "/repo", 7, 1), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <WorkspaceActivityProvider value={activity}>{children}</WorkspaceActivityProvider>
+      </QueryClientProvider>
+    ),
+  });
+}
+
 describe("useSessionFeatureData Git hydration", () => {
   afterEach(() => {
-    gitStatusQuery.mockReset();
+    getGitStatus.mockReset();
     useGitStatusStore.setState(useGitStatusStore.getInitialState());
   });
 
-  it("surfaces the initial HTTP failure on the right feature", () => {
-    gitStatusQuery.mockReturnValue({ isError: true, error: new Error("Cannot read Git status") });
-    renderHook(() => useSessionFeatureData("ws-feature-7", "/repo", 7, 1));
-    const { healthByFeature } = useGitStatusStore.getState();
-    expect(healthByFeature[7]).toMatchObject({
-      statusError: "Cannot read Git status",
+  it("surfaces the initial HTTP failure on the right feature", async () => {
+    getGitStatus.mockRejectedValue(new Error("Cannot read Git status"));
+    mountGitStatus();
+    await waitFor(() => {
+      const { healthByFeature } = useGitStatusStore.getState();
+      expect(healthByFeature[7]).toMatchObject({ statusError: "Cannot read Git status" });
+      expect(healthByFeature[1]).toBeUndefined();
     });
-    expect(healthByFeature[1]).toBeUndefined();
+  });
+
+  it("does not hydrate cached project status when a feature is reopened during an outage", async () => {
+    const client = createTestQueryClient();
+    const queryKey = getGetGitStatusQueryKey({ feature_id: 7 });
+    client.setQueryData(queryKey, { ...checkoutSnapshot, current_branch: "main" });
+    getGitStatus.mockRejectedValueOnce(
+      new AxiosError("Conflict", "ERR_BAD_REQUEST", undefined, undefined, {
+        status: 409,
+        statusText: "Conflict",
+        headers: {},
+        config: { headers: new AxiosHeaders() },
+        data: {
+          code: "WORKTREE_UNAVAILABLE",
+          error: "The feature's worktree is no longer available",
+        },
+      }),
+    );
+    mountGitStatus(client);
+    expect(useGitStatusStore.getState().byFeature[7]).toBeUndefined();
+    await waitFor(() =>
+      expect(useGitStatusStore.getState().healthByFeature[7]?.statusErrorCode).toBe(
+        "WORKTREE_UNAVAILABLE",
+      ),
+    );
+
+    getGitStatus.mockResolvedValueOnce(checkoutSnapshot);
+    await act(async () => {
+      await client.refetchQueries({ queryKey });
+    });
+    expect(useGitStatusStore.getState().byFeature[7]?.current_branch).toBe("topic");
+    expect(useGitStatusStore.getState().healthByFeature[7]).toBeUndefined();
+  });
+
+  it("discards an in-flight HTTP success overtaken by a worktree outage", async () => {
+    let resolveStatus!: (status: GitStatusSnapshot) => void;
+    getGitStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    const client = createTestQueryClient();
+    const queryKey = getGetGitStatusQueryKey({ feature_id: 7 });
+    mountGitStatus(client);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    act(() =>
+      useGitStatusStore.getState().setStatusError({
+        feature_id: 7,
+        code: "WORKTREE_UNAVAILABLE",
+        error: "The feature's worktree is no longer available",
+      }),
+    );
+    await act(async () => resolveStatus(checkoutSnapshot));
+    await waitFor(() => expect(client.getQueryData(queryKey)).toEqual(checkoutSnapshot));
+    expect(useGitStatusStore.getState().byFeature[7]).toBeUndefined();
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusErrorCode).toBe(
+      "WORKTREE_UNAVAILABLE",
+    );
+  });
+
+  it("lets HTTP settle the status when the WebSocket drops before its first answer", async () => {
+    let resolveStatus!: (status: GitStatusSnapshot) => void;
+    getGitStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    mountGitStatus();
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    const git = useGitStatusStore.getState();
+    act(() => {
+      git.setSubscription(7, "pending");
+      git.setSubscription(7);
+    });
+    await act(async () => resolveStatus(checkoutSnapshot));
+    await waitFor(() =>
+      expect(useGitStatusStore.getState().byFeature[7]).toEqual(checkoutSnapshot),
+    );
+  });
+
+  it("starts a fresh probe after reopening during a previous HTTP request", async () => {
+    let oldResolve!: (status: GitStatusSnapshot) => void;
+    getGitStatus
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          oldResolve = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(checkoutSnapshot);
+    const activity = createWorkspaceActivity(true);
+    mountGitStatus(createTestQueryClient(), activity);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    act(() => {
+      activity.set(false);
+      activity.set(true);
+    });
+    await waitFor(() =>
+      expect(useGitStatusStore.getState().byFeature[7]).toEqual(checkoutSnapshot),
+    );
+    await act(async () => oldResolve({ ...checkoutSnapshot, current_branch: "main" }));
+    expect(useGitStatusStore.getState().byFeature[7]?.current_branch).toBe("topic");
   });
 });
 

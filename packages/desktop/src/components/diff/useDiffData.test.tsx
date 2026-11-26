@@ -165,6 +165,34 @@ describe("useDiffData stale comment invalidation", () => {
     );
   });
 
+  it("holds pending comments during a checkout outage and waits for restored SHAs", () => {
+    const git = useGitStatusStore.getState();
+    git.setStatus({ ...snapshot, target_resolved: true });
+    const matching = settled([
+      { file_path: pendingComment.file_path, sha: pendingComment.original_blob_sha },
+    ]);
+    mocks.blobShas.mockReturnValue(matching);
+    const { result, rerender } = renderDiffData();
+    mocks.blobShas.mockReturnValue(settled([]));
+    act(() =>
+      git.setStatusError({
+        feature_id: 7,
+        code: "WORKTREE_UNAVAILABLE",
+        error: "The feature's worktree is no longer available",
+      }),
+    );
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    expect(result.current.commentChecksNotice).toBeNull();
+    mocks.blobShas.mockReturnValue({ ...settled([]), fetchStatus: "fetching" });
+    act(() => git.setStatus({ ...snapshot, target_resolved: true, computed_at: 2 }));
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    mocks.blobShas.mockReturnValue(matching);
+    rerender();
+    expect(result.current.comments).toEqual([pendingComment]);
+    expect(mocks.deleteMutate).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
   it("preserves comments during target loss and while the restored target is being checked", () => {
     const git = useGitStatusStore.getState();
     git.setStatus({ ...snapshot, target_resolved: true });

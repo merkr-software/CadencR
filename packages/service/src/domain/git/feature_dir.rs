@@ -2,11 +2,9 @@
 //!
 //! Git endpoints, the agent cwd, terminals and plugin tabs go through
 //! [`resolve_feature_dir`] so they cannot disagree about whether a recorded
-//! worktree is still live. (Worktree removal and the CLI-log import read the
-//! raw `worktree_path` on purpose: they act on the recorded directory itself.) A stale worktree setting can point at a
-//! deleted directory or at residual files left after Git detached the
-//! worktree; both fall back to the project directory, with the reason kept in
-//! [`FeatureDirSource`] instead of being folded into an ambiguous path.
+//! worktree is still live. A distinct recorded checkout owns the feature even
+//! when it is unavailable. Worktree removal and log import use the raw path
+//! because they act on the recorded directory itself.
 
 use std::path::{Path, PathBuf};
 
@@ -17,37 +15,92 @@ use crate::domain::git::{commands, repository};
 use crate::error::AppError;
 use crate::shared::git_cli::run_git_background;
 
+mod linked_checkout;
+
+pub(crate) use linked_checkout::{
+    is_worktree_unavailable, require_linked_checkout, worktree_unavailable, WORKTREE_UNAVAILABLE,
+};
+use linked_checkout::{linked_path, registered_linked_root, same_directory_spelling};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureDir {
-    /// Directory the feature's agent, terminals, and Git commands run in: the
-    /// worktree copy of the project directory, or the project directory.
-    pub cwd: String,
-    pub source: FeatureDirSource,
+    path: String,
+    source: FeatureDirSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FeatureDirSource {
+enum FeatureDirSource {
     /// A live, registered worktree. `root` is the worktree root; `cwd` may be
     /// below it when the project is a monorepo subdirectory.
     Worktree {
         root: PathBuf,
+        git_dir: PathBuf,
     },
-    Project(ProjectFallback),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProjectFallback {
-    /// The feature never recorded a worktree (it runs on the project checkout).
-    NoWorktreeRecorded,
-    /// The project has no Git metadata, so there can be no worktree.
-    ProjectWithoutGit,
-    /// A worktree was recorded but is gone or no longer registered.
-    WorktreeNotLive,
+    Project {
+        recorded: bool,
+    },
+    WorktreeUnavailable,
 }
 
 impl FeatureDir {
-    pub fn live_worktree_cwd(&self) -> Option<&str> {
-        matches!(self.source, FeatureDirSource::Worktree { .. }).then_some(self.cwd.as_str())
+    pub fn cwd(&self) -> Result<&str, AppError> {
+        match self.source {
+            FeatureDirSource::WorktreeUnavailable => Err(worktree_unavailable()),
+            _ => Ok(&self.path),
+        }
+    }
+
+    /// The binding used to retire an old watcher even if the path is absent.
+    pub(crate) fn expected_path(&self) -> &Path {
+        Path::new(&self.path)
+    }
+
+    pub(crate) fn linked_root(&self) -> Option<&Path> {
+        self.linked_binding().map(|(root, _)| root)
+    }
+
+    pub(crate) fn linked_binding(&self) -> Option<(&Path, &Path)> {
+        match &self.source {
+            FeatureDirSource::Worktree { root, git_dir } => Some((root, git_dir)),
+            _ => None,
+        }
+    }
+
+    /// State replay and provisioning also accept a legacy explicit binding
+    /// to the project directory, once Git has verified that directory.
+    pub(crate) async fn live_recorded_cwd(&self) -> Result<Option<&str>, AppError> {
+        match self.source {
+            FeatureDirSource::Worktree { .. } => Ok(Some(&self.path)),
+            FeatureDirSource::Project { recorded: true } => {
+                let path = self.expected_path();
+                let live = crate::shared::git_context::has_git_metadata(path).await?
+                    && commands::is_live_worktree(path, path).await?;
+                Ok(live.then_some(self.path.as_str()))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(crate) async fn validate(&self) -> Result<(), AppError> {
+        let cwd = Path::new(self.cwd()?);
+        if let Some((root, git_dir)) = self.linked_binding() {
+            if require_linked_checkout(cwd, root).await? != git_dir {
+                return Err(worktree_unavailable());
+            }
+        }
+        Ok(())
+    }
+
+    /// Confirm the checkout survived a read before using its result.
+    pub(crate) async fn checked_read<T>(
+        &self,
+        read: impl AsyncFnOnce(&Path) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let cwd = Path::new(self.cwd()?);
+        let result =
+            crate::shared::git_cli::in_linked_checkout(self.linked_binding(), cwd, read(cwd)).await;
+        self.validate().await?;
+        result
     }
 
     /// Root of the checkout that owns `cwd`, or `None` without Git metadata.
@@ -59,11 +112,10 @@ impl FeatureDir {
     /// `packages/app/packages/app/x`. A feature at the root keeps `cwd`'s own
     /// spelling, so the common case sees the exact path it always did.
     pub async fn git_root(&self) -> Result<Option<PathBuf>, AppError> {
-        let cwd = Path::new(&self.cwd);
-        let root = match &self.source {
-            FeatureDirSource::Worktree { root } => root.clone(),
-            FeatureDirSource::Project(ProjectFallback::ProjectWithoutGit) => return Ok(None),
-            FeatureDirSource::Project(_) => {
+        let cwd = Path::new(self.cwd()?);
+        let root = match self.linked_root() {
+            Some(root) => root.to_path_buf(),
+            None => {
                 if !crate::shared::git_context::has_git_metadata(cwd).await? {
                     return Ok(None);
                 }
@@ -112,30 +164,37 @@ pub async fn resolve_feature_dir_in_project(
     let recorded = repository::get_feature_setting(pool, feature_id, SETTING_WORKTREE_PATH)
         .await?
         .filter(|path| !path.trim().is_empty());
-    let project = |fallback| FeatureDir {
-        cwd: project_path.to_string(),
-        source: FeatureDirSource::Project(fallback),
+    let project = |recorded| FeatureDir {
+        path: project_path.to_string(),
+        source: FeatureDirSource::Project { recorded },
     };
     let Some(recorded) = recorded else {
-        return Ok(project(ProjectFallback::NoWorktreeRecorded));
+        return Ok(project(false));
     };
-    if !crate::shared::git_context::has_git_metadata(Path::new(project_path)).await? {
-        return Ok(project(ProjectFallback::ProjectWithoutGit));
+    let (project_path, recorded_path) = (Path::new(project_path), Path::new(&recorded));
+    // Skip leaves no path. Some older features explicitly recorded the
+    // project directory, including with a different spelling of its parent.
+    if same_directory_spelling(project_path, recorded_path).await {
+        return Ok(project(true));
     }
-    match commands::live_worktree_root(Path::new(project_path), Path::new(&recorded)).await? {
-        Some(root) => Ok(FeatureDir {
-            cwd: recorded,
-            source: FeatureDirSource::Worktree { root },
-        }),
-        None => {
-            tracing::debug!(
-                feature_id,
-                recorded = %recorded,
-                "recorded worktree is not live; using the project directory"
-            );
-            Ok(project(ProjectFallback::WorktreeNotLive))
+    if let Some(actual) = linked_path(recorded_path).await? {
+        if let Some(root) = registered_linked_root(project_path, recorded_path, &actual).await? {
+            match require_linked_checkout(&actual, &root).await {
+                Ok(git_dir) => {
+                    return Ok(FeatureDir {
+                        path: recorded,
+                        source: FeatureDirSource::Worktree { root, git_dir },
+                    })
+                }
+                Err(error) if is_worktree_unavailable(&error) => {}
+                Err(error) => return Err(error),
+            }
         }
     }
+    Ok(FeatureDir {
+        path: recorded,
+        source: FeatureDirSource::WorktreeUnavailable,
+    })
 }
 
 #[cfg(test)]
@@ -220,9 +279,15 @@ mod tests {
 
         let dir = resolve_feature_dir(&pool, 1).await.unwrap().unwrap();
 
-        assert_eq!(dir.cwd, session_cwd.to_str().unwrap());
-        assert_eq!(dir.live_worktree_cwd(), Some(session_cwd.to_str().unwrap()));
-        let FeatureDirSource::Worktree { root: live_root } = dir.source else {
+        assert_eq!(dir.cwd().unwrap(), session_cwd.to_str().unwrap());
+        assert_eq!(
+            dir.live_recorded_cwd().await.unwrap(),
+            Some(session_cwd.to_str().unwrap())
+        );
+        let FeatureDirSource::Worktree {
+            root: live_root, ..
+        } = dir.source
+        else {
             panic!("expected a live worktree, got {:?}", dir.source);
         };
         assert_eq!(
@@ -232,28 +297,91 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fallbacks_carry_their_reason() {
+    async fn only_unassigned_or_legacy_project_paths_resolve_to_the_project() {
         let root = tempfile::tempdir().unwrap();
         let repo = root.path().join("repo");
         init_repo(&repo).await;
         let pool = pool(repo.to_str().unwrap()).await;
-        let project_dir = |fallback| FeatureDir {
-            cwd: repo.to_str().unwrap().to_string(),
-            source: FeatureDirSource::Project(fallback),
+        let project_dir = |recorded| FeatureDir {
+            path: repo.to_str().unwrap().to_string(),
+            source: FeatureDirSource::Project { recorded },
         };
 
         assert_eq!(
             resolve_feature_dir(&pool, 1).await.unwrap(),
-            Some(project_dir(ProjectFallback::NoWorktreeRecorded))
+            Some(project_dir(false))
         );
-        let residual = root.path().join("residual");
-        std::fs::create_dir_all(&residual).unwrap();
-        record_worktree(&pool, residual.to_str().unwrap()).await;
+        record_worktree(&pool, repo.to_str().unwrap()).await;
         assert_eq!(
             resolve_feature_dir(&pool, 1).await.unwrap(),
-            Some(project_dir(ProjectFallback::WorktreeNotLive))
+            Some(project_dir(true))
         );
         assert_eq!(resolve_feature_dir(&pool, 2).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_registered_nested_directory_without_its_git_marker_cannot_inherit_the_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        init_repo(&repo).await;
+        let worktree = repo.join("feature-checkout");
+        run_git(
+            &[
+                "worktree",
+                "add",
+                "-qb",
+                "feature/x",
+                worktree.to_str().unwrap(),
+            ],
+            &repo,
+        )
+        .await
+        .unwrap();
+        let pool = pool(repo.to_str().unwrap()).await;
+        record_worktree(&pool, worktree.to_str().unwrap()).await;
+        let dir = resolve_feature_dir(&pool, 1).await.unwrap().unwrap();
+        let index_before = std::fs::read(repo.join(".git/index")).unwrap();
+        std::fs::write(repo.join("root-only.txt"), "parent file").unwrap();
+        let error = dir
+            .checked_read(async |cwd| {
+                std::fs::write(
+                    worktree.join(".git"),
+                    format!("gitdir: {}\n", repo.join(".git").display()),
+                )
+                .unwrap();
+                run_git(&["add", "--all"], cwd).await.unwrap();
+                std::fs::remove_file(worktree.join(".git")).unwrap();
+                // Without the explicit checkout binding, Git climbs to the
+                // parent from this residual directory and stages files there.
+                let result = run_git(&["add", "--all"], cwd).await;
+                assert!(result.is_err());
+                Ok(Vec::<String>::new())
+            })
+            .await
+            .unwrap_err();
+        assert!(is_worktree_unavailable(&error));
+        assert_eq!(
+            std::fs::read(repo.join(".git/index")).unwrap(),
+            index_before
+        );
+
+        let dir = resolve_feature_dir(&pool, 1).await.unwrap().unwrap();
+        assert!(is_worktree_unavailable(&dir.git_root().await.unwrap_err()));
+        assert_eq!(dir.expected_path(), worktree);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_recorded_checkout_path_redirected_to_the_project_cannot_bind_to_it() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        init_repo(&repo).await;
+        let expected = root.path().join("feature-checkout");
+        std::os::unix::fs::symlink(&repo, &expected).unwrap();
+        let pool = pool(repo.to_str().unwrap()).await;
+        record_worktree(&pool, expected.to_str().unwrap()).await;
+        let dir = resolve_feature_dir(&pool, 1).await.unwrap().unwrap();
+        assert!(is_worktree_unavailable(&dir.cwd().unwrap_err()));
     }
 
     #[tokio::test]
@@ -265,8 +393,8 @@ mod tests {
         let project = root.path().join("packages/app");
         std::fs::create_dir_all(&project).unwrap();
         let dir = FeatureDir {
-            cwd: project.to_str().unwrap().to_string(),
-            source: FeatureDirSource::Project(ProjectFallback::NoWorktreeRecorded),
+            path: project.to_str().unwrap().to_string(),
+            source: FeatureDirSource::Project { recorded: false },
         };
 
         let error = dir.git_root().await.unwrap_err();

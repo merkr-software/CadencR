@@ -1,6 +1,15 @@
 /** Feature-scoped Git status, action output and pull request events. */
 import { toast } from "sonner";
-import { notifyGitStatusHealth, statusHealthSchema } from "./git-status-health";
+import {
+  clearGitCheckoutQueries,
+  GIT_CONTENT_INVALIDATION_PREFIXES,
+  GIT_HISTORY_INVALIDATION_PREFIXES,
+  GIT_STATUS_INVALIDATION_PREFIXES,
+  gitQueryFilter,
+  notifyGitStatusHealth,
+  queryParamsMatchFeature,
+  statusHealthSchema,
+} from "./git-status-health";
 import {
   CiState,
   PrState,
@@ -12,42 +21,11 @@ import {
   type PrSummary,
 } from "@/api/generated";
 import { queryClient } from "@/lib/queryClient";
+import { WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
 import { gitStatusSnapshotsEqual, useGitStatusStore } from "@/stores/useGitStatusStore";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
-
-/** URL prefixes for every cached query that may need refreshing when a
- *  worktree's git state changes. Orval keys all start with the URL string.
- *
- *  `/api/git/status` is intentionally absent: the WS push has already updated
- *  `useGitStatusStore` (the source of truth for live status), and re-fetching
- *  the HTTP one-shot would race the WS push and cause the branch chip to
- *  flicker — the HTTP response computed at T can land after a WS push
- *  computed at T+Δ. The HTTP query is only used for first-paint hydration. */
-const GIT_CONTENT_INVALIDATION_PREFIXES = [
-  "/api/git/changed-files",
-  "/api/git/diff",
-  "/api/git/file-diff",
-  "/api/git/file-blob-shas",
-  "/api/git/stats",
-  "/api/git/stashes",
-  "/api/git/uncommitted-files",
-  "/api/git/has-uncommitted-changes",
-] as const;
-
-/** History queries: what a commit, push, fetch or reset changes. The graph
- *  paints each commit's pushed state and the remote-tracking refs, so a push —
- *  which moves `origin/<branch>` and `ahead_of_remote` but not one file — must
- *  refetch it too. It re-runs `git log --shortstat` over every loaded page, so
- *  it is refetched only when a history-bearing field moves, never for the
- *  working-tree churn of an agent writing files. */
-const GIT_HISTORY_INVALIDATION_PREFIXES = ["/api/git/commit-log", "/api/git/commit-graph"] as const;
-
-const GIT_STATUS_INVALIDATION_PREFIXES = [
-  ...GIT_CONTENT_INVALIDATION_PREFIXES,
-  ...GIT_HISTORY_INVALIDATION_PREFIXES,
-] as const;
 
 /** Fields a commit, amend, reset, push, pull or checkout moves. `staged_count`
  *  is here because a commit consumes the index: an amend that leaves every
@@ -148,14 +126,23 @@ function handleStatusEnvelope(
 ): void {
   const parsed = statusHealthSchema.safeParse(payload);
   if (!parsed.success) return;
-  const { feature_id: featureId, error, watcher_error: watcherError } = parsed.data;
+  const { feature_id: featureId, error, code, watcher_error: watcherError } = parsed.data;
   const previous = useGitStatusStore.getState();
   if (action === "status_error") {
     if (!error) return;
-    previous.setStatusError({ feature_id: featureId, error }, watcherError);
+    previous.setStatusError({ feature_id: featureId, error, code }, watcherError);
+    if (
+      code === WORKTREE_UNAVAILABLE &&
+      previous.healthByFeature[featureId]?.statusErrorCode !== code
+    ) {
+      clearGitCheckoutQueries(queryClient, featureId);
+    }
   } else {
     const snapshot = parseGitStatusSnapshot(payload);
     if (!snapshot) return;
+    if (!previous.byFeature[featureId] && previous.hydrationEpoch[featureId] != null) {
+      clearGitCheckoutQueries(queryClient, featureId);
+    }
     previous.setStatus(snapshot, watcherError);
   }
   const next = useGitStatusStore.getState();
@@ -291,23 +278,7 @@ function invalidateGitQueriesForFeature(
   prefixes: readonly string[],
   options?: { cancelRefetch: boolean },
 ): Promise<void> {
-  return queryClient.invalidateQueries(
-    {
-      predicate: (query) => {
-        const head = query.queryKey[0];
-        if (typeof head !== "string") return false;
-        if (!prefixes.some((prefix) => head.startsWith(prefix))) return false;
-        return queryParamsMatchFeature(query.queryKey[1], featureId);
-      },
-    },
-    options,
-  );
-}
-
-function queryParamsMatchFeature(params: unknown, featureId: number): boolean {
-  if (params == null || typeof params !== "object") return false;
-  if (!("feature_id" in params)) return false;
-  return params.feature_id === featureId;
+  return queryClient.invalidateQueries(gitQueryFilter(featureId, prefixes), options);
 }
 
 export function parseGitStatusSnapshot(payload: Record<string, unknown>): GitStatusSnapshot | null {

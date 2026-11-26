@@ -265,10 +265,7 @@ export function deriveGitAction(
         ? `Finish or abort the active ${operation} update first`
         : null);
 
-  // Degraded snapshot from the backend: `current_branch` is empty when the
-  // worktree path doesn't resolve on disk (still being created, or stale
-  // setting). Surface that explicitly so the button doesn't show a misleading
-  // "No uncommitted changes" reason.
+  // A project directory can be open before it has a Git checkout.
   if (!snapshot.current_branch) {
     const reason = unavailable ?? "No worktree available yet";
     return {

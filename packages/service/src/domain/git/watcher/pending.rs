@@ -9,7 +9,7 @@
 //! synchronous step, so cancelling it never leaves it half-registered.
 
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use axum::extract::ws::Message;
@@ -21,6 +21,7 @@ struct Pending {
     feature_id: i64,
     sender: mpsc::UnboundedSender<Message>,
     abort: AbortHandle,
+    current: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -35,16 +36,21 @@ impl PendingSubscriptions {
         self: &Arc<Self>,
         feature_id: i64,
         sender: mpsc::UnboundedSender<Message>,
-        subscription: F,
+        subscription: impl FnOnce(Arc<AtomicBool>) -> F + Send + 'static,
     ) where
         F: Future<Output = ()> + Send + 'static,
     {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         // Held across the spawn so the task's own removal finds its entry.
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        cancel_matching(&mut entries, |id, other| {
+            id == feature_id && other.same_channel(&sender)
+        });
+        let current = Arc::new(AtomicBool::new(true));
+        let task_current = current.clone();
         let pending = Arc::clone(self);
         let task = tokio::spawn(async move {
-            subscription.await;
+            subscription(task_current).await;
             pending.remove(id);
         });
         entries.push(Pending {
@@ -52,19 +58,14 @@ impl PendingSubscriptions {
             feature_id,
             sender,
             abort: task.abort_handle(),
+            current,
         });
     }
 
     /// Cancel the pending subscriptions `matches` selects.
     pub(super) fn cancel(&self, matches: impl Fn(i64, &mpsc::UnboundedSender<Message>) -> bool) {
         let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
-        entries.retain(|entry| {
-            let cancelled = matches(entry.feature_id, &entry.sender);
-            if cancelled {
-                entry.abort.abort();
-            }
-            !cancelled
-        });
+        cancel_matching(&mut entries, matches);
     }
 
     fn remove(&self, id: u64) {
@@ -83,6 +84,20 @@ impl PendingSubscriptions {
     }
 }
 
+fn cancel_matching(
+    entries: &mut Vec<Pending>,
+    matches: impl Fn(i64, &mpsc::UnboundedSender<Message>) -> bool,
+) {
+    entries.retain(|entry| {
+        let cancelled = matches(entry.feature_id, &entry.sender);
+        if cancelled {
+            entry.current.store(false, Ordering::Release);
+            entry.abort.abort();
+        }
+        !cancelled
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,7 +107,7 @@ mod tests {
         let pending = Arc::new(PendingSubscriptions::default());
         let (tx, _rx) = mpsc::unbounded_channel();
         let (done_tx, done_rx) = tokio::sync::oneshot::channel();
-        pending.start(1, tx, async move {
+        pending.start(1, tx, move |_| async move {
             done_tx.send(()).unwrap();
         });
         done_rx.await.unwrap();
@@ -108,7 +123,7 @@ mod tests {
         let (finished_tx, mut finished) = mpsc::unbounded_channel::<i64>();
         for (feature_id, sender) in [(1, tx.clone()), (2, tx.clone()), (1, other.clone())] {
             let finished_tx = finished_tx.clone();
-            pending.start(feature_id, sender, async move {
+            pending.start(feature_id, sender, move |_| async move {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 finished_tx.send(feature_id).unwrap();
             });
@@ -126,5 +141,24 @@ mod tests {
             vec![1, 2],
             "the other socket's feature 1 and feature 2 ran"
         );
+    }
+
+    #[tokio::test]
+    async fn a_new_subscription_supersedes_the_same_feature_and_socket() {
+        let pending = Arc::new(PendingSubscriptions::default());
+        let (sender, _rx) = mpsc::unbounded_channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        pending.start(1, sender.clone(), move |current| async move {
+            started_tx.send(current).unwrap();
+            std::future::pending::<()>().await;
+        });
+        let first = started_rx.await.unwrap();
+        let (second_tx, second_rx) = tokio::sync::oneshot::channel();
+        pending.start(1, sender, move |current| async move {
+            second_tx.send(current).unwrap();
+        });
+        let second = second_rx.await.unwrap();
+        assert!(!first.load(Ordering::Acquire));
+        assert!(second.load(Ordering::Acquire));
     }
 }

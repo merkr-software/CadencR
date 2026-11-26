@@ -25,23 +25,26 @@ pub async fn update_branch(
     body: UpdateBranchBody,
 ) -> Result<GitOperationResponse, AppError> {
     let feature_id = body.feature_id;
-    let worktree = resolve_feature_update_path(state, feature_id).await?;
+    let dir = resolve_feature_update_path(state, feature_id).await?;
+    let worktree = &dir.cwd;
     let permit = state
         .git_mutations
-        .try_acquire(&worktree)
+        .try_acquire(worktree)
         .map_err(|error| mutation_error(error))?;
-    let worktree = permit.worktree_path().to_path_buf();
-
-    require_no_active_operation(&worktree).await?;
-    let current_ref = attached_head_ref(&worktree).await?;
-    require_clean_worktree(&worktree).await?;
-    let configured_target = resolve_target_branch(state, feature_id, &worktree).await?;
-    let target = resolve_update_target(&worktree, &current_ref, &configured_target).await?;
-    validate_target(&worktree, &current_ref, &target).await?;
-
-    let result = runner::start(&worktree, body.strategy, &target).await;
+    let result = dir
+        .run(async {
+            require_no_active_operation(worktree).await?;
+            let current_ref = attached_head_ref(worktree).await?;
+            require_clean_worktree(worktree).await?;
+            let configured_target = resolve_target_branch(state, feature_id, worktree).await?;
+            let target = resolve_update_target(worktree, &current_ref, &configured_target).await?;
+            validate_target(worktree, &current_ref, &target).await?;
+            runner::start(worktree, body.strategy, &target).await
+        })
+        .await;
+    dir.validate().await?;
     drop(permit);
-    broadcast_after_write_at(state, &worktree).await;
+    broadcast_after_write_at(state, worktree).await;
     result
 }
 
@@ -70,22 +73,26 @@ async fn control_operation(
     feature_id: i64,
     action: ControlAction,
 ) -> Result<GitOperationResponse, AppError> {
-    let worktree = resolve_feature_update_path(state, feature_id).await?;
+    let dir = resolve_feature_update_path(state, feature_id).await?;
+    let worktree = &dir.cwd;
     let permit = state
         .git_mutations
-        .try_acquire(&worktree)
+        .try_acquire(worktree)
         .map_err(|error| mutation_error(error))?;
-    let worktree = permit.worktree_path().to_path_buf();
-    let operation = detect_active_git_operation(&worktree)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("no merge or rebase is active".into()))?;
-
-    let result = match action {
-        ControlAction::Continue => runner::continue_operation(&worktree, operation).await,
-        ControlAction::Abort => runner::abort(&worktree, operation).await,
-    };
+    let result = dir
+        .run(async {
+            let operation = detect_active_git_operation(worktree)
+                .await?
+                .ok_or_else(|| AppError::BadRequest("no merge or rebase is active".into()))?;
+            match action {
+                ControlAction::Continue => runner::continue_operation(worktree, operation).await,
+                ControlAction::Abort => runner::abort(worktree, operation).await,
+            }
+        })
+        .await;
+    dir.validate().await?;
     drop(permit);
-    broadcast_after_write_at(state, &worktree).await;
+    broadcast_after_write_at(state, worktree).await;
     result
 }
 

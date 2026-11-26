@@ -161,12 +161,12 @@ describe("private app WebSocket controller", () => {
     const unsubscribeRetry = store.getState().subscribeGitStatus(7);
     const retryId = JSON.parse(ws.sent.at(-1)!).id;
     const payload = { feature_id: 7, error: "bad index", watcher_error: null };
-    const reply = (ref?: string) =>
+    const reply = (ref?: string, action = "status_error") =>
       ws.fire("message", {
-        data: JSON.stringify({ id: "reply", domain: "git", action: "status_error", ref, payload }),
+        data: JSON.stringify({ id: "reply", domain: "git", action, ref, payload }),
       });
-    reply(firstId);
-    reply();
+    reply(firstId, "status");
+    reply(undefined, "status");
     expect(dispatch).not.toHaveBeenCalled();
     expect(useGitStatusStore.getState().subscriptionByFeature[7]).toBe("pending");
     reply(retryId);

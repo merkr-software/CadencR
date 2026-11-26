@@ -10,7 +10,12 @@ import { StashesView } from "./StashesView";
 import type { GitViewMode } from "./GitTabToggle";
 import type { DiffMode } from "./useDiffData";
 import type { GitNavigationAdapterRegistrar } from "./gitNavigation";
-import { selectGitMissingTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
+import {
+  selectGitCheckoutPending,
+  selectGitMissingTargetBranch,
+  selectGitWorktreeError,
+  useGitStatusStore,
+} from "@/stores/useGitStatusStore";
 
 export interface GitTabBodyProps {
   viewMode: GitViewMode;
@@ -58,6 +63,8 @@ export const GitTabBody = memo(function GitTabBody({
   onSendReviewThread,
 }: GitTabBodyProps): ReactElement {
   const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
+  const checkoutError = useGitStatusStore(selectGitWorktreeError(featureId));
+  const checkingCheckout = useGitStatusStore(selectGitCheckoutPending(featureId));
   if (viewMode === "pr") {
     return (
       <FeaturePrView
@@ -70,6 +77,19 @@ export const GitTabBody = memo(function GitTabBody({
         onSendThread={onSendReviewThread}
         registerNavigationAdapter={registerNavigationAdapter}
       />
+    );
+  }
+  if (
+    (checkoutError || checkingCheckout) &&
+    (viewMode === "graph" || viewMode === "branches" || viewMode === "stashes")
+  ) {
+    return (
+      <div
+        className="flex h-full items-center justify-center px-4 text-center text-muted-foreground"
+        role={checkoutError ? "alert" : "status"}
+      >
+        {checkoutError ?? "Loading Git status…"}
+      </div>
     );
   }
   if (viewMode === "graph") {
@@ -96,7 +116,7 @@ export const GitTabBody = memo(function GitTabBody({
       />
     );
   }
-  if (viewMode === "vs-target" && missingTargetBranch !== undefined) {
+  if (viewMode === "vs-target" && !checkoutError && missingTargetBranch !== undefined) {
     return <MissingTargetBranch branch={missingTargetBranch} />;
   }
   const reviewDiff = viewMode === "vs-target";

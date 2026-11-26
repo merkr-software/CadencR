@@ -45,10 +45,16 @@ async fn mutate_file(
         .git_mutations
         .try_acquire(&dir.cwd)
         .map_err(|error| mutation_guard_error(error))?;
-    match mutation {
-        IndexMutation::Stage => commands::stage_file(&dir.root, &body.file_path).await?,
-        IndexMutation::Reset => commands::reset_file(&dir.root, &body.file_path).await?,
-    }
+    let result = dir
+        .run(async {
+            match mutation {
+                IndexMutation::Stage => commands::stage_file(&dir.root, &body.file_path).await,
+                IndexMutation::Reset => commands::reset_file(&dir.root, &body.file_path).await,
+            }
+        })
+        .await;
+    dir.validate().await?;
+    result?;
     drop(permit);
 
     broadcast_after_write_at(state, &dir.cwd).await;

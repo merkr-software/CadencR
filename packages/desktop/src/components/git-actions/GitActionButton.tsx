@@ -5,12 +5,13 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   selectGitStatus,
   selectGitStatusHealth,
+  selectGitWorktreeError,
   useGitStatusStore,
 } from "@/stores/useGitStatusStore";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { getCompareUrl, getGetGitStatusQueryKey, type GitStatusSnapshot } from "@/api/generated";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { toastError } from "@/lib/api-errors";
+import { toastError, WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
 import { openExternalUrl } from "@/lib/open-external";
 import {
   isActivityAction,
@@ -98,7 +99,9 @@ function useGitStatusRetry(featureId: number): GitStatusRetry {
       git.bumpWatcherEpoch(featureId);
     } else {
       void queryClient.refetchQueries({ queryKey, exact: true, type: "active" });
-      if (git.healthByFeature[featureId]?.watcherError) socket.connect();
+      const health = git.healthByFeature[featureId];
+      if (health?.watcherError || health?.statusErrorCode === WORKTREE_UNAVAILABLE)
+        socket.connect();
     }
   }, [featureId, queryClient, queryKey]);
   const pending = subscribing || (!isConnected && isFetching);
@@ -108,7 +111,10 @@ function useGitStatusRetry(featureId: number): GitStatusRetry {
       : undefined;
     const issue = health?.statusError
       ? {
-          label: "Git status unavailable",
+          label:
+            health.statusErrorCode === WORKTREE_UNAVAILABLE
+              ? "Worktree unavailable"
+              : "Git status unavailable",
           detail: watch
             ? `${health.statusError}\n${watch.label}. ${watch.detail}`
             : health.statusError,
@@ -130,6 +136,7 @@ export const GitActionButton = memo(function GitActionButton({
 }: GitActionButtonProps): ReactElement | null {
   const { snapshot, state, prUrl, getStashMutationBlockedReason } =
     useGitActionButtonState(featureId);
+  const worktreeError = useGitStatusStore(selectGitWorktreeError(featureId));
   const isMobile = useIsMobile();
   const statusRetry = useGitStatusRetry(featureId);
   const [activeDialog, setActiveDialog] = useState<GitActionDialog>(null);
@@ -150,15 +157,19 @@ export const GitActionButton = memo(function GitActionButton({
     onOpenChange: handleDialogOpenChange,
   });
   const activities: GitActivities = useMemo(
-    () => ({
-      commit: toActivity(commitSubmission.submitting, commitSubmission.outcome),
-      push: toActivity(pushSubmission.submitting, pushSubmission.outcome),
-    }),
+    () =>
+      worktreeError
+        ? { commit: null, push: null }
+        : {
+            commit: toActivity(commitSubmission.submitting, commitSubmission.outcome),
+            push: toActivity(pushSubmission.submitting, pushSubmission.outcome),
+          },
     [
       commitSubmission.outcome,
       commitSubmission.submitting,
       pushSubmission.outcome,
       pushSubmission.submitting,
+      worktreeError,
     ],
   );
 
@@ -215,7 +226,7 @@ export const GitActionButton = memo(function GitActionButton({
         onAction={runAction}
       />
       <GitActionDialogs
-        activeDialog={activeDialog}
+        activeDialog={worktreeError ? null : activeDialog}
         featureId={featureId}
         snapshot={snapshot}
         updateDisabledReason={state.disabled.update}

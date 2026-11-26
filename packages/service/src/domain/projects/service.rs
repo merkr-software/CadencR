@@ -45,11 +45,8 @@ pub async fn resolve_project_root(pool: &SqlitePool, project_id: i64) -> Result<
 }
 
 /// Resolve the on-disk root a feature's editor should operate against. If the
-/// feature has a live worktree (its `worktree_path` setting points to an
-/// existing directory) we return the canonical worktree path; otherwise we
-/// fall back to the project's root. A supplied feature must belong to the
-/// supplied project; request authentication does not make cross-object ids
-/// trustworthy.
+/// feature has an assigned worktree we require it to be available. A supplied
+/// feature must belong to the supplied project.
 pub async fn resolve_feature_editor_root(
     pool: &SqlitePool,
     project_id: i64,
@@ -61,13 +58,15 @@ pub async fn resolve_feature_editor_root(
 
     let project_root = resolve_project_root(pool, project_id).await?;
     if let Some(fid) = feature_id {
-        let project_path = project_root.to_string_lossy();
-        if let Some(path) =
-            crate::domain::workflow::worktree::resolve_live_worktree(pool, fid, &project_path)
-                .await
-                .map_err(|error| AppError::internal(error))?
-        {
-            return tokio::fs::canonicalize(&path).await.map_err(|e| {
+        let dir = crate::domain::git::feature_dir::resolve_feature_dir_in_project(
+            pool,
+            fid,
+            &project_root.to_string_lossy(),
+        )
+        .await?;
+        let cwd = dir.cwd()?;
+        if dir.linked_root().is_some() {
+            return tokio::fs::canonicalize(cwd).await.map_err(|e| {
                 AppError::BadRequest(format!("cannot resolve feature {fid} worktree root: {e}"))
             });
         }

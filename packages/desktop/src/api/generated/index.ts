@@ -1011,6 +1011,11 @@ export interface ChangedFile {
 
 export interface CheckoutBody {
   branch: string;
+  /**
+   * Scope the checkout to this feature when switching branches from its workspace.
+   * @nullable
+   */
+  feature_id?: number | null;
   project_id: number;
 }
 

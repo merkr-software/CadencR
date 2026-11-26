@@ -98,6 +98,31 @@ function SubscribedGitActionButton() {
 }
 
 describe("GitActionButton status recovery", () => {
+  it("blocks Commit during a checkout outage and offers retry in the same view", async () => {
+    const git = useGitStatusStore.getState();
+    git.setStatus(makeDirtyMergeableSnapshot(42));
+    useSessionStatusStore.setState({ isConnected: true });
+    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+    expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
+    act(() =>
+      git.setStatusError({
+        feature_id: 42,
+        error: "The feature's worktree is no longer available",
+        code: "WORKTREE_UNAVAILABLE",
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Commit" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Worktree unavailable" }));
+    expect(useGitStatusStore.getState().watcherEpoch[42]).toBe(1);
+    act(() => git.setSubscription(42, "pending"));
+    expect(screen.getByRole("button", { name: "Refreshing Git status…" })).toBeDisabled();
+    act(() => {
+      git.setSubscription(42, "answered");
+      git.setStatus({ ...makeDirtyMergeableSnapshot(42), computed_at: 2 }, null);
+    });
+    expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
+  });
+
   it("offers a retry for an initial failure and restores actions after the status arrives", async () => {
     const git = useGitStatusStore.getState();
     const unsubscribe = vi.fn((featureId: number) => git.setSubscription(featureId));

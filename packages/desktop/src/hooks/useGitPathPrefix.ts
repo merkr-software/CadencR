@@ -1,13 +1,48 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { hashKey, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useGetGitPathPrefix, type GitPathPrefixResponse } from "@/api/generated";
+import {
+  getGetGitPathPrefixQueryOptions,
+  useGetGitPathPrefix,
+  type GitPathPrefixResponse,
+} from "@/api/generated";
+import { scopedToastDescription } from "@/components/ToastScope";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { gitPathForAgent, keepGitPath, type AgentPathMapper } from "@/lib/git-paths";
+
+function updateGitPathPrefixToast(queryClient: QueryClient, featureId: number): void {
+  const options = getGetGitPathPrefixQueryOptions({ feature_id: featureId });
+  // A checkout change can replace the cached query while an observer still
+  // holds its previous result. Only the current query can update the toast.
+  const current = queryClient.getQueryState(options.queryKey);
+  const id = `git-path-prefix-${featureId}`;
+  if (current?.status === "success") {
+    if (toast.getToasts().some((item) => item.id === id)) toast.dismiss(id);
+  } else if (current?.status === "error") {
+    toast.error("Could not resolve the project's Git paths", {
+      id,
+      description: scopedToastDescription(
+        { featureId },
+        apiErrorMessage(current.error, "The project's Git root is unavailable"),
+      ),
+      duration: Infinity,
+      action: {
+        label: "Retry",
+        onClick: (event) => {
+          event.preventDefault();
+          const updateToast = () => updateGitPathPrefixToast(queryClient, featureId);
+          void queryClient.fetchQuery({ ...options, staleTime: 0 }).then(updateToast, updateToast);
+        },
+      },
+    });
+  }
+}
 
 function useGitPathPrefixQuery(
   featureId: number,
   enabled = true,
 ): GitPathPrefixResponse | undefined {
+  const queryClient = useQueryClient();
   const query = useGetGitPathPrefix(
     { feature_id: featureId },
     // Changes only with the feature's directory; worktree changes invalidate it.
@@ -19,20 +54,24 @@ function useGitPathPrefixQuery(
       },
     },
   );
-  const { refetch } = query;
+  // Removing a query clears stale checkout data without notifying its existing
+  // observers. Rebind this observer to the same key when that happens.
+  const cache = queryClient.getQueryCache();
+  const hash = hashKey(query.queryKey);
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      cache.subscribe((event) => {
+        if (event.type === "removed" && event.query.queryHash === hash) notify();
+      }),
+    [cache, hash],
+  );
+  const getQuery = useCallback(() => cache.get(hash), [cache, hash]);
+  const currentQuery = useSyncExternalStore(subscribe, getQuery);
+  const { error, isError, isSuccess } = query;
 
   useEffect(() => {
-    if (!query.isError) return;
-    // Opening files from the Git tab, the editor's Git gutter and sending review
-    // comments to the agent all wait on these paths, which are never refetched on
-    // their own: the toast stays up, explaining the disabled buttons, until retried.
-    toast.error("Could not resolve the project's Git paths", {
-      id: `git-path-prefix-${featureId}`,
-      description: apiErrorMessage(query.error, "The project's Git root is unavailable"),
-      duration: Infinity,
-      action: { label: "Retry", onClick: () => void refetch() },
-    });
-  }, [featureId, query.error, query.isError, refetch]);
+    if (isError || isSuccess) updateGitPathPrefixToast(queryClient, featureId);
+  }, [currentQuery, error, featureId, isError, isSuccess, queryClient]);
 
   return query.data;
 }

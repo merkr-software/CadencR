@@ -1,21 +1,16 @@
 use sqlx::SqlitePool;
 
+use crate::domain::git::feature_dir::resolve_feature_dir_in_project;
 use crate::domain::git::repository::get_project_path;
-use crate::domain::workflow::worktree::resolve_live_worktree;
 use crate::error::AppError;
 
-/// Resolve the working directory for a terminal: feature worktree if set and
-/// alive on disk, otherwise project path.
+/// Resolve the terminal's assigned checkout or project directory.
 pub async fn resolve_cwd(
     pool: &SqlitePool,
     feature_id: i64,
     project_id: i64,
 ) -> Result<String, AppError> {
-    let project_path = get_project_path(pool, project_id).await?;
-    resolve_live_worktree(pool, feature_id, &project_path)
-        .await
-        .map(|worktree| worktree.unwrap_or(project_path))
-        .map_err(|error| AppError::internal(error))
+    resolve_pty_cwd(pool, feature_id, project_id, None).await
 }
 
 /// Same as [`resolve_cwd`] but honours `requested_cwd` when it matches the
@@ -29,17 +24,13 @@ pub async fn resolve_pty_cwd(
     project_id: i64,
     requested_cwd: Option<&str>,
 ) -> Result<String, AppError> {
-    let Some(req) = requested_cwd.filter(|path| !path.is_empty()) else {
-        return resolve_cwd(pool, feature_id, project_id).await;
-    };
     let project_path = get_project_path(pool, project_id).await?;
-    let worktree_path = resolve_live_worktree(pool, feature_id, &project_path)
-        .await
-        .map_err(|error| AppError::internal(error))?;
-    if req == project_path || worktree_path.as_deref() == Some(req) {
-        return Ok(req.to_string());
-    }
-    Ok(worktree_path.unwrap_or(project_path))
+    let dir = resolve_feature_dir_in_project(pool, feature_id, &project_path).await?;
+    let cwd = dir.cwd()?;
+    Ok(requested_cwd
+        .filter(|path| !path.is_empty() && (*path == cwd || *path == project_path))
+        .unwrap_or(cwd)
+        .to_owned())
 }
 
 #[cfg(test)]
@@ -153,10 +144,16 @@ mod tests {
         .await
         .unwrap();
 
-        let resolved = resolve_pty_cwd(&pool, 1, 1, Some(&leftover_path))
-            .await
-            .unwrap();
-        assert_eq!(resolved, project_path);
+        for requested in [
+            None,
+            Some(leftover_path.as_str()),
+            Some(project_path.as_str()),
+        ] {
+            let error = resolve_pty_cwd(&pool, 1, 1, requested).await.unwrap_err();
+            assert!(crate::domain::git::feature_dir::is_worktree_unavailable(
+                &error
+            ));
+        }
     }
 
     #[tokio::test]

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   pathPrefix: undefined as { prefix: string | null; root: string | null } | undefined,
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (_scope: unknown, description: unknown) => description,
+}));
 vi.mock("@/api/generated", () => ({
   useListDiffComments: () => ({
     data: [
@@ -21,7 +24,12 @@ vi.mock("@/api/generated", () => ({
       { id: 2, file_path: "README.md", line_number: 1, content: "outside", status: "pending" },
     ],
   }),
-  useGetGitPathPrefix: () => ({ data: mocks.pathPrefix, isError: false, error: null }),
+  useGetGitPathPrefix: (params: { feature_id: number }) => ({
+    data: mocks.pathPrefix,
+    isError: false,
+    error: null,
+    queryKey: ["/api/git/path-prefix", params],
+  }),
 }));
 
 const FEATURE = 9;

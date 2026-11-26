@@ -12,12 +12,19 @@ const mocks = vi.hoisted(() => ({
   settingPending: false,
 }));
 
+vi.mock("@/components/ToastScope", () => ({
+  scopedToastDescription: (_scope: unknown, description: unknown) => description,
+}));
 vi.mock("@/api/generated", () => ({
   getGetFeatureSettingsQueryKey: (featureId: number) => ["/api/features/settings", featureId],
   useGetFeatureSettings: () => ({ data: [{ key: "git_view_mode", value: "stashes" }] }),
   useGetStats: () => ({ isLoading: false, isError: false, data: undefined }),
   useListDiffComments: () => ({ data: [] }),
-  useGetGitPathPrefix: () => ({ data: { prefix: "", root: "/repo" }, isError: false }),
+  useGetGitPathPrefix: (params: { feature_id: number }) => ({
+    data: { prefix: "", root: "/repo" },
+    isError: false,
+    queryKey: ["/api/git/path-prefix", params],
+  }),
   useGetPrComments: () => ({ data: undefined, isLoading: false, isError: false, error: null }),
   useSetFeatureSetting: (options: {
     mutation: { onSuccess: (response: unknown, variables: { data: { value: string } }) => void };

@@ -1,18 +1,18 @@
-#[cfg(test)]
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use axum::extract::ws::Message;
 use tokio::sync::{mpsc, Mutex};
 
-#[cfg(test)]
-use super::handle::Subscriber;
-use super::handle::{repo_lock, schedule_grace_drop, sender_eq, spawn_handle, RegistryInner};
+use super::handle::{
+    repo_lock, schedule_grace_drop, sender_eq, spawn_handle, RegistryInner, Subscriber,
+    WatcherHandle,
+};
 use super::pending::PendingSubscriptions;
-use super::subscription::{push_subscriber_dedup, resolve_worktree_path};
+use super::subscription::{push_subscriber_dedup, resolve_checkout, watcher_path};
 use crate::app_state::AppState;
+use crate::domain::git::feature_dir::is_worktree_unavailable;
 use crate::domain::git::git_status::GitStatusSnapshot;
 use crate::domain::git::workflow_service;
 use crate::error::AppError;
@@ -28,6 +28,15 @@ pub(crate) struct GitStatusSubscription {
     pub status: Result<GitStatusSnapshot, AppError>,
     /// None when path resolution failed before watcher setup could run.
     pub watcher: Option<Result<(), AppError>>,
+}
+
+impl GitStatusSubscription {
+    fn unavailable(error: AppError) -> Self {
+        Self {
+            status: Err(error),
+            watcher: None,
+        }
+    }
 }
 
 impl GitWatcherRegistry {
@@ -55,12 +64,13 @@ impl GitWatcherRegistry {
     {
         let state = state.clone();
         let subscriber = sender.clone();
-        self.pending.start(feature_id, sender, async move {
-            state
-                .git_watcher
-                .subscribe(&state, feature_id, subscriber, respond)
-                .await;
-        });
+        self.pending
+            .start(feature_id, sender, move |current| async move {
+                state
+                    .git_watcher
+                    .subscribe_current(&state, feature_id, subscriber, Some(&current), respond)
+                    .await;
+            });
     }
 
     /// Register a `(feature_id, sender)` subscription and report its initial
@@ -77,30 +87,67 @@ impl GitWatcherRegistry {
         sender: mpsc::UnboundedSender<Message>,
         respond: impl FnOnce(GitStatusSubscription) -> T,
     ) -> T {
-        let worktree_path = match resolve_worktree_path(state, feature_id).await {
-            Ok(path) => path,
+        self.subscribe_current(state, feature_id, sender, None, respond)
+            .await
+    }
+
+    async fn subscribe_current<T>(
+        &self,
+        state: &AppState,
+        feature_id: i64,
+        sender: mpsc::UnboundedSender<Message>,
+        current: Option<&AtomicBool>,
+        respond: impl FnOnce(GitStatusSubscription) -> T,
+    ) -> T {
+        let sender_ref = &sender;
+        let remove_other_paths = |keep_path| {
+            self.detach(
+                move |subscriber| {
+                    subscriber.feature_id == feature_id && sender_eq(&subscriber.sender, sender_ref)
+                },
+                keep_path,
+                current,
+            )
+        };
+        let checkout = match resolve_checkout(state, feature_id).await {
+            Ok(checkout) => checkout,
             Err(error) => {
-                return respond(GitStatusSubscription {
-                    status: Err(error),
-                    watcher: None,
-                });
+                remove_other_paths(None).await;
+                return respond(GitStatusSubscription::unavailable(error));
             }
         };
+        let worktree_path = watcher_path(checkout.expected_path()).await;
         let repo_lock = repo_lock(&self.inner, &worktree_path).await;
         let _repo = repo_lock.lock().await;
+        let linked_root = checkout.linked_root();
+        if let Err(error) = checkout.validate().await {
+            self.mark_checkout_failure(&worktree_path, &error).await;
+            remove_other_paths(None).await;
+            return respond(GitStatusSubscription::unavailable(error));
+        }
         let has_git = match crate::shared::git_context::has_git_metadata(&worktree_path).await {
             Ok(has_git) => has_git,
             Err(error) => {
-                return respond(GitStatusSubscription {
-                    status: Err(error),
-                    watcher: None,
-                });
+                remove_other_paths(None).await;
+                return respond(GitStatusSubscription::unavailable(error));
             }
         };
         // Start watching before the scan so edits during it queue a refresh.
         // Commit the subscriber only after all cancellable work is finished.
         let prepare_watcher = async {
-            if has_git && !self.inner.lock().await.handles.contains_key(&worktree_path) {
+            if has_git
+                && self
+                    .inner
+                    .lock()
+                    .await
+                    .handles
+                    .get(&worktree_path)
+                    .is_none_or(|handle| {
+                        handle.needs_rebind
+                            || handle.linked_root.as_deref() != linked_root
+                            || (linked_root.is_some() && handle.subscribers.is_empty())
+                    })
+            {
                 spawn_handle(self.inner.clone(), worktree_path.clone(), state.clone())
                     .await
                     .map(Some)
@@ -108,36 +155,35 @@ impl GitWatcherRegistry {
                 Ok(None)
             }
         };
-        let (watcher, target) = tokio::join!(
+        let (watcher, status) = tokio::join!(
             prepare_watcher,
-            workflow_service::resolve_target_branch(state, feature_id, &worktree_path),
+            checkout.checked_read(async |path| {
+                let target =
+                    workflow_service::resolve_target_branch(state, feature_id, path).await?;
+                workflow_service::compute_feature_status(state, feature_id, path, &target).await
+            }),
         );
-        let status = match target {
-            Ok(target) => {
-                workflow_service::compute_feature_status(state, feature_id, &worktree_path, &target)
-                    .await
+        if status.as_ref().is_err_and(is_worktree_unavailable) {
+            if let Err(error) = status {
+                self.mark_checkout_failure(&worktree_path, &error).await;
+                remove_other_paths(None).await;
+                return respond(GitStatusSubscription::unavailable(error));
             }
-            Err(error) => Err(error),
-        };
+        }
+        remove_other_paths(Some(&worktree_path)).await;
         let watcher = match watcher {
             Ok(new_handle) if has_git => {
-                let mut inner = self.inner.lock().await;
-                if let Some(handle) = new_handle {
-                    inner.handles.insert(worktree_path.clone(), handle);
-                }
-                if let Some(handle) = inner.handles.get_mut(&worktree_path) {
-                    push_subscriber_dedup(&mut handle.subscribers, feature_id, sender);
-                    handle.cancel_grace();
-                    handle.epoch.fetch_add(1, Ordering::Relaxed);
-                    Ok(())
-                } else {
-                    Err(AppError::internal(
-                        "Git watcher was shut down during subscription",
-                    ))
-                }
+                self.register_subscriber(
+                    &worktree_path,
+                    linked_root,
+                    feature_id,
+                    sender,
+                    new_handle,
+                    current,
+                )
+                .await
             }
-            Ok(_) => Ok(()),
-            Err(error) => Err(error),
+            result => result.map(|_| ()),
         };
         // Reply under the repository lock so a queued recompute cannot lead
         // this initial result on the wire.
@@ -147,36 +193,91 @@ impl GitWatcherRegistry {
         })
     }
 
+    async fn register_subscriber(
+        &self,
+        path: &Path,
+        linked_root: Option<&Path>,
+        feature_id: i64,
+        sender: mpsc::UnboundedSender<Message>,
+        new_handle: Option<WatcherHandle>,
+        current: Option<&AtomicBool>,
+    ) -> Result<(), AppError> {
+        let mut inner = self.inner.lock().await;
+        if !is_current(current) {
+            return Err(AppError::internal("Git subscription was superseded"));
+        }
+        if let Some(handle) = new_handle {
+            drop(inner.replace_handle(path, linked_root, handle));
+        }
+        let handle = inner
+            .handles
+            .get_mut(path)
+            .ok_or_else(|| AppError::internal("Git watcher was shut down during subscription"))?;
+        push_subscriber_dedup(&mut handle.subscribers, feature_id, sender);
+        handle.cancel_grace();
+        handle.epoch.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn mark_checkout_failure(&self, path: &Path, error: &AppError) {
+        if is_worktree_unavailable(error) {
+            if let Some(handle) = self
+                .inner
+                .lock()
+                .await
+                .handles
+                .get_mut(path)
+                .filter(|handle| handle.linked_root.is_some())
+            {
+                handle.needs_rebind = true;
+            }
+        }
+    }
+
     /// Drop every subscription for a given `feature_id`. Provided for
     /// completeness; the WS layer prefers `unsubscribe_one` so it doesn't
     /// kick other sessions watching the same feature.
     #[allow(dead_code)]
     pub async fn unsubscribe(&self, feature_id: i64) {
         self.pending.cancel(|pending, _| pending == feature_id);
-        let mut inner = self.inner.lock().await;
-        let mut empty_paths: Vec<PathBuf> = Vec::new();
-        for (path, handle) in inner.handles.iter_mut() {
-            handle.subscribers.retain(|s| s.feature_id != feature_id);
-            if handle.subscribers.is_empty() {
-                empty_paths.push(path.clone());
-            }
-            handle.epoch.fetch_add(1, Ordering::Relaxed);
-        }
-        for path in empty_paths {
-            schedule_grace_drop(&mut inner, &path, self.inner.clone());
-        }
+        self.detach(|subscriber| subscriber.feature_id == feature_id, None, None)
+            .await;
     }
 
     /// Drop the subscription tied to one `(feature_id, sender)` pair.
     pub async fn unsubscribe_one(&self, feature_id: i64, sender: &mpsc::UnboundedSender<Message>) {
         self.pending
             .cancel(|pending, other| pending == feature_id && sender_eq(other, sender));
+        self.detach(
+            |subscriber| {
+                subscriber.feature_id == feature_id && sender_eq(&subscriber.sender, sender)
+            },
+            None,
+            None,
+        )
+        .await;
+    }
+
+    async fn detach(
+        &self,
+        matches: impl Fn(&Subscriber) -> bool,
+        keep_path: Option<&Path>,
+        current: Option<&AtomicBool>,
+    ) {
         let mut inner = self.inner.lock().await;
+        if !is_current(current) {
+            return;
+        }
         let mut empty_paths: Vec<PathBuf> = Vec::new();
         for (path, handle) in inner.handles.iter_mut() {
-            handle
-                .subscribers
-                .retain(|s| !(s.feature_id == feature_id && sender_eq(&s.sender, sender)));
+            if keep_path == Some(path.as_path()) {
+                continue;
+            }
+            let before = handle.subscribers.len();
+            handle.subscribers.retain(|subscriber| !matches(subscriber));
+            if handle.subscribers.len() == before {
+                continue;
+            }
             if handle.subscribers.is_empty() {
                 empty_paths.push(path.clone());
             }
@@ -191,18 +292,12 @@ impl GitWatcherRegistry {
     /// WS sender. Called from the WS connection cleanup hook.
     pub async fn unsubscribe_sender(&self, sender: &mpsc::UnboundedSender<Message>) {
         self.pending.cancel(|_, other| sender_eq(other, sender));
-        let mut inner = self.inner.lock().await;
-        let mut empty_paths: Vec<PathBuf> = Vec::new();
-        for (path, handle) in inner.handles.iter_mut() {
-            handle.subscribers.retain(|s| !sender_eq(&s.sender, sender));
-            if handle.subscribers.is_empty() {
-                empty_paths.push(path.clone());
-            }
-            handle.epoch.fetch_add(1, Ordering::Relaxed);
-        }
-        for path in empty_paths {
-            schedule_grace_drop(&mut inner, &path, self.inner.clone());
-        }
+        self.detach(
+            |subscriber| sender_eq(&subscriber.sender, sender),
+            None,
+            None,
+        )
+        .await;
     }
 
     #[cfg(test)]
@@ -220,6 +315,10 @@ impl GitWatcherRegistry {
             .map(|h| h.subscribers.len())
             .unwrap_or(0)
     }
+}
+
+fn is_current(current: Option<&AtomicBool>) -> bool {
+    current.is_none_or(|current| current.load(Ordering::Acquire))
 }
 
 impl Default for GitWatcherRegistry {

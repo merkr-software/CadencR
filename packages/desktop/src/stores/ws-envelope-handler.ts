@@ -28,6 +28,8 @@ import {
   handleCompactStopped,
 } from "./ws-envelope-compact-handlers";
 import { handleWorktreeEvent } from "./ws-worktree-handler";
+import { clearGitCheckoutQueries } from "./git-status-health";
+import { queryClient } from "@/lib/queryClient";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { isRecord } from "./ws-message-processing";
 import { parseAccessMode } from "@/types/access-mode";
@@ -118,6 +120,10 @@ export function handleEnvelope(
           ? envelope.payload.feature_id
           : null;
       if (featureId != null) {
+        if (envelope.action === "worktree.created") {
+          clearGitCheckoutQueries(queryClient, featureId);
+          useGitStatusStore.getState().discardSnapshot(featureId);
+        }
         useGitStatusStore.getState().bumpWatcherEpoch(featureId);
       }
     }

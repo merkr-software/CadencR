@@ -122,6 +122,54 @@ describe("handleGitEnvelope", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("discards the failed checkout's files and SHAs without cancelling pull-request data", () => {
+    const files = ["/api/git/changed-files", { feature_id: 7 }] as const;
+    const otherFiles = ["/api/git/changed-files", { feature_id: 8 }] as const;
+    const shas = getGetFileBlobShasQueryKey({ feature_id: 7 });
+    const prComments = ["/api/git/pr/comments", { feature_id: 7 }] as const;
+    queryClient.setQueryData(files, ["qa-root-only.txt"]);
+    queryClient.setQueryData(shas, []);
+    queryClient.setQueryData(otherFiles, ["unrelated"]);
+    queryClient.setQueryData(prComments, ["a review discussion"]);
+    handleGitEnvelope("status", validSnapshot);
+    handleGitEnvelope("status_error", {
+      feature_id: 7,
+      code: "WORKTREE_UNAVAILABLE",
+      error: "Worktree is unavailable",
+    });
+    expect(queryClient.getQueryData(files)).toBeUndefined();
+    expect(queryClient.getQueryData(shas)).toBeUndefined();
+    expect(queryClient.getQueryData(otherFiles)).toEqual(["unrelated"]);
+    expect(queryClient.getQueryData(prComments)).toEqual(["a review discussion"]);
+    expect(useGitStatusStore.getState().byFeature[7]).toBeUndefined();
+    handleGitEnvelope("status_error", {
+      feature_id: 7,
+      error: "Corrupt index",
+      watcher_error: null,
+    });
+    expect(useGitStatusStore.getState().healthByFeature[7]?.statusError).toBe("Corrupt index");
+    queryClient.removeQueries({ queryKey: otherFiles });
+    queryClient.removeQueries({ queryKey: prComments });
+  });
+
+  it("drops stale files and SHAs before accepting a fresh acknowledgement after reactivation", () => {
+    const files = ["/api/git/changed-files", { feature_id: 7 }] as const;
+    const shas = getGetFileBlobShasQueryKey({ feature_id: 7 });
+    const git = useGitStatusStore.getState();
+    handleGitEnvelope("status", validSnapshot);
+    queryClient.setQueryData(files, ["before hiding"]);
+    queryClient.setQueryData(shas, []);
+    git.discardSnapshot(7);
+    git.setSubscription(7, "pending");
+    git.setSubscription(7, "answered");
+    handleGitEnvelope("status", { ...validSnapshot, computed_at: validSnapshot.computed_at + 1 });
+    expect(useGitStatusStore.getState().byFeature[7]?.current_branch).toBe(
+      validSnapshot.current_branch,
+    );
+    expect(queryClient.getQueryData(files)).toBeUndefined();
+    expect(queryClient.getQueryData(shas)).toBeUndefined();
+  });
+
   it("invalidates comments only when the pull request was updated", () => {
     const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
     usePrStatusStore

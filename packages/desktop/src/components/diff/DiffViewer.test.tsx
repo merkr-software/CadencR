@@ -256,6 +256,38 @@ afterEach(() => {
 });
 
 describe("DiffViewer", () => {
+  it.each(["uncommitted", "branch"] as const)(
+    "hides cached parent files and identifies a checkout outage in %s",
+    (mode) => {
+      const git = useGitStatusStore.getState();
+      git.setStatusError({
+        feature_id: 1,
+        code: "WORKTREE_UNAVAILABLE",
+        error: "The feature's worktree is no longer available",
+      });
+      mocks.useGetChangedFilesMock.mockReturnValue({
+        data: [{ ...fooFile, file: "qa-root-only.txt" }],
+        isLoading: false,
+      });
+      const { rerender } = render(<DiffViewer featureId={1} mode={mode} targetBranch="main" />);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The feature's worktree is no longer available",
+      );
+      expect(screen.queryByText("qa-root-only.txt")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/target branch.*(unavailable|does not exist)/i),
+      ).not.toBeInTheDocument();
+
+      withFooFile();
+      act(() => git.clearStatus(1));
+      rerender(<DiffViewer featureId={1} mode={mode} targetBranch="main" />);
+      expect(
+        screen.getByRole("button", { name: /^(Expand|Collapse) src\/foo\.ts$/ }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+
   it("shows paused comment checks and keeps Changes usable when the target is absent", () => {
     useGitStatusStore.getState().setStatus({
       feature_id: 1,

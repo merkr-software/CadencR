@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::mutation_guard::GitMutationGuardError;
-use crate::domain::git::service::resolve_feature_git_dir;
+use crate::domain::git::service::{resolve_feature_git_dir, FeatureGitDir};
 use crate::error::AppError;
 use crate::shared::git_cli::{
     git_output_error, git_ref_resolves_background, guard_positionals, run_git_output_with_env,
@@ -12,19 +12,16 @@ use crate::shared::git_cli::{
 
 use super::{detect_active_git_operation, operation_name};
 
-/// Resolve the checkout this feature currently observes. A live configured
-/// linked worktree wins; no-worktree and stale-worktree features use the
-/// project's primary checkout, matching status, index, commit, and stash.
+/// Resolve the feature's checkout before entering an update operation.
 pub(super) async fn resolve_feature_update_path(
     state: &AppState,
     feature_id: i64,
-) -> Result<PathBuf, AppError> {
+) -> Result<FeatureGitDir, AppError> {
     // Merge and rebase name no repository-relative paths; they run in the
     // feature's own directory, the key its post-write refresh needs.
-    Ok(resolve_feature_git_dir(state, feature_id)
+    resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
-        .cwd)
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))
 }
 
 pub(super) async fn require_no_active_operation(worktree: &Path) -> Result<(), AppError> {
@@ -237,14 +234,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_to_the_project_checkout_for_a_stale_worktree() {
+    async fn refuses_a_stale_worktree_without_updating_the_project_checkout() {
         let fixture = RepoFixture::new();
         fixture.create_remote_only_tip();
         let state = fixture.state("origin/main").await;
         let feature_arg = fixture.feature.to_string_lossy().to_string();
         fixture.git_project(&["worktree", "remove", "--force", &feature_arg]);
 
-        update_branch(
+        let error = update_branch(
             &state,
             UpdateBranchBody {
                 feature_id: 1,
@@ -252,8 +249,11 @@ mod tests {
             },
         )
         .await
-        .unwrap();
+        .unwrap_err();
 
-        assert!(fixture.project.join("remote-only.txt").exists());
+        assert!(crate::domain::git::feature_dir::is_worktree_unavailable(
+            &error
+        ));
+        assert!(!fixture.project.join("remote-only.txt").exists());
     }
 }

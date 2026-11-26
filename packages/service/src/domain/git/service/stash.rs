@@ -1,6 +1,6 @@
 //! Service layer for stash listing and foreground mutations.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::git::commands;
@@ -10,7 +10,7 @@ use crate::domain::git::models::{
 use crate::domain::git::mutation_guard::{GitMutationGuardError, GitMutationPermit};
 use crate::error::AppError;
 
-use super::{resolve_feature_git_dir, resolve_feature_git_path};
+use super::{resolve_feature_git_dir, resolve_feature_git_path, FeatureGitDir};
 
 pub async fn list_stashes(
     state: &AppState,
@@ -27,44 +27,53 @@ pub async fn push_stash(
     state: &AppState,
     body: StashPushBody,
 ) -> Result<GitOperationResponse, AppError> {
-    let (repo, permits) = acquire_stash_permits(state, body.feature_id).await?;
-    let outcome =
-        commands::push_stash(&repo, body.message.as_deref(), body.include_untracked).await?;
-    drop(permits);
-    crate::domain::git::workflow_service::broadcast_after_write_at(state, &repo).await;
-    Ok(outcome)
+    mutate_stash(state, body.feature_id, async |repo| {
+        commands::push_stash(repo, body.message.as_deref(), body.include_untracked).await
+    })
+    .await
 }
 
 pub async fn apply_stash(
     state: &AppState,
     body: StashMutationBody,
 ) -> Result<GitOperationResponse, AppError> {
-    let (repo, permits) = acquire_stash_permits(state, body.feature_id).await?;
-    let outcome = commands::apply_stash(&repo, &body.ref_name, &body.expected_sha).await?;
-    drop(permits);
-    crate::domain::git::workflow_service::broadcast_after_write_at(state, &repo).await;
-    Ok(outcome)
+    mutate_stash(state, body.feature_id, async |repo| {
+        commands::apply_stash(repo, &body.ref_name, &body.expected_sha).await
+    })
+    .await
 }
 
 pub async fn pop_stash(
     state: &AppState,
     body: StashMutationBody,
 ) -> Result<GitOperationResponse, AppError> {
-    let (repo, permits) = acquire_stash_permits(state, body.feature_id).await?;
-    let outcome = commands::pop_stash(&repo, &body.ref_name, &body.expected_sha).await?;
-    drop(permits);
-    crate::domain::git::workflow_service::broadcast_after_write_at(state, &repo).await;
-    Ok(outcome)
+    mutate_stash(state, body.feature_id, async |repo| {
+        commands::pop_stash(repo, &body.ref_name, &body.expected_sha).await
+    })
+    .await
 }
 
 pub async fn drop_stash(
     state: &AppState,
     body: StashMutationBody,
 ) -> Result<GitOperationResponse, AppError> {
-    let (repo, permits) = acquire_stash_permits(state, body.feature_id).await?;
-    let outcome = commands::drop_stash(&repo, &body.ref_name, &body.expected_sha).await?;
+    mutate_stash(state, body.feature_id, async |repo| {
+        commands::drop_stash(repo, &body.ref_name, &body.expected_sha).await
+    })
+    .await
+}
+
+async fn mutate_stash(
+    state: &AppState,
+    feature_id: i64,
+    operation: impl AsyncFnOnce(&Path) -> Result<GitOperationResponse, AppError>,
+) -> Result<GitOperationResponse, AppError> {
+    let (repo, permits) = acquire_stash_permits(state, feature_id).await?;
+    let result = repo.run(operation(&repo.cwd)).await;
+    repo.validate().await?;
+    let outcome = result?;
     drop(permits);
-    crate::domain::git::workflow_service::broadcast_after_write_at(state, &repo).await;
+    crate::domain::git::workflow_service::broadcast_after_write_at(state, &repo.cwd).await;
     Ok(outcome)
 }
 
@@ -79,18 +88,19 @@ struct StashMutationPermits {
 async fn acquire_stash_permits(
     state: &AppState,
     feature_id: i64,
-) -> Result<(PathBuf, StashMutationPermits), AppError> {
+) -> Result<(FeatureGitDir, StashMutationPermits), AppError> {
     // Stash commands name no repository-relative paths; they run in the
     // feature's own directory, the key its post-write refresh needs.
     let repo = resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
-        .cwd;
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
     let worktree = state
         .git_mutations
-        .try_acquire(&repo)
+        .try_acquire(&repo.cwd)
         .map_err(|error| map_guard_error(error))?;
-    let common_dir = commands::stash::stash_common_dir(&repo).await?;
+    let common_dir = repo
+        .run(commands::stash::stash_common_dir(&repo.cwd))
+        .await?;
     let repository = state
         .git_mutations
         .try_acquire(&common_dir)
@@ -118,6 +128,7 @@ mod tests {
     use super::*;
     use crate::domain::git::service::test_support::setup_diff_refs_schema;
     use crate::shared::git_cli::run_git;
+    use std::path::PathBuf;
 
     async fn linked_worktree_state() -> (tempfile::TempDir, PathBuf, PathBuf, AppState) {
         let temp = tempfile::tempdir().unwrap();

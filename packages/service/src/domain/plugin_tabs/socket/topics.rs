@@ -125,7 +125,15 @@ async fn git_status(
         .await;
     let snapshot = match outcome
         .status
-        .map_err(|error| ("GIT_STATUS_ERROR", error.to_string()))
+        .map_err(|error| {
+            use crate::domain::git::feature_dir::{is_worktree_unavailable, WORKTREE_UNAVAILABLE};
+            let code = if is_worktree_unavailable(&error) {
+                WORKTREE_UNAVAILABLE
+            } else {
+                "GIT_STATUS_ERROR"
+            };
+            (code, error.to_string())
+        })
         .and_then(|snapshot| match outcome.watcher {
             Some(Err(error)) => Err(("WATCHER_ERROR", error.to_string())),
             _ => Ok(snapshot),

@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import type { AgentSessionHandle } from "@/components/agent-session";
 import type { FeatureTerminalTabHandle } from "@/components/FeatureTerminalTab";
-import {
-  useGetBranch,
-  useGetFeatureSettings,
-  useGetGitStatus,
-  useListProjects,
-} from "@/api/generated";
+import { useGetBranch, useGetFeatureSettings, useListProjects } from "@/api/generated";
+import { useInitialGitStatus } from "@/hooks/useInitialGitStatus";
 import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useAgentLetterFocus } from "@/hooks/useAgentLetterFocus";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import { nextThinkingEffort } from "@/shared/thinking-effort";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-import { useGitStatusStore } from "@/stores/useGitStatusStore";
-import { notifyGitStatusHealth } from "@/stores/git-status-health";
 import type { FeatureEditorTabHandle } from "@/components/editor/FeatureEditorTab";
 import type { WorktreeStatus } from "@/types/workflow";
 import type { SessionControls } from "@/components/WebSocketSessionControls";
@@ -23,7 +17,6 @@ import { PROVIDER_IDS } from "@/lib/providers";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
 import { useWorkspaceSession } from "@/hooks/useWorkspaceSession";
 import { useWorkspaceActivity } from "@/components/workspace-pool/workspace-activity";
-import { apiErrorMessage } from "@/lib/api-errors";
 export { useSessionControls } from "@/components/WebSocketSessionControls";
 
 /** The selected native profile to attach to an outgoing prompt when supported. */
@@ -59,30 +52,6 @@ export function useSessionRefs(): SessionRefs {
   const terminal = useRef<FeatureTerminalTabHandle>(null);
   const editor = useRef<FeatureEditorTabHandle>(null);
   return useMemo(() => ({ agent, terminal, editor }), []);
-}
-
-function useInitialGitStatus(featureId: number, enabled: boolean): void {
-  const { data, isError, error } = useGetGitStatus(
-    { feature_id: featureId },
-    { query: { enabled } },
-  );
-  useEffect(() => {
-    if (!enabled) return;
-    const git = useGitStatusStore.getState();
-    if (isError) {
-      git.hydrateStatus(featureId, apiErrorMessage(error, "Failed to load Git status"));
-    } else if (data) {
-      git.hydrateStatus(featureId, data);
-      const before = git.healthByFeature[featureId];
-      if (before?.statusError) {
-        notifyGitStatusHealth(
-          featureId,
-          before,
-          useGitStatusStore.getState().healthByFeature[featureId],
-        );
-      }
-    }
-  }, [data, enabled, error, featureId, isError]);
 }
 
 export function useSessionFeatureData(
@@ -127,7 +96,7 @@ export function useSessionFeatureData(
   const effectiveCwd =
     worktreePath === undefined
       ? (session?.worktreePath ?? featureSettings.worktree_path ?? cwd)
-      : (worktreePath ?? projectPath ?? cwd);
+      : (worktreePath ?? featureSettings.worktree_path ?? projectPath ?? cwd);
   const worktreeStatus =
     session?.worktreeStatus && session.worktreeStatus !== "idle"
       ? session.worktreeStatus

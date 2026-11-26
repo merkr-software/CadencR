@@ -46,6 +46,8 @@ pub(super) enum RecomputePing {
 /// feature) may register against a single handle.
 pub(super) struct WatcherHandle {
     pub(super) subscribers: Vec<Subscriber>,
+    pub(super) linked_root: Option<PathBuf>,
+    pub(super) needs_rebind: bool,
     /// Underlying fs watcher; dropping releases the OS resources.
     pub(super) _watcher: IgnoreAwareWatcher,
     /// Channel the fs callback pushes coalesced "recompute requested" pings on.
@@ -86,6 +88,24 @@ pub(super) struct RegistryInner {
     /// Serializes the Git work of one repository (status snapshots, watcher
     /// start) without holding up the others.
     pub(super) repo_locks: Arc<KeyedLocks<PathBuf>>,
+}
+
+impl RegistryInner {
+    pub(super) fn replace_handle(
+        &mut self,
+        path: &Path,
+        root: Option<&Path>,
+        mut replacement: WatcherHandle,
+    ) -> Option<WatcherHandle> {
+        let mut retired = self.handles.remove(path);
+        if let Some(previous) = &mut retired {
+            previous.cancel_grace();
+            replacement.subscribers = std::mem::take(&mut previous.subscribers);
+        }
+        replacement.linked_root = root.map(Path::to_path_buf);
+        self.handles.insert(path.to_path_buf(), replacement);
+        retired
+    }
 }
 
 /// The lock serializing Git work on `worktree_path`.
@@ -142,6 +162,8 @@ pub(super) async fn spawn_handle(
 
     Ok(WatcherHandle {
         subscribers: Vec::new(),
+        linked_root: None,
+        needs_rebind: false,
         _watcher: watcher,
         ping_tx,
         compute_task,

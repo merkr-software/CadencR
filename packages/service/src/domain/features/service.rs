@@ -240,7 +240,7 @@ pub async fn resolve_working_dir(
     )
     .await?;
     Ok(WorkingDirResponse {
-        path: Some(dir.cwd),
+        path: Some(dir.cwd()?.to_owned()),
     })
 }
 
@@ -254,11 +254,12 @@ pub async fn delete_feature(
 }
 
 /// Resolve the working directory for a feature without requiring the caller to
-/// know the `project_id`: its live worktree, else the project root.
+/// know the `project_id`: its recorded checkout or its project directory.
 pub async fn get_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, AppError> {
     crate::domain::git::feature_dir::resolve_feature_dir(pool, feature_id)
         .await?
-        .map(|dir| dir.cwd)
+        .map(|dir| dir.cwd().map(str::to_owned))
+        .transpose()?
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))
 }
 

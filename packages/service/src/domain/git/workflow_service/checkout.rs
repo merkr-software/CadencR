@@ -13,11 +13,13 @@
 //!   422 `GIT_REF_NOT_FOUND`).
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axum::extract::{Json, State};
 
 use crate::app_state::AppState;
+use crate::domain::features::service::ensure_belongs_to_project;
+use crate::domain::git::feature_dir::resolve_feature_dir_in_project;
 use crate::domain::git::models::{CheckoutBody, CheckoutValidateBody, SuccessResponse};
 use crate::domain::git::porcelain::parse_porcelain_v2_entries;
 use crate::domain::git::repository;
@@ -110,13 +112,31 @@ async fn validate_checkout(
 }
 
 async fn checkout(state: &AppState, body: CheckoutBody) -> Result<SuccessResponse, AppError> {
-    let (project_path, resolved) = prepare(state, body.project_id, &body.branch).await?;
-    let repo = Path::new(&project_path);
+    let project_path = repository::get_project_path(&state.read_pool, body.project_id).await?;
+    let feature_dir = if let Some(feature_id) = body.feature_id {
+        ensure_belongs_to_project(&state.read_pool, feature_id, body.project_id).await?;
+        Some(resolve_feature_dir_in_project(&state.read_pool, feature_id, &project_path).await?)
+    } else {
+        None
+    };
+    let repo = match &feature_dir {
+        Some(dir) => PathBuf::from(dir.cwd()?),
+        None => PathBuf::from(project_path),
+    };
+    let resolved = validated_ref(&repo, &body.branch).await?;
     let _permit = state
         .git_mutations
-        .try_acquire(repo)
+        .try_acquire(&repo)
         .map_err(|error| super::mutation_guard_error(error))?;
-    run_git_capture(&["checkout"], &[], &[&resolved], repo).await?;
+    if let Some(dir) = &feature_dir {
+        dir.validate().await?;
+    }
+    crate::shared::git_cli::in_linked_checkout(
+        feature_dir.as_ref().and_then(|dir| dir.linked_binding()),
+        &repo,
+        run_git_capture(&["checkout"], &[], &[&resolved], &repo),
+    )
+    .await?;
     Ok(SuccessResponse::ok())
 }
 
@@ -128,12 +148,16 @@ async fn prepare(
     project_id: i64,
     branch: &str,
 ) -> Result<(String, String), AppError> {
+    let project_path = repository::get_project_path(&state.read_pool, project_id).await?;
+    let resolved = validated_ref(Path::new(&project_path), branch).await?;
+    Ok((project_path, resolved))
+}
+
+async fn validated_ref(repo: &Path, branch: &str) -> Result<String, AppError> {
     if branch.trim().is_empty() {
         return Err(AppError::BadRequest("branch is required".into()));
     }
-    let project_path = repository::get_project_path(&state.read_pool, project_id).await?;
-    let resolved = resolve_ref(Path::new(&project_path), branch).await?;
-    Ok((project_path, resolved))
+    resolve_ref(repo, branch).await
 }
 
 pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, AppError> {
@@ -276,6 +300,7 @@ mod tests {
         let error = checkout(
             &state,
             CheckoutBody {
+                feature_id: None,
                 project_id: 1,
                 branch: "other".into(),
             },
