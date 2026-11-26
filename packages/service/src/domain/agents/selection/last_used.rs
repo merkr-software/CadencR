@@ -5,13 +5,17 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use super::super::adapter::RuntimeError;
 use super::super::permission_modes::parse_permission_mode_wire;
 use super::super::providers::{
     model_supports_thinking_level, provider_catalog_entry_live_for_settings, runtime_adapter,
 };
 use super::super::runtime::{model_setting_key, runtime_setting_key, ProviderStatus};
 use super::{resolve_configured_selection, ResolvedSelection, SelectionError, SelectionOrigin};
-use crate::domain::{settings, settings_store};
+use crate::domain::{
+    settings,
+    settings_store::{self, file, Scope},
+};
 use crate::error::AppError;
 
 const SNAPSHOT: &str = "last_prompt_selection";
@@ -88,18 +92,8 @@ impl PromptedSelection {
         cwd: Option<&Path>,
         feature_id: Option<i64>,
     ) -> Result<Option<Self>, SelectionError> {
-        let Some(values) = settings_store::global_snapshot() else {
-            return Ok(None);
-        };
-        let Some(raw) = values.get(SNAPSHOT) else {
-            return Ok(None);
-        };
-        let mut saved: Self = serde_json::from_str(raw).map_err(|e| {
-            SelectionError::SettingsUnreadable(format!("Invalid {SNAPSHOT} setting: {e}"))
-        })?;
-        if values.get("agent_runtime_session") != Some(&saved.provider)
-            || values.get("model_session").filter(|m| !m.is_empty()) != saved.model.as_ref()
-        {
+        let stored = settings_store::global_inspect_document(Self::read_saved);
+        if matches!(stored, Ok(None)) {
             return Ok(None);
         }
         if let Some(id) = feature_id {
@@ -109,25 +103,30 @@ impl PromptedSelection {
                 }
             }
         }
+        let Some(mut saved) = stored? else {
+            return Ok(None);
+        };
         let Some(adapter) = runtime_adapter(&saved.provider) else {
             return Ok(None);
         };
-        if let Some(profile) = saved.profile.as_deref() {
-            let catalog = adapter
-                .profile_catalog(cwd)
-                .await
-                .map_err(|error| SelectionError::SettingsUnreadable(error.to_string()))?;
-            if !catalog.is_some_and(|catalog| catalog.profiles.iter().any(|p| p.id == profile)) {
-                return Ok(None);
-            }
+        if saved.profile.is_some() && adapter.default_profile_id().is_none() {
+            return Ok(None);
         }
-        let entry = provider_catalog_entry_live_for_settings(
+        let entry = match provider_catalog_entry_live_for_settings(
             pool,
             cwd,
             saved.profile.as_deref(),
             adapter.as_adapter(),
         )
-        .await;
+        .await
+        {
+            Ok(entry) => entry,
+            // A saved prompt can refer to a profile that the user later deleted.
+            Err(RuntimeError::Profile(AppError::NotFound(_))) if saved.profile.is_some() => {
+                return Ok(None)
+            }
+            Err(error) => return Err(error.into_profile_error().into()),
+        };
         if entry.status != ProviderStatus::Available {
             return Ok(None);
         }
@@ -144,6 +143,23 @@ impl PromptedSelection {
             .permission_mode
             .filter(|mode| parse_permission_mode_wire(mode).is_some());
         Ok(Some(saved))
+    }
+
+    fn read_saved(
+        doc: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<Self>, AppError> {
+        let Some(raw) = file::read_scalar(doc, Scope::Workspace, SNAPSHOT)? else {
+            return Ok(None);
+        };
+        let saved: Self = serde_json::from_str(&raw).map_err(|_| {
+            file::invalid_settings(format!(
+                "Invalid {SNAPSHOT} setting; fix it via \"Edit JSON\""
+            ))
+        })?;
+        let provider = file::read_scalar(doc, Scope::Workspace, "agent_runtime_session")?;
+        let model = file::read_scalar(doc, Scope::Workspace, "model_session")?
+            .filter(|model| !model.is_empty());
+        Ok((provider.as_deref() == Some(&saved.provider) && model == saved.model).then_some(saved))
     }
 }
 

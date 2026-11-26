@@ -62,10 +62,14 @@ pub async fn run_workspace_tool(
     args: serde_json::Value,
     ctx: Arc<McpContext>,
 ) -> CallToolResult {
-    if !workspace_mcp_enabled() {
-        return error_result(
+    match crate::domain::workspace::repository::setting_enabled_by_default(
+        WORKSPACE_MCP_ENABLED_SETTING_KEY,
+    ) {
+        Ok(true) => {}
+        Ok(false) => return error_result(
             "cadencr-workspace tools are disabled; set workspace_mcp_enabled=true to allow them",
-        );
+        ),
+        Err(error) => return error_result(&format!("{}: {error}", error.code())),
     }
     let started_at = std::time::Instant::now();
     let result = match name {
@@ -102,11 +106,6 @@ pub async fn run_workspace_tool(
         Ok(value) => text_result(&value.to_string()),
         Err(error) => error_result(&error),
     }
-}
-
-fn workspace_mcp_enabled() -> bool {
-    crate::domain::settings_store::global_get(WORKSPACE_MCP_ENABLED_SETTING_KEY).as_deref()
-        != Some("false")
 }
 
 fn workspace_result_char_cap() -> usize {
@@ -327,20 +326,4 @@ async fn query_session_messages(
         .fetch_all(&ctx.read_pool)
         .await
         .map_err(|e| format!("Failed to read workspace session messages: {e}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::domain::settings_store;
-    use std::fs;
-
-    #[test]
-    fn workspace_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
-        assert!(super::workspace_mcp_enabled());
-        let settings_path = settings_store::global_dir().join("settings.json");
-        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"false"}"#).expect("write false");
-        assert!(!super::workspace_mcp_enabled());
-        fs::write(&settings_path, r#"{"workspace_mcp_enabled":"true"}"#).expect("write true");
-        assert!(super::workspace_mcp_enabled());
-    }
 }

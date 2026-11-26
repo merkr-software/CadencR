@@ -159,12 +159,10 @@ pub(crate) async fn resolve_in_with_origin(
         .map(|v| (v, SettingOrigin::Global)))
 }
 
-/// One JSON level's non-empty value for `key`. A file that cannot be read is an
-/// error; one that was read but holds invalid JSON or values keeps degrading to
-/// "unset" — the settings page reports those as warnings.
+/// One JSON level's non-empty value for `key`. A failed read or invalid
+/// value stops the cascade at this level.
 fn read_level(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
-    let (map, _warnings) = store::read(path, scope)?;
-    Ok(map.get(key).filter(|value| !value.is_empty()).cloned())
+    Ok(store::read_key(path, scope, key)?.filter(|value| !value.is_empty()))
 }
 
 /// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →

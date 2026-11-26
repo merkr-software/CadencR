@@ -394,14 +394,16 @@ fn cert_sans(lan_ips: &[IpAddr]) -> Vec<String> {
 
 /// Restore persisted remote access before the loopback API starts serving.
 pub async fn restore_at_startup(state: &AppState, skip_remote_restore: bool) {
-    if !skip_remote_restore
-        && crate::domain::settings_store::global_get(REMOTE_ENABLED_SETTING).as_deref()
-            == Some("true")
-    {
-        match state.remote.start(state).await {
+    if skip_remote_restore {
+        return;
+    }
+    match crate::domain::settings_store::global_read(REMOTE_ENABLED_SETTING) {
+        Ok(value) if value.as_deref() == Some("true") => match state.remote.start(state).await {
             Ok(info) => tracing::info!("Remote access auto-started on port {}", info.port),
             Err(err) => tracing::warn!("Remote access auto-start failed: {err}"),
-        }
+        },
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "Remote access auto-start skipped"),
     }
 }
 

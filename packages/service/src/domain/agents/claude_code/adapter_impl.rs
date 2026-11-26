@@ -22,10 +22,10 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
     async fn bypass_permission_opt_in(
         &self,
         pool: &SqlitePool,
-        feature_id: i64,
+        feature_id: Option<i64>,
         project_id: Option<i64>,
     ) -> Result<Option<bool>, crate::error::AppError> {
-        super::bypass_permissions::enabled(pool, Some(feature_id), project_id)
+        super::bypass_permissions::enabled(pool, feature_id, project_id)
             .await
             .map(Some)
     }
@@ -35,7 +35,17 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         _cwd: Option<&Path>,
     ) -> Result<Option<crate::domain::agents::runtime::ProviderProfilesResponse>, RuntimeError>
     {
-        Ok(Some(super::profile_adapter::catalog()))
+        super::profile_adapter::catalog().map(Some)
+    }
+
+    fn default_profile_id(&self) -> Option<&'static str> {
+        Some(super::profiles::DEFAULT_PROFILE_NAME)
+    }
+
+    fn active_profile_id(&self) -> Result<Option<String>, RuntimeError> {
+        super::profiles::get_active_profile_name()
+            .map(Some)
+            .map_err(RuntimeError::Profile)
     }
 
     async fn resolve_profile(
@@ -215,44 +225,53 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         _read_pool: &SqlitePool,
         _cwd: Option<&Path>,
         profile: Option<&str>,
-    ) -> ProviderCatalogEntry {
+    ) -> Result<ProviderCatalogEntry, RuntimeError> {
+        if let Err(error @ claude_agent_sdk_rs::SdkError::CliNotFound { .. }) =
+            claude_agent_sdk_rs::transport::find_cli(None).await
+        {
+            return Ok(unavailable_catalog(error.to_string()));
+        }
         // `profile` lets the prompt-area selector preview a non-active profile's
-        // models (Bedrock/Vertex model ids differ from Anthropic). When it is
-        // None we fall back to the active profile — and if a named profile fails
-        // to resolve we still degrade to the active env rather than break the
-        // catalog probe.
-        let profile_env = match super::profiles::resolve_profile_env_by_name(profile) {
-            Ok((_, env)) => env,
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    "failed to resolve claude_code profile env for catalog; using active profile"
-                );
-                super::profiles::resolve_active_profile_env().1
-            }
-        };
+        // models (Bedrock/Vertex model ids differ from Anthropic).
+        let (_, profile_env) =
+            super::profiles::resolve_profile_env_by_name(profile).map_err(RuntimeError::Profile)?;
         let models = self.load_models_with_env(profile_env.clone()).await;
         if let Some(message) = self.model_probe_failure_message(profile_env.as_ref()).await {
-            return unavailable_catalog(message);
+            return Ok(unavailable_catalog(message));
         }
-        provider_catalog_entry_from_models(models)
+        Ok(provider_catalog_entry_from_models(models))
     }
 
     async fn default_model_id(&self) -> Option<String> {
         ClaudeCodeAdapter::default_model_id(self).await
     }
 
-    async fn default_model_id_for_settings(&self, _read_pool: &SqlitePool) -> Option<String> {
-        let (_, profile_env) = super::profiles::resolve_active_profile_env();
-        ClaudeCodeAdapter::default_model_id_with_env(self, profile_env).await
+    async fn default_model_id_for_settings(
+        &self,
+        _read_pool: &SqlitePool,
+    ) -> Result<Option<String>, crate::error::AppError> {
+        let (_, profile_env) = super::profiles::resolve_active_profile_env()?;
+        Ok(ClaudeCodeAdapter::default_model_id_with_env(self, profile_env).await)
     }
 
     fn profile_name_for_new_session(&self) -> Option<String> {
-        Some(super::profiles::get_active_profile_name())
+        match super::profiles::get_active_profile_name() {
+            Ok(name) => Some(name),
+            Err(error) => {
+                tracing::warn!(%error, "could not determine the active Claude Code profile");
+                None
+            }
+        }
     }
 
     fn environment_for_new_session(&self) -> Option<std::collections::HashMap<String, String>> {
-        super::profiles::resolve_active_profile_env().1
+        match super::profiles::resolve_active_profile_env() {
+            Ok((_, env)) => env,
+            Err(error) => {
+                tracing::warn!(%error, "could not determine the active Claude Code profile's environment");
+                None
+            }
+        }
     }
 
     async fn extra_models(&self, read_pool: &sqlx::SqlitePool) -> Vec<ModelCatalogEntry> {

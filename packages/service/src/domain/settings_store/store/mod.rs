@@ -4,7 +4,7 @@
 //! `dir::global_dir()`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 
@@ -20,31 +20,36 @@ use scalars::set_values;
 pub use global::*;
 pub use project::*;
 
+pub type SettingsMap = (PathBuf, BTreeMap<String, String>, Vec<SettingWarning>);
+
 /// Read + parse + validate a settings file. Never errors: a missing file is an
 /// empty map, and a malformed file degrades to an empty map plus a warning so a
 /// corrupt file can't brick the app on a hot read path.
 pub fn load(path: &Path, scope: Scope) -> (BTreeMap<String, String>, Vec<SettingWarning>) {
-    read(path, scope).unwrap_or_else(|e| {
-        (
+    match cache::get_or_load(path).as_ref() {
+        CachedEntry::Missing => (BTreeMap::new(), Vec::new()),
+        CachedEntry::Present(doc) => doc.validated(scope),
+        CachedEntry::Unreadable(message) => (
             BTreeMap::new(),
-            vec![SettingWarning::new("", e.to_string())],
-        )
-    })
+            vec![SettingWarning::new("", message.clone())],
+        ),
+    }
 }
 
-/// Like [`load`], but a file that exists and cannot be read is an error rather
-/// than an empty map. Invalid content still degrades to warnings. The settings
-/// cascade uses this so an unreadable level never silently hands the decision
-/// to the next one.
+/// A missing document is empty. An unreadable or malformed one is an error.
+/// The scalar projection still includes per-key validation warnings.
 pub fn read(
     path: &Path,
     scope: Scope,
 ) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
-    match cache::get_or_load(path).as_ref() {
-        CachedEntry::Missing => Ok((BTreeMap::new(), Vec::new())),
-        CachedEntry::Present(doc) => Ok(doc.validated(scope)),
-        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
-    }
+    let entry = cache::get_or_load(path);
+    let Some(doc) = entry.readable_document()? else {
+        return Ok((BTreeMap::new(), Vec::new()));
+    };
+    doc.parsed_doc
+        .as_ref()
+        .map_err(|message| file::invalid_document(path, message))?;
+    Ok(doc.validated(scope))
 }
 
 /// Read a single validated scalar setting without cloning the entire map.
@@ -56,14 +61,13 @@ pub(super) fn load_key(path: &Path, scope: Scope, key: &str) -> Option<String> {
     }
 }
 
-/// Like [`load_key`], but an unreadable file returns `Err(SETTINGS_READ_FAILED)`
-/// (matching [`read`]).
-pub(super) fn read_key(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
-    match cache::get_or_load(path).as_ref() {
-        CachedEntry::Missing => Ok(None),
-        CachedEntry::Present(doc) => Ok(doc.get_validated(scope, key)),
-        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
-    }
+/// Read a setting for a runtime decision. A default is only used by callers
+/// after a successful read with no value.
+pub(crate) fn read_key(path: &Path, scope: Scope, key: &str) -> Result<Option<String>, AppError> {
+    cache::inspect_document(path, |doc| match doc {
+        Some(doc) => file::read_scalar(doc, scope, key),
+        None => Ok(None),
+    })
 }
 
 /// Read the full stored document (all keys preserved, nested sections intact) for
@@ -73,12 +77,9 @@ pub(super) fn load_document_for_write(
     path: &Path,
 ) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
     match file::read_file(path)? {
-        Some(text) => file::parse_document(&text).map_err(|message| {
-            AppError::BadRequest(format!(
-                "{} is not valid JSON ({message}); fix it via \"Edit JSON\" before changing settings",
-                path.display()
-            ))
-        }),
+        Some(text) => {
+            file::parse_document(&text).map_err(|message| file::invalid_document(path, &message))
+        }
         None => Ok(serde_json::Map::new()),
     }
 }
@@ -352,7 +353,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ corrupt").unwrap();
         let err = set_value(&path, "theme_current", "x").await.unwrap_err();
-        assert!(matches!(err, AppError::BadRequest(_)));
+        assert_eq!(err.code(), file::SETTINGS_INVALID);
         // Original bytes untouched.
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ corrupt");
     }
@@ -368,18 +369,36 @@ mod tests {
     }
 
     #[test]
-    fn read_fails_on_an_unreadable_file_but_degrades_on_corrupt_content() {
+    fn read_distinguishes_missing_unreadable_and_malformed_documents() {
         let dir = tempfile::tempdir().unwrap();
         let unreadable = dir.path().join("unreadable.json");
+        assert!(read(&unreadable, Scope::Workspace).unwrap().0.is_empty());
         std::fs::create_dir(&unreadable).unwrap();
-        let error = read(&unreadable, Scope::Workspace).unwrap_err().to_string();
+        let error = read(&unreadable, Scope::Workspace).unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                code: file::SETTINGS_READ_FAILED,
+                ..
+            }
+        ));
         // The cause reaches the user, not only "open private file <path>".
-        assert!(error.to_lowercase().contains("directory"), "{error}");
+        assert!(
+            error.to_string().to_lowercase().contains("directory"),
+            "{error}"
+        );
 
         let corrupt = dir.path().join("corrupt.json");
         std::fs::write(&corrupt, "{ corrupt").unwrap();
-        let (map, warnings) = read(&corrupt, Scope::Workspace).unwrap();
-        assert!(map.is_empty());
+        assert!(matches!(
+            read(&corrupt, Scope::Workspace),
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
+        ));
+        let (text, warnings) = read_for_edit(&corrupt, Scope::Workspace);
+        assert_eq!(text, "{ corrupt");
         assert_eq!(warnings.len(), 1);
     }
 

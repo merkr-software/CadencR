@@ -8,6 +8,7 @@ use sqlx::SqlitePool;
 use super::registry::provider_identifier_key;
 use super::{provider_catalog_entry_live_for_settings, provider_registry, runtime_adapter};
 use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry};
+use crate::error::AppError;
 
 /// Human-facing aliases and model guidance for a provider id.
 ///
@@ -178,13 +179,15 @@ pub async fn resolve_model_or_error_for_profile(
     provider_id: &str,
     model_id: &str,
     profile: Option<&str>,
-) -> Result<(String, ModelCatalogEntry), ProviderModelValidationError> {
-    let provider_id = canonical_provider_or_error(provider_id)?;
+) -> Result<(String, ModelCatalogEntry), AppError> {
+    let provider_id = canonical_provider_or_error(provider_id)
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
     let adapter = runtime_adapter(&provider_id).expect("canonical provider has adapter");
     let static_catalog = adapter.catalog_entry();
     let catalog =
         provider_catalog_entry_live_for_settings(read_pool, cwd, profile, adapter.as_adapter())
-            .await;
+            .await
+            .map_err(|error| error.into_profile_error())?;
     let known_models =
         super::merge_extra_models(static_catalog.models.clone(), catalog.models.clone());
 
@@ -200,11 +203,14 @@ pub async fn resolve_model_or_error_for_profile(
         return Ok((canonical_model, catalog_entry));
     }
 
-    Err(ProviderModelValidationError::UnknownModel {
-        provider_id,
-        model_id: model_id.to_string(),
-        available_models: available_model_ids(&catalog, &static_catalog),
-    })
+    Err(AppError::BadRequest(
+        ProviderModelValidationError::UnknownModel {
+            provider_id,
+            model_id: model_id.to_string(),
+            available_models: available_model_ids(&catalog, &static_catalog),
+        }
+        .to_string(),
+    ))
 }
 
 /// Validate a user-selected thinking level against provider-advertised model
@@ -251,11 +257,14 @@ pub async fn provider_model_catalog_entry(
     provider_id: &str,
     model_id: Option<&str>,
     profile: Option<&str>,
-) -> Option<ModelCatalogEntry> {
-    let adapter = runtime_adapter(provider_id)?;
+) -> Result<Option<ModelCatalogEntry>, AppError> {
+    let Some(adapter) = runtime_adapter(provider_id) else {
+        return Ok(None);
+    };
     let live_catalog =
         provider_catalog_entry_live_for_settings(read_pool, cwd, profile, adapter.as_adapter())
-            .await;
+            .await
+            .map_err(|error| error.into_profile_error())?;
     let selected_model = model_id.or(live_catalog.default_model.as_deref());
     if let Some(model) = selected_model.and_then(|selected_model| {
         live_catalog
@@ -263,18 +272,18 @@ pub async fn provider_model_catalog_entry(
             .iter()
             .find(|model| model.id == selected_model)
     }) {
-        return Some(model.clone());
+        return Ok(Some(model.clone()));
     }
 
     let static_catalog = adapter.catalog_entry();
     let selected_model = model_id
         .or(live_catalog.default_model.as_deref())
-        .or(static_catalog.default_model.as_deref())?;
-    static_catalog
+        .or(static_catalog.default_model.as_deref());
+    Ok(static_catalog
         .models
         .iter()
-        .find(|model| model.id == selected_model)
-        .cloned()
+        .find(|model| Some(model.id.as_str()) == selected_model)
+        .cloned())
 }
 
 fn suggested_provider_id(provider_id: &str) -> Option<String> {

@@ -1,8 +1,10 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::domain::settings_store;
+use crate::domain::settings_store::store::{update_document_locked, ReadPolicy};
 use crate::error::AppError;
 
 use super::models::TelemetryConsent;
@@ -63,19 +65,39 @@ impl StoredPreferences {
             .as_deref()
             .filter(|id| uuid::Uuid::parse_str(id).is_ok())
     }
+
+    fn can_claim_first_turn(&self) -> bool {
+        !self.first_turn_completed && self.decision_made() && self.usage_enabled
+    }
 }
 
 /// Unreadable or malformed preferences fail closed; missing fields use channel defaults.
 pub(super) fn read(path: &Path) -> Result<StoredPreferences, AppError> {
-    let Some(doc) = settings_store::read_document(path)? else {
-        return Ok(StoredPreferences::default());
-    };
-    match doc.get("telemetry") {
+    settings_store::cache::inspect_document(path, |doc| match doc {
+        Some(doc) => preferences_in(doc),
         None => Ok(StoredPreferences::default()),
-        Some(value) => serde_json::from_value(value.clone()).map_err(|_| {
-            AppError::BadRequest("Invalid telemetry preferences; repair settings.json".into())
-        }),
+    })
+}
+
+fn preferences_in(doc: &Map<String, Value>) -> Result<StoredPreferences, AppError> {
+    doc.get("telemetry")
+        .map(decode)
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+fn decode(value: &Value) -> Result<StoredPreferences, AppError> {
+    let invalid = || {
+        settings_store::file::invalid_settings(
+            "Invalid telemetry preferences in settings.json. Repair the telemetry object via Edit JSON.",
+        )
+    };
+    // Serde also accepts sequences for structs. An explicit array is a corrupt
+    // settings section, even if positional defaults could fill it in.
+    if !value.is_object() {
+        return Err(invalid());
     }
+    StoredPreferences::deserialize(value).map_err(|_| invalid())
 }
 
 pub(super) fn path() -> std::path::PathBuf {
@@ -83,11 +105,8 @@ pub(super) fn path() -> std::path::PathBuf {
 }
 
 pub(super) async fn update(consent: Option<TelemetryConsent>, reset: bool) -> Result<(), AppError> {
-    settings_store::global_modify_object("telemetry", |object| {
-        let mut stored: StoredPreferences =
-            serde_json::from_value(serde_json::Value::Object(object.clone())).map_err(|_| {
-                AppError::BadRequest("Invalid telemetry preferences; repair settings.json".into())
-            })?;
+    settings_store::global_update_document(move |doc| {
+        let mut stored = preferences_in(doc)?;
         if let Some(consent) = consent {
             stored.diagnostics_enabled = consent.diagnostics_enabled;
             stored.usage_enabled = consent.usage_enabled;
@@ -102,37 +121,23 @@ pub(super) async fn update(consent: Option<TelemetryConsent>, reset: bool) -> Re
             stored.installation_id = Some(uuid::Uuid::new_v4().to_string());
             stored.first_turn_completed = false;
         }
-        *object = serde_json::to_value(stored)
-            .map_err(|_| AppError::internal("Could not save telemetry preferences"))?
-            .as_object()
-            .cloned()
-            .ok_or_else(|| AppError::internal("Invalid telemetry preferences"))?;
+        let value = serde_json::to_value(stored)
+            .map_err(|_| AppError::internal("Could not save telemetry preferences"))?;
+        doc.insert("telemetry".to_string(), value);
         Ok(())
     })
     .await
 }
 
 pub(super) async fn claim_first_turn() -> Result<bool, AppError> {
-    let stored = read(&path())?;
-    if stored.first_turn_completed || !stored.decision_made() || !stored.usage_enabled {
+    let path = path();
+    if !read(&path)?.can_claim_first_turn() {
         return Ok(false);
     }
-    let mut claimed = false;
-    settings_store::global_modify_object("telemetry", |object| {
-        if object
-            .get("decision_version")
-            .and_then(|v| v.as_u64())
-            .is_some_and(|version| version >= 1)
-            && object.get("usage_enabled").and_then(|v| v.as_bool()) == Some(true)
-            && object.get("first_turn_completed").and_then(|v| v.as_bool()) != Some(true)
-        {
-            object.insert("first_turn_completed".into(), serde_json::json!(true));
-            claimed = true;
-        }
-        Ok(())
+    claim_marker(&path, "first_turn_completed", true.into(), |stored| {
+        stored.can_claim_first_turn()
     })
-    .await?;
-    Ok(claimed)
+    .await
 }
 
 /// Claim durably before sending: failures can undercount, never trigger a retry.
@@ -140,27 +145,42 @@ pub(super) async fn claim_audience_month(path: &Path, month: &str) -> Result<boo
     if !valid_month(month) {
         return Err(AppError::internal("Invalid current audience month"));
     }
-    let mut claimed = false;
-    settings_store::store::modify_object_at(path, "telemetry", |object| {
-        let stored: StoredPreferences =
-            serde_json::from_value(serde_json::Value::Object(object.clone())).map_err(|_| {
-                AppError::BadRequest("Invalid telemetry preferences; repair settings.json".into())
-            })?;
-        if !stored.audience_enabled
-            || stored
-                .audience_last_claimed_month
-                .as_deref()
-                .is_some_and(|last| last >= month)
-        {
-            return Ok(());
+    let month = month.to_owned();
+    claim_marker(
+        path,
+        "audience_last_claimed_month",
+        month.as_str().into(),
+        move |stored| {
+            stored.audience_enabled
+                && stored
+                    .audience_last_claimed_month
+                    .as_deref()
+                    .is_none_or(|last| last < month.as_str())
+        },
+    )
+    .await
+}
+
+async fn claim_marker(
+    path: &Path,
+    key: &'static str,
+    value: Value,
+    can_claim: impl FnOnce(&StoredPreferences) -> bool + Send + 'static,
+) -> Result<bool, AppError> {
+    let claimed = update_document_locked(path, ReadPolicy::Strict, "telemetry claim", move |doc| {
+        // Revalidate under the write lock. The file may have changed since the
+        // activity check, and an explicitly invalid section cannot authorize delivery.
+        if !can_claim(&preferences_in(doc)?) {
+            return Ok((false, false));
         }
-        // Audience activity never creates detailed telemetry consent or an installation identity.
-        object.insert("audience_last_claimed_month".into(), month.into());
-        claimed = true;
-        Ok(())
+        settings_store::file::edit_object_section(doc, "telemetry", |object| {
+            object.insert(key.into(), value);
+            Ok(())
+        })?;
+        Ok((true, true))
     })
     .await?;
-    Ok(claimed)
+    Ok(claimed.expect("strict updates always run"))
 }
 
 #[cfg(test)]
@@ -298,13 +318,33 @@ mod tests {
         let path = dir.path().join("settings.json");
         for content in [
             "{",
+            r#"{"telemetry":[]}"#,
+            r#"{"telemetry":[false,false,true,1]}"#,
+            r#"{"telemetry":null}"#,
             r#"{"telemetry":{"diagnostics_enabled":"true","usage_enabled":true}}"#,
             r#"{"telemetry":{"audience_last_claimed_month":"forever"}}"#,
             r#"{"telemetry":{"audience_last_claimed_month":"2026-13"}}"#,
             r#"{"telemetry":{"audience_last_claimed_month":"2026-1a"}}"#,
         ] {
             settings_store::file::write_atomic(&path, content).unwrap();
-            assert!(read(&path).is_err());
+            assert_eq!(read(&path).unwrap_err().code(), "SETTINGS_INVALID");
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_consent_cannot_be_replaced_by_a_claim() {
+        let path = path();
+        for content in [
+            r#"{"telemetry":null}"#,
+            r#"{"telemetry":[]}"#,
+            r#"{"telemetry":{"usage_enabled":true,"decision_version":1,"audience_enabled":"yes"}}"#,
+        ] {
+            settings_store::file::write_atomic(&path, content).unwrap();
+            let monthly = claim_audience_month(&path, "2026-11").await.unwrap_err();
+            assert_eq!(monthly.code(), "SETTINGS_INVALID");
+            let first_turn = claim_first_turn().await.unwrap_err();
+            assert_eq!(first_turn.code(), "SETTINGS_INVALID");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
         }
     }
 

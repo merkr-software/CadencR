@@ -63,11 +63,17 @@ pub struct HistoryLocations {
 impl HistoryLocations {
     pub fn from_environment() -> Self {
         // Claude keeps its transcripts in the active profile's config dir.
-        let (_, claude_env) =
-            crate::domain::agents::claude_code::profiles::resolve_active_profile_env();
         let claude_projects_root =
-            crate::domain::agents::claude_code::config_dir::for_env(claude_env.as_ref())
-                .map(|dir| dir.join("projects"));
+            match crate::domain::agents::claude_code::profiles::resolve_active_profile_env() {
+                Ok((_, env)) => {
+                    crate::domain::agents::claude_code::config_dir::for_env(env.as_ref())
+                        .map(|dir| dir.join("projects"))
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "skipping Claude Code usage history import");
+                    None
+                }
+            };
         let codex_sessions_root = crate::domain::imports::codex_sessions_dir();
         let opencode_databases = crate::domain::imports::opencode_data_dir()
             .map(|dir| opencode_databases(&dir))

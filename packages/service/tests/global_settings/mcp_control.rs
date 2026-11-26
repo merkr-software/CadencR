@@ -7,17 +7,18 @@ use cadencr_service::domain::settings_store::global_write_content;
 use tower::ServiceExt;
 
 use support::mcp_control::{
-    fake_codex_project, latest_codex_permission_mode, project_cross_project_send_message_request,
+    latest_codex_permission_mode, project_cross_project_send_message_request,
     seed_cross_project_send_target, seed_recent_send_audits, seed_send_target_session,
     seed_spawn_chain, seeded_control_pool, send_message_request, send_message_request_with_link,
-    spawn_request, spawn_request_from_body, spawn_request_with_link,
+    spawn_request, spawn_request_from_body, spawn_request_with_link, temp_project_path,
     workspace_cross_project_send_message_request,
 };
 
-use crate::SETTINGS_TEST_LOCK;
+use crate::isolated_settings;
 
 #[tokio::test]
 async fn project_spawn_session_creates_feature_session_provenance_and_link() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
 
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -32,6 +33,13 @@ async fn project_spawn_session_creates_feature_session_provenance_and_link() {
     let session_id = response_body["sessionId"].as_i64().unwrap();
     let message_id = response_body["messageId"].as_i64().unwrap();
     assert!(!response_body["dispatchError"].as_str().unwrap().is_empty());
+    let receipt: String =
+        sqlx::query_scalar("SELECT delivery_state FROM agent_messages WHERE id = ?")
+            .bind(message_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(receipt, "delivery_failed");
 
     let feature: (i64, String) =
         sqlx::query_as("SELECT project_id, title FROM features WHERE id = ?")
@@ -113,6 +121,7 @@ async fn project_spawn_session_creates_feature_session_provenance_and_link() {
 // spawn into the caller's project instead of erroring.
 #[tokio::test]
 async fn project_spawn_session_defaults_to_caller_project_without_target() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
 
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -144,6 +153,7 @@ async fn project_spawn_session_defaults_to_caller_project_without_target() {
 
 #[tokio::test]
 async fn project_spawn_session_can_skip_session_link() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
 
@@ -159,6 +169,7 @@ async fn project_spawn_session_can_skip_session_link() {
 
 #[tokio::test]
 async fn project_spawn_session_persists_explicit_thinking_level() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
 
@@ -187,10 +198,181 @@ async fn project_spawn_session_persists_explicit_thinking_level() {
 }
 
 #[tokio::test]
-async fn project_spawn_session_inherits_configured_codex_permission_without_override() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+async fn project_spawn_session_pins_selected_claude_profile() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
-    let _codex = fake_codex_project(&pool).await;
+    cadencr_service::domain::agents::claude_code::profiles::upsert_profile(
+        "bedrock",
+        &std::collections::HashMap::new(),
+    )
+    .await
+    .unwrap();
+    cadencr_service::domain::agents::claude_code::profiles::set_active_profile("bedrock")
+        .await
+        .unwrap();
+    let app = control_router().with_state(AppState::with_pool(pool.clone()));
+
+    let response = app
+        .oneshot(spawn_request_from_body(serde_json::json!({
+            "source_feature_id": 42,
+            "source_session_id": 777,
+            "target_project_id": 7,
+            "title": "Profile-aware child",
+            "branch": { "mode": "skip" },
+            "provider": "claude_code",
+            "model": "opus"
+        })))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let stored_profile: Option<String> = sqlx::query_scalar(
+        "SELECT profile FROM agent_sessions WHERE id != 777 ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_profile.as_deref(), Some("bedrock"));
+}
+
+#[tokio::test]
+async fn profile_routes_preserve_settings_errors_and_recover_after_repair() {
+    use cadencr_service::api::build_router;
+    use cadencr_service::domain::settings_store;
+
+    let _settings = isolated_settings().await;
+    let pool = seeded_control_pool().await;
+    let state = AppState::with_pool(pool);
+    let host = format!("127.0.0.1:{}", state.port);
+    let app = build_router(state);
+    let path = settings_store::paths::global_file(&settings_store::global_dir());
+    let routes = [
+        "/api/claude-code/profiles",
+        "/api/codex/profiles",
+        "/api/agent-profiles?provider=claude_code",
+        "/api/agent-profiles?provider=codex_cli",
+    ];
+    let request = |route: &str| {
+        axum::http::Request::get(route)
+            .header("Host", &host)
+            .header("X-Cadencr-Token", "test-token")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                50_000,
+            ))))
+            .body(axum::body::Body::empty())
+            .unwrap()
+    };
+
+    std::fs::create_dir(&path).unwrap();
+    for (status, code) in [
+        (StatusCode::UNPROCESSABLE_ENTITY, "SETTINGS_READ_FAILED"),
+        (StatusCode::BAD_REQUEST, "SETTINGS_INVALID"),
+    ] {
+        for route in routes {
+            let response = app.clone().oneshot(request(route)).await.unwrap();
+            let actual = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(
+                actual,
+                status,
+                "{route}: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["code"], code, "{route}");
+        }
+        if status == StatusCode::UNPROCESSABLE_ENTITY {
+            std::fs::remove_dir(&path).unwrap();
+            std::fs::write(&path, "{ broken").unwrap();
+        }
+    }
+
+    global_write_content("{}").await.unwrap();
+    for route in routes {
+        assert_eq!(
+            app.clone().oneshot(request(route)).await.unwrap().status(),
+            StatusCode::OK,
+            "{route}"
+        );
+    }
+
+    global_write_content(
+        r#"{"claude_code_active_profile":"missing-claude","codex_active_profile":"missing-codex"}"#,
+    )
+    .await
+    .unwrap();
+    for (route, profile) in routes.into_iter().zip([
+        "missing-claude",
+        "missing-codex",
+        "missing-claude",
+        "missing-codex",
+    ]) {
+        let response = app.clone().oneshot(request(route)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{route}");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "SETTINGS_INVALID");
+        let message = body["error"].as_str().unwrap();
+        assert!(
+            message.contains(profile) && message.contains("Edit JSON"),
+            "{body}"
+        );
+    }
+
+    let config = settings_store::global_dir().join("config.toml");
+    std::fs::write(&config, "model = [").unwrap();
+    let repaired = serde_json::json!({
+        "profiles": {"missing-claude": {}},
+        "claude_code_active_profile": "missing-claude",
+        "codex_profiles": {
+            "missing-codex": {"id":"missing-codex", "name":"QA profile", "config_path":config}
+        },
+        "codex_active_profile": "missing-codex"
+    });
+    global_write_content(&repaired.to_string()).await.unwrap();
+    let response = app.clone().oneshot(request(routes[0])).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["active"], "missing-claude");
+
+    // Existing metadata keeps the profile editable when its TOML needs repair.
+    let codex_list = |app: axum::Router| async move {
+        let response = app.oneshot(request(routes[1])).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        serde_json::from_slice::<serde_json::Value>(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let listed = codex_list(app.clone()).await;
+    assert_eq!(listed["active_profile_id"], "missing-codex");
+    assert_eq!(listed["profiles"][0]["is_active"], true);
+    assert_eq!(listed["profiles"][0]["revision"], "invalid");
+    assert!(cadencr_service::domain::agents::codex::profiles::resolve(None).is_err());
+    std::fs::write(config, "model = 'qa-model'").unwrap();
+    let listed = codex_list(app).await;
+    assert_eq!(listed["active_profile_id"], "missing-codex");
+    assert_eq!(listed["profiles"][0]["is_active"], true);
+    assert_ne!(listed["profiles"][0]["revision"], "invalid");
+}
+
+#[tokio::test]
+async fn project_spawn_session_inherits_configured_codex_permission_without_override() {
+    let _settings = isolated_settings().await;
+    let pool = seeded_control_pool().await;
+    let _project_dir = temp_project_path(&pool).await;
     global_write_content(r#"{"codex_permission_mode":"autoReview"}"#)
         .await
         .unwrap();
@@ -218,9 +400,9 @@ async fn project_spawn_session_inherits_configured_codex_permission_without_over
 
 #[tokio::test]
 async fn project_spawn_session_explicit_codex_permission_override_wins() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
-    let _codex = fake_codex_project(&pool).await;
+    let _project_dir = temp_project_path(&pool).await;
     global_write_content(r#"{"codex_permission_mode":"autoReview"}"#)
         .await
         .unwrap();
@@ -248,7 +430,7 @@ async fn project_spawn_session_explicit_codex_permission_override_wins() {
 
 #[tokio::test]
 async fn project_spawn_session_ignores_legacy_write_policy_setting() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     global_write_content(r#"{"project_mcp_allow_spawn":"false"}"#)
         .await
@@ -269,7 +451,7 @@ async fn project_spawn_session_ignores_legacy_write_policy_setting() {
 
 #[tokio::test]
 async fn project_send_message_ignores_legacy_write_policy_setting() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     global_write_content(r#"{"project_mcp_allow_send_message":"false"}"#)
         .await
@@ -292,6 +474,7 @@ async fn project_send_message_ignores_legacy_write_policy_setting() {
 
 #[tokio::test]
 async fn project_send_message_still_rejects_cross_project_targets() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_cross_project_send_target(&pool, "running").await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -313,6 +496,7 @@ async fn project_send_message_still_rejects_cross_project_targets() {
 
 #[tokio::test]
 async fn workspace_send_message_queues_cross_project_follow_up_and_audits_workspace_tool() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_cross_project_send_target(&pool, "running").await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -360,6 +544,7 @@ async fn workspace_send_message_queues_cross_project_follow_up_and_audits_worksp
 
 #[tokio::test]
 async fn project_spawn_session_allows_spawning_beyond_legacy_descendant_cap() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_spawn_chain(&pool, 777, 6).await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -385,6 +570,7 @@ async fn project_spawn_session_allows_spawning_beyond_legacy_descendant_cap() {
 
 #[tokio::test]
 async fn project_send_message_audits_invalid_delivery_without_persisting() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_send_target_session(&pool, "paused").await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -418,6 +604,7 @@ async fn project_send_message_audits_invalid_delivery_without_persisting() {
 
 #[tokio::test]
 async fn project_send_message_steers_targets_awaiting_user_resolution() {
+    let _settings = isolated_settings().await;
     for target_status in ["awaiting_permission", "awaiting_question"] {
         let pool = seeded_control_pool().await;
         seed_send_target_session(&pool, target_status).await;
@@ -451,6 +638,7 @@ async fn project_send_message_steers_targets_awaiting_user_resolution() {
 
 #[tokio::test]
 async fn project_send_message_can_explicitly_reject_active_targets() {
+    let _settings = isolated_settings().await;
     for target_status in ["running", "awaiting_permission", "awaiting_question"] {
         let pool = seeded_control_pool().await;
         seed_send_target_session(&pool, target_status).await;
@@ -473,6 +661,7 @@ async fn project_send_message_can_explicitly_reject_active_targets() {
 
 #[tokio::test]
 async fn project_send_message_queue_if_busy_creates_messaged_link() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_send_target_session(&pool, "running").await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -526,6 +715,7 @@ async fn project_send_message_queue_if_busy_creates_messaged_link() {
 
 #[tokio::test]
 async fn project_send_message_can_skip_session_link() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_send_target_session(&pool, "running").await;
     let app = control_router().with_state(AppState::with_pool(pool.clone()));
@@ -545,6 +735,7 @@ async fn project_send_message_can_skip_session_link() {
 
 #[tokio::test]
 async fn project_send_message_rejects_when_hourly_source_budget_is_exhausted() {
+    let _settings = isolated_settings().await;
     let pool = seeded_control_pool().await;
     seed_send_target_session(&pool, "paused").await;
     seed_recent_send_audits(&pool, 20).await;

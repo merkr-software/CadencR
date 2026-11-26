@@ -28,6 +28,8 @@ pub(super) struct Fingerprint {
     #[cfg(unix)]
     uid: u32,
     #[cfg(unix)]
+    nlink: u64,
+    #[cfg(unix)]
     ctime: (i64, i64),
 }
 
@@ -41,8 +43,11 @@ pub(super) enum DiskState {
 /// `None` when the path cannot be checked (permission denied, too many open
 /// files…): the caller then reads straight from disk and caches nothing.
 pub(super) fn disk_state(path: &Path) -> Option<DiskState> {
-    match std::fs::metadata(path) {
-        Ok(metadata) => Some(DiskState::File(Fingerprint::of(&metadata))),
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Some(DiskState::File(Fingerprint::of(&metadata))),
+        // The actual reader rejects symlinks and non-regular files. In
+        // particular, a dangling symlink must not hit a cached Missing entry.
+        Ok(_) => None,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(DiskState::Missing),
         Err(_) => None,
     }
@@ -65,6 +70,8 @@ impl Fingerprint {
             mode: metadata.mode(),
             #[cfg(unix)]
             uid: metadata.uid(),
+            #[cfg(unix)]
+            nlink: metadata.nlink(),
             #[cfg(unix)]
             ctime: (metadata.ctime(), metadata.ctime_nsec()),
         }

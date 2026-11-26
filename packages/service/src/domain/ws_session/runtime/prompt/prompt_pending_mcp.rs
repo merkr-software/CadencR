@@ -1,15 +1,27 @@
 use super::prompt_pending::PendingPromptContext;
 use super::runtime_mcp::{
     attach_current_cadencr_browser_mcp, attach_current_cadencr_orchestration_mcps,
-    attach_current_cadencr_project_mcp, attach_current_cadencr_workspace_mcp, browser_mcp_enabled,
-    project_mcp_enabled, workspace_mcp_enabled,
+    attach_current_cadencr_project_mcp, attach_current_cadencr_workspace_mcp, McpSettings,
 };
 use crate::domain::mcp::control_grant::{McpControlGrant, McpControlServer};
+use crate::error::AppError;
 
-pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
+pub(in crate::domain::ws_session) fn attach_cadencr_mcp(
     context: &mut PendingPromptContext,
+) -> Result<(), AppError> {
+    attach_enabled_mcps(context, McpSettings::read()?).map_err(|error| {
+        AppError::coded(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "MCP_ATTACH_ERROR",
+            error,
+        )
+    })
+}
+
+fn attach_enabled_mcps(
+    context: &mut PendingPromptContext,
+    settings: McpSettings,
 ) -> Result<(), String> {
-    let pool = &context.app_state.read_pool;
     let db_path = &context.app_state.db_path;
     let feature_id = context.feature_id;
     let session_id = context.db_session_id;
@@ -26,10 +38,7 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
     let project_token = grant(McpControlServer::Project);
     let workspace_token = grant(McpControlServer::Workspace);
     let options = &mut context.options;
-    match (
-        browser_mcp_enabled(pool).await,
-        project_mcp_enabled(pool).await,
-    ) {
+    match (settings.browser, settings.project) {
         (true, true) => attach_current_cadencr_orchestration_mcps(
             options,
             db_path,
@@ -55,7 +64,7 @@ pub(in crate::domain::ws_session) async fn attach_cadencr_mcp(
         )?,
         (false, false) => {}
     }
-    if workspace_mcp_enabled(pool).await {
+    if settings.workspace {
         attach_current_cadencr_workspace_mcp(
             options,
             db_path,

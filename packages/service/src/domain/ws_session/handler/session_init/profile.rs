@@ -7,7 +7,6 @@ use crate::domain::agents::runtime_overrides::{self, RestoreOptions};
 use crate::domain::settings;
 use crate::domain::ws_session::handler::session_runtime_config;
 use crate::domain::ws_session::persistence::SessionRow;
-use crate::domain::ws_session::runtime::helpers::SETTINGS_READ_FAILED;
 use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsContext;
 
 pub(super) struct ResolvedProfileConfig {
@@ -73,10 +72,8 @@ pub(super) async fn resolve(
         provider,
         row.and_then(|session| session.profile.as_deref()),
         row.and_then(|session| session.runtime_session_id.as_deref()),
-        &runtime_config.cwd,
     )
-    .await
-    .map_err(|error| ("PROFILE_ERROR", error))?;
+    .map_err(profile_error)?;
     let context = RuntimeSettingsContext::builder()
         .read_pool(&app_state.read_pool)
         .write_pool(&app_state.write_pool)
@@ -90,7 +87,7 @@ pub(super) async fn resolve(
         runtime_config,
     )
     .await
-    .map_err(|error| ("PROFILE_ERROR", error))?;
+    .map_err(profile_error)?;
     session_runtime_config::apply_bypass_opt_in(
         &context,
         project_id,
@@ -102,7 +99,7 @@ pub(super) async fn resolve(
     .await
     .map_err(|error| {
         (
-            SETTINGS_READ_FAILED,
+            error.code(),
             format!("Failed to read the bypass permissions setting: {error}"),
         )
     })?;
@@ -117,7 +114,13 @@ pub(super) async fn resolve(
                 &runtime_config.overrides,
             )
             .await
-            .map_err(|error| ("PROFILE_CONFIG_ERROR", error.to_string()))?;
+            .map_err(|error| {
+                let error = error.into_profile_error();
+                (
+                    error.coded_error_or("PROFILE_CONFIG_ERROR"),
+                    error.to_string(),
+                )
+            })?;
         pin_last_used_effort(
             app_state,
             provider,
@@ -144,6 +147,10 @@ pub(super) async fn resolve(
         profile_effective_fast_mode: effective_fast_mode,
         inherits_profile_config: inherits,
     })
+}
+
+fn profile_error(error: crate::error::AppError) -> (&'static str, String) {
+    (error.coded_error_or("PROFILE_ERROR"), error.to_string())
 }
 
 fn fresh_session(row: Option<&SessionRow>) -> bool {
@@ -173,7 +180,7 @@ async fn pin_last_used_effort(
     let Some(level) =
         settings::thinking_effort_model_default(&app_state.read_pool, provider, model)
             .await
-            .map_err(|error| (SETTINGS_READ_FAILED, error.to_string()))?
+            .map_err(|error| (error.code(), error.to_string()))?
     else {
         return Ok(());
     };

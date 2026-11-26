@@ -172,8 +172,7 @@ async fn remove_inner(id: &str, confirm: bool) -> Result<RemoveManagedThemeRespo
     std::fs::symlink_metadata(&owner).map_err(archive::invalid)?;
     storage::secure(&owner)?;
     let key = format!("managed:{id}");
-    let settings = settings_store::global_snapshot()
-        .ok_or_else(|| archive::invalid("settings are unreadable; refusing theme removal"))?;
+    let settings = settings_store::global_snapshot()?;
     let keys = ["theme_current", "theme_system_light", "theme_system_dark"];
     let referenced = keys.iter().any(|name| settings.get(*name) == Some(&key));
     if referenced && !confirm {

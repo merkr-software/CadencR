@@ -29,7 +29,7 @@ pub(crate) async fn handle_prompt_send(
             send_error(
                 sender,
                 &envelope.id,
-                "PROMPT_QUEUE_ERROR",
+                error.coded_error_or("PROMPT_QUEUE_ERROR"),
                 &error.to_string(),
             );
             return;

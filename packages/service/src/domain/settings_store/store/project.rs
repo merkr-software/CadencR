@@ -11,20 +11,17 @@ use crate::domain::projects::models::ProjectSetting;
 use crate::error::AppError;
 use crate::shared::no_replace_rename::rename_no_replace;
 
-use super::super::{cache, dir, lock, paths, Scope, SettingWarning};
-use super::{load, load_key, read_for_edit, set_value, set_values, write_content};
+use super::super::{cache, dir, file, lock, paths, Scope, SettingWarning};
+use super::{read, read_for_edit, read_key, set_value, set_values, write_content, SettingsMap};
 
 pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<PathBuf, AppError> {
     paths::project_file(&dir::global_dir(), pool, project_id).await
 }
 
 /// The project document's path and validated scalar values (plus warnings).
-pub async fn project_map(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<(PathBuf, BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
+pub async fn project_map(pool: &SqlitePool, project_id: i64) -> Result<SettingsMap, AppError> {
     let path = project_path(pool, project_id).await?;
-    let (map, warnings) = load(&path, Scope::Project);
+    let (map, warnings) = read(&path, Scope::Project)?;
     Ok((path, map, warnings))
 }
 
@@ -34,14 +31,14 @@ pub async fn project_get(
     key: &str,
 ) -> Result<Option<String>, AppError> {
     let path = project_path(pool, project_id).await?;
-    Ok(load_key(&path, Scope::Project, key))
+    read_key(&path, Scope::Project, key)
 }
 
 pub async fn project_list(
     pool: &SqlitePool,
     project_id: i64,
 ) -> Result<Vec<ProjectSetting>, AppError> {
-    let (_path, map, _warnings) = project_map(pool, project_id).await?;
+    let (_, map, _) = project_map(pool, project_id).await?;
     Ok(map
         .into_iter()
         .map(|(key, value)| ProjectSetting {
@@ -169,7 +166,7 @@ pub async fn project_rename(
 /// Copy (when the old name is still in use) or move a project's settings
 /// document; `false` when there is nothing to carry or the target exists.
 fn move_document(from: &Path, to: &Path, shared: bool) -> Result<bool, AppError> {
-    if !from.exists() || to.exists() {
+    if !document_exists(from)? || document_exists(to)? {
         return Ok(false);
     }
     let moved = if shared {
@@ -185,6 +182,15 @@ fn move_document(from: &Path, to: &Path, shared: bool) -> Result<bool, AppError>
         ))
     })?;
     Ok(true)
+}
+
+fn document_exists(path: &Path) -> Result<bool, AppError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(true),
+        Ok(_) => Err(file::read_failed(path, "not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(file::read_failed(path, error)),
+    }
 }
 
 pub async fn project_read_for_edit(
@@ -227,6 +233,43 @@ mod tests {
                 .unwrap();
         }
         pool
+    }
+
+    #[tokio::test]
+    async fn project_get_reports_bad_documents_until_repaired() {
+        let pool = pool_with(&[(1, "Alpha")]).await;
+        let path = project_path(&pool, 1).await.unwrap();
+        assert_eq!(project_get(&pool, 1, "setup_worktree").await.unwrap(), None);
+
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(
+            project_get(&pool, 1, "setup_worktree").await,
+            Err(AppError::Coded {
+                code: crate::domain::settings_store::file::SETTINGS_READ_FAILED,
+                ..
+            })
+        ));
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "[]").unwrap();
+        assert!(matches!(
+            project_get(&pool, 1, "setup_worktree").await,
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
+        ));
+        let (_, raw, warnings) = project_read_for_edit(&pool, 1).await.unwrap();
+        assert_eq!(raw, "[]");
+        assert!(!warnings.is_empty());
+
+        std::fs::write(&path, r#"{"setup_worktree":"pnpm install"}"#).unwrap();
+        assert_eq!(
+            project_get(&pool, 1, "setup_worktree")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("pnpm install")
+        );
     }
 
     #[tokio::test]

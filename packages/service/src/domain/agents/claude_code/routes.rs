@@ -78,8 +78,7 @@ pub struct SuccessResponse {
     responses((status = 200, body = ProfilesResponse))
 )]
 pub async fn list_profiles_handler() -> Result<Json<ProfilesResponse>, AppError> {
-    let profiles = profiles::list_profiles();
-    let active = profiles::get_active_profile_name();
+    let (profiles, active) = profiles::list_with_active()?;
     Ok(Json(ProfilesResponse {
         profiles: profiles.into_iter().map(ProfileView::from).collect(),
         active,

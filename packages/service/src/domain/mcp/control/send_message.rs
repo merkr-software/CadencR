@@ -118,17 +118,20 @@ async fn send_message(
         tool,
         started_at,
     };
-    if delivery == DeliveryMode::NextTurn
-        && (target_is_active
-            || has_source(
-                &state.read_pool,
-                target.session_id,
-                QueueOrigin::Session,
-                &message_uuid.to_string(),
-            )
-            .await?)
-    {
-        return queue_busy_message(request).await;
+    if delivery == DeliveryMode::NextTurn {
+        let already_queued = has_source(
+            &state.read_pool,
+            target.session_id,
+            QueueOrigin::Session,
+            &message_uuid.to_string(),
+        )
+        .await?;
+        if target_is_active || already_queued {
+            if !already_queued {
+                crate::domain::ws_session::runtime::prompt::McpSettings::read()?;
+            }
+            return queue_busy_message(request).await;
+        }
     }
     send_immediate_message(request).await
 }

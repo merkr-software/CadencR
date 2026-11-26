@@ -53,7 +53,7 @@ pub(in crate::domain::ws_session) async fn should_rearm_bypass(
         return Ok(false);
     };
     let opt_in = adapter
-        .bypass_permission_opt_in(pool, handle.feature_id, None)
+        .bypass_permission_opt_in(pool, Some(handle.feature_id), None)
         .await?;
     Ok(opt_in == Some(true))
 }

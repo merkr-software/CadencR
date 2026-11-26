@@ -6,6 +6,8 @@ use std::path::PathBuf;
 pub enum RuntimeError {
     /// Generic runtime failure with a free-form message.
     Generic(String),
+    /// Preserve the settings response through profile resolution.
+    Profile(crate::error::AppError),
     /// The provider's CLI binary could not be located on disk. Carries the
     /// directories that were probed so the host can render an actionable
     /// message and prompt the user to set an explicit path via onboarding.
@@ -53,6 +55,7 @@ impl Display for RuntimeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Generic(message) => f.write_str(message),
+            Self::Profile(error) => Display::fmt(error, f),
             Self::CliNotFound { provider, searched } => {
                 write!(
                     f,
@@ -78,6 +81,15 @@ impl std::error::Error for RuntimeError {}
 impl RuntimeError {
     pub fn new(message: impl Into<String>) -> Self {
         Self::Generic(message.into())
+    }
+
+    pub(crate) fn into_profile_error(self) -> crate::error::AppError {
+        use crate::error::AppError;
+        match self {
+            Self::Profile(AppError::NotFound(message)) => AppError::BadRequest(message),
+            Self::Profile(error) => error,
+            error => AppError::BadRequest(error.to_string()),
+        }
     }
 
     pub fn compact_failed(message: impl Into<String>) -> Self {

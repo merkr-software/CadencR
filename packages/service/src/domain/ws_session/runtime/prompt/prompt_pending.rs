@@ -135,17 +135,19 @@ pub(in crate::domain::ws_session) async fn handle_pending_prompt(
     }
     super::prompt_checkpoint::capture_pre_turn_pending(&context, persistence.message_id()).await;
     attach_permission_bridge(&mut context);
-    if let Err(error) = super::prompt_pending_mcp::attach_cadencr_mcp(&mut context).await {
+    if let Err(error) = super::prompt_pending_mcp::attach_cadencr_mcp(&mut context) {
+        let code = error.code();
+        let message = error.to_string();
         delivery_lifecycle::fail_pending_receipt(
             &context,
             receipt_message_uuid.as_deref(),
             dispatch_claim.as_ref(),
-            &error,
+            &message,
         )
         .await;
         let wait_for_delivery = context.wait_for_delivery;
-        report_mcp_attach_error(context, error).await;
-        return reported_failure(wait_for_delivery, "failed to attach MCP servers");
+        report_mcp_attach_error(context, code, &message).await;
+        return reported_failure(wait_for_delivery, &message);
     }
     validate_resume_id(&*adapter, &mut context);
     mode_fallback::apply_spawn_mode_fallback(&mut context, &*adapter).await;
@@ -319,7 +321,7 @@ async fn report_branch_setup_error(context: PendingPromptContext, message: Strin
         .await;
 }
 
-async fn report_mcp_attach_error(context: PendingPromptContext, message: String) {
+async fn report_mcp_attach_error(context: PendingPromptContext, code: &'static str, message: &str) {
     error!(context.db_session_id, error = %message, "failed to attach Cadencr MCP servers");
     persist_pause_and_send_session_error()
         .pool(&context.app_state.write_pool)
@@ -328,8 +330,8 @@ async fn report_mcp_attach_error(context: PendingPromptContext, message: String)
         .ref_id(&context.envelope_id)
         .feature_id(context.feature_id)
         .session_id(context.db_session_id)
-        .code("MCP_ATTACH_ERROR")
-        .message(&message)
+        .code(code)
+        .message(message)
         .call()
         .await;
 }

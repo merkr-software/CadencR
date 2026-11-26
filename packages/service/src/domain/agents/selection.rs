@@ -91,7 +91,7 @@ async fn resolve_provider(
     Ok(match stored {
         Some((raw, origin)) => match canonical_provider_or_error(&raw) {
             Ok(provider_id) => {
-                if provider_is_available(read_pool, cwd, profile, &provider_id).await {
+                if provider_is_available(read_pool, cwd, profile, &provider_id).await? {
                     (provider_id, origin.into())
                 } else {
                     // A stored provider whose CLI is missing would start a
@@ -102,7 +102,7 @@ async fn resolve_provider(
                         "stored provider is not available on this machine; falling back to the catalog default"
                     );
                     (
-                        available_default_provider(read_pool, cwd, profile).await,
+                        available_default_provider(read_pool, cwd, profile).await?,
                         SelectionOrigin::ProviderDefault,
                     )
                 }
@@ -114,13 +114,13 @@ async fn resolve_provider(
                     "stored provider is not a known provider; falling back to the default"
                 );
                 (
-                    available_default_provider(read_pool, cwd, profile).await,
+                    available_default_provider(read_pool, cwd, profile).await?,
                     SelectionOrigin::ProviderDefault,
                 )
             }
         },
         None => (
-            available_default_provider(read_pool, cwd, profile).await,
+            available_default_provider(read_pool, cwd, profile).await?,
             SelectionOrigin::ProviderDefault,
         ),
     })
@@ -137,10 +137,16 @@ async fn available_default_provider(
     read_pool: &SqlitePool,
     cwd: Option<&Path>,
     profile: Option<&str>,
-) -> String {
-    crate::domain::agents::providers::provider_catalog_live_for_cwd(read_pool, cwd, profile)
-        .await
-        .default_provider
+) -> Result<String, SelectionError> {
+    let default = crate::domain::agents::providers::default_provider_id();
+    if provider_is_available(read_pool, cwd, profile, default).await? {
+        return Ok(default.to_string());
+    }
+    Ok(
+        crate::domain::agents::providers::provider_catalog_live_for_cwd(read_pool, cwd, profile)
+            .await
+            .default_provider,
+    )
 }
 
 /// Whether `provider_id`'s CLI is actually usable here. Probes that one
@@ -150,9 +156,9 @@ async fn provider_is_available(
     cwd: Option<&Path>,
     profile: Option<&str>,
     provider_id: &str,
-) -> bool {
+) -> Result<bool, SelectionError> {
     let Some(adapter) = super::providers::runtime_adapter(provider_id) else {
-        return false;
+        return Ok(false);
     };
     let entry = super::providers::provider_catalog_entry_live_for_settings(
         read_pool,
@@ -160,8 +166,9 @@ async fn provider_is_available(
         profile,
         adapter.as_adapter(),
     )
-    .await;
-    entry.status == crate::domain::agents::runtime::ProviderStatus::Available
+    .await
+    .map_err(|error| error.into_profile_error())?;
+    Ok(entry.status == crate::domain::agents::runtime::ProviderStatus::Available)
 }
 
 /// The invariant lives here: a stored model is only kept when it belongs to the
@@ -180,7 +187,7 @@ async fn resolve_model(
 
     if let Some((model_id, origin)) = stored {
         if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(&model_id), profile)
-            .await
+            .await?
             .is_some()
         {
             return Ok((model_id, origin.into()));
@@ -193,7 +200,7 @@ async fn resolve_model(
     }
 
     provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile)
-        .await
+        .await?
         .map(|model| (model.id, SelectionOrigin::ProviderDefault))
         .ok_or_else(|| SelectionError::NoModelAvailable {
             provider_id: provider_id.to_string(),
@@ -371,11 +378,30 @@ mod tests {
         assert_eq!(selection.provider_id, DEFAULT_PROVIDER);
     }
 
+    #[tokio::test]
+    async fn an_invalid_default_profile_cannot_choose_another_provider() {
+        let pool = pool_with_feature(None, None).await;
+        crate::domain::settings_store::global_write_content(r#"{"claude_code_active_profile":[]}"#)
+            .await
+            .unwrap();
+        let error = resolve_selection(&pool, None, "session", None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.code(),
+            crate::domain::settings_store::file::SETTINGS_INVALID
+        );
+    }
+
     #[test]
     fn an_unreadable_selection_answers_422_with_the_cause() {
         use axum::response::IntoResponse;
-        let error =
-            crate::error::AppError::from(super::SelectionError::SettingsUnreadable("boom".into()));
+        let source = crate::error::AppError::coded(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            crate::domain::settings_store::file::SETTINGS_READ_FAILED,
+            "boom",
+        );
+        let error = crate::error::AppError::from(super::SelectionError::from(source));
         assert!(error.to_string().contains("boom"), "{error}");
         assert_eq!(
             error.into_response().status(),

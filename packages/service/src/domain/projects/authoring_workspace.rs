@@ -164,18 +164,12 @@ pub async fn apply_worktree_skip(
 
 /// The project half of [`apply_worktree_skip`].
 ///
-/// Read before write, unlike most setters: the settings dir is watched, and a
-/// write that changes nothing still fans a settings refetch across every open
-/// conversation. This runs on every open, so the common case has to be silent.
+/// The atomic setter leaves matching settings untouched, so reopening a
+/// workspace produces no settings event unless the mode needs repair.
 pub async fn apply_project_worktree_skip(
     pool: &SqlitePool,
     project_id: i64,
 ) -> Result<(), AppError> {
-    let current =
-        crate::domain::settings_store::project_get(pool, project_id, DEFAULT_WORKTREE_MODE).await?;
-    if current.as_deref() == Some(WORKTREE_SKIP) {
-        return Ok(());
-    }
     super::repository::set_project_setting(pool, project_id, DEFAULT_WORKTREE_MODE, WORKTREE_SKIP)
         .await
 }

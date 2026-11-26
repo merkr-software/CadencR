@@ -21,13 +21,13 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
     provider: &str,
     stored_profile: Option<&str>,
     runtime_config: &mut RuntimeSpawnConfig,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     let adapter = crate::domain::agents::providers::runtime_adapter(provider)
-        .ok_or_else(|| format!("provider '{provider}' is not available"))?;
+        .ok_or_else(|| AppError::BadRequest(format!("provider '{provider}' is not available")))?;
     let resolved = adapter
         .resolve_profile(stored_profile, &runtime_config.cwd)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.into_profile_error())?;
     if let Some(profile) = resolved {
         runtime_config.profile = Some(profile.identity.clone());
         runtime_config.env = (!profile.env.is_empty()).then_some(profile.env);
@@ -40,8 +40,7 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
                 db_session_id,
                 &profile.identity,
             )
-            .await
-            .map_err(|error| format!("failed to save the conversation's profile: {error}"))?;
+            .await?;
         }
     }
 
@@ -62,7 +61,7 @@ pub(in crate::domain::ws_session) async fn apply_bypass_opt_in(
         return Ok(());
     };
     let Some(allow_bypass_permissions) = adapter
-        .bypass_permission_opt_in(context.read_pool, feature_id, Some(project_id))
+        .bypass_permission_opt_in(context.read_pool, Some(feature_id), Some(project_id))
         .await?
     else {
         return Ok(());
@@ -84,12 +83,11 @@ pub(in crate::domain::ws_session) async fn apply_bypass_opt_in(
     Ok(())
 }
 
-pub(in crate::domain::ws_session) async fn persisted_profile_selection(
+pub(in crate::domain::ws_session) fn persisted_profile_selection(
     provider: &str,
     persisted_profile: Option<&str>,
     runtime_session_id: Option<&str>,
-    cwd: &std::path::Path,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     if let Some(profile) = persisted_profile {
         return Ok(Some(profile.to_string()));
     }
@@ -97,13 +95,9 @@ pub(in crate::domain::ws_session) async fn persisted_profile_selection(
         return Ok(None);
     }
     let adapter = crate::domain::agents::providers::runtime_adapter(provider)
-        .ok_or_else(|| format!("provider '{provider}' is not available"))?;
+        .ok_or_else(|| AppError::BadRequest(format!("provider '{provider}' is not available")))?;
     if !adapter.supports_profile_config_inheritance() {
         return Ok(None);
     }
-    adapter
-        .profile_catalog(Some(cwd))
-        .await
-        .map_err(|error| error.to_string())
-        .map(|catalog| catalog.map(|profiles| profiles.default_profile))
+    Ok(adapter.default_profile_id().map(str::to_string))
 }

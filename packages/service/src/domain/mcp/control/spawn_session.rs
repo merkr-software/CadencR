@@ -2,19 +2,20 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
 use super::audit::{elapsed_ms, record_tool_audit, result_size_bytes, ToolAudit};
+use super::generated_message::dispatch_generated_prompt;
 use super::scope::resolve_session_scope;
 use super::spawn_follow::{SpawnFollowOptions, SpawnFollowResponse};
 use super::spawn_persist::{insert_initial_message, insert_spawn_link, insert_spawned_session};
 use super::spawn_resolve::{
-    branch_worktree_settings, codex_permission_mode_for_spawn, resolve_spawn_runtime,
-    resolve_target_project, SpawnBranch, TargetProject,
+    branch_worktree_settings, codex_permission_mode_for_spawn, preflight_spawn_worktree,
+    resolve_spawn_runtime, resolve_target_project, SpawnBranch, TargetProject,
 };
 use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::features::models::FeatureStatus;
 use crate::domain::features::service::{create_feature_with_worktree, update_status};
-use crate::domain::ws_session::runtime::application::dispatch_control_prompt;
-use crate::domain::ws_session::runtime::prompt::publish_user_message;
+use crate::domain::sessions::user_messages::PersistedUserMessage;
+use crate::domain::ws_session::runtime::prompt::{publish_user_message, McpSettings};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -131,8 +132,20 @@ async fn spawn_into_target(
     validate_follow_result(body)?;
     let (worktree_mode, reuse_branch, base_branch) =
         branch_worktree_settings(body.branch.as_ref())?;
+    let launches = super::trimmed_optional(body.initial_message.as_deref()).is_some();
+    if launches {
+        McpSettings::read()?;
+        preflight_spawn_worktree(target_project, &worktree_mode)?;
+    }
     let runtime = resolve_spawn_runtime(state, source, target_project, body).await?;
     let codex_permission_mode = codex_permission_mode_for_spawn(state, &runtime, body).await?;
+    if launches {
+        if let Some(adapter) = crate::domain::agents::runtime_adapter(&runtime.effective_provider) {
+            adapter
+                .bypass_permission_opt_in(&state.read_pool, None, Some(target_project.id))
+                .await?;
+        }
+    }
     let created = create_feature_with_worktree(
         &state.write_pool,
         target_project.id,
@@ -157,7 +170,7 @@ async fn spawn_into_target(
         codex_permission_mode.as_deref(),
     )
     .await?;
-    let message_id = persist_and_announce_spawn(
+    let initial_message = persist_and_announce_spawn(
         state,
         source,
         target_project.id,
@@ -171,8 +184,14 @@ async fn spawn_into_target(
     // target session behind while signalling failure, tempting the caller to spawn a
     // duplicate. Instead we surface the failure in the response so it can retry by
     // messaging the existing session.
-    let mut dispatch_error =
-        dispatch_initial_message(state, created.id, session_id, body, message_id).await?;
+    let mut dispatch_error = dispatch_initial_message(
+        state,
+        created.id,
+        session_id,
+        body,
+        initial_message.as_ref(),
+    )
+    .await?;
     if body.follows_completion() {
         if let Some(error) = dispatch_error.clone() {
             if let Err(reply_error) =
@@ -187,7 +206,7 @@ async fn spawn_into_target(
     let response = SpawnSessionResponse {
         feature_id: created.id,
         session_id,
-        message_id,
+        message_id: initial_message.as_ref().map(|message| message.id),
         project: target_project.clone(),
         cross_project: target_project.id != source.project_id,
         dispatch_error: dispatch_error.clone(),
@@ -228,7 +247,7 @@ async fn persist_and_announce_spawn(
     feature_id: i64,
     session_id: i64,
     body: &SpawnSessionRequest,
-) -> Result<Option<i64>, AppError> {
+) -> Result<Option<PersistedUserMessage>, AppError> {
     let initial_message = insert_initial_message(state, source, session_id, body).await?;
     if body.follows_gates() {
         insert_spawn_link(
@@ -247,7 +266,6 @@ async fn persist_and_announce_spawn(
     let Some((message, origin)) = initial_message else {
         return Ok(None);
     };
-    let message_id = message.id;
     publish_user_message(
         &state.ws_feature_senders,
         None,
@@ -258,7 +276,7 @@ async fn persist_and_announce_spawn(
     )
     .await
     .map_err(|error| AppError::internal(error.to_string()))?;
-    Ok(Some(message_id))
+    Ok(Some(message))
 }
 
 fn validate_follow_result(body: &SpawnSessionRequest) -> Result<(), AppError> {
@@ -277,22 +295,26 @@ async fn dispatch_initial_message(
     feature_id: i64,
     session_id: i64,
     body: &SpawnSessionRequest,
-    message_id: Option<i64>,
+    initial_message: Option<&PersistedUserMessage>,
 ) -> Result<Option<String>, AppError> {
-    let Some(initial_message) = super::trimmed_optional(body.initial_message.as_deref()) else {
+    let Some(initial_message) = initial_message else {
         return Ok(None);
     };
     if body.follows_completion() {
-        let message_id = message_id.expect("await_result requires a persisted message");
-        super::reply_wait::arm(&state.write_pool, session_id, message_id).await?;
+        super::reply_wait::arm(&state.write_pool, session_id, initial_message.id).await?;
     }
-    Ok(
-        dispatch_control_prompt(state, feature_id, session_id, &initial_message, true)
-            .await
-            .map(|outcome| outcome.delivery_confirmed())
-            .err()
-            .map(|error| error.to_string()),
+    let identity = uuid::Uuid::parse_str(&initial_message.message_uuid)
+        .expect("spawn persisted a canonical message UUID");
+    Ok(dispatch_generated_prompt(
+        state,
+        feature_id,
+        session_id,
+        &initial_message.content,
+        identity,
     )
+    .await
+    .err()
+    .map(|error| error.to_string()))
 }
 
 async fn audit_spawn_error(

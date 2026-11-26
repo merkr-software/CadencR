@@ -17,9 +17,8 @@
 //! - Writes are atomic (temp file + rename) offloaded to `spawn_blocking` under
 //!   a process-wide async lock so concurrent read-modify-write calls can't lose
 //!   updates or block Tokio worker threads.
-//! - The loader is defensive: unknown keys produce a non-blocking warning but
-//!   are preserved; values that fail type/enum validation fall back to the
-//!   in-code default (see `registry`).
+//! - Runtime reads distinguish missing settings, read failures and malformed
+//!   documents. The JSON editor preserves raw text and validation warnings.
 //!
 //! The SQLite tables are intentionally left intact as a backup — this module
 //! stops reading/writing them but never drops them.
@@ -42,11 +41,12 @@ pub use cache::read_document;
 pub use dir::{global_dir, init};
 pub use paths::name_is_shared;
 pub use store::{
-    global_get, global_get_nonempty, global_get_object, global_list, global_map,
-    global_modify_object, global_read, global_read_for_edit, global_set, global_set_many,
-    global_snapshot, global_write_content, project_get, project_list, project_map, project_path,
+    global_get, global_get_nonempty, global_list, global_map, global_modify_object, global_read,
+    global_read_for_edit, global_read_object, global_set, global_set_many, global_snapshot,
+    global_write_content, project_get, project_list, project_map, project_path,
     project_read_for_edit, project_rename, project_set, project_set_many, project_write_content,
 };
+pub(crate) use store::{global_inspect_document, global_update_document};
 
 use serde::Serialize;
 use tracing::{info, warn};

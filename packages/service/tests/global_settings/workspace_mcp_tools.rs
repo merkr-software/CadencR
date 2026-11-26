@@ -7,12 +7,12 @@ use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
+use crate::isolated_settings;
 use crate::support::mcp_service::served_mcp_context;
-use crate::SETTINGS_TEST_LOCK;
 
 #[tokio::test]
 async fn workspace_tools_reject_reads_when_workspace_mcp_is_disabled() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     global_write_content(r#"{"workspace_mcp_enabled":"false"}"#)
         .await
         .unwrap();
@@ -25,8 +25,36 @@ async fn workspace_tools_reject_reads_when_workspace_mcp_is_disabled() {
 }
 
 #[tokio::test]
+async fn workspace_tools_refuse_bad_settings_and_retry_after_repair() {
+    use cadencr_service::domain::settings_store;
+
+    let _settings = isolated_settings().await;
+    let ctx = minimal_ctx().await;
+    // A deliberately unknown tool proves whether dispatch was reached
+    // without requiring an HTTP server for the read audit.
+    let tool = "workspace_test_unknown_tool";
+    let path = settings_store::paths::global_file(&settings_store::global_dir());
+    std::fs::create_dir(&path).unwrap();
+    let result = run_workspace_tool(tool, json!({}), ctx.clone()).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(result_text(result).contains("could not read the settings file"));
+
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::write(&path, "{ broken").unwrap();
+    let result = run_workspace_tool(tool, json!({}), ctx.clone()).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(result_text(result).contains("Invalid settings"));
+
+    global_write_content(r#"{"workspace_mcp_enabled":true}"#)
+        .await
+        .unwrap();
+    let result = run_workspace_tool(tool, json!({}), ctx).await;
+    assert_eq!(result_text(result), format!("Unknown tool: {tool}"));
+}
+
+#[tokio::test]
 async fn workspace_list_projects_returns_project_metadata() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_list_projects",
         json!({}),
@@ -42,7 +70,7 @@ async fn workspace_list_projects_returns_project_metadata() {
 
 #[tokio::test]
 async fn workspace_read_sessions_searches_fts_and_applies_filters() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_read_sessions",
         json!({"query": "orchestration", "project_ids": [1], "roles": ["assistant"], "limit": 10, "snippet_chars": 24}),
@@ -59,7 +87,7 @@ async fn workspace_read_sessions_searches_fts_and_applies_filters() {
 
 #[tokio::test]
 async fn workspace_read_sessions_writes_read_audit_row() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let ctx = enabled_workspace_ctx().await;
 
     let result = run_workspace_tool(
@@ -88,7 +116,7 @@ async fn workspace_read_sessions_writes_read_audit_row() {
 
 #[tokio::test]
 async fn workspace_session_graph_returns_linked_sessions_with_project_metadata() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_session_graph",
         json!({"session_id": 100, "limit": 10}),
@@ -106,7 +134,7 @@ async fn workspace_session_graph_returns_linked_sessions_with_project_metadata()
 
 #[tokio::test]
 async fn workspace_read_sessions_filters_by_model_tool_dates_and_cursor() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_read_sessions",
         json!({
@@ -136,7 +164,7 @@ async fn workspace_read_sessions_filters_by_model_tool_dates_and_cursor() {
 
 #[tokio::test]
 async fn workspace_read_sessions_without_query_defaults_to_recent_window() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let ctx = enabled_workspace_ctx().await;
     let old_created_at = (chrono::Utc::now() - chrono::Duration::days(40)).to_rfc3339();
     let recent_created_at = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
@@ -172,7 +200,7 @@ async fn workspace_read_sessions_without_query_defaults_to_recent_window() {
 
 #[tokio::test]
 async fn workspace_read_session_returns_project_metadata_and_messages() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_read_session",
         json!({"session_id": 200, "limit": 5}),
@@ -191,7 +219,7 @@ async fn workspace_read_session_returns_project_metadata_and_messages() {
 
 #[tokio::test]
 async fn workspace_read_session_filters_messages_with_pagination_and_query() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_read_session",
         json!({
@@ -220,7 +248,7 @@ async fn workspace_read_session_filters_messages_with_pagination_and_query() {
 
 #[tokio::test]
 async fn workspace_read_session_includes_origin_metadata_when_requested() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let result = run_workspace_tool(
         "workspace_read_session",
         json!({"session_id": 200, "limit": 1, "include_metadata": true}),
@@ -240,7 +268,7 @@ async fn workspace_read_session_includes_origin_metadata_when_requested() {
 
 #[tokio::test]
 async fn workspace_read_session_caps_total_returned_message_content() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let ctx = enabled_workspace_ctx().await;
     let large_content = "x".repeat(120_000);
     sqlx::query(
@@ -273,7 +301,7 @@ async fn workspace_read_session_caps_total_returned_message_content() {
 
 #[tokio::test]
 async fn workspace_read_session_uses_configured_result_char_cap() {
-    let _settings_guard = SETTINGS_TEST_LOCK.lock().await;
+    let _settings = isolated_settings().await;
     let ctx = enabled_workspace_ctx().await;
     global_write_content(
         r#"{"workspace_mcp_enabled":"true","workspace_mcp_max_result_chars":"10000"}"#,

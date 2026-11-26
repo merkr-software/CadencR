@@ -27,7 +27,9 @@ pub(in crate::domain::ws_session) async fn resolve(
     if feature_ids.contains(&current_feature_id) {
         return Err("A conversation cannot reference itself with @@.".to_string());
     }
-    if require_workspace_mcp && !super::runtime_mcp::workspace_mcp_enabled(pool).await {
+    if require_workspace_mcp
+        && !super::runtime_mcp::workspace_mcp_enabled().map_err(|error| error.to_string())?
+    {
         return Err(
             "Conversation references require the Cadencr workspace MCP. Enable it in Settings → MCP and try again."
                 .to_string(),

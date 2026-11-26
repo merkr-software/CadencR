@@ -54,7 +54,8 @@ async fn run(pool: &SqlitePool) -> Result<usize, String> {
     // Skip rows whose name already exists in JSON so a re-run (or a profile the
     // user created in JSON) is never overwritten. Also skip the reserved
     // `default` name, which the resolvers ignore and `upsert_profile` rejects.
-    let existing = settings_store::global_get_object(PROFILES_KEY);
+    let existing =
+        settings_store::global_read_object(PROFILES_KEY).map_err(|error| error.to_string())?;
     let to_insert: Vec<(String, Value)> = rows
         .into_iter()
         .filter(|(name, _)| {
@@ -148,7 +149,7 @@ mod tests {
 
         migrate_from_sqlite(&pool).await;
 
-        let section = settings_store::global_get_object(PROFILES_KEY);
+        let section = settings_store::global_read_object(PROFILES_KEY).unwrap();
         assert_eq!(
             section["bedrock"]["AWS_REGION"],
             serde_json::json!("us-east-1")
@@ -180,7 +181,7 @@ mod tests {
 
         migrate_from_sqlite(&pool).await;
 
-        let section = settings_store::global_get_object(PROFILES_KEY);
+        let section = settings_store::global_read_object(PROFILES_KEY).unwrap();
         assert_eq!(section["bedrock"]["AWS_REGION"], serde_json::json!("json"));
         assert!(!table_exists(&pool, LEGACY_TABLE).await.unwrap());
     }
@@ -198,7 +199,7 @@ mod tests {
 
         migrate_from_sqlite(&pool).await;
 
-        let section = settings_store::global_get_object(PROFILES_KEY);
+        let section = settings_store::global_read_object(PROFILES_KEY).unwrap();
         assert_eq!(
             section["bedrock"]["AWS_REGION"],
             serde_json::json!("us-east-1")
@@ -219,7 +220,9 @@ mod tests {
 
         migrate_from_sqlite(&pool).await;
 
-        assert!(settings_store::global_get_object(PROFILES_KEY).is_empty());
+        assert!(settings_store::global_read_object(PROFILES_KEY)
+            .unwrap()
+            .is_empty());
         assert!(!table_exists(&pool, LEGACY_TABLE).await.unwrap());
     }
 
@@ -228,7 +231,9 @@ mod tests {
         let pool = pool_with_table().await;
         migrate_from_sqlite(&pool).await;
         assert!(!table_exists(&pool, LEGACY_TABLE).await.unwrap());
-        assert!(settings_store::global_get_object(PROFILES_KEY).is_empty());
+        assert!(settings_store::global_read_object(PROFILES_KEY)
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

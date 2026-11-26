@@ -31,7 +31,7 @@ pub struct SuccessResponse {
 
 #[utoipa::path(get, path = "/api/codex/profiles", operation_id = "codex_list_profiles", responses((status = 200, body = ProfilesResponse)))]
 pub async fn list_profiles_handler() -> Result<Json<ProfilesResponse>, AppError> {
-    Ok(Json(response()?))
+    Ok(Json(response(profiles::list_with_active()?)))
 }
 
 #[utoipa::path(post, path = "/api/codex/profiles", operation_id = "codex_create_profile", request_body = ProfileDraft, responses((status = 200, body = CodexProfileView)))]
@@ -68,9 +68,9 @@ pub async fn delete_profile_handler(
 pub async fn set_active_profile_handler(
     Json(body): Json<SetActiveProfileRequest>,
 ) -> Result<Json<ProfilesResponse>, AppError> {
-    profiles::set_active(body.profile_id.as_deref()).await?;
+    let stored = profiles::set_active(body.profile_id.as_deref()).await?;
     crate::domain::agents::extensions::forget_inventories();
-    Ok(Json(response()?))
+    Ok(Json(response(stored)))
 }
 
 #[utoipa::path(post, path = "/api/codex/profiles/validate", operation_id = "codex_validate_profile", request_body = ProfileDraft, responses((status = 200, body = ValidationResult)))]
@@ -98,11 +98,13 @@ pub fn codex_router() -> Router<AppState> {
         )
 }
 
-fn response() -> Result<ProfilesResponse, AppError> {
-    Ok(ProfilesResponse {
-        profiles: profiles::views()?,
-        active_profile_id: profiles::active_id(),
-    })
+fn response(
+    (stored, active_profile_id): (Vec<profiles::CodexProfile>, Option<String>),
+) -> ProfilesResponse {
+    ProfilesResponse {
+        profiles: profiles::views(stored, active_profile_id.as_deref()),
+        active_profile_id,
+    }
 }
 
 async fn reject_referenced_profile(state: &AppState, id: &str) -> Result<(), AppError> {

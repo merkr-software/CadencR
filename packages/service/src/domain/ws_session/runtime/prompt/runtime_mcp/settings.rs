@@ -1,108 +1,71 @@
-use sqlx::SqlitePool;
+use crate::domain::settings_store;
+use crate::domain::workspace::repository::{enabled_by_default_in, setting_enabled_by_default};
+use crate::error::AppError;
 
 const BROWSER_MCP_ENABLED_SETTING_KEY: &str = "browser_mcp_enabled";
 const PROJECT_MCP_ENABLED_SETTING_KEY: &str = "project_mcp_enabled";
 const WORKSPACE_MCP_ENABLED_SETTING_KEY: &str = "workspace_mcp_enabled";
 
-pub(in crate::domain::ws_session::runtime::prompt) async fn browser_mcp_enabled(
-    read_pool: &SqlitePool,
-) -> bool {
-    crate::domain::workspace::repository::setting_enabled_by_default(
-        read_pool,
-        BROWSER_MCP_ENABLED_SETTING_KEY,
-    )
-    .await
+pub(crate) struct McpSettings {
+    pub(in crate::domain::ws_session::runtime::prompt) browser: bool,
+    pub(in crate::domain::ws_session::runtime::prompt) project: bool,
+    pub(in crate::domain::ws_session::runtime::prompt) workspace: bool,
 }
 
-pub(in crate::domain::ws_session::runtime::prompt) async fn project_mcp_enabled(
-    read_pool: &SqlitePool,
-) -> bool {
-    crate::domain::workspace::repository::setting_enabled_by_default(
-        read_pool,
-        PROJECT_MCP_ENABLED_SETTING_KEY,
-    )
-    .await
+impl McpSettings {
+    pub fn read() -> Result<Self, AppError> {
+        settings_store::global_inspect_document(|doc| {
+            Ok(Self {
+                browser: enabled_by_default_in(doc, BROWSER_MCP_ENABLED_SETTING_KEY)?,
+                project: enabled_by_default_in(doc, PROJECT_MCP_ENABLED_SETTING_KEY)?,
+                workspace: enabled_by_default_in(doc, WORKSPACE_MCP_ENABLED_SETTING_KEY)?,
+            })
+        })
+    }
 }
 
-pub(in crate::domain::ws_session::runtime::prompt) async fn workspace_mcp_enabled(
-    read_pool: &SqlitePool,
-) -> bool {
-    crate::domain::workspace::repository::setting_enabled_by_default(
-        read_pool,
-        WORKSPACE_MCP_ENABLED_SETTING_KEY,
-    )
-    .await
+pub(in crate::domain::ws_session::runtime::prompt) fn workspace_mcp_enabled(
+) -> Result<bool, AppError> {
+    setting_enabled_by_default(WORKSPACE_MCP_ENABLED_SETTING_KEY)
 }
 
 #[cfg(test)]
-mod project_setting_red_test {
-    use super::{project_mcp_enabled, PROJECT_MCP_ENABLED_SETTING_KEY};
-    use crate::domain::workspace::repository::set_setting;
+mod tests {
+    use super::*;
+    use settings_store::file::{SETTINGS_INVALID, SETTINGS_READ_FAILED};
 
-    #[tokio::test]
-    async fn project_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
-        let pool = super::tests::settings_pool().await;
-        assert!(project_mcp_enabled(&pool).await);
-
-        set_setting(&pool, PROJECT_MCP_ENABLED_SETTING_KEY, "false")
-            .await
-            .expect("set false");
-        assert!(!project_mcp_enabled(&pool).await);
-    }
-}
-
-#[cfg(test)]
-pub(in crate::domain::ws_session) mod tests {
-    use super::{
-        browser_mcp_enabled, workspace_mcp_enabled, BROWSER_MCP_ENABLED_SETTING_KEY,
-        WORKSPACE_MCP_ENABLED_SETTING_KEY,
-    };
-    use crate::domain::workspace::repository::set_setting;
-    use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::SqlitePool;
-
-    pub(in crate::domain::ws_session) async fn settings_pool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("connect in-memory db");
-        sqlx::query("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
-            .execute(&pool)
-            .await
-            .expect("create settings table");
-        pool
+    fn flags() -> Result<[bool; 3], AppError> {
+        McpSettings::read().map(|settings| [settings.browser, settings.project, settings.workspace])
     }
 
     #[tokio::test]
-    async fn browser_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
-        let pool = settings_pool().await;
-        assert!(browser_mcp_enabled(&pool).await);
+    async fn only_absent_and_explicitly_enabled_mcp_settings_allow_attachment() {
+        let path = settings_store::paths::global_file(&settings_store::global_dir());
+        assert_eq!(flags().unwrap(), [true; 3]);
 
-        set_setting(&pool, BROWSER_MCP_ENABLED_SETTING_KEY, "false")
-            .await
-            .expect("set false");
-        assert!(!browser_mcp_enabled(&pool).await);
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(flags().unwrap_err().code(), SETTINGS_READ_FAILED);
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "{ broken").unwrap();
+        assert_eq!(flags().unwrap_err().code(), SETTINGS_INVALID);
 
-        set_setting(&pool, BROWSER_MCP_ENABLED_SETTING_KEY, "true")
-            .await
-            .expect("set true");
-        assert!(browser_mcp_enabled(&pool).await);
-    }
-
-    #[tokio::test]
-    async fn workspace_mcp_enabled_defaults_on_and_off_only_for_explicit_false() {
-        let pool = settings_pool().await;
-        assert!(workspace_mcp_enabled(&pool).await);
-
-        set_setting(&pool, WORKSPACE_MCP_ENABLED_SETTING_KEY, "false")
-            .await
-            .expect("set false");
-        assert!(!workspace_mcp_enabled(&pool).await);
-
-        set_setting(&pool, WORKSPACE_MCP_ENABLED_SETTING_KEY, "true")
-            .await
-            .expect("set true");
-        assert!(workspace_mcp_enabled(&pool).await);
+        std::fs::write(&path, "{}").unwrap();
+        for (index, key) in [
+            BROWSER_MCP_ENABLED_SETTING_KEY,
+            PROJECT_MCP_ENABLED_SETTING_KEY,
+            WORKSPACE_MCP_ENABLED_SETTING_KEY,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            settings_store::global_set(key, "invalid").await.unwrap();
+            assert_eq!(flags().unwrap_err().code(), SETTINGS_INVALID);
+            settings_store::global_set(key, "false").await.unwrap();
+            let mut expected = [true; 3];
+            expected[index] = false;
+            assert_eq!(flags().unwrap(), expected);
+            settings_store::global_set(key, "true").await.unwrap();
+            assert_eq!(flags().unwrap(), [true; 3]);
+        }
     }
 }

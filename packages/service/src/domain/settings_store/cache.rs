@@ -33,6 +33,17 @@ pub(crate) enum CachedEntry {
     Unreadable(String),
 }
 
+impl CachedEntry {
+    /// Distinguish failure to read the bytes from missing or malformed JSON.
+    pub(super) fn readable_document(&self) -> Result<Option<&CachedDocument>, AppError> {
+        match self {
+            Self::Missing => Ok(None),
+            Self::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
+            Self::Present(doc) => Ok(Some(doc)),
+        }
+    }
+}
+
 pub(crate) struct CachedDocument {
     pub raw: String,
     pub parsed_doc: Result<serde_json::Map<String, serde_json::Value>, String>,
@@ -221,15 +232,22 @@ pub(crate) fn is_cached(path: &Path) -> bool {
 pub fn read_document(
     path: &Path,
 ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AppError> {
-    match get_or_load(path).as_ref() {
-        CachedEntry::Missing => Ok(None),
-        CachedEntry::Unreadable(message) => Err(file::read_failed_from_message(message.clone())),
-        CachedEntry::Present(doc) => doc
-            .parsed_doc
-            .clone()
-            .map(Some)
-            .map_err(AppError::BadRequest),
-    }
+    inspect_document(path, |document| Ok(document.cloned()))
+}
+
+pub(crate) fn inspect_document<T>(
+    path: &Path,
+    inspect: impl FnOnce(Option<&serde_json::Map<String, serde_json::Value>>) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let entry = get_or_load(path);
+    let Some(doc) = entry.readable_document()? else {
+        return inspect(None);
+    };
+    inspect(Some(
+        doc.parsed_doc
+            .as_ref()
+            .map_err(|message| file::invalid_document(path, message))?,
+    ))
 }
 
 #[cfg(test)]
@@ -323,14 +341,34 @@ mod tests {
         std::fs::create_dir(&unreadable).unwrap();
         let guard = silent_watcher(dir.path());
 
-        // Corrupt JSON degrades to empty map + warning on `store::read` and errors on `read_document`.
-        let (map, warnings) = store::read(&corrupt, Scope::Workspace).unwrap();
-        assert!(map.is_empty());
+        let (raw, warnings) = store::read_for_edit(&corrupt, Scope::Workspace);
+        assert_eq!(raw, "{ broken json");
         assert_eq!(warnings.len(), 1);
         assert!(matches!(
-            read_document(&corrupt),
-            Err(AppError::BadRequest(_))
+            store::read_key(&corrupt, Scope::Workspace, "theme_current"),
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
         ));
+        assert!(matches!(
+            read_document(&corrupt),
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
+        ));
+        assert!(
+            is_cached(&corrupt),
+            "malformed text is cached for the editor"
+        );
+        file::write_atomic(&corrupt, r#"{"theme_current":"aurora"}"#).unwrap();
+        assert_eq!(
+            store::read_key(&corrupt, Scope::Workspace, "theme_current")
+                .unwrap()
+                .as_deref(),
+            Some("aurora")
+        );
 
         // Unreadable directory surfaces SETTINGS_READ_FAILED with cause on every read.
         for _ in 0..2 {
@@ -349,6 +387,30 @@ mod tests {
         assert_eq!(map.get("theme_current").map(String::as_str), Some("aurora"));
 
         drop(guard);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dangling_symlink_is_not_a_cached_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let _guard = silent_watcher(dir.path());
+        assert!(read_document(&path).unwrap().is_none());
+        assert!(is_cached(&path));
+
+        std::os::unix::fs::symlink(dir.path().join("missing.json"), &path).unwrap();
+        assert!(matches!(
+            read_document(&path),
+            Err(AppError::Coded {
+                code: file::SETTINGS_READ_FAILED,
+                ..
+            })
+        ));
+
+        std::fs::remove_file(&path).unwrap();
+        file::write_atomic(&path, r#"{"workspace_mcp_enabled":false}"#).unwrap();
+        let value = store::read_key(&path, Scope::Workspace, "workspace_mcp_enabled").unwrap();
+        assert_eq!(value.as_deref(), Some("false"));
     }
 
     #[tokio::test]

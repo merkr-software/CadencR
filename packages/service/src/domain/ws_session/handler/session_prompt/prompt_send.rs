@@ -13,6 +13,7 @@ use super::super::session_profile::{
 };
 use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
 use super::prompt_send_entry::report_prompt_result;
+use super::prompt_send_refusal::report_settings_refusal;
 use super::prompt_validation;
 use crate::domain::ws_session::runtime::prompt::prompt_followup::{
     handle_followup_prompt, DeliveryWait, FollowupPromptContext,
@@ -22,6 +23,7 @@ use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::{
 };
 use crate::domain::ws_session::runtime::prompt::prompt_selection_sync::{self, StoredSelection};
 use crate::domain::ws_session::runtime::prompt::user_selection::PromptedSelection;
+use crate::domain::ws_session::runtime::prompt::McpSettings;
 
 pub(in crate::domain::ws_session) struct PreparedPrompt {
     pub payload: PromptSendPayload,
@@ -40,6 +42,23 @@ pub(in crate::domain::ws_session) async fn prepare_prompt(
     if let Err(message) = prompt_validation::normalize_message_uuid(&mut payload) {
         send_error(sender, &envelope.id, "INVALID_MESSAGE_UUID", &message);
         return None;
+    }
+    // Reused runtimes bypass MCP attachment. Check before accepting a new
+    // provider prompt, including one that would be deferred by compaction.
+    if !payload.text.starts_with('!') {
+        if let Err(error) = McpSettings::read() {
+            report_settings_refusal()
+                .sender(sender)
+                .correlation_id(&envelope.id)
+                .app_state(app_state)
+                .sdk_sessions(sdk_sessions)
+                .session_id(db_session_id)
+                .payload(&payload)
+                .error(&error)
+                .call()
+                .await;
+            return None;
+        }
     }
     let profile_update = match resolve_prompt_profile_update(
         app_state,
@@ -310,7 +329,7 @@ async fn resolve_prompt_profile_update(
     // the one the session runs; that provider has no profile to apply.
     let Some(update) = resolve_supported_profile(&provider, profile_name, &cwd)
         .await
-        .map_err(profile_error)?
+        .map_err(|error| (error.coded_error_or("PROFILE_ERROR"), error.to_string()))?
     else {
         tracing::debug!(db_session_id, provider = %provider, "ignoring a prompt profile the session's provider does not support");
         return Ok(None);

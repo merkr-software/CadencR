@@ -21,9 +21,10 @@ pub use security::redact_env_for_response;
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{Map, Value};
 
-use crate::domain::settings_store;
+use crate::domain::settings_store::{self, file, Scope};
 use crate::error::AppError;
 
 pub const DEFAULT_PROFILE_NAME: &str = "default";
@@ -37,16 +38,16 @@ pub struct ClaudeCodeProfile {
     pub env: HashMap<String, String>,
 }
 
-/// Project a stored profile value (a JSON object) into an env map, keeping only
-/// string-valued entries.
-fn env_from_value(value: &Value) -> HashMap<String, String> {
-    match value {
-        Value::Object(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-            .collect(),
-        _ => HashMap::new(),
-    }
+fn stored_profile(name: &str, value: &Value) -> Result<ClaudeCodeProfile, AppError> {
+    let env = HashMap::deserialize(value).map_err(|_| {
+        settings_store::file::invalid_settings(format!(
+            "Claude Code profile '{name}' must contain an object of environment strings"
+        ))
+    })?;
+    Ok(ClaudeCodeProfile {
+        name: name.to_string(),
+        env,
+    })
 }
 
 fn env_to_value(env: &HashMap<String, String>) -> Value {
@@ -72,25 +73,34 @@ fn validate_profile_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn list_profiles() -> Vec<ClaudeCodeProfile> {
-    // `global_get_object` returns a sorted (BTreeMap) map, so names come out
-    // ordered without an explicit sort.
-    settings_store::global_get_object(PROFILES_KEY)
-        .iter()
-        .map(|(name, value)| ClaudeCodeProfile {
-            name: name.clone(),
-            env: env_from_value(value),
-        })
+pub fn list_profiles() -> Result<Vec<ClaudeCodeProfile>, AppError> {
+    settings_store::global_inspect_document(profiles_in)
+}
+
+pub(super) fn list_with_active() -> Result<(Vec<ClaudeCodeProfile>, String), AppError> {
+    settings_store::global_inspect_document(|doc| {
+        let profiles = profiles_in(doc)?;
+        let name = active_name(doc)?;
+        if name != DEFAULT_PROFILE_NAME && !profiles.iter().any(|profile| profile.name == name) {
+            return Err(missing_active_profile(&name));
+        }
+        Ok((profiles, name))
+    })
+}
+
+fn profiles_in(doc: &Map<String, Value>) -> Result<Vec<ClaudeCodeProfile>, AppError> {
+    file::object_section(doc, PROFILES_KEY)?
+        .into_iter()
+        .flatten()
+        .map(|(name, value)| stored_profile(name, value))
         .collect()
 }
 
-pub fn get_profile(name: &str) -> Option<ClaudeCodeProfile> {
-    settings_store::global_get_object(PROFILES_KEY)
-        .get(name)
-        .map(|value| ClaudeCodeProfile {
-            name: name.to_string(),
-            env: env_from_value(value),
-        })
+fn named_profile(doc: &Map<String, Value>, name: &str) -> Result<ClaudeCodeProfile, AppError> {
+    let value = file::object_section(doc, PROFILES_KEY)?
+        .and_then(|profiles| profiles.get(name))
+        .ok_or_else(|| AppError::NotFound(format!("profile '{name}' not found")))?;
+    stored_profile(name, value)
 }
 
 pub async fn upsert_profile(
@@ -121,25 +131,60 @@ pub async fn upsert_profile(
 pub async fn delete_profile(name: &str) -> Result<(), AppError> {
     validate_profile_name(name)?;
     let name_owned = name.to_string();
-    settings_store::global_modify_object(PROFILES_KEY, move |obj| {
-        if obj.remove(&name_owned).is_none() {
-            return Err(AppError::NotFound(format!(
-                "profile '{name_owned}' not found"
-            )));
+    settings_store::global_update_document(move |doc| {
+        let active = active_name(doc)?;
+        file::edit_object_section(doc, PROFILES_KEY, |profiles| {
+            profiles
+                .remove(&name_owned)
+                .ok_or_else(|| AppError::NotFound(format!("profile '{name_owned}' not found")))
+        })?;
+        if active == name_owned {
+            doc.insert(
+                ACTIVE_PROFILE_KEY.into(),
+                Value::String(DEFAULT_PROFILE_NAME.to_string()),
+            );
         }
         Ok(())
     })
-    .await?;
-    // If the deleted profile was the active one, reset to default.
-    if get_active_profile_name() == name {
-        set_active_profile(DEFAULT_PROFILE_NAME).await?;
-    }
-    Ok(())
+    .await
 }
 
-pub fn get_active_profile_name() -> String {
-    settings_store::global_get_nonempty(ACTIVE_PROFILE_KEY)
-        .unwrap_or_else(|| DEFAULT_PROFILE_NAME.to_string())
+pub fn get_active_profile_name() -> Result<String, AppError> {
+    settings_store::global_inspect_document(checked_active_name)
+}
+
+fn active_name(doc: &Map<String, Value>) -> Result<String, AppError> {
+    Ok(
+        file::read_scalar(doc, Scope::Workspace, ACTIVE_PROFILE_KEY)?
+            .filter(|value| {
+                !value.trim().is_empty() && !value.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME)
+            })
+            .unwrap_or_else(|| DEFAULT_PROFILE_NAME.to_string()),
+    )
+}
+
+fn checked_active_name(doc: &Map<String, Value>) -> Result<String, AppError> {
+    let name = active_name(doc)?;
+    if name != DEFAULT_PROFILE_NAME {
+        named_active_profile(doc, &name)?;
+    }
+    Ok(name)
+}
+
+fn named_active_profile(
+    doc: &Map<String, Value>,
+    name: &str,
+) -> Result<ClaudeCodeProfile, AppError> {
+    named_profile(doc, name).map_err(|error| match error {
+        AppError::NotFound(_) => missing_active_profile(name),
+        other => other,
+    })
+}
+
+fn missing_active_profile(name: &str) -> AppError {
+    file::invalid_settings(format!(
+        "Active Claude Code profile '{name}' does not exist. Fix '{ACTIVE_PROFILE_KEY}' in Edit JSON."
+    ))
 }
 
 pub async fn set_active_profile(name: &str) -> Result<(), AppError> {
@@ -147,49 +192,47 @@ pub async fn set_active_profile(name: &str) -> Result<(), AppError> {
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME) {
         return settings_store::global_set(ACTIVE_PROFILE_KEY, DEFAULT_PROFILE_NAME).await;
     }
-    // Ensure the profile exists before activating it.
-    if get_profile(trimmed).is_none() {
-        return Err(AppError::NotFound(format!("profile '{trimmed}' not found")));
-    }
-    settings_store::global_set(ACTIVE_PROFILE_KEY, trimmed).await
+    let name = trimmed.to_owned();
+    settings_store::global_update_document(move |doc| {
+        named_profile(doc, &name)?;
+        doc.insert(ACTIVE_PROFILE_KEY.into(), Value::String(name));
+        Ok(())
+    })
+    .await
 }
 
-/// Resolve the active profile's name and env map. Returns `("default", None)`
-/// when no non-default profile is active or the active name points to a deleted
-/// profile (logged) — the safe fallback is no extra env so a momentary issue
-/// can't break agent spawns.
-pub fn resolve_active_profile_env() -> (String, Option<HashMap<String, String>>) {
-    let name = get_active_profile_name();
-    if name.trim().is_empty() || name.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME) {
-        return (DEFAULT_PROFILE_NAME.to_string(), None);
-    }
-    match get_profile(&name) {
-        Some(profile) if !profile.env.is_empty() => (name, Some(profile.env)),
-        Some(_) => (name, None),
-        None => {
-            tracing::warn!(profile = %name, "active claude_code profile no longer exists");
-            (name, None)
-        }
-    }
+pub fn resolve_active_profile_env() -> Result<(String, Option<HashMap<String, String>>), AppError> {
+    resolve_profile_env_by_name(None)
 }
 
 pub fn resolve_profile_env_by_name(
     name: Option<&str>,
 ) -> Result<(String, Option<HashMap<String, String>>), AppError> {
-    let Some(profile_name) = name.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(resolve_active_profile_env());
-    };
-    if profile_name.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME) {
+    let name = name.map(str::trim).filter(|value| !value.is_empty());
+    if name.is_some_and(|name| name.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME)) {
         return Ok((DEFAULT_PROFILE_NAME.to_string(), None));
     }
-    let profile = get_profile(profile_name)
-        .ok_or_else(|| AppError::NotFound(format!("profile '{profile_name}' not found")))?;
-    let env = if profile.env.is_empty() {
-        None
-    } else {
-        Some(profile.env)
-    };
-    Ok((profile.name, env))
+    let use_active = name.is_none();
+    settings_store::global_inspect_document(|doc| {
+        let active;
+        let name = match name {
+            Some(name) => name,
+            None => {
+                active = active_name(doc)?;
+                &active
+            }
+        };
+        if name.eq_ignore_ascii_case(DEFAULT_PROFILE_NAME) {
+            return Ok((DEFAULT_PROFILE_NAME.to_string(), None));
+        }
+        let profile = if use_active {
+            named_active_profile(doc, name)?
+        } else {
+            named_profile(doc, name)?
+        };
+        let env = (!profile.env.is_empty()).then_some(profile.env);
+        Ok((profile.name, env))
+    })
 }
 
 #[cfg(test)]
@@ -209,7 +252,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_and_list_roundtrip() {
         upsert_profile("bedrock", &sample_env()).await.unwrap();
-        let profiles = list_profiles();
+        let profiles = list_profiles().unwrap();
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].name, "bedrock");
         assert_eq!(profiles[0].env, sample_env());
@@ -227,7 +270,8 @@ mod tests {
         let mut replacement = HashMap::new();
         replacement.insert("AWS_REGION".to_string(), "us-east-1".to_string());
         upsert_profile("bedrock", &replacement).await.unwrap();
-        let profile = get_profile("bedrock").unwrap();
+        let profiles = list_profiles().unwrap();
+        let profile = &profiles[0];
         assert_eq!(profile.env, replacement);
     }
 
@@ -257,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn active_env_is_none_for_default() {
-        let (name, env) = resolve_active_profile_env();
+        let (name, env) = resolve_active_profile_env().unwrap();
         assert_eq!(name, DEFAULT_PROFILE_NAME);
         assert!(env.is_none());
     }
@@ -266,20 +310,21 @@ mod tests {
     async fn active_env_returns_name_and_env() {
         upsert_profile("bedrock", &sample_env()).await.unwrap();
         set_active_profile("bedrock").await.unwrap();
-        let (name, env) = resolve_active_profile_env();
+        let (name, env) = resolve_active_profile_env().unwrap();
         assert_eq!(name, "bedrock");
         assert_eq!(env, Some(sample_env()));
     }
 
     #[tokio::test]
-    async fn active_env_for_deleted_profile_logs_and_returns_none() {
+    async fn active_env_for_deleted_profile_fails() {
         // Point the active name at a profile that doesn't exist.
         settings_store::global_set(ACTIVE_PROFILE_KEY, "ghost")
             .await
             .unwrap();
-        let (name, env) = resolve_active_profile_env();
-        assert_eq!(name, "ghost");
-        assert!(env.is_none());
+        assert_eq!(
+            resolve_active_profile_env().unwrap_err().code(),
+            file::SETTINGS_INVALID
+        );
     }
 
     #[tokio::test]
@@ -293,9 +338,23 @@ mod tests {
         upsert_profile("bedrock", &sample_env()).await.unwrap();
         set_active_profile("bedrock").await.unwrap();
         delete_profile("bedrock").await.unwrap();
-        assert_eq!(get_active_profile_name(), DEFAULT_PROFILE_NAME);
-        let (_, env) = resolve_active_profile_env();
+        assert_eq!(get_active_profile_name().unwrap(), DEFAULT_PROFILE_NAME);
+        let (_, env) = resolve_active_profile_env().unwrap();
         assert!(env.is_none());
+    }
+
+    #[tokio::test]
+    async fn deleting_with_an_invalid_active_setting_keeps_the_profile() {
+        upsert_profile("bedrock", &sample_env()).await.unwrap();
+        settings_store::global_write_content(
+            r#"{"claude_code_active_profile":[],"profiles":{"bedrock":{"AWS_REGION":"test"}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let error = delete_profile("bedrock").await.unwrap_err();
+        assert_eq!(error.code(), file::SETTINGS_INVALID);
+        assert_eq!(list_profiles().unwrap()[0].name, "bedrock");
     }
 
     #[tokio::test]
@@ -309,7 +368,7 @@ mod tests {
         upsert_profile("bedrock", &sample_env()).await.unwrap();
         set_active_profile("bedrock").await.unwrap();
         set_active_profile("default").await.unwrap();
-        let (_, env) = resolve_active_profile_env();
+        let (_, env) = resolve_active_profile_env().unwrap();
         assert!(env.is_none());
     }
 
@@ -332,5 +391,28 @@ mod tests {
     async fn resolve_profile_env_by_name_rejects_missing_profile() {
         let err = resolve_profile_env_by_name(Some("missing")).unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn malformed_profile_environment_is_not_used_for_a_spawn() {
+        settings_store::global_write_content(
+            r#"{"claude_code_active_profile":"bedrock","profiles":{"bedrock":{"AWS_REGION":5}}}"#,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            resolve_active_profile_env(),
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
+        ));
+        assert!(matches!(
+            resolve_profile_env_by_name(Some("bedrock")),
+            Err(AppError::Coded {
+                code: file::SETTINGS_INVALID,
+                ..
+            })
+        ));
     }
 }

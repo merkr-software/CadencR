@@ -48,6 +48,14 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     ) -> Result<Option<super::super::runtime::ProviderProfilesResponse>, RuntimeError> {
         Ok(None)
     }
+    /// The built-in profile identity, independent of the workspace's selection.
+    fn default_profile_id(&self) -> Option<&'static str> {
+        None
+    }
+    /// The user-selected profile ID, when one has been set.
+    fn active_profile_id(&self) -> Result<Option<String>, RuntimeError> {
+        Ok(None)
+    }
     /// Resolve a persisted profile selection in provider-owned configuration.
     /// `None` requests the provider's current default. Providers without a
     /// profile concept return `Ok(None)`.
@@ -66,7 +74,7 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     async fn bypass_permission_opt_in(
         &self,
         _pool: &sqlx::SqlitePool,
-        _feature_id: i64,
+        _feature_id: Option<i64>,
         _project_id: Option<i64>,
     ) -> Result<Option<bool>, crate::error::AppError> {
         Ok(None)
@@ -155,8 +163,8 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         _read_pool: &sqlx::SqlitePool,
         cwd: Option<&Path>,
         _profile: Option<&str>,
-    ) -> super::super::runtime::ProviderCatalogEntry {
-        self.catalog_entry_live_for_cwd(cwd).await
+    ) -> Result<super::super::runtime::ProviderCatalogEntry, RuntimeError> {
+        Ok(self.catalog_entry_live_for_cwd(cwd).await)
     }
 
     /// Extra models contributed by user configuration (e.g. custom Claude Code
@@ -179,8 +187,11 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     }
 
     /// Preferred default model id with access to persisted settings.
-    async fn default_model_id_for_settings(&self, _read_pool: &sqlx::SqlitePool) -> Option<String> {
-        self.default_model_id().await
+    async fn default_model_id_for_settings(
+        &self,
+        _read_pool: &sqlx::SqlitePool,
+    ) -> Result<Option<String>, crate::error::AppError> {
+        Ok(self.default_model_id().await)
     }
 
     /// Profile persisted before dispatch so headless launch and UI use the same configuration.
@@ -474,7 +485,7 @@ mod tests {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         assert_eq!(
             adapter
-                .bypass_permission_opt_in(&pool, 1, None)
+                .bypass_permission_opt_in(&pool, Some(1), None)
                 .await
                 .unwrap(),
             None

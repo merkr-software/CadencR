@@ -4,9 +4,11 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use serde_json::{Map, Value};
+
 use crate::error::AppError;
 
-use super::SettingWarning;
+use super::{Scope, SettingWarning};
 
 /// Top-level keys whose value is a nested object the store persists verbatim
 /// (e.g. `profiles.<name>.<ENV_KEY>`). They are not part of the flat scalar
@@ -17,16 +19,81 @@ fn is_structured_key(key: &str) -> bool {
     STRUCTURED_KEYS.contains(&key)
 }
 
-/// Clone a top-level object section (e.g. `profiles`) out of a parsed document.
-/// Returns an empty map when the key is absent or its value isn't an object.
-pub fn object_section(
-    doc: &serde_json::Map<String, serde_json::Value>,
+/// Read a top-level object section (e.g. `profiles`), if present.
+pub(crate) fn object_section<'a>(
+    doc: &'a Map<String, Value>,
     key: &str,
-) -> serde_json::Map<String, serde_json::Value> {
+) -> Result<Option<&'a Map<String, Value>>, AppError> {
     match doc.get(key) {
-        Some(serde_json::Value::Object(obj)) => obj.clone(),
-        _ => serde_json::Map::new(),
+        Some(serde_json::Value::Object(obj)) => Ok(Some(obj)),
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(_) => Err(invalid_setting(key, "a JSON object")),
     }
+}
+
+pub(crate) fn edit_object_section<T>(
+    doc: &mut Map<String, Value>,
+    key: &str,
+    update: impl FnOnce(&mut Map<String, Value>) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    let mut section = match doc.remove(key) {
+        Some(Value::Object(section)) => section,
+        None | Some(Value::Null) => Map::new(),
+        Some(_) => return Err(invalid_setting(key, "a JSON object")),
+    };
+    let result = update(&mut section)?;
+    if !section.is_empty() {
+        doc.insert(key.to_string(), Value::Object(section));
+    }
+    Ok(result)
+}
+
+pub(crate) fn read_scalar(
+    doc: &Map<String, Value>,
+    scope: Scope,
+    key: &str,
+) -> Result<Option<String>, AppError> {
+    let value = match doc.get(key) {
+        None | Some(Value::Null) => return Ok(None),
+        Some(value) => scalar_value(value)
+            .ok_or_else(|| invalid_setting(key, "a string, boolean, or number"))?,
+    };
+    if scope.spec(key).is_some_and(|spec| !spec.is_valid(&value)) {
+        return Err(invalid_setting(key, "a supported value"));
+    }
+    Ok(Some(value))
+}
+
+fn scalar_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+pub(super) fn invalid_setting(key: &str, expected: &str) -> AppError {
+    invalid_settings(format!(
+        "Setting '{key}' must be {expected}; fix it via \"Edit JSON\""
+    ))
+}
+
+pub(super) fn invalid_document(path: &Path, message: &str) -> AppError {
+    invalid_settings(format!(
+        "Invalid settings in {} ({message}); fix them via \"Edit JSON\"",
+        path.display()
+    ))
+}
+
+pub const SETTINGS_INVALID: &str = "SETTINGS_INVALID";
+
+pub(crate) fn invalid_settings(message: impl Into<String>) -> AppError {
+    AppError::coded(
+        axum::http::StatusCode::BAD_REQUEST,
+        SETTINGS_INVALID,
+        message,
+    )
 }
 
 /// Read raw file text. Returns `None` when the file does not exist.
@@ -55,7 +122,7 @@ pub const SETTINGS_READ_FAILED: &str = "SETTINGS_READ_FAILED";
 
 /// A settings file that exists but cannot be read. A 4xx with its own code, so
 /// the path and the cause reach the user, who is the one able to fix the file.
-fn read_failed(path: &Path, cause: impl std::fmt::Display) -> AppError {
+pub(crate) fn read_failed(path: &Path, cause: impl std::fmt::Display) -> AppError {
     read_failed_from_message(format!(
         "Cadencr could not read the settings file {}: {cause}",
         path.display()
@@ -82,22 +149,17 @@ pub fn scalars_from_document(
     let mut out = BTreeMap::new();
     let mut warnings = Vec::new();
     for (key, val) in doc {
+        if let Some(value) = scalar_value(val) {
+            out.insert(key.clone(), value);
+            continue;
+        }
         match val {
-            serde_json::Value::String(s) => {
-                out.insert(key.clone(), s.clone());
-            }
-            serde_json::Value::Bool(b) => {
-                out.insert(key.clone(), b.to_string());
-            }
-            serde_json::Value::Number(n) => {
-                out.insert(key.clone(), n.to_string());
-            }
-            serde_json::Value::Null => {}
+            Value::Null => {}
             // Recognized nested sections (e.g. `profiles`) are preserved on
             // write and intentionally absent from the flat scalar map — not a
             // mistake, so don't warn.
-            serde_json::Value::Object(_) if is_structured_key(key) => {}
-            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            Value::Object(_) if is_structured_key(key) => {}
+            _ => {
                 warnings.push(SettingWarning::new(
                     key.clone(),
                     format!("\"{key}\" must be a string, boolean, or number — value ignored"),

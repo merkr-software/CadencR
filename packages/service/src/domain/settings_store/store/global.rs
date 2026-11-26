@@ -6,12 +6,13 @@ use std::path::{Path, PathBuf};
 
 use crate::domain::workspace::models::Setting;
 use crate::error::AppError;
+use serde_json::{Map, Value};
 
-use super::super::cache::{self, CachedEntry};
+use super::super::cache;
 use super::super::{dir, file, lock, paths, Scope, SettingWarning};
 use super::{
-    load, load_document_for_write, load_key, read, read_for_edit, read_key, set_value, set_values,
-    write_content, write_serialized_under_lock,
+    load_document_for_write, load_key, read, read_for_edit, read_key, set_value, set_values,
+    update_document_locked, write_content, write_serialized_under_lock, ReadPolicy, SettingsMap,
 };
 
 fn global_path() -> PathBuf {
@@ -22,9 +23,7 @@ pub fn global_get(key: &str) -> Option<String> {
     load_key(&global_path(), Scope::Workspace, key)
 }
 
-/// Like [`global_get`], but a settings file that exists and cannot be read is
-/// an error (`SETTINGS_READ_FAILED`) instead of "unset". A missing file is
-/// still a workspace with no overrides.
+/// Read a scalar without substituting a default for read or validation errors.
 pub fn global_read(key: &str) -> Result<Option<String>, AppError> {
     read_key(&global_path(), Scope::Workspace, key)
 }
@@ -34,23 +33,17 @@ pub fn global_get_nonempty(key: &str) -> Option<String> {
     global_get(key).filter(|v| !v.trim().is_empty())
 }
 
-/// Read the global scalar settings in one pass when the document is healthy.
-///
-/// `global_get` returns `None` both for "this key is unset" and for "the file
-/// couldn't be read", which is fine when the fallback is a harmless default. A
-/// caller whose default *discards data* has to tell those apart: a stray comma
-/// left by a hand-edit must not silently re-enable a destructive pass the user
-/// turned off. A missing file is healthy — that's a workspace with no overrides.
-pub fn global_snapshot() -> Option<BTreeMap<String, String>> {
-    match cache::get_or_load(&global_path()).as_ref() {
-        CachedEntry::Present(doc) => doc
-            .parsed_scalars
-            .as_ref()
-            .ok()
-            .map(|(values, _)| values.clone()),
-        CachedEntry::Missing => Some(BTreeMap::new()),
-        CachedEntry::Unreadable(_) => None,
-    }
+/// Read the stored scalar values together, without substituting defaults.
+pub fn global_snapshot() -> Result<BTreeMap<String, String>, AppError> {
+    let path = global_path();
+    let entry = cache::get_or_load(&path);
+    let Some(doc) = entry.readable_document()? else {
+        return Ok(BTreeMap::new());
+    };
+    doc.parsed_scalars
+        .as_ref()
+        .map(|(values, _)| values.clone())
+        .map_err(|message| file::invalid_document(&path, message))
 }
 
 /// Every global scalar setting, failing like [`global_read`].
@@ -72,10 +65,10 @@ pub async fn global_set(key: &str, value: &str) -> Result<(), AppError> {
 }
 
 /// The global document's path and validated scalar values (plus warnings).
-pub fn global_map() -> (PathBuf, BTreeMap<String, String>, Vec<SettingWarning>) {
+pub fn global_map() -> Result<SettingsMap, AppError> {
     let path = global_path();
-    let (map, warnings) = load(&path, Scope::Workspace);
-    (path, map, warnings)
+    let (map, warnings) = read(&path, Scope::Workspace)?;
+    Ok((path, map, warnings))
 }
 
 /// Set or remove (`None`) several global keys in one atomic write, returning
@@ -105,36 +98,39 @@ pub fn global_read_for_edit() -> (PathBuf, String, Vec<SettingWarning>) {
     (path, content, warnings)
 }
 
-/// Read a nested object section (e.g. `profiles`) from the global file. Returns
-/// an empty map when the key is absent or its value isn't an object. A present
-/// but unreadable or unparseable file also degrades to empty, but logs a
-/// warning first: that
-/// is the root cause behind otherwise-confusing "section missing" symptoms (a
-/// corrupt `settings.json` silently dropping an active Bedrock/Vertex profile).
-pub fn global_get_object(key: &str) -> serde_json::Map<String, serde_json::Value> {
-    let path = global_path();
-    match cache::get_or_load(&path).as_ref() {
-        CachedEntry::Missing => serde_json::Map::new(),
-        CachedEntry::Unreadable(error) => {
-            tracing::warn!(
-                file = %path.display(),
-                %error,
-                "settings file is unreadable; ignoring its '{key}' section"
-            );
-            serde_json::Map::new()
-        }
-        CachedEntry::Present(entry) => match &entry.parsed_doc {
-            Ok(doc) => file::object_section(doc, key),
-            Err(message) => {
-                tracing::warn!(
-                    file = %path.display(),
-                    error = %message,
-                    "settings file is not valid JSON; ignoring its '{key}' section"
-                );
-                serde_json::Map::new()
-            }
-        },
-    }
+/// Read a nested object section (e.g. `profiles`). Only an absent section
+/// returns an empty map.
+pub fn global_read_object(
+    key: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
+    global_inspect_document(|doc| Ok(file::object_section(doc, key)?.cloned().unwrap_or_default()))
+}
+
+/// Inspect related settings against the same cached document.
+pub(crate) fn global_inspect_document<T>(
+    inspect: impl FnOnce(&Map<String, Value>) -> Result<T, AppError>,
+) -> Result<T, AppError> {
+    cache::inspect_document(&global_path(), |doc| match doc {
+        Some(doc) => inspect(doc),
+        None => inspect(&Map::new()),
+    })
+}
+
+/// Atomically change several related settings in the same document.
+pub(crate) async fn global_update_document<T, F>(update: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut Map<String, Value>) -> Result<T, AppError> + Send + 'static,
+{
+    let value = update_document_locked(
+        &global_path(),
+        ReadPolicy::Strict,
+        "settings update",
+        move |doc| Ok((update(doc)?, true)),
+    )
+    .await?;
+    super::super::generation::bump_global();
+    Ok(value.expect("strict updates always run"))
 }
 
 /// Atomically read-modify-write a nested object section under `key` in the global
@@ -161,13 +157,7 @@ where
     let mut doc = tokio::task::spawn_blocking(move || load_document_for_write(&read_path))
         .await
         .map_err(|error| AppError::internal(format!("settings read task failed: {error}")))??;
-    let mut section = file::object_section(&doc, key);
-    f(&mut section)?;
-    if section.is_empty() {
-        doc.remove(key);
-    } else {
-        doc.insert(key.to_string(), serde_json::Value::Object(section));
-    }
+    file::edit_object_section(&mut doc, key, f)?;
     let serialized = file::serialize_document(&doc);
     write_serialized_under_lock(guard, path, serialized, "settings write").await
 }
@@ -191,7 +181,7 @@ mod tests {
         .await
         .unwrap();
 
-        let section = global_get_object("profiles");
+        let section = global_read_object("profiles").unwrap();
         assert_eq!(
             section["bedrock"]["AWS_REGION"],
             serde_json::json!("us-east-1")
@@ -206,6 +196,6 @@ mod tests {
         })
         .await
         .unwrap();
-        assert!(global_get_object("profiles").is_empty());
+        assert!(global_read_object("profiles").unwrap().is_empty());
     }
 }

@@ -63,7 +63,10 @@ static CATALOG_CACHE: LazyLock<Arc<LiveCatalogCache<CatalogKey, CodexProbe>>> =
 /// The catalog read without a workspace, for the active profile: the entry
 /// the settings pages read, so warming it up at startup is not wasted.
 pub(super) async fn live_catalog() -> ProviderCatalogEntry {
-    profile_runtime::catalog_for_profile(None, None).await
+    match profile_runtime::catalog_for_profile(None, None).await {
+        Ok(catalog) => catalog,
+        Err(error) => super::unavailable_catalog(error.to_string()),
+    }
 }
 
 /// The catalog of `profile` in `cwd` (none: [`NO_WORKSPACE`]).

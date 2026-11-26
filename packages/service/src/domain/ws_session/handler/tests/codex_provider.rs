@@ -245,8 +245,9 @@ async fn provider_switch_to_codex_discards_foreign_profile_and_environment() {
     };
     let reply: WsEnvelope = serde_json::from_str(&reply).unwrap();
     assert_eq!(reply.action, "provider.set.ok", "{:?}", reply.payload);
-    let expected_profile =
-        crate::domain::agents::codex::profiles::active_id().unwrap_or_else(|| "default".into());
+    let expected_profile = crate::domain::agents::codex::profiles::active_id()
+        .unwrap()
+        .unwrap_or_else(|| "default".into());
     assert_eq!(reply.payload["profile"], expected_profile);
     assert!(reply.payload["runtime_overrides"]["model"].is_null());
     let sessions = sessions.lock().await;
@@ -307,4 +308,104 @@ async fn init_pending_codex(
     let reply: WsEnvelope = serde_json::from_str(&reply).unwrap();
     assert_eq!(reply.action, "provider.set.ok", "{:?}", reply.payload);
     session_id
+}
+
+#[tokio::test]
+async fn codex_send_refuses_invalid_settings_before_acceptance_with_or_without_a_runtime() {
+    use crate::domain::settings_store;
+
+    let state = make_test_app_state().await;
+    let id = 42_i64;
+    sqlx::query(
+        "INSERT INTO agent_sessions (id, feature_id, status, runtime_provider, model, runtime_overrides)
+         VALUES (?, 1, 'paused', 'codex_cli', 'qa-model', '{\"model\":\"qa-model\"}')",
+    ).bind(id).execute(&state.write_pool).await.unwrap();
+    let mut handle = make_active_handle(1, None);
+    handle.runtime_provider = "codex_cli".into();
+    handle.desired_model = Some("qa-model".into());
+    handle.config.overrides.model = handle.desired_model.clone();
+    handle.state = QueryState::Pending(Default::default());
+    let sessions: SdkSessions = Arc::new(Mutex::new(HashMap::from([(id, handle)])));
+    let (sender, mut replies) = mpsc::unbounded_channel();
+    let (record, mut delivered) = mpsc::unbounded_channel();
+    let path = settings_store::paths::global_file(&settings_store::global_dir());
+    let send = |text| {
+        make_envelope(
+            "session",
+            "prompt.send",
+            serde_json::json!({
+                "session_id": id.to_string(), "text": text, "message_uuid": uuid::Uuid::new_v4().to_string()
+            }),
+        )
+    };
+
+    let mut retry_payload = None;
+    for warm in [false, true] {
+        if warm {
+            let mut sessions = sessions.lock().await;
+            let handle = sessions.get_mut(&id).unwrap();
+            let (permission_tx, _) = session_prompt::permission_response_channel();
+            handle.state = QueryState::Active {
+                query: Arc::new(RwLock::new(Box::new(RecordingRuntime {
+                    delivered: record.clone(),
+                }))),
+                permission_tx,
+            };
+            handle.spawned_model.clone_from(&handle.desired_model);
+            handle
+                .spawned_access_mode
+                .clone_from(&handle.desired_access_mode);
+            handle
+                .spawned_permission_mode
+                .clone_from(&handle.desired_permission_mode);
+        }
+        for (contents, code) in [
+            ("{ broken", "SETTINGS_INVALID"),
+            (r#"{"workspace_mcp_enabled":[]}"#, "SETTINGS_INVALID"),
+        ] {
+            std::fs::write(&path, contents).unwrap();
+            while replies.try_recv().is_ok() {}
+            let request = send("manual retry of the refused prompt");
+            let request_id = request.id.clone();
+            retry_payload = Some(request.payload.clone());
+            dispatch_envelope(request, &sender, &sessions, &state).await;
+            let reply = std::iter::from_fn(|| replies.try_recv().ok())
+                .filter_map(|message| match message {
+                    Message::Text(text) => Some(serde_json::from_str::<WsEnvelope>(&text).unwrap()),
+                    _ => None,
+                })
+                .find(|reply| reply.r#ref.as_deref() == Some(request_id.as_str()))
+                .expect("correlated refusal");
+            assert_eq!(reply.action, "error");
+            assert_eq!(reply.r#ref.as_deref(), Some(request_id.as_str()));
+            assert_eq!(reply.payload["code"], code);
+            assert!(delivered.try_recv().is_err());
+        }
+    }
+    let rejected: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND delivery_state='delivery_failed'")
+            .bind(id)
+            .fetch_one(&state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(rejected, 4);
+    let dispatches: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_message_dispatches")
+        .fetch_one(&state.read_pool)
+        .await
+        .unwrap();
+    assert_eq!(dispatches, 0);
+    std::fs::write(&path, "{}").unwrap();
+    let retry = make_envelope("session", "prompt.send", retry_payload.unwrap());
+    dispatch_envelope(retry, &sender, &sessions, &state).await;
+    let prompt = tokio::time::timeout(std::time::Duration::from_secs(3), delivered.recv())
+        .await
+        .expect("manual retry reached the reused runtime")
+        .unwrap();
+    assert!(
+        prompt
+            .to_string()
+            .contains("manual retry of the refused prompt"),
+        "{prompt}"
+    );
+    assert!(delivered.try_recv().is_err());
 }

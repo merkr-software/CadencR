@@ -33,9 +33,17 @@ pub async fn get_setting(_pool: &SqlitePool, key: &str) -> Result<Option<String>
     crate::domain::settings_store::global_read(key)
 }
 
-/// A switch that is on unless explicitly set to `"false"`.
-pub async fn setting_enabled_by_default(pool: &SqlitePool, key: &str) -> bool {
-    !matches!(get_setting(pool, key).await, Ok(Some(value)) if value == "false")
+/// A switch that is on when absent. Read failures must reach the caller.
+pub fn setting_enabled_by_default(key: &str) -> Result<bool, AppError> {
+    crate::domain::settings_store::global_inspect_document(|doc| enabled_by_default_in(doc, key))
+}
+
+pub(crate) fn enabled_by_default_in(
+    doc: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<bool, AppError> {
+    use crate::domain::settings_store::{file, Scope};
+    Ok(file::read_scalar(doc, Scope::Workspace, key)?.as_deref() != Some("false"))
 }
 
 /// Like `get_setting` but treats empty/whitespace-only values as unset.
@@ -65,23 +73,17 @@ pub async fn get_model_settings(pool: &SqlitePool) -> Result<ModelSettings, AppE
     let mut defaults_by_provider = HashMap::new();
     let mut models_by_agent = HashMap::new();
 
-    for (agent_type, provider_id) in provider_by_agent {
-        if !defaults_by_provider.contains_key(provider_id) {
-            // No fabricated fallback: a provider with no resolvable model is
-            // a real condition the user must see, not one to paper over with a
-            // plausible-looking id that fails later at session start.
-            if let Some(default_model) = provider_default_model(pool, provider_id).await {
-                defaults_by_provider.insert(provider_id.to_string(), default_model);
-            }
-        }
-        if let Some(default_model) = defaults_by_provider.get(provider_id) {
-            models_by_agent.insert(agent_type, default_model.clone());
-        }
-    }
-
-    for (agent_type, db_key) in MODEL_KEYS {
+    for ((agent_type, provider_id), (_, db_key)) in provider_by_agent.into_iter().zip(MODEL_KEYS) {
         if let Some(model) = get_setting(pool, db_key).await? {
-            models_by_agent.insert(*agent_type, model);
+            models_by_agent.insert(agent_type, model);
+            continue;
+        }
+        if !defaults_by_provider.contains_key(provider_id) {
+            let default = provider_default_model(pool, provider_id).await?;
+            defaults_by_provider.insert(provider_id, default);
+        }
+        if let Some(model) = defaults_by_provider[provider_id].as_ref() {
+            models_by_agent.insert(agent_type, model.clone());
         }
     }
 

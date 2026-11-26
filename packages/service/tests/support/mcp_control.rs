@@ -21,12 +21,7 @@ impl Drop for FakeCodexProject {
 /// Hold the fixture while dispatching to avoid using an installed Codex CLI.
 pub async fn fake_codex_project(pool: &sqlx::SqlitePool) -> FakeCodexProject {
     let binary_guard = CODEX_FIXTURE_LOCK.lock().await;
-    let project_dir = tempfile::tempdir().unwrap();
-    sqlx::query("UPDATE projects SET path = ? WHERE id = 7")
-        .bind(project_dir.path().to_string_lossy().as_ref())
-        .execute(pool)
-        .await
-        .unwrap();
+    let project_dir = temp_project_path(pool).await;
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/fake_codex_conversation.py")
         .canonicalize()
@@ -36,6 +31,16 @@ pub async fn fake_codex_project(pool: &sqlx::SqlitePool) -> FakeCodexProject {
         _project_dir: project_dir,
         _binary_guard: binary_guard,
     }
+}
+
+pub async fn temp_project_path(pool: &sqlx::SqlitePool) -> tempfile::TempDir {
+    let project_dir = tempfile::tempdir().unwrap();
+    sqlx::query("UPDATE projects SET path = ? WHERE id = 7")
+        .bind(project_dir.path().to_string_lossy().as_ref())
+        .execute(pool)
+        .await
+        .unwrap();
+    project_dir
 }
 
 pub async fn seeded_control_pool() -> sqlx::SqlitePool {

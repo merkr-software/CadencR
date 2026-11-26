@@ -20,6 +20,7 @@ use crate::domain::ws_session::runtime::prompt::prompt_pending::{
 use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::apply_respawn_if_needed;
 use crate::domain::ws_session::runtime::prompt::prompt_selection_sync;
 use crate::domain::ws_session::runtime::prompt::user_selection::PromptedSelection;
+use crate::domain::ws_session::runtime::prompt::McpSettings;
 use crate::domain::ws_session::runtime::state::{QueryState, SdkSessions};
 
 pub(super) async fn dispatch(
@@ -50,6 +51,7 @@ async fn dispatch_control_prompt_inner(
     sender: &SessionOutput,
 ) -> Result<(), AppError> {
     require_session_row(&app_state.read_pool, feature_id, session_id).await?;
+    McpSettings::read()?;
     if dispatch_to_active_owner(app_state, sender, session_id, payload.clone(), origin).await? {
         return Ok(());
     }

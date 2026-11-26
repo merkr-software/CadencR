@@ -28,6 +28,7 @@ impl PromptOrigin {
 /// themselves (with agent-to-agent origin metadata) and pass `true` to suppress
 /// the duplicate; the scheduler passes `false` so a user-authored scheduled
 /// message is persisted and mirrored to clients like any other user message.
+#[cfg(test)]
 pub(crate) async fn dispatch_control_prompt(
     app_state: &AppState,
     feature_id: i64,
