@@ -15,6 +15,8 @@ interface RemoteDialogState {
   focusDevicesNonce: number;
   /** Open the dialog; pass `focusDevices` to scroll to the paired-devices list. */
   openDialog: (opts?: { focusDevices?: boolean }) => void;
+  /** The dialog scrolled to the devices: the next opening starts at the top. */
+  devicesFocused: () => void;
   setOpen: (open: boolean) => void;
 }
 
@@ -26,5 +28,6 @@ export const useRemoteDialogStore = create<RemoteDialogState>((set) => ({
       open: true,
       focusDevicesNonce: opts?.focusDevices ? s.focusDevicesNonce + 1 : s.focusDevicesNonce,
     })),
+  devicesFocused: () => set({ focusDevicesNonce: 0 }),
   setOpen: (open) => set({ open }),
 }));

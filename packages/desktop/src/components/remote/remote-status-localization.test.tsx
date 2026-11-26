@@ -75,13 +75,12 @@ it("formats the host badge and paired-device count for the display language", as
     );
 
     await view.user.click(badge);
-    const frenchDevices = frFR.ui.remote.host.sections.devices.replace("{{deviceCount}}", french);
-    const devices = await screen.findByRole("button", {
-      name: (label) => label.replace(/\s+/gu, " ") === frenchDevices.replace(/\s+/gu, " "),
-    });
-    expect(devices.textContent).toBe(frenchDevices);
+    const frenchDevices = frFR.ui.remote.host.status.devices_other
+      .replace("{{count, number}}", french)
+      .replace("{{connected, number}}", french);
+    const devices = await screen.findByText(frenchDevices);
     await switchLanguage("en");
-    expect(devices.textContent).toBe(`Paired devices (${english})`);
+    expect(devices.textContent).toBe(`${english} devices paired · ${english} connected`);
   } finally {
     view.unmount();
     useRemoteStore.setState({ status, loaded });

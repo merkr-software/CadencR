@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RemoteStatus } from "@/api/generated";
 
 const remoteStatus = vi.fn();
+const remoteDisable = vi.fn();
 
 vi.mock("@/api/generated", () => ({
   remoteStatus: (...args: unknown[]) => remoteStatus(...args),
   remoteEnable: vi.fn(),
-  remoteDisable: vi.fn(),
+  remoteDisable: (...args: unknown[]) => remoteDisable(...args),
   remoteRevokeDevice: vi.fn(),
   remoteSetTunnelHost: vi.fn(),
 }));
@@ -37,7 +38,13 @@ function deferred(): { promise: Promise<RemoteStatus>; resolve: (value: RemoteSt
 describe("remote-store refresh single-flight", () => {
   beforeEach(() => {
     remoteStatus.mockReset();
-    useRemoteStore.setState({ status: null, loaded: false, phase: "idle", error: null });
+    useRemoteStore.setState({
+      status: null,
+      statusAt: 0,
+      loaded: false,
+      phase: "idle",
+      error: null,
+    });
   });
 
   it("coalesces overlapping refreshes into one request", async () => {
@@ -108,3 +115,62 @@ it.each([
     expect(useRemoteStore.getState().error).toEqual(expected);
   },
 );
+
+describe("remote-store polls once loaded", () => {
+  beforeEach(async () => {
+    remoteStatus.mockReset();
+    useRemoteStore.setState({
+      status: null,
+      loaded: false,
+      phase: "idle",
+      error: null,
+      pollError: null,
+    });
+    remoteStatus.mockResolvedValue(status());
+    const firstLoad = useRemoteStore.getState().refresh();
+    expect(useRemoteStore.getState().phase).toBe("loading");
+    await firstLoad;
+  });
+
+  it("leaves the phase and an action's error alone, and keeps an unchanged status", async () => {
+    const before = useRemoteStore.getState();
+    useRemoteStore.setState({ error: { kind: "detail", message: "Could not revoke the device." } });
+    const gate = deferred();
+    remoteStatus.mockReturnValueOnce(gate.promise);
+
+    const poll = useRemoteStore.getState().refresh();
+    const sentBy = performance.now();
+    expect(useRemoteStore.getState().phase).toBe("idle");
+    gate.resolve(status());
+    await poll;
+
+    const after = useRemoteStore.getState();
+    expect(after.status).toBe(before.status);
+    expect(after.statusAt).toBeGreaterThan(before.statusAt);
+    expect(after.statusAt).toBeLessThanOrEqual(sentBy);
+    expect(after.error).toEqual({ kind: "detail", message: "Could not revoke the device." });
+  });
+
+  it("reports a failed poll until a poll succeeds", async () => {
+    remoteStatus.mockRejectedValueOnce(new Error("offline"));
+    await useRemoteStore.getState().refresh();
+    expect(useRemoteStore.getState().pollError).toEqual({ kind: "detail", message: "offline" });
+    expect(useRemoteStore.getState().error).toBeNull();
+
+    remoteStatus.mockResolvedValueOnce({ ...status(), pairing_state: "consumed" });
+    await useRemoteStore.getState().refresh();
+    expect(useRemoteStore.getState().pollError).toBeNull();
+    expect(useRemoteStore.getState().status?.pairing_state).toBe("consumed");
+  });
+
+  it("drops a poll answered after an action wrote a newer status", async () => {
+    const gate = deferred();
+    remoteStatus.mockReturnValueOnce(gate.promise);
+    const poll = useRemoteStore.getState().refresh();
+    remoteDisable.mockResolvedValueOnce({ ...status(), enabled: false, connected_devices: 3 });
+    await useRemoteStore.getState().disable();
+    gate.resolve({ ...status(), enabled: true });
+    await poll;
+    expect(useRemoteStore.getState().status?.connected_devices).toBe(3);
+  });
+});

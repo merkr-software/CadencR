@@ -8,6 +8,7 @@ const pairingIssue = z.discriminatedUnion("kind", [
     kind: z.enum([
       "invalidInput",
       "expired",
+      "rateLimited",
       "malformedResponse",
       "unsafeAddress",
       "malformedCode",
@@ -31,8 +32,13 @@ export function formatPairingError(issue: PairingIssue, t: UiTranslator): string
       );
     case "expired":
       return t(
-        "remote.pairing.error.expired",
-        "This pairing code has expired. Generate a fresh one on the host computer.",
+        "remote.pairing.error.usedOrExpired",
+        "This code was already used or has expired. Scan the new code shown on your computer.",
+      );
+    case "rateLimited":
+      return t(
+        "remote.pairing.error.rateLimited",
+        "Too many pairing attempts. Wait a minute, then scan again.",
       );
     case "malformedResponse":
       return t("remote.pairing.error.malformedResponse", "The pairing response was malformed.");

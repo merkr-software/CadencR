@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetDeviceTokenMemoryForTests } from "@/lib/remote/device-token";
-import { ensurePaired, pairRemoteDevice, takeJustPaired, takePairingError } from "./remote-pairing";
+import {
+  ensurePaired,
+  pairingCodeFromScan,
+  pairRemoteDevice,
+  takeJustPaired,
+  takePairingError,
+} from "./remote-pairing";
 
 const KEY = "cadencr.remoteDeviceToken";
 
@@ -208,5 +214,23 @@ describe("pairRemoteDevice", () => {
 
     expect(localStorage.getItem(KEY)).toBeNull();
     expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+});
+
+describe("pairingCodeFromScan", () => {
+  it.each([
+    ["https://192.168.1.5:5006/#code=fresh-code", "fresh-code"],
+    ["https://machine.ts.net/?code=legacy_code", "legacy_code"],
+    ["  https://host/#code=padded  ", "padded"],
+  ])("reads the code of a pairing link (%s)", (text, code) => {
+    expect(pairingCodeFromScan(text)).toBe(code);
+  });
+
+  it.each([
+    ["a Wi-Fi QR", "WIFI:T:WPA;S:home;P:secret;;"],
+    ["a link without a code", "https://example.com/menu"],
+    ["a malformed code", "https://host/#code=bad%20code"],
+  ])("rejects %s, so another QR in view is not taken for one", (_, text) => {
+    expect(pairingCodeFromScan(text)).toBeNull();
   });
 });
