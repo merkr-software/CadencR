@@ -374,14 +374,17 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
-    // Written by a reader whose runtime owes a resume, and by a user Stop.
-    sqlx::raw_sql(
-        "CREATE TABLE agent_background_work (session_id INTEGER PRIMARY KEY, since TEXT NOT NULL);
-         CREATE TABLE agent_user_stops (session_id INTEGER PRIMARY KEY, stopped_at TEXT NOT NULL);",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    // Used by Stop, stream readers, and automatic prompt-queue delivery.
+    for migration in [
+        include_str!("../../../../../migrations/20261026230000_restart_continuations.sql"),
+        include_str!("../../../../../migrations/20261120143700_restart_background_work.sql"),
+        include_str!("../../../../../migrations/20261120183000_restart_stop_and_quit_intent.sql"),
+        include_str!(
+            "../../../../../migrations/20261126120000_restart_work_ownership_and_stop_markers.sql"
+        ),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
 
     sqlx::query(
         r#"CREATE TABLE projects (

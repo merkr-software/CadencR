@@ -48,18 +48,30 @@ pub enum AcpProcessTreePolicy {
 
 pub(crate) struct ProcessTreeControl {
     policy: AcpProcessTreePolicy,
+    session: Option<cli_discovery::ChildSession>,
     #[cfg(windows)]
     job: Option<std::os::windows::io::OwnedHandle>,
 }
 
 impl ProcessTreeControl {
     pub(crate) fn prepare(command: &mut Command, policy: AcpProcessTreePolicy) -> io::Result<Self> {
+        Self::prepare_with_session(command, policy, None)
+    }
+
+    pub(super) fn prepare_with_session(
+        command: &mut Command,
+        policy: AcpProcessTreePolicy,
+        session: Option<cli_discovery::ChildSession>,
+    ) -> io::Result<Self> {
         validate_policy(policy)?;
-        prepare_command(command, policy)?;
+        if session.is_none() {
+            prepare_command(command, policy)?;
+        }
         #[cfg(windows)]
         let job = prepare_windows_job(policy)?;
         Ok(Self {
             policy,
+            session,
             #[cfg(windows)]
             job,
         })
@@ -74,11 +86,49 @@ impl ProcessTreeControl {
         }
     }
 
+    pub(super) async fn spawn(&self, mut command: Command) -> io::Result<Child> {
+        match &self.session {
+            Some(session) => session.spawn(command).await,
+            None => command.spawn(),
+        }
+    }
+
+    pub(super) async fn observe(
+        &self,
+        child: &mut Child,
+    ) -> io::Result<cli_discovery::ObservedChildExit> {
+        cli_discovery::observe_child_exit(child, self.session.as_ref()).await
+    }
+
+    pub(super) async fn reap(
+        &self,
+        child: &mut Child,
+        pid: Option<u32>,
+        observed: cli_discovery::ObservedChildExit,
+    ) -> io::Result<ExitStatus> {
+        let status = observed.reap(child, self.session.as_ref()).await;
+        if self.session.is_none() {
+            let cleanup = self.cleanup_after_exit(pid).await;
+            return status.and_then(|status| cleanup.map(|()| status));
+        }
+        status
+    }
+
     pub(crate) async fn terminate(
         &self,
         child: &mut Child,
         grace: Duration,
     ) -> io::Result<ExitStatus> {
+        if let Some(session) = &self.session {
+            if matches!(
+                self.policy,
+                AcpProcessTreePolicy::Isolated(_) | AcpProcessTreePolicy::Grouped
+            ) {
+                return session.terminate(child, grace).await;
+            }
+            child.start_kill()?;
+            return cli_discovery::wait_for_child(child, Some(session)).await;
+        }
         match self.policy {
             AcpProcessTreePolicy::Inherit => {
                 child.start_kill()?;

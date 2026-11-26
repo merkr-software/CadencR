@@ -64,7 +64,7 @@ describe("development sidecar startup", () => {
       baseUrl: "http://127.0.0.1:5005",
       authToken: "dev-token",
       stop: () => Promise.resolve(),
-      setShutdownIntent: () => Promise.resolve(),
+      prepareQuit: () => Promise.resolve(),
     };
 
     const startup = waitForDevSidecar(handle, (update) => updates.push(update.phase));
@@ -86,7 +86,7 @@ describe("development sidecar startup", () => {
         baseUrl: "http://127.0.0.1:5005",
         authToken: null,
         stop: () => Promise.resolve(),
-        setShutdownIntent: () => Promise.resolve(),
+        prepareQuit: () => Promise.resolve(),
       }),
     ).rejects.toThrow("development service auth token is missing");
   });

@@ -11,7 +11,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::domain::restart_continuations::{
-    capture_cut_off_turn, is_shutting_down, record_background_work,
+    end_background_work, is_shutting_down, write_background_work,
 };
 
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
@@ -29,13 +29,13 @@ impl StreamReaderTask {
     /// session it captures as a turn: once the resume turn has started, the
     /// record is only dropped after `running` reached the database.
     pub(super) async fn sync_background_work(&self, state: &mut StreamReaderState) {
-        let owed = state.runtime_hold.owes_resume();
+        let Some(owed) = state.runtime_hold.background_work_owed() else {
+            return;
+        };
         if owed == state.background_work_recorded {
             return;
         }
         if owed {
-            // Dated now, before the write: a Stop that lands in between is
-            // later than this record, so the capture skips it.
             self.record(state, Some(chrono::Utc::now())).await;
             if !state.runtime_hold.owes_resume() {
                 self.record(state, None).await;
@@ -82,21 +82,50 @@ impl StreamReaderTask {
         if !state.background_work_recorded {
             return;
         }
-        if shutting_down && !capture_cut_off_turn(&self.write_pool, self.db_session_id).await {
-            return;
-        }
-        self.record(state, None).await;
+        let written = end_background_work(
+            &self.write_pool,
+            self.db_session_id,
+            &self.signals.reader_id.to_string(),
+            shutting_down,
+        )
+        .await;
+        self.report_usage_write(
+            &mut state.background_work_save_failed,
+            WHAT,
+            written.map(|()| true),
+        )
+        .await;
     }
 
     async fn record(&self, state: &mut StreamReaderState, owed_since: Option<DateTime<Utc>>) {
-        let written = record_background_work(&self.write_pool, self.db_session_id, owed_since)
-            .await
-            .map(|()| true);
-        if written.is_ok() {
-            state.background_work_recorded = owed_since.is_some();
+        // The cell protects publication against a runtime replacement. A
+        // retiring reader can still delete its own row without the cell.
+        let cell = if owed_since.is_some() {
+            let cell = self.sdk_sessions.lock().await;
+            if !self.owns_runtime(cell.get(&self.db_session_id)) {
+                return;
+            }
+            Some(cell)
+        } else {
+            None
+        };
+        let written = write_background_work(
+            &self.write_pool,
+            self.db_session_id,
+            &self.signals.reader_id.to_string(),
+            owed_since,
+        )
+        .await;
+        drop(cell);
+        if let Ok(recorded) = &written {
+            state.background_work_recorded = *recorded;
         }
-        self.report_usage_write(&mut state.background_work_save_failed, WHAT, written)
-            .await;
+        self.report_usage_write(
+            &mut state.background_work_save_failed,
+            WHAT,
+            written.map(|_| true),
+        )
+        .await;
     }
 }
 
@@ -135,6 +164,29 @@ mod tests {
         .await
         .unwrap()
             == 1
+    }
+
+    #[tokio::test]
+    async fn another_running_signal_for_the_same_turn_keeps_its_stop() {
+        let (task, _runtime) = reader_task().await;
+        task.record_running().await;
+        crate::domain::restart_continuations::record_user_stop(
+            &task.write_pool,
+            task.db_session_id,
+            chrono::Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        task.record_running().await;
+
+        let pending: bool =
+            sqlx::query_scalar("SELECT marker_pending FROM agent_user_stops WHERE session_id = ?")
+                .bind(task.db_session_id)
+                .fetch_one(&task.write_pool)
+                .await
+                .unwrap();
+        assert!(pending, "an intermediate status is not a successor turn");
     }
 
     /// The conversation stays recorded through the resume grace: when the

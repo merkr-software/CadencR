@@ -48,6 +48,7 @@ pub(crate) fn spawn_stream_reader(
         db_session_id,
         shutdown_runtime,
         signals,
+        task.write_pool.clone(),
         async move {
             task.run().await;
         },

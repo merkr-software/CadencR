@@ -361,18 +361,26 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             OsString::from("--protocol"),
             OsString::from("acp-v1"),
         ];
+        let child_session = crate::domain::agents::process_sessions::for_runtime(&config);
         let PreparedProviderCommand {
             command,
             process_tree_policy,
-        } = prepare_provider_command(executable, &args, &config.cwd, config.env.as_ref())
-            .await
-            .map_err(|error| {
-                RuntimeError::new(format!(
-                    "could not prepare installed provider runtime: {error}"
-                ))
-            })?;
+        } = prepare_provider_command(
+            executable,
+            &args,
+            &config.cwd,
+            config.env.as_ref(),
+            child_session.as_ref(),
+        )
+        .await
+        .map_err(|error| {
+            RuntimeError::new(format!(
+                "could not prepare installed provider runtime: {error}"
+            ))
+        })?;
         spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
             command,
+            child_session,
             spawn_guard: None,
             client_info: AcpClientInfo::default(),
             stderr_policy: AcpStderrPolicy::Discard,

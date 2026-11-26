@@ -84,7 +84,7 @@ export interface FileDropPayload {
 }
 
 export type { RendererErrorReportPayload } from "@/shared/renderer-error";
-import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
+import type { AppCloseRequest } from "@/shared/app-close";
 import type { ServiceStatus } from "@/shared/service-status";
 
 export interface CadencrDesktopBridge {
@@ -110,11 +110,11 @@ export interface CadencrDesktopBridge {
   onNotificationFailed: (cb: (payload: { reason: string }) => void) => () => void;
   onNotificationFallback: (cb: (payload: NotificationFallbackPayload) => void) => () => void;
   onCloseRequested: (cb: (request: AppCloseRequest) => void) => () => void;
-  confirmClose: (choice?: AppCloseChoice) => Promise<void>;
+  confirmClose: (id: number) => Promise<void>;
   /** The close request arrived and the confirmation is on screen. */
-  acknowledgeCloseRequest: () => Promise<void>;
+  acknowledgeCloseRequest: (id: number) => Promise<void>;
   /** The user kept the app open: main forgets the close it was waiting on. */
-  cancelClose: () => Promise<void>;
+  cancelClose: (id: number) => Promise<void>;
   requestQuit: () => Promise<void>;
   /** The packaged service as main supervises it (always running off the shell). */
   serviceStatus: () => Promise<ServiceStatus>;

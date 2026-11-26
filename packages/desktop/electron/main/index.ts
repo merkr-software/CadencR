@@ -28,7 +28,7 @@ import { registerAppLifecycleIpc } from "./app-lifecycle-ipc";
 import { registerCliIpc, type CliController } from "./cli-ipc";
 import { focusForCliRequest, registerSecondInstance } from "./second-instance";
 import { createCloseCoordinator, windowCloseQuits } from "./close-coordinator";
-import { beforeQuitStep, QuitIntentRecording, recordQuitIntent } from "./shutdown-intent";
+import { VoluntaryQuit, waitForStartupBeforeQuit } from "./shutdown-intent";
 import { createPackagedService } from "./packaged-service";
 import { RendererHealth } from "./renderer-health";
 import { registerBrowserIpc } from "./browser-ipc";
@@ -45,23 +45,14 @@ import { PLUGIN_TAB_PRIVILEGED_SCHEME } from "./plugin-tabs/plugin-tab-ids";
 import { registerPluginTabIpc } from "./plugin-tabs/plugin-tab-ipc";
 import type { PluginTabManager } from "./plugin-tabs/plugin-tab-manager";
 import { windowIconOption } from "./app-icon";
-import {
-  QUIT_WITHOUT_ASKING,
-  RESUME_AGENTS,
-  type AppCloseChoice,
-  type AppCloseRequest,
-} from "../../src/shared/app-close";
+import type { AppCloseRequest } from "../../src/shared/app-close";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
 let allowClose = false;
-/** What the user chose for working agents when they confirmed the quit. */
-let closeChoice: AppCloseChoice = RESUME_AGENTS;
-/** The service was told to keep the agents stopped when it stops. */
-let stopIntentRecorded = false;
-/** The quit underway has its intent (dialog, update, or recorded unasked). */
-let quitAnswered = false;
-const quitRecording = new QuitIntentRecording();
+const voluntaryQuit = new VoluntaryQuit();
+let preparingUpdate = false;
+let runtimeStarting: Promise<void> | null = null;
 let ipcRegistered = false;
 let themeEventsRegistered = false;
 let powerRegistered = false;
@@ -70,7 +61,6 @@ let sidecarStopPromise: Promise<void> | null = null;
 let browserIpcRegistered = false;
 let browserManager: BrowserManager | null = null;
 let browserBridge: BrowserBridgeHandle | null = null;
-let browserFlushPromise: Promise<void> | null = null;
 let notch: NotchController | null = null;
 let pluginTabs: PluginTabManager | null = null;
 let shutdownReady = false;
@@ -110,7 +100,7 @@ const packagedService = createPackagedService({
   appVersion: app.getVersion(),
   browserBridge: () =>
     browserBridge ? { url: browserBridge.url, token: browserBridge.token } : undefined,
-  shuttingDown: () => sidecarStopPromise !== null,
+  shuttingDown: () => voluntaryQuit.inProgress || preparingUpdate || sidecarStopPromise !== null,
   adopt: adoptSidecar,
   publish: (status) => sendToWindow(mainWindow, "service:status", status),
 });
@@ -132,6 +122,7 @@ const closeCoordinator = createCloseCoordinator({
 const rendererHealth = new RendererHealth(() => closeCoordinator.rendererLost());
 
 function requestQuit(): void {
+  if (voluntaryQuit.inProgress || preparingUpdate || shutdownReady) return;
   closeCoordinator.request(true);
 }
 
@@ -161,9 +152,10 @@ function createWindow(): BrowserWindow {
   installDefaultRendererCrashRecovery(win);
 
   win.on("close", (event) => {
-    if (allowClose) return;
+    if (allowClose || shutdownReady) return;
     event.preventDefault();
-    closeCoordinator.request(windowCloseQuits(process.platform));
+    if (windowCloseQuits(process.platform)) requestQuit();
+    else if (!voluntaryQuit.inProgress && !preparingUpdate) closeCoordinator.request(false);
   });
   rendererHealth.watch(win);
   // The window's own focus, which stays put while a guest view (a custom tab,
@@ -194,31 +186,19 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function finishClose(request: AppCloseRequest, choice: AppCloseChoice): void {
-  allowClose = true;
+function finishClose(request: AppCloseRequest): Promise<void> | void {
+  if (voluntaryQuit.inProgress || preparingUpdate || shutdownReady) return;
+  if (request.quitting) {
+    return voluntaryQuit.run(quitVoluntarily).catch(handleShutdownFailure);
+  }
   const closingWindow = mainWindow;
-  // The choice goes first, while the window is still up to show a failure:
-  // closing the last window quits on Linux.
-  void recordCloseChoice(request, choice)
-    .then(() =>
-      request.quitting
-        ? stopSidecarThenQuit()
-        : prepareBrowserWindowClose().then(() => rendererHealth.closeNow(closingWindow)),
-    )
+  return Promise.resolve(browserManager?.prepareForWindowClose())
+    .then(() => {
+      if (voluntaryQuit.inProgress || preparingUpdate) return;
+      allowClose = true;
+      rendererHealth.closeNow(closingWindow);
+    })
     .catch(handleShutdownFailure);
-}
-
-/**
- * Tell the service to keep the agents (or their background work) stopped.
- * A quit is answered from here on (a window that only closes answers none).
- */
-function recordCloseChoice(request: AppCloseRequest, choice: AppCloseChoice): Promise<void> {
-  closeChoice = choice;
-  if (request.quitting) quitAnswered = true;
-  const recording = recordQuitIntent(sidecar, request, closeChoice, (message) =>
-    dialog.showErrorBox("Cadencr may resume background work on its next start", message),
-  ).then((recorded) => void (stopIntentRecorded ||= recorded));
-  return quitRecording.track(recording);
 }
 
 function wireMainProcess(): void {
@@ -280,6 +260,7 @@ async function bootstrap(): Promise<void> {
     () => browserManager,
     () => mainWindow,
   );
+  if (voluntaryQuit.inProgress || shutdownReady) return;
   installApplicationMenu(requestQuit);
   splash = createSplashWindow(app.getVersion());
   splash.setPhase("starting");
@@ -295,13 +276,18 @@ async function bootstrap(): Promise<void> {
       action,
       recovery: startupRecovery,
       splash,
-      quit: () => {
-        allowClose = true;
-        app.quit();
-      },
+      quit: () => app.quit(),
     });
   });
-  await prepareRuntime();
+  const runtime = prepareRuntime();
+  // The bootstrap reports a failed startup. Quit still waits for it to
+  // finish so a sidecar cannot come up behind the quit.
+  runtimeStarting = runtime.then(
+    () => undefined,
+    () => undefined,
+  );
+  await runtime;
+  if (shutdownReady) return;
   mainWindow = createWindow();
   mainWindow.webContents.once("did-finish-load", closeSplash);
   wireMainProcess();
@@ -367,66 +353,62 @@ app
   });
 
 app.on("before-quit", (event) => {
-  const hasWindow = mainWindow !== null;
-  const step = beforeQuitStep({ allowClose, hasWindow, quitAnswered, shutdownReady });
-  if (step === "quit") return;
+  if (shutdownReady) return;
   event.preventDefault();
-  if (step === "ask-window") return requestQuit();
-  // Nobody was asked: main answers for the user (failing to record that never
-  // blocks the quit). A quit already answered waits for that recording.
-  const unasked = () => recordCloseChoice({ quitting: true }, QUIT_WITHOUT_ASKING);
-  void quitRecording.stopWhenReady(step, unasked, stopSidecarThenQuit).catch(handleShutdownFailure);
+  requestQuit();
 });
 
 async function prepareForUpdateInstall(): Promise<void> {
-  quitAnswered = true;
-  await prepareBrowserShutdown();
+  if (voluntaryQuit.inProgress || preparingUpdate) {
+    throw new Error("Cadencr is already preparing to close.");
+  }
+  preparingUpdate = true;
+  try {
+    await browserManager?.prepareForShutdown();
+    closeCoordinator.cancel();
+    await finishExit();
+  } finally {
+    preparingUpdate = false;
+  }
+}
+
+async function quitVoluntarily(): Promise<void> {
+  await waitForStartupBeforeQuit(runtimeStarting);
+  if (serviceSupervisor.status().state === "restarting") {
+    throw new Error("Cadencr is restarting its service. Try quitting again when it is ready.");
+  }
+  await voluntaryQuit.prepare({
+    service: app.isPackaged ? packagedService : sidecar,
+    prepareBrowser: async () => browserManager?.saveWorkspaceForQuit(),
+    resumeBrowser: () => browserManager?.resumeAfterShutdownAbort(),
+  });
+  await browserManager
+    ?.finishVoluntaryQuit()
+    .catch((error: unknown) =>
+      console.warn("Could not close Browser downloads while exiting", error),
+    );
+  await finishExit();
+  app.quit();
+}
+
+async function finishExit(): Promise<void> {
   allowClose = true;
-  closeCoordinator.cancel();
+  serviceSupervisor.stopSupervising();
   shutdownPower();
   powerRegistered = false;
   shutdownAutoUpdater();
   await stopSidecarForExit();
-  await stopBrowserBridge();
-  shutdownReady = true;
-}
-
-async function stopSidecarThenQuit(): Promise<void> {
-  await prepareBrowserShutdown();
-  await stopSidecarForExit();
-  await stopBrowserBridge();
-  shutdownReady = true;
-  app.quit();
-}
-
-async function prepareBrowserShutdown(): Promise<void> {
-  if (!browserManager) return;
-  browserFlushPromise ??= browserManager.prepareForShutdown().finally(() => {
-    browserFlushPromise = null;
+  await stopBrowserBridge().catch((error: unknown) => {
+    console.warn("Could not close the browser bridge while exiting", error);
   });
-  await browserFlushPromise;
-}
-
-async function prepareBrowserWindowClose(): Promise<void> {
-  if (!browserManager) return;
-  await browserManager.prepareForWindowClose();
+  shutdownReady = true;
 }
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
-  quitAnswered = false;
-  closeChoice = RESUME_AGENTS;
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);
   dialog.showErrorBox("Could not close Cadencr", message);
-  // Cadencr keeps running: a later stop (an update) must resume the agents.
-  if (stopIntentRecorded && sidecar) {
-    stopIntentRecorded = false;
-    void sidecar.setShutdownIntent(RESUME_AGENTS).catch((resetError: unknown) => {
-      const detail = resetError instanceof Error ? resetError.message : String(resetError);
-      dialog.showErrorBox("Cadencr may not resume your agents after a restart", detail);
-    });
-  }
 }
 
 async function stopBrowserBridge(): Promise<void> {
@@ -440,15 +422,7 @@ async function stopSidecarForExit(): Promise<void> {
     const currentSidecar = sidecar;
     if (!currentSidecar) return;
     sidecar = null;
-    allowClose = true;
-    serviceSupervisor.stopSupervising();
     closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
-    // Release any held power-save-blocker and unwire power listeners before
-    // the sidecar stop awaits, so quit cleans up the OS-level state even
-    // if the sidecar takes a moment to shut down.
-    shutdownPower();
-    powerRegistered = false;
-    shutdownAutoUpdater();
     sidecarStopPromise = currentSidecar.stop().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Failed to stop cadencr-service cleanly: ${message}`);
@@ -463,6 +437,7 @@ app.on("window-all-closed", () => {
 
 /** No app window left (macOS keeps running): open one, as the Dock icon does. */
 function reopenMainWindow(): void {
+  if (voluntaryQuit.inProgress || preparingUpdate || shutdownReady || sidecarStopPromise) return;
   // The notch island is a window too, but never a reason not to reopen the app.
   const appWindows = BrowserWindow.getAllWindows().filter(
     (win) => notch?.windowForSender(win.webContents.id) !== win,

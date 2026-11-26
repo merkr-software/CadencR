@@ -25,7 +25,7 @@ pub(super) enum SkipReason {
     /// The turn finished on its own after it was captured, while the service
     /// was still shutting down.
     Finished,
-    /// The user quit Cadencr and chose to stop their agents.
+    /// The user quit Cadencr.
     StoppedOnQuit,
     /// The conversation was archived; nobody is waiting on it.
     Archived,

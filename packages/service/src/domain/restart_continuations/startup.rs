@@ -5,7 +5,7 @@ use crate::domain::workspace::repository::setting_enabled_by_default;
 use crate::error::AppError;
 
 use super::capture::{app_version, startup_capture_error};
-use super::eligibility::{decide, live_skip, Candidate, Decision, LOOP_WINDOW_MINUTES};
+use super::eligibility::{decide, live_skip, Candidate, Decision, SkipReason, LOOP_WINDOW_MINUTES};
 use super::report::{
     boot_id, publish, RestartContinuationEntry, RestartContinuationOutcome,
     RestartContinuationReport,
@@ -21,12 +21,13 @@ const LOST_GATE: &str = "lost_gate";
 /// call back into the service (MCP tools, permission prompts) right away.
 pub fn spawn_startup_pass(state: AppState) {
     tokio::spawn(async move {
+        let _pass = super::LIVE_CONTINUATIONS.lock().await;
         let report = run(&state).await;
         publish(report);
     });
 }
 
-async fn run(state: &AppState) -> RestartContinuationReport {
+pub(super) async fn run(state: &AppState) -> RestartContinuationReport {
     let mut report = RestartContinuationReport {
         boot_id: boot_id(),
         app_version: app_version().to_string(),
@@ -34,17 +35,16 @@ async fn run(state: &AppState) -> RestartContinuationReport {
         entries: Vec::new(),
         error: startup_capture_error(),
     };
+    if report.error.is_some() {
+        return report;
+    }
     let pending = match store::list_pending(&state.write_pool).await {
         Ok(pending) => pending,
         Err(error) => {
             tracing::error!(%error, "failed to read interrupted agent turns");
             let unread =
                 format!("Cadencr could not read which agents the restart interrupted: {error}");
-            // Keep the startup recovery failures: each names agents to check.
-            report.error = Some(match report.error.take() {
-                Some(earlier) => format!("{earlier}\n{unread}"),
-                None => unread,
-            });
+            report.error = Some(unread);
             return report;
         }
     };
@@ -124,7 +124,7 @@ async fn resume(
     lost_gate: bool,
 ) -> (RestartContinuationOutcome, Option<String>) {
     let reason = lost_gate.then(|| LOST_GATE.to_string());
-    if let Err(error) = store::resolve(
+    match store::resolve(
         &state.write_pool,
         continuation.id,
         Resolution::Resumed,
@@ -132,10 +132,19 @@ async fn resume(
     )
     .await
     {
-        return (
-            RestartContinuationOutcome::Failed,
-            Some(format!("its resume could not be recorded: {error}")),
-        );
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                RestartContinuationOutcome::Skipped,
+                Some(SkipReason::AlreadyRunning.code().into()),
+            )
+        }
+        Err(error) => {
+            return (
+                RestartContinuationOutcome::Failed,
+                Some(format!("its resume could not be recorded: {error}")),
+            )
+        }
     }
     let delivered = message::deliver(state, continuation).await;
     let Err(error) = delivered else {
@@ -162,7 +171,7 @@ async fn record(
         Resolution::Failed => RestartContinuationOutcome::Failed,
     };
     match store::resolve(&state.write_pool, id, resolution, reason.as_deref()).await {
-        Ok(()) => (outcome, reason),
+        Ok(_) => (outcome, reason),
         Err(error) => {
             let detail = format!("its outcome could not be saved: {error}");
             let reason = match reason {
@@ -397,7 +406,7 @@ mod tests {
         assert_eq!(markers, 0);
     }
 
-    /// A quit with no agent working leaves background work stopped: marked,
+    /// A voluntary quit leaves background work stopped: marked,
     /// with its Resume button, but no prompt and nothing in the report toast.
     #[tokio::test]
     async fn background_work_stopped_by_a_quit_is_marked_but_not_resumed() {
@@ -437,7 +446,7 @@ mod tests {
             transcript,
             vec![(
                 "turn_interrupted".into(),
-                crate::domain::restart_continuations::RESTART_BACKGROUND_MARKER_CONTENT.into()
+                crate::domain::restart_continuations::QUIT_BACKGROUND_MARKER_CONTENT.into()
             )]
         );
     }
@@ -445,7 +454,7 @@ mod tests {
     /// Its turn had completed before the kill, so the session is not
     /// `running`; the background work it left running is what was lost.
     #[tokio::test]
-    async fn stopped_background_work_is_marked_and_resumed() {
+    async fn two_startup_passes_mark_and_try_to_resume_background_work_once() {
         let (pool, _, feature_id) = fixture().await;
         let session_id = session(&pool, feature_id, "completed").await;
         crate::domain::restart_continuations::record_background_work(
@@ -459,14 +468,22 @@ mod tests {
             .await
             .unwrap();
 
-        let report = run(&AppState::with_pool(pool.clone())).await;
-
-        assert_eq!(report.entries.len(), 1);
-        // Resumed, not skipped as `finished`: no provider in tests, so the
-        // prompt is written and its delivery fails.
-        assert_eq!(
-            report.entries[0].outcome,
-            RestartContinuationOutcome::Failed
+        let state = AppState::with_pool(pool.clone());
+        // Both passes reached the same pending row, before either could
+        // append a marker or claim the resume.
+        let snapshot = store::list_pending(&pool).await.unwrap();
+        let (first, second) = tokio::join!(
+            resolve_one(&state, &snapshot[0], &Ok(true)),
+            resolve_one(&state, &snapshot[0], &Ok(true)),
+        );
+        let outcomes = [first.0, second.0];
+        // The provider is unavailable in this fixture: only the winner may
+        // write the prompt and attempt its (failed) delivery.
+        assert!(outcomes.contains(&RestartContinuationOutcome::Failed));
+        assert!(outcomes.contains(&RestartContinuationOutcome::Skipped));
+        assert!(
+            run(&state).await.entries.is_empty(),
+            "a failed delivery is not replayed"
         );
         let transcript: Vec<(String, String)> = sqlx::query_as(
             "SELECT message_type, content FROM agent_messages
@@ -507,7 +524,6 @@ mod tests {
             app_version: version.map(str::to_string),
             intent: "resume".into(),
             kind: "turn".into(),
-            marker_message_id: None,
             feature_id: 1,
             project_id: 1,
             feature_title: String::new(),

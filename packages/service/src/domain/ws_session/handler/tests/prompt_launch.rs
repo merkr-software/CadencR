@@ -25,7 +25,7 @@ async fn queued_prompt_after_first_launch(headless: bool) {
     state.session_runtimes.bind_feature(1, 1, &sessions).await;
     // The first prompt owns launch while its adapter is starting. Hold that
     // exact claim and install its accepted runtime at a deterministic boundary.
-    let launch = state.session_runtimes.claim_spawn(1).await;
+    let launch = state.session_runtimes.claim_spawn(1).await.unwrap();
     let prompt_state = state.clone();
     let prompt_sessions = sessions.clone();
     let mut queued = tokio::spawn(async move {

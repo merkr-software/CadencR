@@ -54,6 +54,14 @@ pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
     Ok(links)
 }
 
+pub(super) fn links_of(pid: i32) -> io::Result<Option<ProcessLinks>> {
+    match std::fs::read(format!("/proc/{pid}/stat")) {
+        Ok(stat) => Ok(stat_links(&stat)),
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// The kernel's tick count, which `ps -o lstart` would round through the
 /// wall clock (and can shift by a second between calls).
 pub(super) fn start_time(pid: u32) -> Option<String> {
@@ -109,7 +117,7 @@ fn member_is_live(stat: &[u8], pgid: libc::pid_t) -> Option<bool> {
 /// Fields 3 onward of `/proc/<pid>/stat`. The command name (field 2) is in
 /// parentheses and may itself contain spaces and parentheses, so fields are
 /// counted from the last `)`.
-fn stat_fields(stat: &[u8]) -> Option<std::str::SplitWhitespace<'_>> {
+pub(super) fn stat_fields(stat: &[u8]) -> Option<std::str::SplitWhitespace<'_>> {
     // The kernel does not require the command name itself to be UTF-8.
     let end_of_comm = stat.iter().rposition(|byte| *byte == b')')?;
     Some(

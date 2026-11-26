@@ -48,7 +48,7 @@ pub use connection::ws_handler;
 pub(crate) use session_control::{
     owner_sessions, stop_session, suspend_session, AGENT_STARTING, NOTHING_TO_STOP,
 };
-pub(crate) use session_gate::{close_gate, GateCloseRequest};
+pub(crate) use session_gate::{close_gate, notify_gate_closed_on_quit, GateCloseRequest};
 pub use session_prompt::user_shell_recovery::recover_user_shell_context;
 
 #[cfg(test)]

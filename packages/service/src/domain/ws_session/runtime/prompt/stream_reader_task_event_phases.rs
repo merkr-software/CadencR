@@ -79,7 +79,10 @@ impl StreamReaderTask {
         self.observe_reported_model(state, runtime_event).await;
         let had_background_agents = !state.live_background_agents.is_empty();
         track_background_agents(&mut state.live_background_agents, runtime_event);
-        if had_background_agents && state.live_background_agents.is_empty() {
+        if had_background_agents
+            && state.live_background_agents.is_empty()
+            && !runtime_event.is_result()
+        {
             self.end_background_only_stop(state).await;
         }
         self.track_subagents(state, runtime_event, interrupted_generation.is_some())
@@ -87,9 +90,13 @@ impl StreamReaderTask {
         if runtime_event.is_subagent_signal_only() {
             return EventObservation::Consumed;
         }
-        state
+        if state
             .runtime_hold
-            .observe(runtime_event, !state.turn_state.is_between_turns());
+            .observe(runtime_event, !state.turn_state.is_between_turns())
+        {
+            // The new turn's durable handoff removed the stopped turn's row.
+            state.background_work_recorded = false;
+        }
         EventObservation::Continue {
             interrupted_generation,
         }

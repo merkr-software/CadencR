@@ -8,6 +8,23 @@ pub(super) const INTERRUPTED_TOOL_RESULT: &str =
     "Interrupted: Cadencr restarted before this finished.";
 /// The same, for a turn the user stopped by quitting Cadencr.
 pub(super) const QUIT_TOOL_RESULT: &str = "Stopped: Cadencr quit before this finished.";
+pub(super) const STOP_TOOL_RESULT: &str = "Stopped by the user.";
+
+pub(super) async fn insert_marker(
+    conn: &mut SqliteConnection,
+    session_id: i64,
+    content: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "INSERT INTO agent_messages (session_id, role, content, message_type)
+         VALUES (?, 'system', ?, 'turn_interrupted')
+         RETURNING id",
+    )
+    .bind(session_id)
+    .bind(content)
+    .fetch_one(conn)
+    .await
+}
 
 /// Opencode's pre-ACP status key; mirrors the frontend's `extractToolStatus`.
 const LEGACY_OPENCODE_STATUS_KEY: &str = "__opencode_status";

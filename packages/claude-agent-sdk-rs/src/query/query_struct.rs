@@ -230,6 +230,43 @@ mod tests {
 
     use super::super::test_support::{mock_mcp_servers, write_mock_cli};
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn closing_a_query_runs_host_cleanup_before_reaping_its_cli() {
+        use std::{future::Future, pin::Pin, sync::OnceLock};
+
+        #[derive(Default)]
+        struct Exited(OnceLock<u32>);
+        impl cli_discovery::ChildSessionObserver for Exited {
+            fn started(&self, _: u32) {}
+
+            fn before_reap(&self, pid: u32) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move {
+                    self.0.set(pid).unwrap();
+                })
+            }
+        }
+
+        let dir = TempDir::new().unwrap();
+        let path = write_mock_cli(
+            dir.path(),
+            r#"#!/bin/sh
+while IFS= read -r request; do :; done
+"#,
+        );
+        let exited = Arc::new(Exited::default());
+        let options = Options::builder()
+            .cwd(dir.path())
+            .path_to_cli(path)
+            .child_session(cli_discovery::ChildSession::new(exited.clone()))
+            .build();
+        let mut query = query(serde_json::Value::Null, options).await.unwrap();
+        assert!(exited.0.get().is_none());
+        let pid = query.pid().unwrap();
+        query.close().await;
+        assert_eq!(exited.0.get(), Some(&pid));
+    }
+
     #[tokio::test]
     async fn query_stream_from_mock_cli() {
         let dir = TempDir::new().unwrap();

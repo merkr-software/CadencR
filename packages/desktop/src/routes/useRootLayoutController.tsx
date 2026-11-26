@@ -156,7 +156,7 @@ function useRootFeatureActions(route: RootRouteIds) {
     (featureId: number): void => deleteFeatureMutate({ id: featureId }),
     [deleteFeatureMutate],
   );
-  const appClose = useAppClose(queryClient, route.activeFeatureId);
+  const appClose = useAppClose(route.activeFeatureId);
   const { mutate: createSessionMutate } = createSessionMutation;
   const createSession = useCallback(
     (projectId: number): void => {

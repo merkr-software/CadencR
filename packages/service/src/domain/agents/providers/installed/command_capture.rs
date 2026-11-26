@@ -29,7 +29,7 @@ pub(super) async fn run_provider_subcommand(
     let PreparedProviderCommand {
         mut command,
         process_tree_policy,
-    } = prepare_provider_command(executable, args, cwd, None)
+    } = prepare_provider_command(executable, args, cwd, None, None)
         .await
         .map_err(|error| CommandCaptureError::new(format!("could not be prepared: {error}")))?;
     command

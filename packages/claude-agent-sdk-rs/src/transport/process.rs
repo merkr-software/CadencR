@@ -1,3 +1,4 @@
+use cli_discovery::{wait_for_child, ChildSession};
 use std::path::Path;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
@@ -39,7 +40,8 @@ impl ProcessEnd {
 }
 
 pub(crate) struct CliProcess {
-    child: tokio::process::Child,
+    child: Option<tokio::process::Child>,
+    child_session: Option<ChildSession>,
     stdin: Option<BufWriter<ChildStdin>>,
     stdout_lines: Lines<BufReader<ChildStdout>>,
     stderr: StderrCapture,
@@ -50,12 +52,13 @@ pub(crate) struct CliProcess {
 impl CliProcess {
     /// Spawn the Claude CLI process with the given options.
     pub async fn spawn(cli_path: &Path, options: &Options) -> Result<Self, SdkError> {
-        let mut cmd = cli_discovery::login_shell_exec_command(
+        let mut cmd = cli_discovery::login_shell_session_command(
             cli_path.as_os_str(),
             options
                 .to_cli_args()
                 .into_iter()
                 .map(std::ffi::OsString::from),
+            options.child_session.as_ref(),
         );
         cmd.current_dir(&options.cwd);
         cmd.stdin(std::process::Stdio::piped());
@@ -63,8 +66,8 @@ impl CliProcess {
         cmd.stderr(std::process::Stdio::piped());
         // Prevent nested-session detection errors (matches TS SDK behavior).
         cmd.env_remove("CLAUDECODE");
-        #[cfg(unix)]
-        if options.own_process_group {
+        if options.child_session.is_none() && options.own_process_group {
+            #[cfg(unix)]
             cmd.process_group(0);
         }
 
@@ -76,7 +79,11 @@ impl CliProcess {
             }
         }
 
-        let mut child = cmd.spawn().map_err(SdkError::SpawnFailed)?;
+        let mut child = match &options.child_session {
+            Some(session) => session.spawn(cmd).await,
+            None => cmd.spawn(),
+        }
+        .map_err(SdkError::SpawnFailed)?;
 
         let stdin = child.stdin.take().map(BufWriter::new);
 
@@ -87,7 +94,8 @@ impl CliProcess {
         let stderr = StderrCapture::start(child.stderr.take().expect("stderr was piped"));
 
         Ok(Self {
-            child,
+            child: Some(child),
+            child_session: options.child_session.clone(),
             stdin,
             stdout_lines,
             stderr,
@@ -159,25 +167,34 @@ impl CliProcess {
     /// Graceful shutdown: SIGTERM, wait 5 s, then SIGKILL.
     ///
     pub async fn kill(&mut self) -> Result<(), SdkError> {
+        let child = self.child.as_mut().expect("transport owns its child");
+        let grace = std::time::Duration::from_secs(5);
+        if let Some(session) = &self.child_session {
+            return session
+                .terminate(child, grace)
+                .await
+                .map(|_| ())
+                .map_err(SdkError::IoError);
+        }
         #[cfg(unix)]
-        if let Some(pid) = self.child.id() {
+        if let Some(pid) = child.id() {
             unsafe {
                 libc::kill(pid as libc::pid_t, libc::SIGTERM);
             }
         }
 
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                self.child.kill().await.map_err(SdkError::IoError)?;
-                Ok(())
-            }
+        match tokio::time::timeout(grace, child.wait()).await {
+            Ok(result) => result.map(|_| ()).map_err(SdkError::IoError),
+            Err(_) => child.kill().await.map_err(SdkError::IoError),
         }
     }
 
     /// Wait for the process to exit; report how, with the captured stderr.
     pub async fn wait_with_stderr(&mut self) -> ProcessEnd {
-        let status = self.child.wait().await.ok();
+        let child = self.child.as_mut().expect("transport owns its child");
+        let status = wait_for_child(child, self.child_session.as_ref())
+            .await
+            .ok();
         let stderr = self.stderr.finish().await;
         ProcessEnd {
             code: status.and_then(|status| status.code()),
@@ -191,7 +208,7 @@ impl CliProcess {
     /// Currently unused — kept as part of the public transport API for future use.
     #[allow(dead_code)]
     pub fn pid(&self) -> Option<u32> {
-        self.child.id()
+        self.child.as_ref()?.id()
     }
 
     /// Cancelled when this handle is dropped: by then the process has exited
@@ -223,14 +240,26 @@ impl Drop for CliProcess {
         // Safety net: if the process is still running when CliProcess is dropped
         // (e.g. tokio task abort, panic, or missed cleanup), send SIGKILL to
         // prevent zombie CLI processes that consume tokens in the background.
-        if let Some(pid) = self.child.id() {
+        if let Some(mut child) = self.child.take().filter(|child| child.id().is_some()) {
             tracing::warn!(
-                pid,
+                pid = ?child.id(),
                 "CliProcess dropped with live process — sending SIGKILL"
             );
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
+            if let Err(error) = child.start_kill() {
+                tracing::warn!(%error, "could not kill the dropped CLI");
+            }
+            if let (Some(session), Ok(runtime)) = (
+                self.child_session.take(),
+                tokio::runtime::Handle::try_current(),
+            ) {
+                let ended = self.ended.clone();
+                runtime.spawn(async move {
+                    if let Err(error) = wait_for_child(&mut child, Some(&session)).await {
+                        tracing::warn!(%error, "could not reap the dropped CLI");
+                    }
+                    ended.cancel();
+                });
+                return;
             }
         }
         self.ended.cancel();
@@ -257,7 +286,8 @@ mod tests {
         let stderr = StderrCapture::start(child.stderr.take().unwrap());
         let mut process = CliProcess {
             stdin: child.stdin.take().map(BufWriter::new),
-            child,
+            child: Some(child),
+            child_session: None,
             stdout_lines: BufReader::new(stdout).lines(),
             stderr,
             ended: CancellationToken::new(),
@@ -344,7 +374,8 @@ mod tests {
         let stderr = StderrCapture::start(stderr);
 
         let cli_process = CliProcess {
-            child,
+            child: Some(child),
+            child_session: None,
             stdin: None,
             stdout_lines: tokio::io::BufReader::new(stdout).lines(),
             stderr,

@@ -46,6 +46,8 @@ pub struct AppServerSpawnOptions {
     pub client_info: AppServerClientInfo,
     pub request_timeout: Option<Duration>,
     pub max_line_bytes: Option<usize>,
+    /// A host-owned process session, kept until its child processes settle.
+    pub child_session: Option<cli_discovery::ChildSession>,
 }
 
 impl CodexAppServerClient {
@@ -57,6 +59,7 @@ impl CodexAppServerClient {
             &args,
             options.env.as_ref(),
             &options.env_unset,
+            options.child_session.as_ref(),
         );
         if let Some(cwd) = options.cwd {
             command.current_dir(cwd);
@@ -66,7 +69,10 @@ impl CodexAppServerClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn()?;
+        let mut child = match &options.child_session {
+            Some(session) => session.spawn(command).await?,
+            None => command.spawn()?,
+        };
         let pid = child.id();
         let stdin = child
             .stdin
@@ -131,6 +137,7 @@ impl CodexAppServerClient {
                 pending,
                 inner.events.clone(),
                 Arc::clone(&inner.exit),
+                options.child_session,
             ));
         Ok(Self { inner })
     }

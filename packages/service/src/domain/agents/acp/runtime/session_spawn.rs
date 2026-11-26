@@ -41,6 +41,7 @@ use super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
 /// Options for [`spawn_acp_runtime_session`].
 pub struct AcpRuntimeSpawnArgs {
     pub command: tokio::process::Command,
+    pub child_session: Option<cli_discovery::ChildSession>,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,
     pub client_info: AcpClientInfo,
     pub stderr_policy: AcpStderrPolicy,
@@ -63,6 +64,7 @@ pub async fn spawn_acp_runtime_session(
 ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
     let AcpRuntimeSpawnArgs {
         command,
+        child_session,
         spawn_guard,
         client_info,
         stderr_policy,
@@ -88,6 +90,7 @@ pub async fn spawn_acp_runtime_session(
             .client_info(client_info)
             .stderr_policy(stderr_policy)
             .process_tree_policy(process_tree_policy)
+            .maybe_child_session(child_session)
             .exclude_launcher_ports(hooks.exclude_launcher_ports())
             .maybe_spawn_guard(spawn_guard)
             .maybe_wire_transform(wire_transform)

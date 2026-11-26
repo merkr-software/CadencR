@@ -71,7 +71,6 @@ impl CliProcesses {
         processes
     }
 
-    #[cfg(test)]
     pub(super) fn untracked() -> Self {
         Self {
             cli: None,

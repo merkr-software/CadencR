@@ -84,8 +84,10 @@ export function pumpLogs(
   child: ServiceProcess,
   onStatus: (update: SidecarStatusUpdate) => void,
   stderrTail: string[],
+  onStdout: (line: string) => void,
 ): void {
   forwardStream(child.stdout, "info", (line) => {
+    onStdout(line);
     const phaseUpdate = parsePhaseLine(line);
     if (phaseUpdate) onStatus(phaseUpdate);
   });

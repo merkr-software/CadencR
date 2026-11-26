@@ -71,16 +71,6 @@ impl WsSessionPersistence {
         tx.commit().await
     }
 
-    /// Mark in the transcript that the user stopped the turn, so the
-    /// conversation reads "stopped by you" (with a resume affordance) instead
-    /// of whatever the provider wrote for the aborted tool call — on every
-    /// device and after a reload.
-    pub async fn persist_turn_interrupted_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(error) = insert_turn_interrupted(pool, session_id, "").await {
-            tracing::error!(session_id, error = %error, "failed to persist the turn-interrupted marker");
-        }
-    }
-
     /// Mark in the transcript that a Stop cancelled the manual compaction
     /// before it began: after a reload, and on the other devices once they
     /// load it, the `/compact` row reads "compaction stopped", not a failure.

@@ -14,6 +14,15 @@ use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod owned_session;
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+pub(crate) use owned_session::{owned_process_is_live, stop_pinned_session};
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) use owned_session::{
+    pinned_session_has_work, stop_verified_tree, BootIdentity, SessionAnchor,
+};
+
 /// Where a process sits in the process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProcessLinks {
@@ -110,7 +119,7 @@ mod platform {
     /// `None` when the process is gone or belongs to another user (EPERM).
     fn pid_cwd(pid: i32) -> io::Result<Option<PathBuf>> {
         let info: libc::proc_vnodepathinfo =
-            match read_pid_info(pid, libc::PROC_PIDVNODEPATHINFO, 0) {
+            match read_pid_info(pid, libc::PROC_PIDVNODEPATHINFO) {
                 Ok(Some(info)) => info,
                 Ok(None) => return Ok(None),
                 Err(error) if matches!(error.raw_os_error(), Some(libc::EPERM | libc::EACCES)) => {
@@ -146,6 +155,18 @@ mod platform {
             .collect())
     }
 
+    pub(super) fn links_of(pid: i32) -> io::Result<Option<ProcessLinks>> {
+        let Some(info) =
+            read_pid_info::<libc::proc_bsdshortinfo>(pid, libc::PROC_PIDT_SHORTBSDINFO)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(ProcessLinks {
+            ppid: i32::try_from(info.pbsi_ppid).map_err(io::Error::other)?,
+            pgid: i32::try_from(info.pbsi_pgid).map_err(io::Error::other)?,
+        }))
+    }
+
     /// The kernel's own start time, the one `ps -o lstart` prints.
     pub(super) fn start_time(pid: u32) -> Option<String> {
         let info: libc::proc_bsdinfo =
@@ -162,7 +183,7 @@ mod platform {
         let arg = u64::from(include_exiting);
         for pid in group_pids(pgid)? {
             let info: Option<libc::proc_bsdshortinfo> =
-                read_pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO, arg)?;
+                read_pid_info_with_arg(pid, libc::PROC_PIDT_SHORTBSDINFO, arg)?;
             let live_member = info.is_some_and(|info| {
                 i32::try_from(info.pbsi_pgid) == Ok(pgid) && info.pbsi_status != libc::SZOMB
             });
@@ -205,20 +226,24 @@ mod platform {
         }
     }
 
-    fn all_pids() -> io::Result<Vec<i32>> {
+    pub(super) fn all_pids() -> io::Result<Vec<i32>> {
         loop {
+            // SAFETY: errno is this thread's own.
+            unsafe { *libc::__error() = 0 };
             // SAFETY: a null buffer only asks for the table's size.
             let estimate = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-            let estimate = usize::try_from(estimate).map_err(|_| io::Error::last_os_error())?;
+            let estimate = all_pid_count(estimate)?;
             // Room for processes started meanwhile; a full buffer may have
             // missed some, so read again.
             let capacity = estimate + 64;
             let mut pids = vec![0 as libc::pid_t; capacity];
             let bytes = libc::c_int::try_from(capacity * size_of::<libc::pid_t>())
                 .map_err(io::Error::other)?;
+            // SAFETY: errno is this thread's own.
+            unsafe { *libc::__error() = 0 };
             // SAFETY: the buffer holds `bytes` bytes of pids.
             let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
-            let count = usize::try_from(count).map_err(|_| io::Error::last_os_error())?;
+            let count = all_pid_count(count)?;
             if count < capacity {
                 pids.truncate(count);
                 return Ok(pids);
@@ -226,14 +251,32 @@ mod platform {
         }
     }
 
+    fn all_pid_count(count: libc::c_int) -> io::Result<usize> {
+        match listed_count(count, io::Error::last_os_error())? {
+            0 => Err(io::Error::other(
+                "the kernel returned an empty process table",
+            )),
+            count => Ok(count),
+        }
+    }
+
     /// One `proc_pidinfo` flavor, `None` when the process is gone or the
     /// flavor is refused for it.
     fn pid_info<T: Copy>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
-        read_pid_info(pid, flavor, 0).ok().flatten()
+        read_pid_info(pid, flavor).ok().flatten()
     }
 
-    /// One `proc_pidinfo` flavor, `None` when the kernel returns ESRCH.
-    fn read_pid_info<T: Copy>(
+    /// One `proc_pidinfo` flavor, `None` only when the process is gone
+    /// (ESRCH, which an exited, unreaped process answers too).
+    pub(super) fn read_pid_info<T: Copy>(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+    ) -> io::Result<Option<T>> {
+        read_pid_info_with_arg(pid, flavor, 0)
+    }
+
+    /// One `proc_pidinfo` flavor with an explicit `arg`, `None` when the kernel returns ESRCH.
+    pub(super) fn read_pid_info_with_arg<T: Copy>(
         pid: libc::c_int,
         flavor: libc::c_int,
         arg: u64,

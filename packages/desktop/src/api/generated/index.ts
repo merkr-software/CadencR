@@ -76,6 +76,14 @@ export interface AcpAgentEntry {
   [key: string]: unknown;
 }
 
+export interface ActiveCloseWork {
+  background_only: boolean;
+  feature_id: number;
+  label: string;
+  session_id: number;
+  waiting_on_you: boolean;
+}
+
 export interface AgentDigestToolOutcome {
   /**
    * The start of a failed call's output, which says why, line breaks kept;
@@ -2696,6 +2704,7 @@ export type GateCloseReason = (typeof GateCloseReason)[keyof typeof GateCloseRea
 export const GateCloseReason = {
   sleep: "sleep",
   escape: "escape",
+  quit: "quit",
 } as const;
 
 export interface GateClosePayload {
@@ -32914,6 +32923,177 @@ export const useRemoteSetTunnelHost = <TError = ErrorType<unknown>, TContext = u
   TContext
 > => {
   return useMutation(getRemoteSetTunnelHostMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary List conversations with active turns or background work for the close dialog.
+ */
+export const getActiveCloseWork = (signal?: AbortSignal) => {
+  return customInstance<ActiveCloseWork[]>({
+    url: `/api/restart-continuations/active-work`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetActiveCloseWorkQueryKey = () => {
+  return [`/api/restart-continuations/active-work`] as const;
+};
+
+export const getGetActiveCloseWorkQueryOptions = <
+  TData = Awaited<ReturnType<typeof getActiveCloseWork>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getActiveCloseWork>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetActiveCloseWorkQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveCloseWork>>> = ({ signal }) =>
+    getActiveCloseWork(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getActiveCloseWork>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetActiveCloseWorkQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getActiveCloseWork>>
+>;
+export type GetActiveCloseWorkQueryError = ErrorType<unknown>;
+
+export function useGetActiveCloseWork<
+  TData = Awaited<ReturnType<typeof getActiveCloseWork>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getActiveCloseWork>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getActiveCloseWork>>,
+          TError,
+          Awaited<ReturnType<typeof getActiveCloseWork>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetActiveCloseWork<
+  TData = Awaited<ReturnType<typeof getActiveCloseWork>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getActiveCloseWork>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getActiveCloseWork>>,
+          TError,
+          Awaited<ReturnType<typeof getActiveCloseWork>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetActiveCloseWork<
+  TData = Awaited<ReturnType<typeof getActiveCloseWork>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getActiveCloseWork>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary List conversations with active turns or background work for the close dialog.
+ */
+
+export function useGetActiveCloseWork<
+  TData = Awaited<ReturnType<typeof getActiveCloseWork>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getActiveCloseWork>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetActiveCloseWorkQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Stop active work before the desktop quits, including its owned processes.
+ */
+export const stopLiveWorkForQuit = (signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/restart-continuations/prepare-desktop-quit`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getStopLiveWorkForQuitMutationKey = () => ["stopLiveWorkForQuit"] as const;
+
+export const getStopLiveWorkForQuitMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopLiveWorkForQuit>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<Awaited<ReturnType<typeof stopLiveWorkForQuit>>, TError, void, TContext> => {
+  const mutationKey = getStopLiveWorkForQuitMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof stopLiveWorkForQuit>>,
+    void
+  > = () => {
+    return stopLiveWorkForQuit();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StopLiveWorkForQuitMutationResult = NonNullable<
+  Awaited<ReturnType<typeof stopLiveWorkForQuit>>
+>;
+
+export type StopLiveWorkForQuitMutationError = ErrorType<void>;
+
+/**
+ * @summary Stop active work before the desktop quits, including its owned processes.
+ */
+export const useStopLiveWorkForQuit = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof stopLiveWorkForQuit>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof stopLiveWorkForQuit>>, TError, void, TContext> => {
+  return useMutation(getStopLiveWorkForQuitMutationOptions(options), queryClient);
 };
 
 /**

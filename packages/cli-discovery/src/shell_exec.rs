@@ -2,6 +2,8 @@ use std::ffi::OsStr;
 
 use tokio::process::Command;
 
+use crate::{session_command, ChildSession};
+
 /// Build a command that asks the user's shell to `exec` a program.
 ///
 /// The service process is already hydrated from the user's shell environment
@@ -14,14 +16,30 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    login_shell_command(&login_shell_exec_script(program, args))
+    login_shell_session_command(program, args, None)
+}
+
+pub fn login_shell_session_command<I, S>(
+    program: &OsStr,
+    args: I,
+    session: Option<&ChildSession>,
+) -> Command
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    shell_command(&login_shell_exec_script(program, args), session)
 }
 
 /// Build `$SHELL -l -c <script>`, falling back to `/bin/sh -c` when `$SHELL`
 /// is unset.
 pub fn login_shell_command(script: &str) -> Command {
+    shell_command(script, None)
+}
+
+fn shell_command(script: &str, session: Option<&ChildSession>) -> Command {
     let (shell, login) = shell_program();
-    let mut command = Command::new(shell);
+    let mut command = session_command(shell, session);
     if login {
         command.arg("-l");
     }

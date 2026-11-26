@@ -160,18 +160,28 @@ pub(crate) async fn claim(
     };
     Ok(sqlx::query_as(concat!(
         "UPDATE agent_session_prompt_queue
-         SET status = 'delivering', error = NULL, attempt_count = attempt_count + 1,
+         SET status = 'delivering', attempt_count = attempt_count + 1,
              updated_at = datetime('now')
          WHERE id = (
              SELECT id FROM agent_session_prompt_queue
-             WHERE session_id = ?
-               AND (status = 'pending' OR (? IS NOT NULL AND status = 'error'))
-               AND (? IS NULL OR id = ?)
-               AND (? = 0 OR origin_kind = 'session')
+             WHERE session_id = ?1
+               AND (status = 'pending' OR (?2 IS NOT NULL AND status = 'error'))
+               AND (?2 IS NULL OR id = ?2)
+               AND (?3 = 0 OR origin_kind = 'session')
                AND NOT EXISTS (
                    SELECT 1 FROM agent_session_prompt_queue
-                   WHERE session_id = ? AND status = 'delivering'
+                   WHERE session_id = ?1 AND status = 'delivering'
                )
+               AND (?2 IS NOT NULL OR NOT EXISTS (
+                   SELECT 1 FROM restart_continuations r
+                   WHERE r.session_id = ?1 AND r.intent = 'stop'
+                     AND (r.state = 'pending' OR r.reason = 'stopped_on_quit')
+                     AND NOT EXISTS (
+                         SELECT 1 FROM agent_messages m
+                         WHERE m.session_id = ?1 AND m.message_type = 'user_message'
+                           AND m.id > r.marker_message_id
+                     )
+               ))
              ORDER BY origin_kind = 'session', id LIMIT 1
          )
          RETURNING ",
@@ -180,10 +190,7 @@ pub(crate) async fn claim(
     ))
     .bind(session_id)
     .bind(id)
-    .bind(id)
-    .bind(id)
     .bind(pick == Pick::NextAgentMessage)
-    .bind(session_id)
     .fetch_optional(pool)
     .await?)
 }
@@ -191,8 +198,23 @@ pub(crate) async fn claim(
 pub(crate) async fn mark_delivered(pool: &sqlx::SqlitePool, id: i64) -> Result<(), AppError> {
     sqlx::query(
         "UPDATE agent_session_prompt_queue
-         SET status = 'delivered', delivered_at = datetime('now'), updated_at = datetime('now')
+         SET status = 'delivered', error = NULL, delivered_at = datetime('now'), updated_at = datetime('now')
          WHERE id = ?",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// A quit fence rejected the delivery before any provider was contacted.
+/// Restore the previous queue state and leave its retry budget intact.
+pub(super) async fn defer_claim(pool: &sqlx::SqlitePool, id: i64) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE agent_session_prompt_queue
+         SET status = CASE WHEN error IS NULL THEN 'pending' ELSE 'error' END,
+             attempt_count = MAX(attempt_count - 1, 0), updated_at = datetime('now')
+         WHERE id = ? AND status = 'delivering'",
     )
     .bind(id)
     .execute(pool)
@@ -278,6 +300,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_quit_holds_the_queue_until_the_user_starts_another_turn() {
+        let (pool, session) = pool_with_session().await;
+        let queued = enqueue(&pool, session, "continue").await.unwrap();
+        let agent =
+            enqueue_agent_message(&pool, session, 2, "Agent follow-up", uuid::Uuid::new_v4())
+                .await
+                .unwrap();
+        let marker: i64 = sqlx::query_scalar(
+            "INSERT INTO agent_messages (session_id, role, content, message_type)
+             VALUES (?, 'system', 'quit_background', 'turn_interrupted') RETURNING id",
+        )
+        .bind(session)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO restart_continuations
+             (session_id, cause, intent, state, reason, marker_message_id)
+             VALUES (?, 'shutdown', 'stop', 'skipped', 'stopped_on_quit', ?)",
+        )
+        .bind(session)
+        .bind(marker)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(claim(&pool, session, Pick::Next).await.unwrap().is_none());
+        assert!(claim(&pool, session, Pick::NextAgentMessage)
+            .await
+            .unwrap()
+            .is_none());
+        let open = list_open(&pool, session).await.unwrap();
+        assert_eq!(open.len(), 2);
+        assert!(open
+            .iter()
+            .all(|row| row.status == QueuedPromptStatus::Pending));
+
+        sqlx::query(
+            "INSERT INTO agent_messages (session_id, role, content, message_type)
+                     VALUES (?, 'user', 'Resume', 'user_message')",
+        )
+        .bind(session)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            claim(&pool, session, Pick::Next).await.unwrap().unwrap().id,
+            queued.id
+        );
+        mark_delivered(&pool, queued.id).await.unwrap();
+        assert_eq!(
+            claim(&pool, session, Pick::NextAgentMessage)
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            agent.id
+        );
+    }
+
+    #[tokio::test]
     async fn enqueue_list_and_claim_in_order() {
         let (pool, session) = pool_with_session().await;
         let first = enqueue(&pool, session, "first").await.unwrap();
@@ -355,12 +438,43 @@ mod tests {
         assert_eq!(retried.id, prompt.id);
         assert_eq!(retried.content, "retry me");
         assert_eq!(retried.status, QueuedPromptStatus::Delivering);
-        assert!(retried.error.is_none());
+        assert!(get_open(&pool, session, prompt.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .error
+            .is_none());
         mark_delivered(&pool, prompt.id).await.unwrap();
         assert!(claim(&pool, session, Pick::Row(prompt.id))
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn deferring_a_claim_at_quit_restores_the_previous_error_and_attempt_count() {
+        let (pool, session) = pool_with_session().await;
+        let prompt = enqueue(&pool, session, "retry me").await.unwrap();
+        let first = claim(&pool, session, Pick::Next).await.unwrap().unwrap();
+        defer_claim(&pool, first.id).await.unwrap();
+        let first = claim(&pool, session, Pick::Next).await.unwrap().unwrap();
+        assert_eq!(first.attempt_count, 1);
+        mark_error(&pool, first.id, "agent offline").await.unwrap();
+
+        let retry = claim(&pool, session, Pick::Row(prompt.id))
+            .await
+            .unwrap()
+            .unwrap();
+        defer_claim(&pool, retry.id).await.unwrap();
+        assert!(claim(&pool, session, Pick::Next).await.unwrap().is_none());
+        let open = get_open(&pool, session, prompt.id).await.unwrap().unwrap();
+        assert_eq!(open.status, QueuedPromptStatus::Error);
+        assert_eq!(open.error.as_deref(), Some("agent offline"));
+        let retry = claim(&pool, session, Pick::Row(prompt.id))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.attempt_count, 2);
     }
 
     #[tokio::test]

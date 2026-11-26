@@ -67,6 +67,10 @@ pub struct Config {
     #[arg(long)]
     pub exit_with_parent: bool,
 
+    /// Identifies this packaged desktop's service for a quit after it crashes.
+    #[arg(long)]
+    pub desktop_quit_epoch: Option<uuid::Uuid>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

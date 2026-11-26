@@ -4,9 +4,10 @@
 //! session's lock, so a blocked provider never holds up unrelated sessions.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 
-use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard};
+use tokio::sync::{Mutex, MutexGuard, OwnedMutexGuard, OwnedRwLockWriteGuard, RwLock};
 
 use super::detached_closes::{DetachedCloseLease, DetachedCloses};
 use super::state::{new_sdk_sessions, QueryState, SdkHandle, SdkSessions};
@@ -15,6 +16,18 @@ pub(crate) use launch_fence::LaunchFence;
 use launch_fence::LaunchFences;
 
 mod launch_fence;
+
+pub(crate) const APP_QUITTING: &str =
+    "Cadencr is still stopping agents for quit. Try again when the stop completes.";
+pub(crate) const APP_QUITTING_CODE: &str = "APP_QUITTING";
+
+pub(crate) fn quit_conflict() -> crate::error::AppError {
+    crate::error::AppError::coded(
+        axum::http::StatusCode::CONFLICT,
+        APP_QUITTING_CODE,
+        APP_QUITTING,
+    )
+}
 
 struct RuntimeEntry {
     cell: SdkSessions,
@@ -31,6 +44,9 @@ pub(crate) struct SessionRuntimeRegistry {
     retirement: Mutex<()>,
     detached_closes: DetachedCloses,
     fences: LaunchFences,
+    launch_admission: Arc<RwLock<()>>,
+    quit_admission: StdMutex<Option<OwnedRwLockWriteGuard<()>>>,
+    desktop_owned: AtomicBool,
 }
 
 impl SessionRuntimeRegistry {
@@ -125,7 +141,8 @@ impl SessionRuntimeRegistry {
     /// not take this claim, and registration releases it before delivery waits.
     /// A launch also waits for detached closes, so the conversation never
     /// resumes in a second process while the previous one still runs.
-    pub(crate) async fn claim_spawn(&self, session_id: i64) -> OwnedMutexGuard<()> {
+    pub(crate) async fn claim_spawn(&self, session_id: i64) -> Option<OwnedMutexGuard<()>> {
+        let _admitted = self.launch_admission.try_read().ok()?;
         let launch = self
             .sessions
             .lock()
@@ -141,7 +158,62 @@ impl SessionRuntimeRegistry {
             .clone();
         let claim = launch.lock_owned().await;
         self.detached_closes.finished(session_id).await;
-        claim
+        Some(claim)
+    }
+
+    pub(crate) fn accepting_prompts(&self) -> bool {
+        self.launch_admission.try_read().is_ok()
+    }
+
+    /// Let admitted launches settle, then keep new launches from crossing the
+    /// desktop's quit until its current runtimes are completely stopped.
+    pub(crate) async fn quiesce_launches(&self) -> (Option<OwnedRwLockWriteGuard<()>>, Vec<i64>) {
+        let already_fenced = self
+            .quit_admission
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some();
+        let admission = if already_fenced {
+            None
+        } else {
+            Some(self.launch_admission.clone().write_owned().await)
+        };
+        let entries: Vec<_> = self
+            .sessions
+            .lock()
+            .await
+            .iter()
+            .map(|(&id, entry)| (id, entry.launch.clone()))
+            .collect();
+        let launches = entries.iter().map(|(id, launch)| async move {
+            drop(launch.lock().await);
+            self.detached_closes.finished(*id).await;
+        });
+        futures::future::join_all(launches).await;
+        (admission, entries.into_iter().map(|(id, _)| id).collect())
+    }
+
+    /// A quit may fail after recording the stops. Keep its fence for a retry,
+    /// and after a packaged acknowledgement until that service exits.
+    pub(crate) fn finish_quit_admission(
+        &self,
+        admission: Option<OwnedRwLockWriteGuard<()>>,
+        stopped: bool,
+        accepted: bool,
+    ) {
+        let mut retained = self
+            .quit_admission
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if stopped && !(accepted && self.desktop_owned.load(Ordering::Relaxed)) {
+            drop(retained.take());
+        } else if let Some(admission) = admission {
+            *retained = Some(admission);
+        }
+    }
+
+    pub(crate) fn set_desktop_owned(&self) {
+        self.desktop_owned.store(true, Ordering::Relaxed);
     }
 
     /// Wait until no launch of `session_id` holds its claim: the runtime it
@@ -286,6 +358,22 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn quit_waits_for_an_admitted_launch_and_fences_its_successor() {
+        let registry = SessionRuntimeRegistry::new();
+        let launch = registry.claim_spawn(4).await.unwrap();
+        let mut quit = std::pin::pin!(registry.quiesce_launches());
+        assert!(futures::poll!(&mut quit).is_pending());
+
+        drop(launch);
+        let (admission, sessions) = quit.await;
+        assert_eq!(sessions, [4]);
+        assert!(registry.claim_spawn(4).await.is_none());
+
+        drop(admission);
+        assert!(registry.claim_spawn(4).await.is_some());
+    }
+
+    #[tokio::test]
     async fn a_conversation_of_a_moving_project_binds_once_the_move_is_over() {
         let registry = Arc::new(SessionRuntimeRegistry::new());
         let bound = new_sdk_sessions();
@@ -325,7 +413,7 @@ mod tests {
         let close = registry.begin_detached_close(3);
         let launch = {
             let registry = registry.clone();
-            tokio::spawn(async move { drop(registry.claim_spawn(3).await) })
+            tokio::spawn(async move { drop(registry.claim_spawn(3).await.unwrap()) })
         };
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         assert!(!launch.is_finished(), "the old runtime is still closing");
@@ -342,7 +430,7 @@ mod tests {
     async fn a_spawn_past_its_claim_still_waits_for_a_later_detach() {
         let registry = Arc::new(SessionRuntimeRegistry::new());
         let cell = new_sdk_sessions();
-        let claim = registry.claim_spawn(5).await;
+        let claim = registry.claim_spawn(5).await.unwrap();
         // Detached after the claim's own wait, before the spawn reads the cell.
         let close = registry.begin_detached_close(5);
         let read = {
@@ -446,9 +534,9 @@ mod tests {
     async fn cancelled_spawn_claim_releases_queued_launcher() {
         let registry = Arc::new(SessionRuntimeRegistry::new());
         drop(registry.bind(1, &new_sdk_sessions()).await);
-        let first = registry.claim_spawn(1).await;
+        let first = registry.claim_spawn(1).await.unwrap();
         let queued_registry = registry.clone();
-        let queued = tokio::spawn(async move { queued_registry.claim_spawn(1).await });
+        let queued = tokio::spawn(async move { queued_registry.claim_spawn(1).await.unwrap() });
         tokio::task::yield_now().await;
         assert!(!queued.is_finished());
         drop(first);

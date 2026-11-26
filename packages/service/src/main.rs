@@ -3,14 +3,39 @@
 //! with `mod` would build a second full copy of the service.
 #![deny(clippy::let_underscore_must_use, clippy::unused_result_ok)] // as in lib.rs
 
+use std::path::Path;
+
 use cadencr_service::{config, dev_env, domain, shutdown, startup};
 
 use clap::Parser;
 
 use config::{Command, Config};
 
+fn main() -> anyhow::Result<()> {
+    if let Some(result) = cli_discovery::process_session_entrypoint() {
+        return result.map_err(Into::into);
+    }
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--internal-desktop-quit-cleanup")) {
+        let (Some(database), Some(epoch), None) = (args.next(), args.next(), args.next()) else {
+            anyhow::bail!("expected a database path and a desktop quit epoch");
+        };
+        let epoch = epoch
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("invalid desktop quit epoch"))?
+            .parse()?;
+        return run_quit_cleanup(Path::new(&database), epoch);
+    }
+    run_service()
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn run_quit_cleanup(database: &Path, epoch: uuid::Uuid) -> anyhow::Result<()> {
+    startup::run_desktop_quit_cleanup(database, epoch).await
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn run_service() -> anyhow::Result<()> {
     // Only debug builds touch the dev `.env`. Release binaries shipped inside
     // the desktop app must not pick up whatever happens to live next to the
     // source tree on the developer machine — that is exactly how the prod

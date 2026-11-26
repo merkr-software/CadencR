@@ -275,9 +275,20 @@ export class BrowserManager {
   }
   async prepareForShutdown(): Promise<void> {
     this.agentAccess.cancelAll();
-    await prepareBrowserShutdown(this.downloads, () =>
-      this.workspace.prepareForShutdown(this.tabs, this.scopes.active),
-    );
+    await prepareBrowserShutdown(this.downloads, () => this.saveWorkspaceForQuit());
+  }
+
+  saveWorkspaceForQuit(): Promise<void> {
+    return this.workspace.prepareForShutdown(this.tabs, this.scopes.active);
+  }
+
+  resumeAfterShutdownAbort(): void {
+    this.workspace.resumeAfterShutdownAbort();
+  }
+
+  async finishVoluntaryQuit(): Promise<void> {
+    this.agentAccess.cancelAll();
+    await prepareBrowserShutdown(this.downloads, () => Promise.resolve());
   }
 
   setBounds(

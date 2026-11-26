@@ -63,12 +63,12 @@ impl WsSessionPersistence {
     /// defensively when the handler doesn't know which kind was stored
     /// (e.g. `session_control::handle_permission_respond` after any
     /// Allow/Deny, and `session_init` reconnect cleanup).
-    pub(crate) async fn try_clear_all_pending_user_input_static(
-        pool: &SqlitePool,
+    pub(crate) async fn try_clear_all_pending_user_input_static<'e>(
+        executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
         session_id: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE agent_sessions SET pending_permission = NULL, pending_questions = NULL WHERE id = ?")
-            .bind(session_id).execute(pool).await?;
+            .bind(session_id).execute(executor).await?;
         Ok(())
     }
 }

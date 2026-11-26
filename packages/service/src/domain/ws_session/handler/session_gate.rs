@@ -138,6 +138,26 @@ pub(super) async fn clear_persisted_gate_and_notify(
     Ok(true)
 }
 
+/// Publish the dismissal after the quit has durably closed the dead gate.
+pub(crate) async fn notify_gate_closed_on_quit(
+    app_state: &AppState,
+    session_id: i64,
+    feature_id: i64,
+) {
+    send_gate_closed(
+        &crate::domain::ws_session::runtime::output::SessionOutput::headless(),
+        app_state,
+        GateClosed {
+            db_session_id: session_id,
+            feature_id,
+            request_id: None,
+            reason: GateCloseReason::Quit,
+            ref_id: None,
+        },
+    )
+    .await;
+}
+
 /// A closed gate, as `gate.closed` reports it.
 struct GateClosed<'a> {
     db_session_id: i64,

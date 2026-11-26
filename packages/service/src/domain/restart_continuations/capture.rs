@@ -6,18 +6,10 @@ use std::sync::OnceLock;
 
 use sqlx::SqlitePool;
 
-use super::store::{self, Cause, Intent, Intents};
+use super::store::{self, CaptureScope, Cause, Intent};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-/// Whether the turns this shutdown cuts off are resumed on the next start.
-/// The desktop turns it off right before it stops the service when the user
-/// quits and chooses to stop their agents; every other stop resumes them.
-static RESUME_ON_SHUTDOWN: AtomicBool = AtomicBool::new(true);
-/// The same for background work between turns. The desktop also turns it off
-/// when the user quits with no agent working: nothing asked them, so nothing
-/// comes back on its own.
-static RESUME_BACKGROUND_ON_SHUTDOWN: AtomicBool = AtomicBool::new(true);
 static APP_VERSION: OnceLock<String> = OnceLock::new();
 static STARTUP_CAPTURE_ERROR: OnceLock<String> = OnceLock::new();
 
@@ -42,25 +34,6 @@ pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
 }
 
-pub(super) fn set_resume_on_shutdown(turns: bool, background_work: bool) {
-    RESUME_ON_SHUTDOWN.store(turns, Ordering::SeqCst);
-    RESUME_BACKGROUND_ON_SHUTDOWN.store(background_work, Ordering::SeqCst);
-}
-
-fn shutdown_intent() -> Intents {
-    let intent = |resume: &AtomicBool| {
-        if resume.load(Ordering::SeqCst) {
-            Intent::Resume
-        } else {
-            Intent::Stop
-        }
-    };
-    Intents {
-        turn: intent(&RESUME_ON_SHUTDOWN),
-        background: intent(&RESUME_BACKGROUND_ON_SHUTDOWN),
-    }
-}
-
 /// Capture every turn still running, before shutdown closes their runtimes.
 ///
 /// Runs first in the shutdown teardown: once the runtimes close, their readers
@@ -70,14 +43,7 @@ fn shutdown_intent() -> Intents {
 /// ([`capture_cut_off_turn`]).
 pub async fn begin_shutdown(pool: &SqlitePool) {
     SHUTTING_DOWN.store(true, Ordering::SeqCst);
-    match store::capture_running(
-        pool,
-        Cause::Shutdown,
-        shutdown_intent(),
-        Some(app_version()),
-    )
-    .await
-    {
+    match capture_shutdown(pool, CaptureScope::All).await {
         Ok(0) => {}
         Ok(count) => tracing::info!(count, "captured agent turns interrupted by shutdown"),
         Err(error) => {
@@ -88,18 +54,51 @@ pub async fn begin_shutdown(pool: &SqlitePool) {
 
 /// Capture one turn (or background work) shutdown just cut off, unless
 /// [`begin_shutdown`] already did. Called by its stream reader before it
-/// pauses the session or forgets the work. There is no
-/// client left to tell about a failure: that turn is then left paused, not
-/// resumed. Returns whether the capture was written, so a reader keeps its
-/// background-work record for the next start when it was not.
+/// pauses the session. A failed capture leaves the session running in
+/// storage so that the next start can retry.
 pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) -> bool {
-    match store::capture_session(pool, session_id, shutdown_intent(), Some(app_version())).await {
+    match capture_shutdown(pool, CaptureScope::Session(session_id)).await {
         Ok(_) => true,
         Err(error) => {
             tracing::error!(session_id, %error, "failed to capture an agent turn cut off by shutdown");
             false
         }
     }
+}
+
+pub(crate) async fn end_background_work(
+    pool: &SqlitePool,
+    session_id: i64,
+    reader_id: &str,
+    shutting_down: bool,
+) -> Result<(), sqlx::Error> {
+    if shutting_down {
+        capture_shutdown(
+            pool,
+            CaptureScope::Background {
+                session_id,
+                reader_id,
+            },
+        )
+        .await?;
+    }
+    super::background_work::write_background_work(pool, session_id, reader_id, None).await?;
+    Ok(())
+}
+
+async fn capture_shutdown(pool: &SqlitePool, scope: CaptureScope<'_>) -> Result<u64, sqlx::Error> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let intents = super::quit_intent::read(&mut tx).await?;
+    let count = store::capture_with_intent(
+        &mut tx,
+        Cause::Shutdown,
+        intents,
+        Some(app_version()),
+        scope,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(count)
 }
 
 /// Stop the agents a killed process left running, capture the turns it left
@@ -110,7 +109,11 @@ pub async fn capture_cut_off_turn(pool: &SqlitePool, session_id: i64) -> bool {
 /// status reset is part of the capture: when that fails, the sessions stay
 /// `running` (they may look busy, which the startup report explains) so the
 /// next start still captures their turns.
-pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
+pub async fn recover_at_startup(
+    pool: &SqlitePool,
+    app_version: Option<&str>,
+    stop_after_crash: bool,
+) -> anyhow::Result<()> {
     APP_VERSION.keep_first(app_version.unwrap_or(env!("CARGO_PKG_VERSION")).to_string());
     super::orphans::init(pool);
     let mut failures = Vec::new();
@@ -127,10 +130,37 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
             ));
         }
     }
-    capture_left_behind(pool, &mut failures).await;
+    capture_left_behind(pool, &mut failures, stop_after_crash).await?;
     if let Some(report) = startup_failure_report(&failures) {
         STARTUP_CAPTURE_ERROR.keep_first(report);
     }
+    Ok(())
+}
+
+async fn capture_left_behind(
+    pool: &SqlitePool,
+    failures: &mut Vec<String>,
+    stop_after_crash: bool,
+) -> anyhow::Result<()> {
+    match capture_left_behind_once_with_quit(pool, stop_after_crash).await {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
+        Err(error) if stop_after_crash => {
+            // Leave the epoch claimed by the quit. Serving new work now
+            // would let the next boot mistake it for work from that epoch.
+            anyhow::bail!(
+                "Cadencr could not save the interrupted work you asked it to stop: {error}"
+            );
+        }
+        Err(error) => {
+            tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
+            failures.push(format!(
+                "Cadencr could not check which agents the last exit interrupted, and will try \
+                 again on its next start; until then they may look busy: {error}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Capture what the last process left `running` or owed a resume for. A quit
@@ -140,26 +170,25 @@ pub async fn recover_at_startup(pool: &SqlitePool, app_version: Option<&str>) {
 /// The intent and the background-work records are consumed, and the sessions
 /// left `running` paused, in the capture's transaction: when it fails, all of
 /// it stays for the next start to retry, and no turn or work is lost.
-async fn capture_left_behind(pool: &SqlitePool, failures: &mut Vec<String>) {
-    match capture_left_behind_once(pool).await {
-        Ok(0) => {}
-        Ok(count) => tracing::info!(count, "captured agent turns interrupted by a crash"),
-        Err(error) => {
-            tracing::error!(%error, "failed to capture agent turns interrupted by a crash");
-            failures.push(format!(
-                "Cadencr could not check which agents the last exit interrupted, and will try \
-                 again on its next start; until then they may look busy: {error}"
-            ));
-        }
-    }
+#[cfg(test)]
+async fn capture_left_behind_once(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    capture_left_behind_once_with_quit(pool, false).await
 }
 
-async fn capture_left_behind_once(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+pub(super) async fn capture_left_behind_once_with_quit(
+    pool: &SqlitePool,
+    stop_after_crash: bool,
+) -> Result<u64, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let intents = super::quit_intent::take(&mut tx)
-        .await?
-        .unwrap_or(Intent::Resume.into());
-    let count = store::capture_crashed(&mut tx, intents).await?;
+    let previous_intent = super::quit_intent::take(&mut tx).await?;
+    let intents = if stop_after_crash {
+        Intent::Stop.into()
+    } else {
+        previous_intent.unwrap_or(Intent::Resume.into())
+    };
+    super::user_stop::reconcile(&mut tx).await?;
+    let count =
+        store::capture_with_intent(&mut tx, Cause::Crash, intents, None, CaptureScope::All).await?;
     super::background_work::clear(&mut tx).await?;
     WsSessionPersistence::cleanup_stale_sessions(&mut *tx).await?;
     tx.commit().await?;
@@ -174,9 +203,137 @@ fn startup_failure_report(failures: &[String]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{capture_left_behind, startup_failure_report};
+    use super::CaptureScope;
+    use super::{
+        capture_left_behind, capture_left_behind_once, capture_shutdown, startup_failure_report,
+    };
     use crate::domain::restart_continuations::store::{list_pending, tests::session};
     use crate::domain::schedules::repository::test_support::fixture;
+
+    #[tokio::test]
+    async fn crash_between_a_durable_stop_and_its_marker_settles_it_once() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "running").await;
+        super::super::record_background_work(&pool, stopped, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_messages (session_id, role, content, message_type, tool_use_id)
+             VALUES (?, 'assistant', '{}', 'tool_call', 'open-tool')",
+        )
+        .bind(stopped)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Crash checkpoint: Stop was committed, but its reader neither
+        // ended the turn nor appended the marker.
+        super::super::record_user_stop(&pool, stopped, chrono::Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(
+            messages(&pool, stopped).await,
+            [("tool_call".into(), "{}".into())]
+        );
+        for _ in 0..2 {
+            assert_eq!(capture_left_behind_once(&pool).await.unwrap(), 0);
+        }
+        assert!(list_pending(&pool).await.unwrap().is_empty());
+        assert_eq!(
+            messages(&pool, stopped).await,
+            [
+                ("tool_call".into(), "{}".into()),
+                ("tool_error".into(), "Stopped by the user.".into()),
+                ("turn_interrupted".into(), "".into()),
+            ]
+        );
+        assert_eq!(
+            super::store::session_status(&pool, stopped).await.unwrap(),
+            "paused"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_live_stop_marker_is_not_repeated_by_startup() {
+        let (pool, _, feature_id) = fixture().await;
+        let stopped = session(&pool, feature_id, "running").await;
+        super::super::record_user_stop(&pool, stopped, chrono::Utc::now())
+            .await
+            .unwrap();
+        super::super::write_stop_marker(&pool, stopped)
+            .await
+            .unwrap();
+        capture_left_behind_once(&pool).await.unwrap();
+
+        assert_eq!(
+            messages(&pool, stopped).await,
+            [("turn_interrupted".into(), "".into())]
+        );
+        assert!(list_pending(&pool).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_stop_recovery_repairs_only_the_missing_marker() {
+        let (pool, _, feature) = fixture().await;
+        let missing = session(&pool, feature, "running").await;
+        let marked = session(&pool, feature, "running").await;
+        sqlx::query(
+            "INSERT INTO agent_user_stops (session_id, stopped_at) VALUES (?, '2026-11-25'), (?, '2026-11-25')",
+        ).bind(missing).bind(marked).execute(&pool).await.unwrap();
+        super::super::transcript::insert_marker(&mut pool.acquire().await.unwrap(), marked, "")
+            .await
+            .unwrap();
+
+        for _ in 0..2 {
+            capture_left_behind_once(&pool).await.unwrap();
+        }
+        for session_id in [missing, marked] {
+            assert_eq!(
+                messages(&pool, session_id).await,
+                [("turn_interrupted".into(), "".into())]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_confirmed_quit_vetoes_pending_resumes_and_captures_both_kinds_as_stopped() {
+        let (pool, _, feature_id) = fixture().await;
+        let earlier = session(&pool, feature_id, "running").await;
+        super::store::capture_running(&pool, super::Cause::Crash, super::Intent::Resume, None)
+            .await
+            .unwrap();
+        let active = session(&pool, feature_id, "running").await;
+        let background = session(&pool, feature_id, "completed").await;
+        super::super::record_background_work(&pool, background, Some(chrono::Utc::now()))
+            .await
+            .unwrap();
+
+        // Crash-safe checkpoint: Electron waits for this write before it can
+        // close the sidecar. Every later capture must run with this intent.
+        super::super::quit_intent::record(&pool, false, false)
+            .await
+            .unwrap();
+        assert_eq!(capture_shutdown(&pool, CaptureScope::All).await.unwrap(), 2);
+        assert_eq!(capture_left_behind_once(&pool).await.unwrap(), 0);
+
+        let pending = list_pending(&pool).await.unwrap();
+        assert_eq!(
+            pending.iter().map(|row| row.session_id).collect::<Vec<_>>(),
+            [earlier, active, background]
+        );
+        assert!(pending.iter().all(|row| row.stop_requested()));
+        assert!(pending[2].background_work());
+    }
+
+    async fn messages(pool: &sqlx::SqlitePool, session_id: i64) -> Vec<(String, String)> {
+        sqlx::query_as(
+            "SELECT message_type, content FROM agent_messages WHERE session_id = ? ORDER BY id",
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
 
     /// Both captures of a quit that stopped its agents failed; the start
     /// after it finds the work its reader kept, and still keeps it stopped.
@@ -192,7 +349,9 @@ mod tests {
             .unwrap();
         let mut failures = Vec::new();
 
-        capture_left_behind(&pool, &mut failures).await;
+        capture_left_behind(&pool, &mut failures, false)
+            .await
+            .unwrap();
 
         assert!(failures.is_empty(), "{failures:?}");
         let pending = list_pending(&pool).await.unwrap();
@@ -219,7 +378,9 @@ mod tests {
             .unwrap();
         let mut failures = Vec::new();
 
-        capture_left_behind(&pool, &mut failures).await;
+        capture_left_behind(&pool, &mut failures, false)
+            .await
+            .unwrap();
 
         assert_eq!(failures.len(), 1, "the failure is reported");
         let left: (i64, i64) = sqlx::query_as(
@@ -245,7 +406,9 @@ mod tests {
         let mid_turn = session(&pool, feature_id, "running").await;
         let mut failures = Vec::new();
 
-        capture_left_behind(&pool, &mut failures).await;
+        capture_left_behind(&pool, &mut failures, false)
+            .await
+            .unwrap();
 
         assert!(failures.is_empty(), "{failures:?}");
         let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
@@ -264,7 +427,9 @@ mod tests {
         session(&pool, feature_id, "running").await;
         let mut failures = Vec::new();
 
-        capture_left_behind(&pool, &mut failures).await;
+        capture_left_behind(&pool, &mut failures, false)
+            .await
+            .unwrap();
 
         assert!(!list_pending(&pool).await.unwrap()[0].stop_requested());
     }

@@ -66,6 +66,10 @@ pub struct QueuedPrompt {
 
 impl From<QueueRow> for QueuedPrompt {
     fn from(row: QueueRow) -> Self {
+        let error = match row.status {
+            QueuedPromptStatus::Delivering => None,
+            _ => row.error,
+        };
         let origin = (row.origin_kind == QueueOrigin::Session).then(|| AgentMessageOrigin {
             origin_kind: "session_generated".to_string(),
             source_session_id: row.source_session_id,
@@ -80,7 +84,7 @@ impl From<QueueRow> for QueuedPrompt {
             session_id: row.session_id,
             content: row.content,
             status: row.status,
-            error: row.error,
+            error,
             created_at: row.created_at,
             origin,
         }

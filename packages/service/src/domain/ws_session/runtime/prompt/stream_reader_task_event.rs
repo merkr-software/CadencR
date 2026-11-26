@@ -135,7 +135,10 @@ impl StreamReaderTask {
         if runtime_event.is_result() {
             return false;
         }
-        if crate::domain::session_status::event_starts_fresh_turn(runtime_event) {
+        let fresh = runtime_event.parent_tool_use_id().is_none()
+            && crate::domain::session_status::event_starts_fresh_turn(runtime_event);
+        let after_result = fresh && state.turn_state.has_completed_turn();
+        if fresh {
             // New turn: clear any error surfaced in the previous turn so this
             // turn's terminal error-result (if any) can surface (issue #78).
             state.turn_state.mark_fresh_turn_started();
@@ -146,13 +149,16 @@ impl StreamReaderTask {
                 .await;
         }
         if !state.turn_state.is_between_turns() {
-            self.broadcast_runtime_signal(runtime_event).await;
+            self.broadcast_runtime_signal(runtime_event, after_result)
+                .await;
         }
         runtime_event.is_turn_started_signal()
     }
 
-    async fn broadcast_runtime_signal(&self, runtime_event: &RuntimeEvent) {
-        if runtime_event.is_turn_started_signal() {
+    async fn broadcast_runtime_signal(&self, runtime_event: &RuntimeEvent, after_result: bool) {
+        if after_result {
+            self.record_running_after_result().await;
+        } else if runtime_event.is_turn_started_signal() {
             self.record_running().await;
         }
         self.session_status_tx

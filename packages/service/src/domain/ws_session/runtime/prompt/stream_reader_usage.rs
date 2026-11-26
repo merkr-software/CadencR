@@ -253,6 +253,7 @@ mod tests {
             .kill_on_drop(true);
         let mut session = spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
             command,
+            child_session: None,
             spawn_guard: None,
             wire_transform: None,
             client_info: AcpClientInfo::default(),

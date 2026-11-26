@@ -20,7 +20,15 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
     db_session_id: i64,
     payload: PromptSendPayload,
 ) {
-    let spawn_claim = app_state.session_runtimes.claim_spawn(db_session_id).await;
+    let Some(spawn_claim) = app_state.session_runtimes.claim_spawn(db_session_id).await else {
+        send_error(
+            sender,
+            &envelope.id,
+            "APP_QUITTING",
+            crate::domain::ws_session::runtime::registry::APP_QUITTING,
+        );
+        return;
+    };
     if !session_still_exists(app_state, db_session_id, sender, &envelope.id).await {
         return;
     }

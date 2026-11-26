@@ -21,7 +21,7 @@ mod prompt_status;
 pub(in crate::domain::ws_session) mod prompt_worktree;
 pub(in crate::domain::ws_session) mod respawn_deferral;
 mod runtime_hold;
-pub(in crate::domain::ws_session) mod runtime_hold_registry;
+pub(crate) mod runtime_hold_registry;
 mod runtime_mcp;
 pub(crate) use runtime_mcp::McpSettings;
 mod stream_diagnostics;

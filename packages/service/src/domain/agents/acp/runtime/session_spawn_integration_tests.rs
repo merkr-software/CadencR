@@ -76,6 +76,7 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
     };
     let mut session = spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
         command,
+        child_session: None,
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
         stderr_policy: AcpStderrPolicy::Log,
@@ -132,6 +133,7 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
     command.arg(&script).kill_on_drop(true);
     let mut session = spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
         command,
+        child_session: None,
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
         stderr_policy: AcpStderrPolicy::Log,

@@ -69,6 +69,21 @@ describe("TranscriptMarker", () => {
     );
   });
 
+  it("names a voluntary quit in the marker and manual resume prompt", () => {
+    const context = renderLatest({
+      id: "msg-13",
+      type: "turn_interrupted",
+      content: "quit_background",
+    });
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Background tasks stopped when you quit Cadencr",
+    );
+    screen.getByRole("button", { name: "Resume" }).click();
+    expect(context.sendPrompt).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("The user quit Cadencr, which stopped the background work"),
+    );
+  });
+
   it("still offers Continue on an error that ended the turn", () => {
     renderLatest({ id: "msg-9", type: "error", content: "boom", errorCode: "SDK_ERROR" });
 

@@ -10,7 +10,7 @@ use super::installation::LocalExecutable;
 use super::managed::installer::{
     is_managed_executable_in, verify_managed_launch_in, ManagedStorage,
 };
-use super::managed::process_policy::{managed_command, managed_process_tree_policy};
+use super::managed::process_policy::{managed_process_tree_policy, managed_session_command};
 
 #[derive(Debug)]
 pub(super) struct PreparedProviderCommand {
@@ -42,6 +42,7 @@ pub(super) async fn prepare_provider_command(
     reserved_args: &[OsString],
     cwd: &Path,
     caller_env: Option<&HashMap<String, String>>,
+    session: Option<&cli_discovery::ChildSession>,
 ) -> Result<PreparedProviderCommand, ProviderCommandError> {
     // Capture this on the caller thread: test settings directories are
     // thread-local and would otherwise be lost inside spawn_blocking.
@@ -66,6 +67,7 @@ pub(super) async fn prepare_provider_command(
         cwd,
         caller_env,
         is_managed,
+        session,
     )
 }
 
@@ -75,6 +77,7 @@ fn prepare_provider_command_with_classification(
     cwd: &Path,
     caller_env: Option<&HashMap<String, String>>,
     is_managed: bool,
+    session: Option<&cli_discovery::ChildSession>,
 ) -> Result<PreparedProviderCommand, ProviderCommandError> {
     let args = reserved_args
         .iter()
@@ -85,11 +88,11 @@ fn prepare_provider_command_with_classification(
     merge_caller_environment(&mut environment, caller_env);
 
     let (mut command, process_tree_policy) = if is_managed {
-        let command = managed_command(&executable.command, &[], &environment, cwd)
+        let command = managed_session_command(&executable.command, &[], &environment, cwd, session)
             .map_err(|error| ProviderCommandError::new(error.to_string()))?;
         (command, managed_process_tree_policy())
     } else {
-        let mut command = tokio::process::Command::new(&executable.command);
+        let mut command = cli_discovery::session_command(&executable.command, session);
         command.current_dir(cwd);
         for (key, value) in environment {
             command.env(key, value);
@@ -142,6 +145,7 @@ mod tests {
             &[OsString::from("run"), OsString::from("--protocol")],
             directory.path(),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -178,6 +182,7 @@ mod tests {
             directory.path(),
             Some(&caller_env),
             true,
+            None,
         )
         .unwrap();
 
@@ -207,6 +212,7 @@ mod tests {
             directory.path(),
             Some(&caller_env),
             true,
+            None,
         )
         .expect_err("managed policy must reject the host namespace");
         assert!(error.to_string().contains("VITE_API_TOKEN"));
@@ -223,6 +229,7 @@ mod tests {
             &missing_cwd,
             None,
             true,
+            None,
         )
         .expect_err("managed validation must run before returning a command");
         assert!(error.to_string().contains("cwd"));
@@ -241,7 +248,7 @@ mod tests {
         };
         let cwd = tempfile::tempdir().unwrap();
 
-        let error = prepare_provider_command(&executable, &[], cwd.path(), None)
+        let error = prepare_provider_command(&executable, &[], cwd.path(), None, None)
             .await
             .expect_err("malformed managed layout must fail launch verification");
 

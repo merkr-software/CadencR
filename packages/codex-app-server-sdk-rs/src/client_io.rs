@@ -105,40 +105,59 @@ pub(crate) fn spawn_reaper(
     pending: Arc<StdMutex<PendingMap>>,
     events: EventHub,
     exit: Arc<StdMutex<Option<AppServerExit>>>,
+    child_session: Option<cli_discovery::ChildSession>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         // Biased: a process that already died is reported as such even when
         // its owner, having seen stdout close, asks to stop it at once.
-        let (status, stopped) = tokio::select! {
+        let (observed, stopped) = tokio::select! {
             biased;
-            status = child.wait() => (status, false),
-            _ = &mut kill_rx => match child.try_wait() {
-                Ok(Some(status)) => (Ok(status), false),
-                _ => {
+            status = cli_discovery::observe_child_exit(&mut child, child_session.as_ref()) => (status, false),
+            _ = &mut kill_rx => {
+                // `try_wait` would release a managed session's dead leader
+                // before the host could clean up its descendants.
+                let reaped = if child_session.is_none() { child.try_wait().ok().flatten() } else { None };
+                if let Some(status) = reaped {
+                    (Ok(status.into()), false)
+                } else {
                     let _ = child.start_kill();
-                    (child.wait().await, true)
+                    (cli_discovery::observe_child_exit(&mut child, child_session.as_ref()).await, true)
                 }
-            }
+            },
         };
-        match status {
-            Ok(status) => {
-                let (code, signal) = (status.code(), exit_signal(&status));
-                // A process killed on request reports no exit code; one that
-                // still has a code was already exiting by itself.
-                let on_its_own = !stopped || (cfg!(unix) && code.is_some());
-                if on_its_own {
-                    if let Ok(mut exit) = exit.lock() {
-                        *exit = Some(AppServerExit { code, signal });
-                    }
-                }
-                send_process_exited(&pending, &events, code, signal);
-            }
-            Err(error) => {
-                tracing::warn!(%error, "failed to reap codex app-server process");
-                send_process_exited(&pending, &events, None, None);
-            }
-        }
+        let status = match observed {
+            Ok(observed) => observed.reap(&mut child, child_session.as_ref()).await,
+            Err(error) => Err(error),
+        };
+        report_reaped(status, stopped, &pending, &events, &exit);
     })
+}
+
+fn report_reaped(
+    status: std::io::Result<std::process::ExitStatus>,
+    stopped: bool,
+    pending: &Arc<StdMutex<PendingMap>>,
+    events: &EventHub,
+    exit: &Arc<StdMutex<Option<AppServerExit>>>,
+) {
+    match status {
+        Ok(status) => {
+            let (code, signal) = (status.code(), exit_signal(&status));
+            // A process killed on request reports no exit code; one that
+            // still has a code was already exiting by itself.
+            let on_its_own = !stopped || (cfg!(unix) && code.is_some());
+            if on_its_own {
+                if let Ok(mut exit) = exit.lock() {
+                    *exit = Some(AppServerExit { code, signal });
+                }
+            }
+            send_process_exited(pending, events, code, signal);
+        }
+        Err(error) => {
+            tracing::warn!(%error, "failed to reap codex app-server process");
+            send_process_exited(pending, events, None, None);
+        }
+    }
 }
 
 fn handle_message(state: &ReaderState, message: Value) {
@@ -418,6 +437,7 @@ mod tests {
             Arc::new(StdMutex::new(HashMap::new())),
             EventHub::new(),
             Arc::clone(&exit),
+            None,
         );
         reaper.await.unwrap();
         stderr.await.unwrap();
@@ -463,6 +483,7 @@ mod tests {
             Arc::new(StdMutex::new(HashMap::new())),
             EventHub::new(),
             Arc::clone(&exit),
+            None,
         )
         .await
         .unwrap();
@@ -500,6 +521,7 @@ mod tests {
             Arc::new(StdMutex::new(HashMap::new())),
             EventHub::new(),
             Arc::clone(&exit),
+            None,
         );
         kill_tx.send(()).unwrap();
         reaper.await.unwrap();

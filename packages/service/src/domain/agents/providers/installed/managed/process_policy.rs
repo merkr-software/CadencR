@@ -111,7 +111,24 @@ pub fn managed_command(
     package_env: &BTreeMap<String, String>,
     cwd: &Path,
 ) -> Result<Command, ManagedProcessPolicyError> {
-    direct_command(executable, args, package_env, cwd, CpuLimit::Applied)
+    managed_session_command(executable, args, package_env, cwd, None)
+}
+
+pub(in crate::domain::agents::providers::installed) fn managed_session_command(
+    executable: &Path,
+    args: &[String],
+    package_env: &BTreeMap<String, String>,
+    cwd: &Path,
+    session: Option<&cli_discovery::ChildSession>,
+) -> Result<Command, ManagedProcessPolicyError> {
+    direct_command(
+        executable,
+        args,
+        package_env,
+        cwd,
+        CpuLimit::Applied,
+        session,
+    )
 }
 
 /// [`managed_command`] for a process meant to run as long as its owner wants
@@ -123,7 +140,7 @@ pub fn long_lived_managed_command(
     executable: &Path,
     cwd: &Path,
 ) -> Result<Command, ManagedProcessPolicyError> {
-    direct_command(executable, &[], &BTreeMap::new(), cwd, CpuLimit::None)
+    direct_command(executable, &[], &BTreeMap::new(), cwd, CpuLimit::None, None)
 }
 
 /// Whether a direct command gets [`MANAGED_CPU_TIME_SECONDS`].
@@ -139,11 +156,12 @@ fn direct_command(
     package_env: &BTreeMap<String, String>,
     cwd: &Path,
     cpu: CpuLimit,
+    session: Option<&cli_discovery::ChildSession>,
 ) -> Result<Command, ManagedProcessPolicyError> {
     validate_paths(executable, cwd)?;
     validate_package_environment(package_env)?;
 
-    let mut command = Command::new(executable);
+    let mut command = cli_discovery::session_command(executable, session);
     command
         .args(args)
         .current_dir(cwd)

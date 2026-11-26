@@ -32,8 +32,8 @@ impl SharedRuntimeHold {
         &self,
         event: &RuntimeEvent,
         turn_in_progress: bool,
-    ) {
-        self.lock().observe(event, turn_in_progress);
+    ) -> bool {
+        self.lock().observe(event, turn_in_progress)
     }
 
     pub(in crate::domain::ws_session) fn holds_runtime(&self) -> bool {
@@ -42,6 +42,11 @@ impl SharedRuntimeHold {
 
     pub(in crate::domain::ws_session) fn owes_resume(&self) -> bool {
         self.lock().owes_resume()
+    }
+
+    pub(super) fn background_work_owed(&self) -> Option<bool> {
+        let hold = self.lock();
+        (!hold.stop_pending()).then(|| hold.owes_resume())
     }
 }
 
@@ -125,17 +130,31 @@ pub(in crate::domain::ws_session) fn stop_by_user(
     }
 }
 
-/// The user's Stop did not go through: undo [`stop_by_user`]. Returns
-/// whether `runtime` still owes the agent a resume.
-pub(in crate::domain::ws_session) fn cancel_stop_by_user(
+/// A Stop only forbids new writes until the provider accepts or refuses it.
+/// A refusal leaves the original hold and its row intact.
+pub(in crate::domain::ws_session) fn hold_pending_stop(
     db_session_id: i64,
     runtime: &RuntimeSessionHandle,
-) -> bool {
-    hold_of(db_session_id, runtime).is_some_and(|hold| {
-        let mut hold = hold.lock();
-        hold.cancel_stop_by_user();
-        hold.owes_resume()
-    })
+) -> Option<PendingStopHold> {
+    let hold = hold_of(db_session_id, runtime)?;
+    hold.lock().set_stop_pending(true);
+    Some(PendingStopHold(hold))
+}
+
+pub(in crate::domain::ws_session) struct PendingStopHold(SharedRuntimeHold);
+
+impl Drop for PendingStopHold {
+    fn drop(&mut self) {
+        self.0.lock().set_stop_pending(false);
+    }
+}
+
+/// Work can still be physically running even after Stop cancelled its resume.
+pub(crate) fn sessions_holding_background_work() -> Vec<i64> {
+    holds()
+        .iter()
+        .filter_map(|(&id, entry)| entry.hold.holds_runtime().then_some(id))
+        .collect()
 }
 
 #[cfg(test)]

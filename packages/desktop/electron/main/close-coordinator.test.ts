@@ -1,180 +1,97 @@
-import { describe, expect, it, vi } from "vitest";
-import { createCloseCoordinator, windowCloseQuits, type CloseRenderer } from "./close-coordinator";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  CLOSE_RESPONSE_TIMEOUT_MS,
+  createCloseCoordinator,
+  windowCloseQuits,
+} from "./close-coordinator";
 
-function harness(renderer: Partial<CloseRenderer> = {}) {
+function harness({ available = true, delivered = true } = {}) {
+  const ask = vi.fn(() => delivered);
   const finish = vi.fn();
   const reportUnanswered = vi.fn();
-  const ask = vi.fn(renderer.ask ?? (() => true));
   const coordinator = createCloseCoordinator({
-    renderer: { canAnswer: renderer.canAnswer ?? (() => true), ask },
+    renderer: { canAnswer: () => available, ask },
     finish,
     reportUnanswered,
-    responseTimeoutMs: 1_000,
   });
-  return { coordinator, finish, reportUnanswered, ask };
+  return { coordinator, ask, finish, reportUnanswered };
 }
 
-describe("windowCloseQuits", () => {
-  it("keeps the app running in the Dock on macOS", () => {
-    expect(windowCloseQuits("darwin")).toBe(false);
-  });
+describe("close coordinator", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
 
-  it("quits when the last window closes on Linux", () => {
+  it("closes just the window on macOS and quits when the last window closes on Linux", () => {
+    expect(windowCloseQuits("darwin")).toBe(false);
     expect(windowCloseQuits("linux")).toBe(true);
   });
-});
 
-describe("close coordinator", () => {
-  it("forgets a cancelled quit, so a later window close only closes the window", () => {
-    const { coordinator, finish, ask } = harness();
+  it("uses the same quit after a response, a timeout, or when nobody can answer", () => {
+    const confirmed = harness();
+    confirmed.coordinator.request(true);
+    confirmed.coordinator.confirm(1);
 
+    const silent = harness();
+    silent.coordinator.request(true);
+    vi.advanceTimersByTime(CLOSE_RESPONSE_TIMEOUT_MS);
+
+    const noWindow = harness({ available: false });
+    noWindow.coordinator.request(true);
+    expect(noWindow.ask).not.toHaveBeenCalled();
+
+    const deadRenderer = harness({ delivered: false });
+    deadRenderer.coordinator.request(true);
+    expect(deadRenderer.ask).toHaveBeenCalledTimes(1);
+
+    for (const { finish } of [confirmed, silent, noWindow, deadRenderer]) {
+      expect(finish).toHaveBeenCalledExactlyOnceWith({ id: 1, quitting: true });
+    }
+  });
+
+  it("waits for a visible confirmation and respects Cancel even after another quit request", () => {
+    const { coordinator, ask, finish } = harness();
     coordinator.request(true);
-    coordinator.acknowledge();
-    coordinator.cancel();
-    coordinator.request(windowCloseQuits("darwin"));
-    coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true });
+    coordinator.acknowledge(1);
+    coordinator.request(true);
+    vi.advanceTimersByTime(CLOSE_RESPONSE_TIMEOUT_MS * 2);
 
-    expect(ask).toHaveBeenLastCalledWith({ quitting: false });
-    expect(finish).toHaveBeenCalledTimes(1);
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: false },
-      { resumeAgents: true, resumeBackgroundWork: true },
-    );
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(finish).not.toHaveBeenCalled();
+    coordinator.cancel(1);
+    coordinator.rendererLost();
+    expect(finish).not.toHaveBeenCalled();
   });
 
-  it("quits on Linux when the confirmed close is the last window", () => {
-    const { coordinator, finish } = harness();
+  it.each(["rendererLost", "rendererReset"] as const)(
+    "finishes the quit if the visible confirmation is lost through %s",
+    (loss) => {
+      const { coordinator, finish } = harness();
+      coordinator.request(true);
+      coordinator.acknowledge(1);
+      coordinator[loss]();
+      coordinator.confirm(1);
 
-    coordinator.request(windowCloseQuits("linux"));
-    coordinator.confirm({ resumeAgents: false, resumeBackgroundWork: false });
+      expect(finish).toHaveBeenCalledExactlyOnceWith({ id: 1, quitting: true });
+    },
+  );
 
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: true },
-      { resumeAgents: false, resumeBackgroundWork: false },
-    );
+  it("keeps window-only close separate even when the renderer cannot answer", () => {
+    const { coordinator, finish } = harness({ available: false });
+    coordinator.request(false);
+    expect(finish).toHaveBeenCalledExactlyOnceWith({ id: 1, quitting: false });
   });
 
-  it("lets the latest request decide what a confirmation does", () => {
-    const { coordinator, finish } = harness();
-
+  it("requires a new confirmation when an explicit quit supersedes a window-only close", () => {
+    const { coordinator, finish, ask } = harness();
     coordinator.request(false);
     coordinator.request(true);
-    coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true });
-
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: true },
-      { resumeAgents: true, resumeBackgroundWork: true },
-    );
-  });
-
-  it("rejects a confirmation nothing is waiting for", () => {
-    const { coordinator, finish } = harness();
-
-    coordinator.request(true);
-    coordinator.cancel();
-
-    expect(() => coordinator.confirm({ resumeAgents: true, resumeBackgroundWork: true })).toThrow(
-      "No close is waiting for confirmation.",
-    );
+    coordinator.acknowledge(1);
+    coordinator.cancel(1);
+    coordinator.confirm(1);
     expect(finish).not.toHaveBeenCalled();
-  });
+    expect(ask).toHaveBeenLastCalledWith({ id: 2, quitting: true });
 
-  it("quits without asking when no renderer can answer", () => {
-    const { coordinator, finish, reportUnanswered, ask } = harness({ canAnswer: () => false });
-
-    coordinator.request(true);
-
-    expect(ask).not.toHaveBeenCalled();
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: true },
-      { resumeAgents: true, resumeBackgroundWork: true },
-    );
-    expect(reportUnanswered).toHaveBeenCalledWith(
-      { quitting: true },
-      "the window is not available",
-    );
-    expect(coordinator.pending()).toBeNull();
-  });
-
-  it("quits when the request cannot be delivered", () => {
-    const { coordinator, finish } = harness({ ask: () => false });
-
-    coordinator.request(true);
-
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: true },
-      { resumeAgents: true, resumeBackgroundWork: true },
-    );
-  });
-
-  it("closes with the default choice when the window never answers", () => {
-    vi.useFakeTimers();
-    try {
-      const { coordinator, finish, reportUnanswered } = harness();
-
-      coordinator.request(true);
-      vi.advanceTimersByTime(999);
-      expect(finish).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(1);
-
-      expect(finish).toHaveBeenCalledWith(
-        { quitting: true },
-        { resumeAgents: true, resumeBackgroundWork: true },
-      );
-      expect(reportUnanswered).toHaveBeenCalledWith(
-        { quitting: true },
-        "the window did not answer within 1000 ms",
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("waits on the user for as long as the confirmation is shown", () => {
-    vi.useFakeTimers();
-    try {
-      const { coordinator, finish } = harness();
-
-      coordinator.request(true);
-      coordinator.acknowledge();
-      vi.advanceTimersByTime(60_000);
-
-      expect(finish).not.toHaveBeenCalled();
-      expect(coordinator.pending()).toEqual({ quitting: true });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("closes a waiting quit when the renderer is lost", () => {
-    const { coordinator, finish } = harness();
-
-    coordinator.request(true);
-    coordinator.acknowledge();
-    coordinator.rendererLost();
-
-    expect(finish).toHaveBeenCalledWith(
-      { quitting: true },
-      { resumeAgents: true, resumeBackgroundWork: true },
-    );
-  });
-
-  it("ignores a lost renderer when nothing is waiting", () => {
-    const { coordinator, finish } = harness();
-
-    coordinator.rendererLost();
-
-    expect(finish).not.toHaveBeenCalled();
-  });
-
-  it("drops a waiting close when the renderer reloads", () => {
-    const { coordinator, finish } = harness();
-
-    coordinator.request(true);
-    coordinator.acknowledge();
-    coordinator.rendererReset();
-
-    expect(coordinator.pending()).toBeNull();
-    expect(finish).not.toHaveBeenCalled();
+    coordinator.confirm(2);
+    expect(finish).toHaveBeenCalledExactlyOnceWith({ id: 2, quitting: true });
   });
 });

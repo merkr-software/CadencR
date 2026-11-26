@@ -3,6 +3,7 @@
 use crate::app_state::AppState;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::runtime::application::dispatch_queued_user_prompt;
+use crate::domain::ws_session::runtime::registry::APP_QUITTING_CODE;
 use crate::error::AppError;
 
 use super::store::{self, Pick, QueueOrigin, QueueRow};
@@ -95,6 +96,7 @@ async fn drain_if_idle(
                 delivered = true;
                 pick = Pick::Next;
             }
+            Err(error) if error.code() == APP_QUITTING_CODE => break,
             Err(error) if origin == QueueOrigin::User => return Err(error),
             Err(error) => last_error = Some(error),
         }
@@ -143,6 +145,9 @@ async fn deliver(state: &AppState, prompt: QueueRow) -> Result<(), AppError> {
     let result = deliver_claimed(state, &prompt).await;
     let recorded = match &result {
         Ok(()) => store::mark_delivered(&state.write_pool, prompt.id).await,
+        Err(error) if error.code() == APP_QUITTING_CODE => {
+            store::defer_claim(&state.write_pool, prompt.id).await
+        }
         Err(error) => store::mark_error(&state.write_pool, prompt.id, &error.to_string()).await,
     };
     super::notify_changed(state, prompt.session_id);
@@ -173,6 +178,7 @@ async fn deliver_claimed(state: &AppState, prompt: &QueueRow) -> Result<(), AppE
             let delivered = agent_messages::deliver(state, feature_id, prompt, message_uuid).await;
             match delivered {
                 Ok(()) => Ok(()),
+                Err(error) if error.code() == APP_QUITTING_CODE => Err(error),
                 Err(error) => {
                     Err(agent_messages::report_failure(state, feature_id, prompt, error).await)
                 }

@@ -15,6 +15,13 @@ use crate::remote::secure_fs;
 #[must_use = "keep the database lock guard alive for the entire process lifetime"]
 pub struct DbLockGuard {
     _file: File,
+    database: PathBuf,
+}
+
+impl DbLockGuard {
+    pub(crate) fn database(&self) -> &Path {
+        &self.database
+    }
 }
 
 #[derive(Debug)]
@@ -82,7 +89,10 @@ pub fn acquire_db_lock(db_path: &Path) -> Result<DbLockGuard, StartupLockError> 
         .map_err(|error| io_error(&lock_path, into_io_error(error)))?;
 
     match file.try_lock() {
-        Ok(()) => Ok(DbLockGuard { _file: file }),
+        Ok(()) => Ok(DbLockGuard {
+            _file: file,
+            database: resolved,
+        }),
         Err(TryLockError::WouldBlock) => Err(StartupLockError::WouldBlock { path: lock_path }),
         Err(TryLockError::Error(source)) => Err(io_error(&lock_path, source)),
     }

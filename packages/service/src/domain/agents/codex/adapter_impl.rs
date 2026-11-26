@@ -175,13 +175,15 @@ impl AgentRuntimeAdapter for CodexAdapter {
         content: Value,
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
-        let client =
-            CodexAppServerClient::spawn_with_options(spawn_options::app_server_spawn_options(
-                config.env.clone(),
-                config.env_unset.clone(),
-                Some(config.cwd.clone()),
-            ))
-            .await?;
+        let mut options = spawn_options::app_server_spawn_options(
+            config.env.clone(),
+            config.env_unset.clone(),
+            Some(config.cwd.clone()),
+        );
+        if config.purpose.is_none() {
+            options.child_session = crate::domain::agents::process_sessions::new();
+        }
+        let client = CodexAppServerClient::spawn_with_options(options).await?;
         let secrets = app_server_failure::secrets(config.env.as_ref());
         let startup = async {
             client.initialize().await?;

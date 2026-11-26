@@ -1,8 +1,4 @@
-import {
-  RESUME_AGENTS,
-  type AppCloseChoice,
-  type AppCloseRequest,
-} from "../../src/shared/app-close";
+import type { AppCloseRequest } from "../../src/shared/app-close";
 
 /** How long the window gets to show its confirmation before main closes anyway. */
 export const CLOSE_RESPONSE_TIMEOUT_MS = 5_000;
@@ -31,7 +27,7 @@ interface CloseTimers {
 export interface CloseCoordinatorOptions {
   renderer: CloseRenderer;
   /** Carry out a close that is settled: confirmed, or decided by main. */
-  finish: (request: AppCloseRequest, choice: AppCloseChoice) => void;
+  finish: (request: AppCloseRequest) => Promise<void> | void;
   /** Main closed without the window's answer, and why. */
   reportUnanswered: (request: AppCloseRequest, reason: string) => void;
   responseTimeoutMs?: number;
@@ -42,16 +38,15 @@ export interface CloseCoordinator {
   /** A close or quit was requested (window button, ⌘Q, ⌘W, the Dock, the menu). */
   request: (quitting: boolean) => void;
   /** The window received the request and is asking the user. */
-  acknowledge: () => void;
+  acknowledge: (id: number) => void;
   /** The user kept the app open. */
-  cancel: () => void;
+  cancel: (id?: number) => void;
   /** The user confirmed the close waiting on them. */
-  confirm: (choice: AppCloseChoice) => void;
+  confirm: (id: number) => Promise<void> | void;
   /** The renderer crashed or hung: nobody can answer a waiting close. */
   rendererLost: () => void;
   /** The renderer reloaded: its confirmation, if any, is gone with the page. */
   rendererReset: () => void;
-  pending: () => AppCloseRequest | null;
 }
 
 const defaultTimers: CloseTimers = {
@@ -63,13 +58,14 @@ const defaultTimers: CloseTimers = {
  * The one owner of "a close is waiting on the user". The renderer only shows
  * the confirmation and answers; whether the answer closes the window or quits
  * is what main recorded when it asked. A renderer that cannot answer (gone,
- * crashed, hung, silent past the timeout) never blocks a quit: main closes
- * with the default choice, so the agents resume on the next start.
+ * crashed, hung, silent past the timeout) never blocks a quit. Main carries
+ * out the original request with the same policy as a confirmed close.
  */
 export function createCloseCoordinator(options: CloseCoordinatorOptions): CloseCoordinator {
   const timers = options.timers ?? defaultTimers;
   const timeoutMs = options.responseTimeoutMs ?? CLOSE_RESPONSE_TIMEOUT_MS;
   let pending: AppCloseRequest | null = null;
+  let nextId = 0;
   let timer: unknown = null;
 
   const stopTimer = (): void => {
@@ -87,13 +83,14 @@ export function createCloseCoordinator(options: CloseCoordinatorOptions): CloseC
     const request = settle();
     if (!request) return;
     options.reportUnanswered(request, reason);
-    options.finish(request, RESUME_AGENTS);
+    void options.finish(request);
   };
 
   return {
     request: (quitting) => {
+      if (pending && (pending.quitting || !quitting)) return;
       stopTimer();
-      const request: AppCloseRequest = { quitting };
+      const request: AppCloseRequest = { id: ++nextId, quitting };
       pending = request;
       if (!options.renderer.canAnswer() || !options.renderer.ask(request)) {
         closeUnanswered("the window is not available");
@@ -104,21 +101,21 @@ export function createCloseCoordinator(options: CloseCoordinatorOptions): CloseC
         closeUnanswered(`the window did not answer within ${timeoutMs} ms`);
       }, timeoutMs);
     },
-    acknowledge: () => {
-      if (pending) stopTimer();
+    acknowledge: (id) => {
+      if (pending?.id === id) stopTimer();
     },
-    cancel: () => {
-      settle();
+    cancel: (id) => {
+      if (id === undefined || pending?.id === id) settle();
     },
-    confirm: (choice) => {
+    confirm: (id) => {
+      if (pending?.id !== id) return;
       const request = settle();
-      if (!request) throw new Error("No close is waiting for confirmation.");
-      options.finish(request, choice);
+      if (request) return options.finish(request);
     },
     rendererLost: () => closeUnanswered("the window stopped responding"),
     rendererReset: () => {
-      settle();
+      if (pending?.quitting) closeUnanswered("the window reloaded");
+      else settle();
     },
-    pending: () => pending,
   };
 }

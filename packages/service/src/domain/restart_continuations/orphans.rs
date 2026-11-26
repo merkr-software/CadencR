@@ -1,18 +1,14 @@
-//! Agent processes a killed service left running.
+//! Compatibility ledger for agent processes without a durable session anchor.
 //!
-//! A graceful stop closes every runtime. A hard kill (SIGKILL, a crash, a
-//! power loss) cannot: the agent CLIs are reparented to init and keep working
-//! on their turn, unsupervised. Every live agent process is therefore written
-//! to `agent_process_ledger`, and the next start stops the survivors before it
-//! resumes their conversations — otherwise two processes would drive the same
-//! provider session.
+//! Interactive transports record their session in `agents::process_sessions`
+//! at launch. That proof outlives the reader and the leader. This older ledger
+//! can only verify a live original leader and its remaining tree.
 //!
 //! A pid alone is not an identity: the OS reuses them. Each row also keeps the
 //! process start time, and a survivor is only stopped when the pid still
 //! reports that same start time.
 
 use crate::shared::discard::KeepFirst;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -21,9 +17,6 @@ use sqlx::SqlitePool;
 use crate::shared::process_table;
 
 static LEDGER: OnceLock<SqlitePool> = OnceLock::new();
-
-/// How long a survivor gets to exit on SIGTERM before SIGKILL.
-const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 
 /// How long `ps` gets for a row recorded by an earlier version.
 const LEGACY_PS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -37,6 +30,9 @@ pub(super) fn init(pool: &SqlitePool) {
 /// (tests, MCP subprocess mode) or the process cannot be identified.
 pub async fn record(session_id: i64, pid: u32) -> Option<i64> {
     let pool = LEDGER.get()?;
+    if crate::domain::agents::process_sessions::owns(pid) {
+        return None;
+    }
     let identity = process_identity(pid).await?;
     match sqlx::query_scalar::<_, i64>(
         "INSERT INTO agent_process_ledger (session_id, pid, identity) VALUES (?, ?, ?)
@@ -70,38 +66,60 @@ pub async fn forget(entry: Option<i64>) {
     }
 }
 
-/// Stop every recorded agent process that is still the process it was, then
-/// empty the ledger. Returns how many survivors were stopped.
+/// Stop every verified survivor and forget only entries whose cleanup settled.
 pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
-    let rows: Vec<(i64, String)> = sqlx::query_as("SELECT pid, identity FROM agent_process_ledger")
-        .fetch_all(pool)
-        .await?;
-    let survivors = futures::future::join_all(rows.into_iter().map(|(pid, identity)| async move {
-        let pid = u32::try_from(pid).ok()?;
-        (recorded_identity(pid, &identity).await.as_deref() == Some(identity.as_str()))
-            .then_some(pid)
-    }))
-    .await
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    // One snapshot of the process table for every survivor. Without it the
-    // survivors themselves are still stopped, but not what they started.
-    let parents = if survivors.is_empty() {
-        Ok(HashMap::new())
-    } else {
-        process_table::parents().await
+    let rows: Vec<(i64, i64, String)> =
+        sqlx::query_as("SELECT id, pid, identity FROM agent_process_ledger")
+            .fetch_all(pool)
+            .await?;
+    let outcomes =
+        futures::future::join_all(rows.into_iter().map(|(id, pid, identity)| async move {
+            let result = match u32::try_from(pid) {
+                Ok(pid) => stop_recorded_tree(pid, &identity).await,
+                Err(_) => Ok(false),
+            };
+            (id, result)
+        }))
+        .await;
+    let mut stopped = 0;
+    let mut failure = None;
+    for (id, result) in outcomes {
+        match result {
+            Ok(reaped) => {
+                stopped += usize::from(reaped);
+                sqlx::query("DELETE FROM agent_process_ledger WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            Err(error) => {
+                tracing::warn!(id, %error, "could not stop an orphaned provider");
+                failure = Some(error);
+            }
+        }
+    }
+    if let Some(error) = failure {
+        return Err(error.into());
+    }
+    Ok(stopped)
+}
+
+async fn stop_recorded_tree(pid: u32, recorded: &str) -> std::io::Result<bool> {
+    let Some(identity) = process_identity(pid).await else {
+        return Ok(false);
     };
-    let empty = HashMap::new();
-    let tree = parents.as_ref().unwrap_or(&empty);
-    futures::future::join_all(survivors.iter().map(|pid| terminate_tree(*pid, tree))).await;
-    sqlx::query("DELETE FROM agent_process_ledger")
-        .execute(pool)
-        .await?;
-    parents.map_err(|error| {
-        anyhow::anyhow!("could not find the processes the agents had started: {error}")
-    })?;
-    Ok(survivors.len())
+    let matches = if cfg!(target_os = "macos") && !is_kernel_identity(recorded) {
+        legacy_identity(pid).await.as_deref() == Some(recorded)
+    } else {
+        identity == recorded
+    };
+    if !matches {
+        return Ok(false);
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    return process_table::stop_verified_tree(pid, identity).await;
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    Ok(false)
 }
 
 /// When `pid` started, or `None` when no such process: a pid with the same
@@ -109,17 +127,6 @@ pub(super) async fn reap(pool: &SqlitePool) -> anyhow::Result<usize> {
 /// cannot time the check out and make a survivor look gone.
 async fn process_identity(pid: u32) -> Option<String> {
     process_table::start_time(pid).await
-}
-
-/// `pid`'s identity in the form `identity` was recorded in. On macOS, rows
-/// written before identities came from the kernel hold what `ps -o lstart`
-/// printed, in the user's locale: those are read the same way, once, since
-/// every reap empties the ledger.
-async fn recorded_identity(pid: u32, identity: &str) -> Option<String> {
-    if cfg!(target_os = "macos") && !is_kernel_identity(identity) {
-        return legacy_identity(pid).await;
-    }
-    process_identity(pid).await
 }
 
 /// Kernel identities are digits: seconds and microseconds on macOS
@@ -151,62 +158,6 @@ async fn legacy_identity(pid: u32) -> Option<String> {
     }
 }
 
-/// The pids below `root` in a `pid -> parent pid` snapshot.
-fn descendants_of(root: u32, parents: &HashMap<i32, i32>) -> Vec<u32> {
-    let Ok(root) = i32::try_from(root) else {
-        return Vec::new();
-    };
-    let mut found = Vec::new();
-    let mut frontier = vec![root];
-    while let Some(parent) = frontier.pop() {
-        for (pid, ppid) in parents {
-            if *ppid == parent && *pid != root && !found.contains(pid) {
-                found.push(*pid);
-                frontier.push(*pid);
-            }
-        }
-    }
-    found
-        .into_iter()
-        .filter_map(|pid| u32::try_from(pid).ok())
-        .collect()
-}
-
-/// SIGTERM the survivor and what it started (a running command, MCP servers),
-/// then SIGKILL whatever ignored it.
-#[cfg(unix)]
-async fn terminate_tree(root: u32, parents: &HashMap<i32, i32>) {
-    let mut tree = descendants_of(root, parents);
-    tree.push(root);
-    tracing::warn!(
-        pid = root,
-        processes = tree.len(),
-        "stopping an orphaned agent process"
-    );
-    signal_all(&tree, libc::SIGTERM);
-    let deadline = tokio::time::Instant::now() + TERMINATE_GRACE;
-    while tokio::time::Instant::now() < deadline && tree.iter().any(|pid| is_alive(*pid)) {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    signal_all(&tree, libc::SIGKILL);
-}
-
-#[cfg(not(unix))]
-async fn terminate_tree(_root: u32, _parents: &HashMap<i32, i32>) {}
-
-#[cfg(unix)]
-fn signal_all(pids: &[u32], signal: libc::c_int) {
-    for pid in pids {
-        let Ok(pid) = libc::pid_t::try_from(*pid) else {
-            continue;
-        };
-        // SAFETY: `kill` takes plain integers; a vanished pid is just ESRCH.
-        unsafe {
-            libc::kill(pid, signal);
-        }
-    }
-}
-
 /// Whether a process with `pid` exists (a zombie not yet reaped counts).
 #[cfg(unix)]
 pub(crate) fn is_alive(pid: u32) -> bool {
@@ -220,15 +171,6 @@ pub(crate) fn is_alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn descendants_follow_the_whole_subtree_and_nothing_else() {
-        let parents = HashMap::from([(10, 1), (11, 10), (12, 11), (13, 10), (20, 1), (21, 20)]);
-        let mut found = descendants_of(10, &parents);
-        found.sort_unstable();
-        assert_eq!(found, vec![11, 12, 13]);
-        assert!(descendants_of(99, &parents).is_empty());
-    }
 
     #[test]
     fn rows_recorded_through_ps_are_told_from_kernel_identities() {

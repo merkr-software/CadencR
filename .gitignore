@@ -28,6 +28,7 @@ target/
 *.db.blobs/
 # Single-instance lock the service holds next to its database.
 *.db.service.lock
+.cadencr-processes-*/
 # Per-clone local environment and repo-local dev state. Never commit.
 **/.env
 **/.env.local
