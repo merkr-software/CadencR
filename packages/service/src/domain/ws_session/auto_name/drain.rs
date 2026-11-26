@@ -1,208 +1,444 @@
-use crate::domain::ws_session::protocol::WsSessionEvent;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use tracing::{debug, info, warn};
+use axum::http::StatusCode;
+use tokio::task::JoinHandle;
+use tokio::time::{timeout, timeout_at, Instant};
+use tracing::{info, warn};
 
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeContentBlock, RuntimeContentDelta, RuntimeError, RuntimeStreamEvent,
+    AgentRuntimeSession, RuntimeContentBlock, RuntimeContentDelta, RuntimeError, RuntimeEvent,
+    RuntimeStreamEvent,
 };
 use crate::domain::agents::providers::runtime_session_finished_text;
+use crate::error::AppError;
 
-/// Safety cap: auto-naming should complete in seconds. If the provider hasn't
-/// emitted a terminal event by then, bail out rather than hang the skeleton.
+use super::{prompt::title_from_response, runtime_failure};
+
 const AUTO_NAME_DEADLINE: Duration = Duration::from_secs(30);
+const AUTO_NAME_CLOSE_DEADLINE: Duration = Duration::from_secs(15);
 
-/// Poll interval for the fallback "session finished" reconciler — matches the
-/// polling interval used by stream_reader so OpenCode short-turn completions get picked
-/// up when no explicit Result event arrives.
-const AUTO_NAME_RECV_TIMEOUT: Duration = Duration::from_millis(500);
-
-/// Why the drain loop stopped. Logged at INFO on exit so operators can
-/// diagnose "skeleton cleared with no name" incidents without re-running
-/// with debug logging.
-#[derive(Debug, Clone, Copy)]
 enum DrainExit {
-    ResultEvent,
-    SessionFinishedReconciler,
+    ResultEvent { failed: bool },
     ChannelClosed,
+    StreamError(RuntimeError),
     Deadline,
 }
 
-impl std::fmt::Display for DrainExit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            DrainExit::ResultEvent => "result_event",
-            DrainExit::SessionFinishedReconciler => "session_finished_reconciler",
-            DrainExit::ChannelClosed => "channel_closed",
-            DrainExit::Deadline => "deadline",
-        })
+impl DrainExit {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::ResultEvent { .. } => "result_event",
+            Self::ChannelClosed => "channel_closed",
+            Self::StreamError(_) => "stream_error",
+            Self::Deadline => "deadline",
+        }
     }
 }
 
-/// Drain events until the naming turn completes.
-///
-/// Some providers (notably OpenCode for short turns) don't emit a terminal
-/// `Result` event, so we mirror the stream_reader pattern: poll recv with a
-/// short timeout and fall back to the provider's `session_finished` reconciler.
-/// An overall deadline prevents the UI skeleton from hanging indefinitely
-/// if everything misbehaves.
-///
-/// The reconciler probe also returns the latest assistant text so we can
-/// recover when streaming text has not yet reached the channel before
-/// the run finishes — without that recovery, short turns can race
-/// past the 500 ms recv window with `accumulated_text` still empty, which
-/// leaves the feature stuck on its default "Session N" title.
-pub(super) async fn drain_text(
+struct RuntimeToClose {
+    feature_id: i64,
+    session: Option<Box<dyn AgentRuntimeSession>>,
+}
+
+impl RuntimeToClose {
+    fn start_close(&mut self) -> Option<JoinHandle<Result<(), AppError>>> {
+        let mut session = self.session.take()?;
+        let feature_id = self.feature_id;
+        Some(tokio::spawn(async move {
+            session.close().await.map_err(|error| {
+                let error = runtime_failure(
+                    error,
+                    "RUNTIME_CLOSE_FAILED",
+                    "The auto-naming provider did not close cleanly. Try again.",
+                );
+                warn!(
+                    feature_id,
+                    code = error.code(),
+                    "auto-name: runtime close failed"
+                );
+                error
+            })
+        }))
+    }
+}
+
+impl Drop for RuntimeToClose {
+    fn drop(&mut self) {
+        // The request may be cancelled while its naming runtime is active.
+        drop(self.start_close());
+    }
+}
+
+pub(super) async fn drain_title(
     feature_id: i64,
     provider_id: &str,
-    mut session: Box<dyn AgentRuntimeSession>,
-) -> Result<String, RuntimeError> {
-    let runtime_session_id = session.session_id().await;
-    debug!(
+    session: Box<dyn AgentRuntimeSession>,
+) -> Result<String, AppError> {
+    let mut runtime = RuntimeToClose {
         feature_id,
-        runtime_session_id = ?runtime_session_id,
-        "auto-name: drain starting"
-    );
+        session: Some(session),
+    };
+    let session = runtime.session.as_deref_mut().expect("runtime is open");
+    let result = drain_text(feature_id, provider_id, session)
+        .await
+        .and_then(|text| title_from_response(&text));
+
+    // Let the close task finish independently if its reply budget elapses.
+    // The error that already prevented naming takes priority over cleanup.
+    let close = runtime.start_close().expect("runtime is open");
+    let close = wait_for_close(feature_id, close).await;
+    let title = result?;
+    close?;
+    Ok(title)
+}
+
+async fn wait_for_close(
+    feature_id: i64,
+    close: JoinHandle<Result<(), AppError>>,
+) -> Result<(), AppError> {
+    let (status, message) = match timeout(AUTO_NAME_CLOSE_DEADLINE, close).await {
+        Ok(Ok(result)) => return result,
+        Ok(Err(_)) => (
+            StatusCode::BAD_GATEWAY,
+            "The auto-naming provider did not close cleanly. Try again.",
+        ),
+        Err(_) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            "The auto-naming provider did not close in time. Try again.",
+        ),
+    };
+    warn!(feature_id, %status, "auto-name: runtime close did not finish");
+    Err(AppError::coded(status, "RUNTIME_CLOSE_FAILED", message))
+}
+
+async fn drain_text(
+    feature_id: i64,
+    provider_id: &str,
+    session: &mut dyn AgentRuntimeSession,
+) -> Result<String, AppError> {
     let mut rx = session.take_message_rx();
-    let mut accumulated_text = String::new();
+    let mut text = String::new();
+    let mut provider_failed = false;
     let deadline = Instant::now() + AUTO_NAME_DEADLINE;
-    let mut events_seen: u32 = 0;
-    let exit_reason: DrainExit;
 
-    loop {
+    let exit = loop {
         if Instant::now() >= deadline {
-            warn!(feature_id, "auto-name: stream deadline exceeded, bailing");
-            exit_reason = DrainExit::Deadline;
-            break;
+            break DrainExit::Deadline;
         }
-
-        match tokio::time::timeout(AUTO_NAME_RECV_TIMEOUT, rx.recv()).await {
+        match timeout_at(deadline, rx.recv()).await {
             Ok(Some(Ok(event))) => {
-                events_seen += 1;
+                provider_failed |= event
+                    .provider_error()
+                    .is_some_and(|error| error.parent_tool_use_id.is_none());
                 if event.is_result() {
-                    exit_reason = DrainExit::ResultEvent;
-                    break;
+                    break DrainExit::ResultEvent {
+                        failed: event.result_error().is_some(),
+                    };
                 }
-
-                if let Some(message) = event.assistant_message() {
-                    for block in &message.content {
-                        if let RuntimeContentBlock::Text { text } = block {
-                            accumulated_text.push_str(text);
-                        }
-                    }
-                }
-
-                if let Some(stream_event) = event.stream_event() {
-                    match stream_event {
-                        RuntimeStreamEvent::ContentBlockStart {
-                            block: RuntimeContentBlock::Text { text },
-                            ..
-                        } => accumulated_text.push_str(text),
-                        RuntimeStreamEvent::ContentBlockDelta {
-                            delta: RuntimeContentDelta::Text { text },
-                            ..
-                        } => accumulated_text.push_str(text),
-                        _ => {}
-                    }
-                }
-
-                if events_seen <= 5 {
-                    debug!(
-                        feature_id,
-                        events_seen,
-                        text_len = accumulated_text.len(),
-                        raw = %truncate_for_log(event.raw_json().to_string().as_str(), 300),
-                        "auto-name: event"
-                    );
-                }
+                append_text(&mut text, &event);
             }
-            Ok(Some(Err(e))) => {
-                debug!(feature_id, error = %e, "auto-name: stream error");
-            }
-            Ok(None) => {
-                exit_reason = DrainExit::ChannelClosed;
-                break;
-            }
-            Err(_) => {
-                // No event this tick — ask the provider whether the
-                // session is done. The probe also returns the latest
-                // assistant text so we can recover from the stream-vs-finish
-                // race; the `is_empty()` guard keeps stream-delivered text
-                // winning so partial stream + fallback can't duplicate.
-                if let Some(sid) = runtime_session_id.as_deref() {
-                    if let Some(final_text) = runtime_session_finished_text(provider_id, sid).await
-                    {
-                        if accumulated_text.is_empty() && !final_text.is_empty() {
-                            debug!(
-                                feature_id,
-                                fallback_text_len = final_text.len(),
-                                "auto-name: recovered final text via http probe"
-                            );
-                            accumulated_text = final_text;
-                        }
-                        exit_reason = DrainExit::SessionFinishedReconciler;
-                        break;
-                    }
-                }
-            }
+            Ok(Some(Err(error))) => break DrainExit::StreamError(error),
+            Ok(None) => break DrainExit::ChannelClosed,
+            Err(_) => break DrainExit::Deadline,
         }
-    }
+    };
+    drop(rx);
 
     info!(
         feature_id,
-        exit_reason = %exit_reason,
-        events_seen,
-        text_len = accumulated_text.len(),
+        exit_reason = exit.reason(),
+        text_len = text.len(),
         "auto-name: drain exiting"
     );
 
-    // Close cooperatively — some adapters (OpenCode) leave server-side
-    // session state behind otherwise.
-    session.close().await?;
-    Ok(accumulated_text)
+    if provider_failed || matches!(exit, DrainExit::ResultEvent { failed: true }) {
+        // A provider can report its failure before an otherwise clean result
+        // or transport closure. Keep that earlier cause for the naming turn.
+        return Err(AppError::coded(
+            StatusCode::BAD_GATEWAY,
+            "AUTO_NAME_PROVIDER_FAILED",
+            "The auto-naming provider failed while generating the title. Check its model and authentication, then try again.",
+        ));
+    }
+
+    match exit {
+        DrainExit::StreamError(error) => Err(runtime_failure(
+            error,
+            "AUTO_NAME_STREAM_FAILED",
+            "The auto-naming provider's connection failed before the title was ready. Try again.",
+        )),
+        DrainExit::Deadline => Err(AppError::coded(
+            StatusCode::GATEWAY_TIMEOUT,
+            "AUTO_NAME_TIMEOUT",
+            "The auto-naming provider did not finish in time. Try again or choose a faster naming model.",
+        )),
+        DrainExit::ChannelClosed => {
+            let confirmed = timeout_at(deadline, async {
+                let sid = session.session_id().await?;
+                runtime_session_finished_text(provider_id, &sid).await
+            }).await;
+            match confirmed {
+                Ok(Some(fallback)) => Ok(if text.is_empty() { fallback } else { text }),
+                _ => Err(AppError::coded(
+                    StatusCode::BAD_GATEWAY,
+                    "AUTO_NAME_STREAM_CLOSED",
+                    "The auto-naming provider closed the connection before confirming a title. Try again.",
+                )),
+            }
+        }
+        DrainExit::ResultEvent { .. } => Ok(text),
+    }
 }
 
-/// Clamp a string to `max` bytes at a char boundary for log output. Prevents
-/// an OpenCode message with a long payload from flooding the log line.
-pub(super) fn truncate_for_log(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_string();
+fn append_text(text: &mut String, event: &RuntimeEvent) {
+    if let Some(message) = event.assistant_message() {
+        for block in &message.content {
+            if let RuntimeContentBlock::Text { text: block_text } = block {
+                text.push_str(block_text);
+            }
+        }
     }
-    let mut end = max;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
+    match event.stream_event() {
+        Some(RuntimeStreamEvent::ContentBlockStart {
+            block: RuntimeContentBlock::Text { text: delta },
+            ..
+        })
+        | Some(RuntimeStreamEvent::ContentBlockDelta {
+            delta: RuntimeContentDelta::Text { text: delta },
+            ..
+        }) => text.push_str(delta),
+        _ => {}
     }
-    format!("{}…", &text[..end])
-}
-
-pub(super) fn report_close_error(
-    senders: &[tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>],
-    error: RuntimeError,
-) {
-    use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
-
-    let envelope = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
-        code: "RUNTIME_CLOSE_FAILED".into(),
-        message: error.to_string(),
-        ..Default::default()
-    }))
-    .expect("runtime close error should serialize");
-    super::send_to_all(senders, String::from(envelope));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::DrainExit;
+    use super::*;
+    use crate::domain::agents::adapter::{
+        RuntimeAssistantMessage, RuntimeEventKind, RuntimeEventMetadata, RuntimeMessageRx,
+        RuntimePermissionMode, RuntimeResultError,
+    };
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use tokio::sync::mpsc;
 
-    #[test]
-    fn drain_exit_display_matches_log_contract() {
-        // These strings appear in operator log queries — keep them stable.
-        assert_eq!(DrainExit::ResultEvent.to_string(), "result_event");
-        assert_eq!(
-            DrainExit::SessionFinishedReconciler.to_string(),
-            "session_finished_reconciler"
+    struct NamingSession {
+        rx: Option<RuntimeMessageRx>,
+        closed: Arc<AtomicBool>,
+        fail_close: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for NamingSession {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            self.rx.take().unwrap()
+        }
+
+        async fn session_id(&self) -> Option<String> {
+            None
+        }
+
+        async fn stream_input(&self, _: serde_json::Value) -> Result<(), RuntimeError> {
+            unreachable!()
+        }
+
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            unreachable!()
+        }
+
+        async fn close(&mut self) -> Result<(), RuntimeError> {
+            assert!(!self.closed.swap(true, Ordering::Relaxed));
+            if self.fail_close {
+                return Err(RuntimeError::new("close failed: synthetic-private-value"));
+            }
+            Ok(())
+        }
+
+        async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+            unreachable!()
+        }
+
+        async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+            unreachable!()
+        }
+
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    async fn run_drain(rx: RuntimeMessageRx, fail_close: bool) -> Result<String, AppError> {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = NamingSession {
+            rx: Some(rx),
+            closed: closed.clone(),
+            fail_close,
+        };
+        let result = drain_title(1, "naming-test", Box::new(session)).await;
+        assert!(
+            closed.load(Ordering::Relaxed),
+            "drain must always close the runtime"
         );
-        assert_eq!(DrainExit::ChannelClosed.to_string(), "channel_closed");
-        assert_eq!(DrainExit::Deadline.to_string(), "deadline");
+        result
+    }
+
+    fn event(kind: RuntimeEventKind) -> RuntimeEvent {
+        RuntimeEvent::new(RuntimeEventMetadata::default(), kind)
+    }
+
+    fn text_event(text: &str) -> RuntimeEvent {
+        event(RuntimeEventKind::AssistantMessage {
+            message: RuntimeAssistantMessage {
+                model: None,
+                content: vec![RuntimeContentBlock::Text { text: text.into() }],
+            },
+            parent_tool_use_id: None,
+        })
+    }
+
+    fn provider_error_event() -> RuntimeEvent {
+        event(RuntimeEventKind::ProviderError {
+            message: "provider failed: synthetic-private-value".into(),
+            code: None,
+            parent_tool_use_id: None,
+        })
+    }
+
+    fn runtime_rx(events: Vec<Result<RuntimeEvent, RuntimeError>>) -> RuntimeMessageRx {
+        let (tx, rx) = mpsc::channel(events.len().max(1));
+        for item in events {
+            tx.try_send(item).unwrap();
+        }
+        rx
+    }
+
+    #[tokio::test]
+    async fn completed_title_is_returned_after_close() {
+        let rx = runtime_rx(vec![
+            Ok(text_event("Fix Login")),
+            Ok(event(RuntimeEventKind::Result)),
+        ]);
+        assert_eq!(run_drain(rx, false).await.unwrap(), "Fix Login");
+    }
+
+    #[tokio::test]
+    async fn provider_error_outranks_partial_text_stream_failure_and_close_failure() {
+        let rx = runtime_rx(vec![
+            Ok(text_event("Unfinished Title")),
+            Ok(provider_error_event()),
+            Err(RuntimeError::new("stream ended: synthetic-private-value")),
+        ]);
+        let error = run_drain(rx, true).await.unwrap_err();
+        assert_eq!(error.code(), "AUTO_NAME_PROVIDER_FAILED");
+        assert!(!error.to_string().contains("synthetic-private-value"));
+    }
+
+    #[tokio::test]
+    async fn a_bare_terminal_acknowledgement_does_not_erase_a_provider_failure() {
+        let rx = runtime_rx(vec![
+            Ok(provider_error_event()),
+            Ok(text_event("Unconfirmed Title")),
+            Ok(event(RuntimeEventKind::Result)),
+        ]);
+        assert_eq!(
+            run_drain(rx, false).await.unwrap_err().code(),
+            "AUTO_NAME_PROVIDER_FAILED"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_terminal_result_is_not_a_success_or_an_empty_response() {
+        let terminal =
+            event(RuntimeEventKind::Result).with_result_error(Some(RuntimeResultError {
+                code: "PROVIDER_FAILURE".into(),
+                message: "result failed: synthetic-private-value".into(),
+            }));
+        let error = run_drain(runtime_rx(vec![Ok(terminal)]), false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), "AUTO_NAME_PROVIDER_FAILED");
+        assert!(!error.to_string().contains("synthetic-private-value"));
+    }
+
+    #[tokio::test]
+    async fn stream_and_empty_response_failures_outrank_close_failure() {
+        let stream = runtime_rx(vec![
+            Ok(text_event("Partial")),
+            Err(RuntimeError::new("stream failed")),
+        ]);
+        let empty = runtime_rx(vec![Ok(event(RuntimeEventKind::Result))]);
+        for (rx, code) in [
+            (stream, "AUTO_NAME_STREAM_FAILED"),
+            (empty, "AUTO_NAME_EMPTY_RESPONSE"),
+        ] {
+            assert_eq!(run_drain(rx, true).await.unwrap_err().code(), code);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_eof_without_a_result_does_not_confirm_partial_text() {
+        let rx = runtime_rx(vec![Ok(text_event("__FEATURE_NAME_START__Fix"))]);
+        let error = run_drain(rx, false).await.unwrap_err();
+        assert_eq!(error.code(), "AUTO_NAME_STREAM_CLOSED");
+    }
+
+    #[tokio::test]
+    async fn close_failure_is_returned_when_a_title_was_received() {
+        let rx = runtime_rx(vec![
+            Ok(text_event("Fix Login")),
+            Ok(event(RuntimeEventKind::Result)),
+        ]);
+        let error = run_drain(rx, true).await.unwrap_err();
+        assert_eq!(error.code(), "RUNTIME_CLOSE_FAILED");
+        assert!(!error.to_string().contains("synthetic-private-value"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn deadline_rejects_partial_text_and_still_closes_the_runtime() {
+        let (tx, rx) = mpsc::channel(1);
+        tx.try_send(Ok(text_event("Unfinished Title"))).unwrap();
+        let error = run_drain(rx, false).await.unwrap_err();
+        assert_eq!(error.code(), "AUTO_NAME_TIMEOUT");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_close_does_not_block_the_reply() {
+        let close = tokio::spawn(async {
+            tokio::time::sleep(AUTO_NAME_CLOSE_DEADLINE * 2).await;
+            Ok(())
+        });
+        let error = wait_for_close(1, close).await.unwrap_err();
+        assert_eq!(error.code(), "RUNTIME_CLOSE_FAILED");
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                status: StatusCode::GATEWAY_TIMEOUT,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancelling_during_the_drain_still_closes_the_runtime() {
+        let (_tx, rx) = mpsc::channel(1);
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = NamingSession {
+            rx: Some(rx),
+            closed: closed.clone(),
+            fail_close: false,
+        };
+        let mut drain = Box::pin(drain_title(1, "naming-test", Box::new(session)));
+        assert!(futures::poll!(drain.as_mut()).is_pending());
+        drop(drain);
+
+        timeout(Duration::from_secs(1), async {
+            while !closed.load(Ordering::Relaxed) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 }

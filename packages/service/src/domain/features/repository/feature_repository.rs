@@ -1,7 +1,9 @@
 use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::{Feature, FeatureStatus};
-use super::super::title::{GeneratedTitlePolicy, MANUAL_TITLE_SETTING_KEY};
+use super::super::title::{
+    GeneratedTitlePolicy, MANUAL_TITLE_REVISION_SETTING_KEY, MANUAL_TITLE_SETTING_KEY,
+};
 use crate::error::AppError;
 
 const FEATURE_COLUMNS: &str = r#"f.id, f.project_id, f.title, f.status,
@@ -187,25 +189,40 @@ pub async fn update_title_manually(
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    super::settings_repository::upsert_feature_setting(
-        &mut *tx,
-        id,
-        MANUAL_TITLE_SETTING_KEY,
-        "true",
-    )
-    .await?;
+    // Each edit invalidates an in-flight result, even when it restores the
+    // same title. Keep the revision, marker and title in one transaction.
+    let revision = uuid::Uuid::new_v4().to_string();
+    for (key, value) in [
+        (MANUAL_TITLE_SETTING_KEY, "true"),
+        (MANUAL_TITLE_REVISION_SETTING_KEY, revision.as_str()),
+    ] {
+        super::settings_repository::upsert_feature_setting(&mut *tx, id, key, value).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
 
+pub(crate) async fn manual_title_revision(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<Option<String>, AppError> {
+    Ok(
+        sqlx::query_scalar("SELECT value FROM feature_settings WHERE feature_id = ? AND key = ?")
+            .bind(id)
+            .bind(MANUAL_TITLE_REVISION_SETTING_KEY)
+            .fetch_optional(pool)
+            .await?,
+    )
+}
+
 /// Persist a generated title. Initial automatic naming preserves a manual
-/// rename that raced the provider; an explicit user-requested auto-name may
-/// intentionally replace it.
+/// rename. An explicit request can replace the manual title that existed at
+/// admission, as long as another manual edit has not committed since.
 pub async fn update_generated_title(
     pool: &SqlitePool,
     id: i64,
     title: &str,
-    policy: GeneratedTitlePolicy,
+    policy: GeneratedTitlePolicy<'_>,
 ) -> Result<bool, AppError> {
     let result = match policy {
         GeneratedTitlePolicy::PreserveManualTitle => {
@@ -222,12 +239,19 @@ pub async fn update_generated_title(
             .execute(pool)
             .await?
         }
-        GeneratedTitlePolicy::ReplaceManualTitle => {
-            sqlx::query("UPDATE features SET title = ? WHERE id = ?")
-                .bind(title)
-                .bind(id)
-                .execute(pool)
-                .await?
+        GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged { revision } => {
+            // IS also matches an absent revision on a legacy or untouched row.
+            sqlx::query(
+                "UPDATE features SET title = ? WHERE id = ?
+                 AND (SELECT value FROM feature_settings
+                      WHERE feature_id = features.id AND key = ?) IS ?",
+            )
+            .bind(title)
+            .bind(id)
+            .bind(MANUAL_TITLE_REVISION_SETTING_KEY)
+            .bind(revision)
+            .execute(pool)
+            .await?
         }
     };
     Ok(result.rows_affected() > 0)
@@ -508,7 +532,9 @@ mod tests {
             &pool,
             1,
             "Requested Name",
-            GeneratedTitlePolicy::ReplaceManualTitle,
+            GeneratedTitlePolicy::ReplaceIfManualTitleUnchanged {
+                revision: manual_title_revision(&pool, 1).await.unwrap().as_deref(),
+            },
         )
         .await
         .unwrap());

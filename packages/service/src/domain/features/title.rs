@@ -1,9 +1,23 @@
+use std::sync::LazyLock;
+
+use tokio::sync::OwnedMutexGuard;
+
+use crate::shared::keyed_locks::KeyedLocks;
+
 pub const MANUAL_TITLE_SETTING_KEY: &str = "title_manually_set";
+pub(crate) const MANUAL_TITLE_REVISION_SETTING_KEY: &str = "manual_title_revision";
+
+/// Order title writes and notifications. Manual edits remain available while
+/// the naming provider generates a title.
+pub(crate) async fn lock_title_updates(feature_id: i64) -> OwnedMutexGuard<()> {
+    static TITLE_UPDATES: LazyLock<KeyedLocks<i64>> = LazyLock::new(KeyedLocks::default);
+    TITLE_UPDATES.lock_for(&feature_id).await.lock_owned().await
+}
 
 #[derive(Clone, Copy)]
-pub enum GeneratedTitlePolicy {
+pub enum GeneratedTitlePolicy<'a> {
     PreserveManualTitle,
-    ReplaceManualTitle,
+    ReplaceIfManualTitleUnchanged { revision: Option<&'a str> },
 }
 
 /// Whether a title is one of the placeholders assigned before the first

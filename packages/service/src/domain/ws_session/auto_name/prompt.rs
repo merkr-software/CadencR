@@ -1,8 +1,11 @@
 //! The auto-naming prompt pair: a user-editable system prompt (workspace
 //! setting, falling back to the built-in default) and the fixed per-request
-//! user message that carries the delimiter contract `extract_name` parses.
+//! user message that carries the title delimiters.
+
+use axum::http::StatusCode;
 
 use crate::domain::settings_store;
+use crate::error::AppError;
 
 /// Workspace setting holding the user's custom auto-naming system prompt. An
 /// empty or whitespace-only value means "use the built-in default".
@@ -15,15 +18,18 @@ pub const DEFAULT_AUTO_NAME_SYSTEM_PROMPT: &str = "You are a feature naming assi
 /// cannot serve as that marker.
 pub const AUTO_NAME_USER_PROMPT_PREFIX: &str = "Now name this session. User's first message:";
 
-/// Delimiters the model is asked to wrap the name in; `extract_name` parses them.
+/// Delimiters the model is asked to wrap the title in.
 pub(super) const NAME_START: &str = "__FEATURE_NAME_START__";
 pub(super) const NAME_END: &str = "__FEATURE_NAME_END__";
 
 /// The system prompt the next naming spawn uses: the user's custom prompt when
 /// set, otherwise the built-in default.
-pub fn resolve_system_prompt() -> String {
-    settings_store::global_get_nonempty(AUTO_NAME_SYSTEM_PROMPT_KEY)
-        .unwrap_or_else(|| DEFAULT_AUTO_NAME_SYSTEM_PROMPT.to_string())
+pub(super) fn resolve_system_prompt() -> Result<String, AppError> {
+    let stored = settings_store::global_read(AUTO_NAME_SYSTEM_PROMPT_KEY)
+        .map_err(|error| super::settings_failure(error, "the auto-naming system prompt"))?;
+    Ok(stored
+        .filter(|prompt| !prompt.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_AUTO_NAME_SYSTEM_PROMPT.to_string()))
 }
 
 /// The delimiter instruction lives here, not in the system prompt, so a custom
@@ -35,11 +41,29 @@ pub fn resolve_system_prompt() -> String {
 /// would silently run the naming with no instructions on those providers. The
 /// importer marker stays first so `codex_rollout` keeps recognising naming
 /// sessions.
-pub fn build_prompt(user_input: &str, system_prompt: &str) -> String {
+pub(super) fn build_prompt(user_input: &str, system_prompt: &str) -> String {
     let escaped_input = user_input.replace('"', "\\\"");
     format!(
         "{AUTO_NAME_USER_PROMPT_PREFIX} \"{escaped_input}\". {system_prompt} Reply with ONLY: {NAME_START}<name>{NAME_END}"
     )
+}
+
+pub(super) fn title_from_response(text: &str) -> Result<String, AppError> {
+    let title = text
+        .split_once(NAME_START)
+        .and_then(|(_, rest)| rest.split_once(NAME_END))
+        .map_or(text, |(title, _)| title)
+        .trim()
+        .trim_matches(['"', '\''])
+        .trim();
+    if title.is_empty() {
+        return Err(AppError::coded(
+            StatusCode::BAD_GATEWAY,
+            "AUTO_NAME_EMPTY_RESPONSE",
+            "The auto-naming provider returned an empty title. Try again or choose another naming model.",
+        ));
+    }
+    Ok(title.to_owned())
 }
 
 #[cfg(test)]
@@ -55,11 +79,17 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_system_prompt_defaults_when_unset_or_blank() {
-        assert_eq!(resolve_system_prompt(), DEFAULT_AUTO_NAME_SYSTEM_PROMPT);
+        assert_eq!(
+            resolve_system_prompt().unwrap(),
+            DEFAULT_AUTO_NAME_SYSTEM_PROMPT
+        );
         settings_store::global_set(AUTO_NAME_SYSTEM_PROMPT_KEY, "  \n ")
             .await
             .unwrap();
-        assert_eq!(resolve_system_prompt(), DEFAULT_AUTO_NAME_SYSTEM_PROMPT);
+        assert_eq!(
+            resolve_system_prompt().unwrap(),
+            DEFAULT_AUTO_NAME_SYSTEM_PROMPT
+        );
     }
 
     #[tokio::test]
@@ -67,7 +97,21 @@ mod tests {
         settings_store::global_set(AUTO_NAME_SYSTEM_PROMPT_KEY, "Name in French.")
             .await
             .unwrap();
-        assert_eq!(resolve_system_prompt(), "Name in French.");
+        assert_eq!(resolve_system_prompt().unwrap(), "Name in French.");
+    }
+
+    #[test]
+    fn resolve_system_prompt_reports_an_invalid_setting() {
+        let path = settings_store::paths::global_file(&settings_store::global_dir());
+        settings_store::file::write_atomic(
+            &path,
+            r#"{"auto_name_system_prompt":["synthetic-private-prompt"]}"#,
+        )
+        .unwrap();
+        let error = resolve_system_prompt().unwrap_err();
+        assert_eq!(error.code(), "SETTINGS_INVALID");
+        assert!(error.to_string().contains("auto-naming system prompt"));
+        assert!(!error.to_string().contains("synthetic-private-prompt"));
     }
 
     #[test]
@@ -81,5 +125,25 @@ mod tests {
         let prompt = build_prompt("fix it", "Name in French.");
         assert!(prompt.contains("Name in French."));
         assert!(prompt.starts_with(AUTO_NAME_USER_PROMPT_PREFIX));
+    }
+
+    #[test]
+    fn title_uses_delimiters_or_a_plain_response() {
+        let text = format!("noise {NAME_START}Fix Login Bug{NAME_END} trailing");
+        assert_eq!(title_from_response(&text).unwrap(), "Fix Login Bug");
+        assert_eq!(
+            title_from_response("  \"Add Dark Mode\"  ").unwrap(),
+            "Add Dark Mode"
+        );
+    }
+
+    #[test]
+    fn empty_titles_are_rejected_even_with_quotes_or_delimiters() {
+        for text in ["   ", "\" \"", "__FEATURE_NAME_START____FEATURE_NAME_END__"] {
+            assert_eq!(
+                title_from_response(text).unwrap_err().code(),
+                "AUTO_NAME_EMPTY_RESPONSE"
+            );
+        }
     }
 }

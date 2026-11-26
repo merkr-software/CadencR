@@ -8,6 +8,7 @@ use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::features::models::*;
 use crate::domain::features::service;
+use crate::domain::features::title::lock_title_updates;
 use crate::domain::features::worktree_settings::validate_reuse_branch_for_project;
 use crate::domain::features::worktree_validation::validate_worktree_mode;
 use crate::domain::terminal::activity::foreground_command_counts_by_feature;
@@ -172,6 +173,7 @@ pub async fn update_feature_title_handler(
     Path(id): Path<i64>,
     Json(body): Json<UpdateTitleRequest>,
 ) -> Result<Json<SuccessResponse>, AppError> {
+    let _title_update = lock_title_updates(id).await;
     service::update_title_manually(&state.write_pool, id, &body.title).await?;
     broadcast_title_update(&state, id, &body.title).await;
     Ok(Json(SuccessResponse { success: true }))

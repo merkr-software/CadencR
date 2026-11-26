@@ -39,6 +39,19 @@ export function isNoTimeoutPath(url: string | undefined): boolean {
   );
 }
 
+// Allow the service to return its own error after up to 120 s for provider
+// preparation, 30 s for the title and 15 s for cleanup.
+const AUTO_NAME_PATH = /^\/api\/features\/\d+\/auto-name(?:\?|$)/;
+
+export function autoNameOperationTimeout(config: TimeoutConfig): number | undefined {
+  if (config.timeout !== undefined) return config.timeout;
+  return config.method?.toUpperCase() === "POST" &&
+    typeof config.url === "string" &&
+    AUTO_NAME_PATH.test(config.url)
+    ? 180000
+    : undefined;
+}
+
 const LONG_PUBLICATION_PATH =
   /^\/api\/projects\/\d+\/(?:publication-release(?:\/preview)?|publication-contribution|publication-registry(?:\/preview)?)$/;
 

@@ -78,12 +78,8 @@ pub(in crate::domain::ws_session) async fn register_runtime(
     }
     spawn_auto_name_if_needed(
         auto_name_handled,
-        context.app_state.write_pool.clone(),
-        context.app_state.feature_events_tx.clone(),
-        context
-            .app_state
-            .ws_feature_senders
-            .feature_output_sender(context.feature_id, &context.sender),
+        &context.app_state,
+        &context.sender,
         context.feature_id,
         context.payload.text.clone(),
         context.config.cwd.to_string_lossy().to_string(),

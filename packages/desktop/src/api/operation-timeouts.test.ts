@@ -3,10 +3,38 @@ import { customInstance } from "./client";
 import {
   agentExtensionOperationTimeout,
   archiveOperationTimeout,
+  autoNameOperationTimeout,
   isNoTimeoutPath,
   neovimOperationTimeout,
   projectUpdateOperationTimeout,
 } from "./operation-timeouts";
+
+describe("auto-rename request timeout", () => {
+  it.each(["/api/features/42/auto-name", "/api/features/42/auto-name?source=title"])(
+    "waits for the service deadlines for %s",
+    async (url) => {
+      const timeout = await customInstance<number>({
+        method: "POST",
+        url,
+        adapter: async (config) => ({
+          data: config.timeout,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        }),
+      });
+      expect(timeout).toBe(180000);
+    },
+  );
+
+  it.each([
+    { method: "GET", url: "/api/features/42/auto-name" },
+    { method: "POST", url: "/api/features/42/auto-name-history" },
+  ])("keeps $method $url on its normal timeout", (config) => {
+    expect(autoNameOperationTimeout(config)).toBeUndefined();
+  });
+});
 
 describe("Neovim initialization request timeout", () => {
   it.each(["/api/neovim/start", "/api/features/7/neovim/open"])(

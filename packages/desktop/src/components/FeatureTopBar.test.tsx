@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { toast } from "sonner";
 import { fireEvent, render, screen } from "@/test-utils";
 import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
@@ -47,6 +48,7 @@ vi.mock("@/hooks/useTheme", () => ({
 
 const mockSetFeatureSetting = vi.fn();
 const mockAutoName = vi.fn();
+let mockAutoNameError: unknown = null;
 
 let mockFeatureData: Record<string, unknown> = {
   id: 1,
@@ -66,7 +68,14 @@ vi.mock("@/api/generated", () => ({
   })),
   getGetFeatureSettingsQueryKey: vi.fn((id: number) => ["features", "settings", id]),
   useSetFeatureSetting: vi.fn(() => ({ mutate: mockSetFeatureSetting })),
-  useAutoNameFeature: vi.fn(() => ({ mutate: mockAutoName })),
+  useAutoNameFeature: vi.fn(
+    ({ mutation }: { mutation: { onError: (error: unknown) => void } }) => ({
+      mutate: (variables: { id: number }) => {
+        mockAutoName(variables);
+        if (mockAutoNameError) mutation.onError(mockAutoNameError);
+      },
+    }),
+  ),
   useGetStats: vi.fn(() => ({
     data: { commits: 3, insertions: 10, deletions: 2 },
     refetch: vi.fn(),
@@ -137,6 +146,7 @@ describe("FeatureTopBar", () => {
     mockSetFeatureSetting.mockClear();
     mockSetCollapsed.mockClear();
     mockAutoName.mockClear();
+    mockAutoNameError = null;
     mockSidebarCollapsed = false;
     platformMock.hasMacWindowControls = false;
     useSidebarConfigStore.setState({ config: DEFAULT_SIDEBAR_CONFIG });
@@ -192,7 +202,26 @@ describe("FeatureTopBar", () => {
     expect(mockAutoName).toHaveBeenCalledWith({ id: 1 });
   });
 
-  it("shows auto-rename on default session titles so users can retry after a silent failure", async () => {
+  it("explains a masked database error from the auto-rename request", async () => {
+    mockAutoNameError = {
+      isAxiosError: true,
+      response: { data: { code: "DATABASE_ERROR", error: "Internal server error" } },
+    };
+    const showError = vi.spyOn(toast, "error").mockReturnValue("test-toast");
+    try {
+      const { user } = render(<FeatureTopBar featureId={1} projectId={1} />);
+      fireEvent.contextMenu(screen.getByRole("heading", { name: "My Test Feature" }));
+      await user.click(await screen.findByText("Auto-rename"));
+
+      expect(showError).toHaveBeenCalledExactlyOnceWith(
+        "A database error prevented auto-renaming this conversation. Try again.",
+      );
+    } finally {
+      showError.mockRestore();
+    }
+  });
+
+  it("shows auto-rename on default session titles so users can retry after a failure", async () => {
     mockFeatureData = {
       ...mockFeatureData,
       title: "Session 3",
