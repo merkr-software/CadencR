@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -47,6 +48,7 @@ export interface PaletteSources {
  * already holds (no request).
  */
 export function usePaletteSources(): PaletteSources {
+  const { t } = useUiTranslation();
   const index = useListConversationIndex({ query: { staleTime: INDEX_STALE_MS } });
   const projectsQuery = useListProjects();
   const attentionEntries = useAttentionIndex();
@@ -63,14 +65,17 @@ export function usePaletteSources(): PaletteSources {
       conversations: index.data ?? NO_CONVERSATIONS,
       conversationsLoading: index.isPending,
       conversationsError: index.error
-        ? apiErrorMessage(index.error, "Couldn't load conversations")
+        ? apiErrorMessage(
+            index.error,
+            t("palette.errors.conversations", "Couldn't load conversations"),
+          )
         : null,
       projects,
       projectNames: new Map(projects.map((project) => [project.id, project.name])),
       attention: new Map(attentionEntries.map((entry) => [entry.featureId, entry.state])),
       nextActions,
     }),
-    [attentionEntries, index.data, index.error, index.isPending, nextActions, projects],
+    [attentionEntries, index.data, index.error, index.isPending, nextActions, projects, t],
   );
 }
 
@@ -83,9 +88,12 @@ export function usePaletteFrecency(): {
   const [frecency, setFrecency] = useState<FrecencyMap>(stored.map);
   useEffect(() => {
     if (stored.error) {
-      toast.error("Palette history was unreadable and has been reset", {
-        description: stored.error,
-      });
+      toast.error(
+        translateUi("palette.history.reset", "Palette history was unreadable and has been reset"),
+        {
+          description: stored.error,
+        },
+      );
     }
   }, [stored.error]);
   const recordUse = useCallback((key: string) => {
@@ -94,7 +102,7 @@ export function usePaletteFrecency(): {
       try {
         writeFrecency(next);
       } catch (error) {
-        toast.error("Couldn't save palette history", {
+        toast.error(translateUi("palette.history.saveError", "Couldn't save palette history"), {
           description: error instanceof Error ? error.message : String(error),
         });
       }
@@ -115,9 +123,9 @@ const NO_RESULTS = { items: [], loading: false, error: null } as const;
 /** A search request's state; `fetching` also covers the debounce before it starts. */
 function remoteResults<T>(
   items: readonly T[],
-  { fetching, error, failure }: { fetching: boolean; error: unknown; failure: string },
+  { fetching, error, failure }: { fetching: boolean; error: unknown; failure: () => string },
 ): RemoteResults<T> {
-  return { items, loading: fetching, error: error ? apiErrorMessage(error, failure) : null };
+  return { items, loading: fetching, error: error ? apiErrorMessage(error, failure()) : null };
 }
 
 /** Message hits for `text`, debounced; nothing below `minChars`. */
@@ -131,6 +139,7 @@ export function usePaletteMessages(
     limit: number;
   },
 ): RemoteResults<MessageSearchHit> {
+  const { t } = useUiTranslation();
   const debounced = useDebouncedValue(text.trim(), REMOTE_DEBOUNCE_MS);
   const enabled = options.enabled && debounced.length >= options.minChars;
   const query = useSearchMessages(
@@ -147,9 +156,13 @@ export function usePaletteMessages(
   return useMemo(
     () =>
       enabled
-        ? remoteResults(data ?? NO_HITS, { fetching, error, failure: "Message search failed" })
+        ? remoteResults(data ?? NO_HITS, {
+            fetching,
+            error,
+            failure: () => t("palette.errors.messages", "Message search failed"),
+          })
         : NO_RESULTS,
-    [data, enabled, error, fetching],
+    [data, enabled, error, fetching, t],
   );
 }
 
@@ -163,6 +176,7 @@ export function usePaletteFiles(
   text: string,
   options: { enabled: boolean; projectId: number | null; featureId: number | null; limit: number },
 ): RemoteResults<FileHit> {
+  const { t } = useUiTranslation();
   const debounced = useDebouncedValue(text.trim(), REMOTE_DEBOUNCE_MS);
   const enabled = options.enabled && options.projectId != null;
   const query = useFileSearch(
@@ -186,8 +200,12 @@ export function usePaletteFiles(
   return useMemo(
     () =>
       enabled
-        ? remoteResults(items, { fetching, error, failure: "File search failed" })
+        ? remoteResults(items, {
+            fetching,
+            error,
+            failure: () => t("palette.errors.files", "File search failed"),
+          })
         : NO_RESULTS,
-    [enabled, error, fetching, items],
+    [enabled, error, fetching, items, t],
   );
 }

@@ -1,8 +1,8 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type {
   AllocatedPort,
   CiState,
   Feature,
-  FeaturePendingGateResponse,
   FeatureWorktreeInfo,
   GitStats,
   PrStatusSnapshot,
@@ -10,7 +10,6 @@ import type {
 } from "@/api/generated";
 import { PROVIDER_IDS } from "@/lib/providers";
 import type { AttentionState } from "@/lib/sidebar-attention";
-import type { RowSummary } from "@/lib/sidebar-row-summary";
 import { sampleLogoUrl, type SampleLogo } from "@/lib/sidebar-sample-logos";
 
 /**
@@ -79,7 +78,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -11,
     projectId: -1,
-    title: "Fix flaky checkout test",
+    get title() {
+      return translateUi("sidebar.samples.checkoutTest", "Fix flaky checkout test");
+    },
     minutesAgo: 2,
     state: "waiting",
     before: "working",
@@ -90,7 +91,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -12,
     projectId: -1,
-    title: "Add a dark mode toggle",
+    get title() {
+      return translateUi("sidebar.samples.darkMode", "Add a dark mode toggle");
+    },
     minutesAgo: 1,
     state: "working",
     before: "working",
@@ -106,7 +109,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -13,
     projectId: -1,
-    title: "Audit the color tokens",
+    get title() {
+      return translateUi("sidebar.samples.colorTokens", "Audit the color tokens");
+    },
     minutesAgo: 6,
     state: "unread",
     before: "working",
@@ -115,7 +120,12 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -14,
     projectId: -1,
-    title: "Refactor the session middleware: split auth checks from rate limiting, add tests",
+    get title() {
+      return translateUi(
+        "sidebar.samples.sessionMiddleware",
+        "Refactor the session middleware: split auth checks from rate limiting, add tests",
+      );
+    },
     minutesAgo: 90,
     state: "idle",
     before: "idle",
@@ -134,7 +144,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -15,
     projectId: -1,
-    title: "Spike: offline mode",
+    get title() {
+      return translateUi("sidebar.samples.offlineMode", "Spike: offline mode");
+    },
     minutesAgo: 12 * DAY_MINUTES,
     state: "idle",
     before: "idle",
@@ -143,7 +155,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -21,
     projectId: -2,
-    title: "Migrate billing webhooks",
+    get title() {
+      return translateUi("sidebar.samples.billingWebhooks", "Migrate billing webhooks");
+    },
     minutesAgo: 14,
     state: "failed",
     before: "working",
@@ -154,7 +168,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -22,
     projectId: -2,
-    title: "Write the 2.4 release notes",
+    get title() {
+      return translateUi("sidebar.samples.releaseNotes", "Write the 2.4 release notes");
+    },
     minutesAgo: 25,
     state: "unread",
     before: "working",
@@ -166,7 +182,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -23,
     projectId: -2,
-    title: "Bump the Stripe SDK",
+    get title() {
+      return translateUi("sidebar.samples.stripeSdk", "Bump the Stripe SDK");
+    },
     minutesAgo: 5 * DAY_MINUTES,
     state: "idle",
     before: "idle",
@@ -182,7 +200,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -24,
     projectId: -2,
-    title: "Spike: GraphQL gateway",
+    get title() {
+      return translateUi("sidebar.samples.graphqlGateway", "Spike: GraphQL gateway");
+    },
     minutesAgo: 20 * DAY_MINUTES,
     state: "idle",
     before: "idle",
@@ -191,7 +211,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -31,
     projectId: -3,
-    title: "Tokenize the spacing scale",
+    get title() {
+      return translateUi("sidebar.samples.spacingScale", "Tokenize the spacing scale");
+    },
     minutesAgo: 9,
     state: "waiting",
     before: "idle",
@@ -200,7 +222,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -32,
     projectId: -3,
-    title: "Upgrade Storybook",
+    get title() {
+      return translateUi("sidebar.samples.storybookUpgrade", "Upgrade Storybook");
+    },
     minutesAgo: 3,
     state: "working",
     before: "working",
@@ -209,7 +233,9 @@ const SPECS: readonly SampleSpec[] = [
   {
     id: -33,
     projectId: -3,
-    title: "Icon audit",
+    get title() {
+      return translateUi("sidebar.samples.iconAudit", "Icon audit");
+    },
     minutesAgo: 2 * DAY_MINUTES,
     state: "idle",
     before: "idle",
@@ -241,72 +267,6 @@ export function buildSampleConversations(now: number): readonly SampleConversati
     };
   });
 }
-
-/** What the two waiting samples ask: a command to allow, a question to answer. */
-export const SAMPLE_GATES: ReadonlyMap<number, FeaturePendingGateResponse> = new Map([
-  [
-    -11,
-    {
-      kind: "permission",
-      request_id: "sample-permission",
-      session_id: -11,
-      last_assistant_text:
-        "The checkout test fails about one run in five. I'd like to run it in a loop to catch the race.",
-      payload: {
-        tool_name: "Bash",
-        tool_input: { command: "pnpm test --filter checkout --repeat 20" },
-        options: [
-          { decision: "allow_once", label: "Allow once" },
-          { decision: "allow_future", label: "Always allow" },
-          { decision: "deny", label: "Deny" },
-        ],
-      },
-    },
-  ],
-  [
-    -31,
-    {
-      kind: "question",
-      request_id: "sample-question",
-      session_id: -31,
-      payload: {
-        tool_name: "AskUserQuestion",
-        tool_input: {
-          questions: [
-            {
-              question: "Which base unit should the spacing scale use?",
-              header: "Spacing",
-              multiSelect: false,
-              options: [
-                { label: "4 px", description: "Matches the icon grid" },
-                { label: "8 px", description: "Fewer, larger steps" },
-              ],
-            },
-          ],
-        },
-      },
-    },
-  ],
-]);
-
-/** What the preview's rows show as the last reply and the todo progress. */
-export const SAMPLE_SUMMARIES: ReadonlyMap<number, RowSummary> = new Map(
-  (
-    [
-      [-11, "The checkout test fails about one run in five; running it in a loop.", [2, 4]],
-      [-12, "Wiring the toggle into the settings menu, then the color variables.", [3, 7]],
-      [-13, "14 tokens have no dark variant; the list is in tokens-audit.md.", null],
-      [-14, "Done: auth and rate limiting are separate middlewares, 12 new tests.", [5, 5]],
-      [-21, "The webhook replay failed: Stripe answered 401 with the test key.", null],
-      [-22, "Release notes drafted in CHANGELOG.md, grouped by area.", null],
-      [-31, "Should the scale start at 4 or 8 px?", null],
-      [-32, "Running the Storybook 8 migration codemod.", [1, 5]],
-    ] as const
-  ).map(([id, preview, todos]) => [
-    id,
-    { preview, todos: todos && { done: todos[0], total: todos[1] }, error: null },
-  ]),
-);
 
 export const SAMPLE_PROJECT_COLORS: ReadonlyMap<number, string> = new Map(
   SAMPLE_PROJECTS.map((project) => [project.id, project.color]),
@@ -351,7 +311,9 @@ function pullRequest(
       source_branch: branch,
       target_branch: "main",
       review_state: review,
-      pr_label: "Pull request",
+      get pr_label() {
+        return translateUi("sidebar.samples.pullRequest", "Pull request");
+      },
       author: { username: "you" },
       body_markdown: "",
       head_sha: "",

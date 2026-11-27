@@ -1,7 +1,8 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Check, CircleAlert, CircleStop } from "lucide-react";
 import type { SubagentRunStatus } from "@/api/generated";
-import { STATUS_LABEL } from "@/lib/subagents/subagent-presentation";
+import { subagentStatusLabel } from "@/lib/subagents/subagent-presentation";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,7 +21,8 @@ export const SubagentStatusGlyph = memo(function SubagentStatusGlyph({
   label?: string;
   className?: string;
 }): ReactElement {
-  const name = label ?? STATUS_LABEL[status];
+  const { t } = useUiTranslation();
+  const name = label ?? subagentStatusLabel(status, t);
   return (
     <span
       role="img"

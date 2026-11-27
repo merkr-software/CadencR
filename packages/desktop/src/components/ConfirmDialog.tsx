@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   Dialog,
   DialogContent,
@@ -27,11 +28,12 @@ export function ConfirmDialog({
   title,
   description,
   children,
-  confirmText = "Confirm",
+  confirmText,
   variant = "default",
   busy = false,
   onConfirm,
 }: ConfirmDialogProps) {
+  const { t } = useUiTranslation();
   const handleConfirm = async (): Promise<void> => {
     if (busy) return;
     const confirmed = await onConfirm();
@@ -61,7 +63,7 @@ export function ConfirmDialog({
         {children}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button
             variant={variant}
@@ -71,7 +73,7 @@ export function ConfirmDialog({
             onClick={() => void handleConfirm()}
           >
             {busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            {confirmText}
+            {confirmText ?? t("common.confirm", "Confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>

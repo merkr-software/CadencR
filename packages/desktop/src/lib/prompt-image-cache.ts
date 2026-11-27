@@ -1,3 +1,4 @@
+import { translateUi } from "@/shared/ui-i18n";
 /**
  * Off-heap store for the attachment payloads carried by `user_message` blocks.
  *
@@ -129,7 +130,11 @@ export async function readBlobBase64(blob: Blob): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => resolve(reader.result as string));
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("read failed")));
+    reader.addEventListener("error", () =>
+      reject(
+        reader.error ?? new Error(translateUi("conversation.images.readFailed", "read failed")),
+      ),
+    );
     reader.readAsDataURL(blob);
   });
   return dataUrl.slice(dataUrl.indexOf(",") + 1);

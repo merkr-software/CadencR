@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { PluginTabSummary } from "@/api/generated";
 import { backendUnavailableHere } from "@/components/plugin-tabs/plugin-tab-access";
 
@@ -11,38 +12,61 @@ import { backendUnavailableHere } from "@/components/plugin-tabs/plugin-tab-acce
 export const CUSTOM_TABS_SECTION_ID = "custom-tabs";
 
 /** What each scope of `docs/CUSTOM_TABS.md` §6 lets a tab do, in the user's terms. */
-const SCOPE_DESCRIPTIONS: Record<string, { title: string; description: string }> = {
-  "features:read": {
-    title: "This conversation",
-    description: "See the conversation and its project, plus the project's other conversations.",
-  },
-  "git:read": {
-    title: "Git",
-    description: "Read the status, diffs, history and branches of this conversation's worktree.",
-  },
-  "forge:read": {
-    title: "Pull requests",
-    description: "Read the pull request status and checks of this conversation.",
-  },
-  "files:read": {
-    title: "Files",
-    description: "Read files in this conversation's worktree and see when they change.",
-  },
-  "agent:observe": {
-    title: "Agent activity",
-    description: "Read this conversation's agent history and follow it live.",
-  },
-  "workspace:read": {
-    title: "Whole workspace",
-    description: "See every project and conversation in Cadencr, and what each agent is doing.",
-  },
+type ScopeCopy = { title: string; description: string };
+
+const scopeDescriptions: Partial<Record<string, (t: UiTranslator) => ScopeCopy>> = {
+  "features:read": (t) => ({
+    title: t("customTabs.scope.conversation", "This conversation"),
+    description: t(
+      "customTabs.scope.conversationDescription",
+      "See the conversation and its project, plus the project's other conversations.",
+    ),
+  }),
+  "git:read": (t) => ({
+    title: t("customTabs.scope.git", "Git"),
+    description: t(
+      "customTabs.scope.gitDescription",
+      "Read the status, diffs, history and branches of this conversation's worktree.",
+    ),
+  }),
+  "forge:read": (t) => ({
+    title: t("customTabs.scope.pullRequests", "Pull requests"),
+    description: t(
+      "customTabs.scope.pullRequestsDescription",
+      "Read the pull request status and checks of this conversation.",
+    ),
+  }),
+  "files:read": (t) => ({
+    title: t("customTabs.scope.files", "Files"),
+    description: t(
+      "customTabs.scope.filesDescription",
+      "Read files in this conversation's worktree and see when they change.",
+    ),
+  }),
+  "agent:observe": (t) => ({
+    title: t("customTabs.scope.agentActivity", "Agent activity"),
+    description: t(
+      "customTabs.scope.agentActivityDescription",
+      "Read this conversation's agent history and follow it live.",
+    ),
+  }),
+  "workspace:read": (t) => ({
+    title: t("customTabs.scope.workspace", "Whole workspace"),
+    description: t(
+      "customTabs.scope.workspaceDescription",
+      "See every project and conversation in Cadencr, and what each agent is doing.",
+    ),
+  }),
 };
 
-export function describeScope(scope: string): { title: string; description: string } {
+export function describeScope(scope: string, t: UiTranslator = translateUi): ScopeCopy {
   return (
-    SCOPE_DESCRIPTIONS[scope] ?? {
+    (Object.hasOwn(scopeDescriptions, scope) ? scopeDescriptions[scope]?.(t) : undefined) ?? {
       title: scope,
-      description: "A permission this version of Cadencr does not know.",
+      description: t(
+        "customTabs.scope.unknownDescription",
+        "A permission this version of Cadencr does not know.",
+      ),
     }
   );
 }
@@ -95,12 +119,22 @@ export function enablementSummary(
   tab: PluginTabSummary,
   overrides: ReadonlyMap<number, ProjectOverride>,
   projectIds: readonly number[],
+  t: UiTranslator = translateUi,
 ): string {
   const global = tab.enablement.global === true;
   const switchedOn = projectIds.filter((id) => overrides.get(id) ?? global).length;
-  if (global && switchedOn === projectIds.length) return "On everywhere";
-  if (switchedOn === 0) return global ? "On for new projects" : "Off";
-  return switchedOn === 1 ? "On in 1 project" : `On in ${switchedOn} projects`;
+  if (global && switchedOn === projectIds.length)
+    return t("customTabs.enablement.everywhere", "On everywhere");
+  if (switchedOn === 0)
+    return global
+      ? t("customTabs.enablement.newProjects", "On for new projects")
+      : t("customTabs.enablement.off", "Off");
+  return t("customTabs.enablement.projectCount", {
+    count: switchedOn,
+    defaultValue_zero: "On in {{count}} projects",
+    defaultValue_one: "On in {{count}} project",
+    defaultValue_other: "On in {{count}} projects",
+  });
 }
 
 /** Switched on somewhere — the state in which a missing consent actually stops the tab. */

@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import { ArrowUpRight, CircleAlert, Loader2, MessagesSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,11 +50,16 @@ export const SideConversations = memo(function SideConversations({
 });
 
 /** Where the answer stands, after the question on the folded line. */
-const SUMMARY_STATE: Record<LiveAgentStatus, string> = {
-  agent: "answering…",
-  question: "waiting for you",
-  idle: "answered",
-};
+function summaryState(status: LiveAgentStatus, t: UiTranslator): string {
+  switch (status) {
+    case "agent":
+      return t("conversation.sideConversations.answeringSummary", "answering…");
+    case "question":
+      return t("conversation.sideConversations.waitingSummary", "waiting for you");
+    case "idle":
+      return t("conversation.sideConversations.answeredSummary", "answered");
+  }
+}
 
 /** The header and actions; the streamed answer re-renders on its own. */
 const SideConversationPanel = memo(function SideConversationPanel({
@@ -65,6 +71,7 @@ const SideConversationPanel = memo(function SideConversationPanel({
   conversation: SideConversation;
   cwd: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const status = useSessionStatus(conversation.sessionId)?.status ?? "idle";
   const live = status !== "idle";
   const wsSessionId = wsSessionIdFromFeature(conversation.featureId);
@@ -76,20 +83,25 @@ const SideConversationPanel = memo(function SideConversationPanel({
   return (
     <StackSection
       tone="side"
-      label={`Side question: ${conversation.question}`}
+      label={t("conversation.sideConversations.sideQuestionLabel", "Side question: {{question}}", {
+        question: conversation.question,
+      })}
       data-side-conversation
       icon={<MessagesSquare />}
-      title="Side question"
+      title={t("conversation.sideConversations.sideQuestion", "Side question")}
       hint={<span title={conversation.question}>{conversation.question}</span>}
       headerClassName="pr-0"
-      summary={`${conversation.question} · ${SUMMARY_STATE[status]}`}
+      summary={`${conversation.question} · ${summaryState(status, t)}`}
       actions={
         <>
           <Button
             variant="ghost"
             size="xs"
             className="shrink-0 text-muted-foreground"
-            title="Keep it as a conversation of its own, listed in the sidebar"
+            title={t(
+              "conversation.sideConversations.keepItAsAConversationOfIts",
+              "Keep it as a conversation of its own, listed in the sidebar",
+            )}
             onClick={() => void actions.keep()}
             disabled={actions.keeping}
           >
@@ -98,14 +110,30 @@ const SideConversationPanel = memo(function SideConversationPanel({
             ) : (
               <ArrowUpRight className="size-3" aria-hidden />
             )}
-            Keep as thread
+            {t("conversation.sideConversations.keepAsThread", "Keep as thread")}
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
             className="size-6 shrink-0 text-muted-foreground"
-            aria-label={live ? "Stop and close the side question" : "Close the side question"}
-            title={live ? (joined ? "Stop and close" : "Connecting…") : "Close"}
+            aria-label={
+              live
+                ? t(
+                    "conversation.sideConversations.stopAndCloseTheSideQuestion",
+                    "Stop and close the side question",
+                  )
+                : t(
+                    "conversation.sideConversations.closeTheSideQuestion",
+                    "Close the side question",
+                  )
+            }
+            title={
+              live
+                ? joined
+                  ? t("conversation.sideConversations.stopAndClose", "Stop and close")
+                  : t("conversation.sideConversations.connecting", "Connecting…")
+                : t("conversation.sideConversations.close", "Close")
+            }
             onClick={actions.close}
             disabled={live && !joined}
           >
@@ -194,25 +222,34 @@ function SideAnswerStatus({
   loaded: boolean;
   empty: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (status === "question") {
     return (
       <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
         <CircleAlert className="size-3.5 shrink-0 text-[var(--acc-yellow)]" aria-hidden />
-        The side agent is waiting for you. Keep it as a thread to answer it.
+        {t(
+          "conversation.sideConversations.theSideAgentIsWaitingForYouKeepItAsAThreadToAnswerIt",
+          "The side agent is waiting for you. Keep it as a thread to answer it.",
+        )}
       </p>
     );
   }
   if (loaded && status === "idle") {
     return empty ? (
       <p className="py-1 text-xs text-muted-foreground">
-        No answer yet. Keep it as a thread to see the whole conversation.
+        {t(
+          "conversation.sideConversations.noAnswerYetKeepItAsA",
+          "No answer yet. Keep it as a thread to see the whole conversation.",
+        )}
       </p>
     ) : null;
   }
   return (
     <p className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground" role="status">
       <Loader2 className="size-3 animate-spin" aria-hidden />
-      {empty ? "Reading the conversation…" : "Answering…"}
+      {empty
+        ? t("conversation.sideConversations.readingTheConversation", "Reading the conversation…")
+        : t("conversation.sideConversations.answering", "Answering…")}
     </p>
   );
 }

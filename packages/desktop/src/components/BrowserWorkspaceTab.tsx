@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   desktopBridge,
@@ -7,6 +8,8 @@ import {
 } from "@/lib/desktop-bridge";
 import { useBrowserDefaultMode, type CookieMode } from "@/lib/browser-settings";
 import { useSuppressBrowserView } from "@/lib/browser-suppression";
+import { localizedBrowserError } from "@/shared/browser-error-copy";
+import { browserScopeErrorText } from "@/shared/browser-scope-error-copy";
 import { BrowserAddressBar } from "./browser/BrowserAddressBar";
 import { BrowserAgentAccessBanner } from "./browser/BrowserAgentAccessBanner";
 import { BrowserCommentDock } from "./browser/BrowserCommentDock";
@@ -49,10 +52,14 @@ interface BrowserWorkspaceTabProps {
 export const BrowserWorkspaceTab = memo(function BrowserWorkspaceTab(
   props: BrowserWorkspaceTabProps,
 ): ReactElement {
+  const { t } = useUiTranslation();
   if (!isDesktopShell()) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        The embedded browser is only available in the desktop app.
+        {t(
+          "workspace.tools.browserWorkspaceTab.theEmbeddedBrowserIsOnlyAvailableIn",
+          "The embedded browser is only available in the desktop app.",
+        )}
       </div>
     );
   }
@@ -98,6 +105,7 @@ function BrowserWorkspaceView({
   model: BrowserWorkspaceModel;
   comments: CommentsController;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const newTab = useCallback((): void => void model.newTab(), [model.newTab]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -121,7 +129,11 @@ function BrowserWorkspaceView({
     responsiveMenuOpen ||
     comments.draft !== null;
   const pageError = resolvePageError(model.state.tabError);
-  const chromeError = model.state.tabError && !pageError ? model.state.tabError : null;
+  const chromeError =
+    model.state.tabError && !pageError ? localizedBrowserError(model.state.tabError, t) : null;
+  const scopeError = model.state.scopeIssue
+    ? browserScopeErrorText(model.state.scopeIssue, t)
+    : model.state.error;
   const retryPageError = useCallback((): void => {
     if (pageError?.url) {
       void model.navigate(pageError.url);
@@ -153,8 +165,8 @@ function BrowserWorkspaceView({
           message={chromeError.description}
           onDismiss={() => model.clearError("tab")}
         />
-      ) : model.state.error ? (
-        <BrowserError message={model.state.error} onDismiss={() => model.clearError("scope")} />
+      ) : scopeError ? (
+        <BrowserError message={scopeError} onDismiss={() => model.clearError("scope")} />
       ) : null}
       <BrowserAgentAccessBanner
         scopeId={scopeId}
@@ -373,7 +385,13 @@ function useSuppressedBrowserSnapshot(
         // capture. Its rejection belongs to the obsolete snapshot request,
         // not the now-visible page, so it must not surface as a user error.
         if (!alive) return;
-        showBrowserError(error, "Could not preview Browser page");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.browserWorkspaceTab.couldNotPreviewBrowserPage",
+            "Could not preview Browser page",
+          ),
+        );
         setSuppressNativeView(true);
       });
     return () => {

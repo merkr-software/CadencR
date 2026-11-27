@@ -1,7 +1,9 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { EditorView } from "@codemirror/view";
-import { apiErrorMessage, toastError } from "@/lib/api-errors";
+import { toastError } from "@/lib/api-errors";
 import { useEditorStore } from "@/stores/editor-store";
+import { EditorOperationError, editorErrorMessage, editorSyncFailed } from "./editor-error-message";
 import { useEditorWrite } from "./useEditorWrite";
 import { useFreshFileContentSync } from "./useFreshFileContentSync";
 
@@ -57,7 +59,6 @@ export function useEditorSave({
   const setDirty = useEditorStore((s) => s.setDirty);
   const [autoSavedVisible, setAutoSavedVisible] = useState(false);
   const [pendingSaveCount, setPendingSaveCount] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const autoSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const onDirtyChange = useCallback(
@@ -76,29 +77,25 @@ export function useEditorSave({
     sync,
   });
 
-  const run = useCallback(async (operation: () => Promise<unknown>, propagate = false) => {
-    setPendingSaveCount((count) => count + 1);
-    setErrorMessage(null);
-    try {
-      await operation();
-    } catch (err) {
-      setErrorMessage(apiErrorMessage(err, "Failed to synchronize file"));
-      toastError(err, "Failed to synchronize file");
-      if (propagate) throw err;
-    } finally {
-      setPendingSaveCount((count) => Math.max(0, count - 1));
-    }
-  }, []);
+  const { clear, report, errorMessage } = useEditorSyncError();
+  const run = useCallback(
+    async (operation: () => Promise<unknown>, propagate = false) => {
+      setPendingSaveCount((count) => count + 1);
+      clear();
+      try {
+        await operation();
+      } catch (err) {
+        report(err);
+        if (propagate) throw err;
+      } finally {
+        setPendingSaveCount((count) => Math.max(0, count - 1));
+      }
+    },
+    [clear, report],
+  );
   const save = useCallback(() => run(() => write(false)), [run, write]);
   const saveForClose = useCallback(
-    () =>
-      run(async () => {
-        await write(false);
-        if (sync.dirtyRef.current)
-          throw new Error(
-            "The buffer still has unsaved changes. Please save again before closing.",
-          );
-      }, true),
+    () => run(() => writeAndCheckDirty(write, sync.dirtyRef), true),
     [run, write, sync.dirtyRef],
   );
   const overwriteDisk = useCallback(() => run(() => write(false, true)), [run, write]);
@@ -147,4 +144,37 @@ export function useEditorSave({
       overwriteDisk,
     ],
   );
+}
+
+async function writeAndCheckDirty(
+  write: ReturnType<typeof useEditorWrite>["write"],
+  dirtyRef: RefObject<boolean>,
+) {
+  await write(false);
+  if (dirtyRef.current) {
+    throw new EditorOperationError(
+      "The buffer still has unsaved changes. Please save again before closing.",
+      (t) =>
+        t(
+          "workspace.editor.save.stillUnsaved",
+          "The buffer still has unsaved changes. Please save again before closing.",
+        ),
+    );
+  }
+}
+
+function useEditorSyncError() {
+  const { t } = useUiTranslation();
+  const [failure, setFailure] = useState<{ reason: unknown } | null>(null);
+  const clear = useCallback(() => setFailure(null), []);
+  const report = useCallback((reason: unknown) => {
+    setFailure({ reason });
+    const fallback =
+      reason instanceof EditorOperationError
+        ? reason.localize(translateUi)
+        : editorSyncFailed(translateUi);
+    toastError(reason instanceof EditorOperationError ? null : reason, fallback);
+  }, []);
+  const errorMessage = failure ? editorErrorMessage(failure.reason, editorSyncFailed(t), t) : null;
+  return { clear, report, errorMessage };
 }

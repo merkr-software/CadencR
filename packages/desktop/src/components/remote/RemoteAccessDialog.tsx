@@ -9,9 +9,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { useRemoteStore, type RemotePhase } from "@/stores/remote-store";
+import { useRemoteError, useRemoteStore, type RemotePhase } from "@/stores/remote-store";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { formatExactNumber } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { canPreventHostSleep, useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
 import { RemoteDisclosure } from "./remote-ui";
@@ -31,10 +34,11 @@ export function RemoteAccessDialog({
 }: {
   onOpenChange: (open: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const status = useRemoteStore((s) => s.status);
   const loaded = useRemoteStore((s) => s.loaded);
   const phase = useRemoteStore((s) => s.phase);
-  const error = useRemoteStore((s) => s.error);
+  const error = useRemoteError();
   const refresh = useRemoteStore((s) => s.refresh);
   const enable = useRemoteStore((s) => s.enable);
   const disable = useRemoteStore((s) => s.disable);
@@ -51,17 +55,19 @@ export function RemoteAccessDialog({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Remote access</DialogTitle>
+          <DialogTitle>{t("remote.host.title", "Remote access")}</DialogTitle>
           <DialogDescription>
-            Use this workspace from another device over your network. Anyone who can reach your
-            machine and pair gains full access — only enable it on networks you trust.
+            {t(
+              "remote.host.description",
+              "Use this workspace from another device over your network. Anyone who can reach your machine and pair gains full access — only enable it on networks you trust.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
         {initialLoading ? (
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Checking remote access…
+            {t("remote.host.checking", "Checking remote access…")}
           </div>
         ) : (
           <>
@@ -98,14 +104,22 @@ function RemoteToggleRow({
   onEnable: () => void;
   onDisable: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
       <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium">Remote access is {enabled ? "on" : "off"}</div>
+        <div className="text-sm font-medium">
+          {enabled
+            ? t("remote.host.enabled", "Remote access is on")
+            : t("remote.host.disabled", "Remote access is off")}
+        </div>
         <div className="text-xs text-muted-foreground">
           {enabled
-            ? "Reachable over TLS on your local network."
-            : "Turn on to expose the workspace over your local network."}
+            ? t("remote.host.enabledHint", "Reachable over TLS on your local network.")
+            : t(
+                "remote.host.disabledHint",
+                "Turn on to expose the workspace over your local network.",
+              )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -116,7 +130,7 @@ function RemoteToggleRow({
           checked={enabled}
           disabled={phase !== "idle"}
           onCheckedChange={(next) => (next ? onEnable() : onDisable())}
-          aria-label="Toggle remote access"
+          aria-label={t("remote.host.toggle", "Toggle remote access")}
         />
       </div>
     </div>
@@ -130,21 +144,21 @@ function RemoteToggleRow({
  * remote access is also active (see `useRemoteSleepGuard`).
  */
 function SleepPreventionToggle(): ReactElement {
+  const { t } = useUiTranslation();
   const [preventSleep, setPreventSleep] = useRemotePreventSleep();
+  const label = t("remote.host.preventSleep.title", "Prevent sleep while hosting");
   return (
     <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
       <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium">Prevent sleep while hosting</div>
+        <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-muted-foreground">
-          Keeps this computer awake while remote access is active. The screen can still lock or turn
-          off. Manual sleep, lid close, or low battery may still interrupt hosting.
+          {t(
+            "remote.host.preventSleep.description",
+            "Keeps this computer awake while remote access is active. The screen can still lock or turn off. Manual sleep, lid close, or low battery may still interrupt hosting.",
+          )}
         </div>
       </div>
-      <Switch
-        checked={preventSleep}
-        onCheckedChange={setPreventSleep}
-        aria-label="Prevent sleep while hosting"
-      />
+      <Switch checked={preventSleep} onCheckedChange={setPreventSleep} aria-label={label} />
     </div>
   );
 }
@@ -155,6 +169,7 @@ function SleepPreventionToggle(): ReactElement {
  * expand it and scroll it into view (each toast bumps `focusDevicesNonce`).
  */
 function RemoteEnabledSections({ status }: { status: RemoteStatus }): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const focusDevicesNonce = useRemoteDialogStore((s) => s.focusDevicesNonce);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const devicesRef = useRef<HTMLDivElement>(null);
@@ -176,22 +191,24 @@ function RemoteEnabledSections({ status }: { status: RemoteStatus }): ReactEleme
 
       {/* Everything else is reference or management — collapsed by default so
           the dialog stays a one-glance "it's on, scan this". */}
-      <RemoteDisclosure title="Connection & certificate">
+      <RemoteDisclosure title={t("remote.host.sections.connection", "Connection & certificate")}>
         <RemoteLanSection status={status} />
       </RemoteDisclosure>
-      <RemoteDisclosure title="Expose over the internet">
+      <RemoteDisclosure title={t("remote.host.sections.tunnel", "Expose over the internet")}>
         <RemoteTunnelSection status={status} />
       </RemoteDisclosure>
       <div ref={devicesRef}>
         <RemoteDisclosure
-          title={`Paired devices (${status.devices.length})`}
+          title={t("remote.host.sections.devices", "Paired devices ({{deviceCount}})", {
+            deviceCount: formatExactNumber(status.devices.length, formattingLocale(i18n.language)),
+          })}
           open={devicesOpen}
           onOpenChange={setDevicesOpen}
         >
           <RemoteDevicesSection status={status} />
         </RemoteDisclosure>
       </div>
-      <RemoteDisclosure title="Recent activity">
+      <RemoteDisclosure title={t("remote.host.sections.activity", "Recent activity")}>
         <RemoteActivitySection status={status} />
       </RemoteDisclosure>
     </div>

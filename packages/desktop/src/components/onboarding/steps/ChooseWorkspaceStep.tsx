@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useState } from "react";
 import { FolderOpen, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ export function ChooseWorkspaceStep({
   onBack,
   onSkipStep,
 }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const [createdProject, setCreatedProject] = useState<Project | null>(null);
   const { onboardingProject, maybeOnboard, close: closeOnboarding } = useNewProjectOnboarding();
@@ -39,8 +41,12 @@ export function ChooseWorkspaceStep({
         maybeOnboard({ id: project.id, name: project.name });
       },
       onError: (err: unknown) => {
-        const message = apiErrorMessage(err, "Unknown error");
-        toast.error(`Could not create project: ${message}`);
+        const message = apiErrorMessage(err, t("common.unknownError", "Unknown error"));
+        toast.error(
+          t("onboarding.workspace.createError", "Could not create project: {{message}}", {
+            message,
+          }),
+        );
       },
     },
   });
@@ -63,10 +69,14 @@ export function ChooseWorkspaceStep({
       className="flex flex-col gap-6"
     >
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight">Choose a project folder</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.workspace.title", "Choose a project folder")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Cadencr works on a folder on your machine. Pick the repository you want to use for your
-          first session — you can add more later.
+          {t(
+            "onboarding.workspace.description",
+            "Cadencr works on a folder on your machine. Pick the repository you want to use for your first session — you can add more later.",
+          )}
         </p>
       </header>
 
@@ -77,11 +87,11 @@ export function ChooseWorkspaceStep({
       />
 
       <OnboardingFooter
-        primaryLabel="Continue"
+        primaryLabel={t("common.continue", "Continue")}
         primaryDisabled={primaryDisabled}
         onBack={onBack}
         onSkipStep={onSkipStep}
-        skipStepLabel="Do this later"
+        skipStepLabel={t("onboarding.workspace.later", "Do this later")}
       />
 
       {onboardingProject ? (
@@ -107,6 +117,7 @@ function FolderPickerCard({
   isCreating: boolean;
   onPickFolder: () => void;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="rounded-md border border-border bg-muted/30 p-4 flex items-center gap-3">
       <FolderOpen className="size-5 text-muted-foreground" />
@@ -122,7 +133,9 @@ function FolderPickerCard({
             </code>
           </div>
         ) : (
-          <span className="text-muted-foreground">No folder selected yet.</span>
+          <span className="text-muted-foreground">
+            {t("onboarding.workspace.noFolder", "No folder selected yet.")}
+          </span>
         )}
       </div>
       <Button
@@ -135,12 +148,12 @@ function FolderPickerCard({
         {isCreating ? (
           <>
             <Loader2 className="size-3 animate-spin" />
-            Creating…
+            {t("onboarding.workspace.creating", "Creating…")}
           </>
         ) : createdProject ? (
-          "Choose another"
+          t("onboarding.workspace.another", "Choose another")
         ) : (
-          "Choose folder…"
+          t("onboarding.workspace.chooseFolder", "Choose folder…")
         )}
       </Button>
     </div>

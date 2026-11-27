@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useRef, useState } from "react";
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
 import {
@@ -31,11 +32,16 @@ interface EditorLanguageComboboxProps {
 export const EditorLanguageCombobox = memo(function EditorLanguageCombobox(
   props: EditorLanguageComboboxProps,
 ) {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const automaticLabel = `Automatic (${getEditorLanguageLabel(props.automaticLanguageId)})`;
+  const automaticLabel = t(
+    "workspace.editor.languagePicker.automatic",
+    "Automatic ({{language}})",
+    { language: getEditorLanguageLabel(props.automaticLanguageId, t) },
+  );
   const selectedLabel =
-    props.preference === "auto" ? automaticLabel : getEditorLanguageLabel(props.preference);
+    props.preference === "auto" ? automaticLabel : getEditorLanguageLabel(props.preference, t);
 
   function selectPreference(value: string): void {
     if (!isEditorLanguagePreference(value)) return;
@@ -67,15 +73,23 @@ export const EditorLanguageCombobox = memo(function EditorLanguageCombobox(
           window.setTimeout(() => inputRef.current?.focus(), 0);
         }}
       >
-        <Command label="Search languages" shouldFilter>
+        <Command
+          label={t("workspace.editor.languagePicker.searchLanguages", "Search languages")}
+          shouldFilter
+        >
           <CommandInput
             ref={inputRef}
-            aria-label="Search languages"
-            placeholder="Search languages…"
+            aria-label={t("workspace.editor.languagePicker.searchLanguages", "Search languages")}
+            placeholder={t(
+              "workspace.editor.languagePicker.searchPlaceholder",
+              "Search languages…",
+            )}
           />
           <CommandList className="max-h-64">
-            <CommandEmpty>No matching languages.</CommandEmpty>
-            <CommandGroup heading="Languages">
+            <CommandEmpty>
+              {t("workspace.editor.languagePicker.noMatchingLanguages", "No matching languages.")}
+            </CommandEmpty>
+            <CommandGroup heading={t("workspace.editor.languagePicker.languages", "Languages")}>
               <LanguageComboboxItem
                 value="auto"
                 label={automaticLabel}
@@ -86,7 +100,7 @@ export const EditorLanguageCombobox = memo(function EditorLanguageCombobox(
                 <LanguageComboboxItem
                   key={language.id}
                   value={language.id}
-                  label={language.label}
+                  label={getEditorLanguageLabel(language.id, t)}
                   selected={props.preference === language.id}
                   onSelect={selectPreference}
                 />

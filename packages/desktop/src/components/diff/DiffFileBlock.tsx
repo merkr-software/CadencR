@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback } from "react";
 import { FileStageState, type ChangedFile } from "@/api/generated";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
@@ -122,6 +123,7 @@ function DiffFileBlockHeader({ props, patch }: { props: DiffFileBlockProps; patc
 }
 
 function ExpandedDiffFileBlock(props: DiffFileBlockProps) {
+  const { t } = useUiTranslation();
   const {
     featureId,
     mode,
@@ -184,7 +186,9 @@ function ExpandedDiffFileBlock(props: DiffFileBlockProps) {
           onDisplay={displayLargeDiff}
         />
       ) : section === null || isLoading ? (
-        <DiffFileNotice>Loading diff…</DiffFileNotice>
+        <DiffFileNotice>
+          {t("workspace.git.diffFileBlock.loadingDiff", "Loading diff…")}
+        </DiffFileNotice>
       ) : (
         <DiffFileBody
           featureId={featureId}

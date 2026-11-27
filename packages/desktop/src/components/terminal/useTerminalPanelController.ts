@@ -1,3 +1,4 @@
+import { useTerminalClipboard } from "./useTerminalClipboard";
 import {
   useCallback,
   useEffect,
@@ -8,7 +9,6 @@ import {
   useState,
   type ForwardedRef,
 } from "react";
-import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   findAdjacentLeaf,
@@ -252,38 +252,7 @@ function useTerminalRuntimeActions(
   const { expectedCwd, featureId, hotkeysEnabled = true } = props;
   const dismissCwdWarning = useTerminalStore((state) => state.dismissCwdWarning);
   const replaceLeafWithFresh = useTerminalStore((state) => state.replaceLeafWithFresh);
-  const copyPaneSelection = useCallback(
-    async (paneId: string): Promise<void> => {
-      // No DOM selection to hand `execCommand` — the terminal draws to a
-      // WebGPU canvas, so the text lives only in celeritty's own selection
-      // buffer.
-      const text = focus.paneRefs.current.get(paneId)?.getSelection() ?? null;
-      if (!text) {
-        toast.error("No terminal selection to copy");
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text);
-        toast.success("Terminal selection copied");
-      } catch {
-        toast.error("Failed to copy to clipboard");
-      }
-    },
-    [focus.paneRefs],
-  );
-  const pasteIntoPane = useCallback(
-    async (paneId: string): Promise<void> => {
-      try {
-        const text = await navigator.clipboard.readText();
-        // `write` is local-only injection (used for initialNotice) and never
-        // reaches the shell — `paste` sends it through the PTY, as if typed.
-        if (text) focus.paneRefs.current.get(paneId)?.paste(text);
-      } catch {
-        toast.error("Failed to paste from clipboard");
-      }
-    },
-    [focus.paneRefs],
-  );
+  const { copyPaneSelection, pasteIntoPane } = useTerminalClipboard(focus.paneRefs);
   useTerminalCopyPasteShortcuts({
     hotkeysEnabled,
     resolvedActivePaneId: focus.resolvedActivePaneId,

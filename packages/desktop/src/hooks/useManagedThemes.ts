@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -5,10 +6,11 @@ import { getManagedThemes } from "@/api/generated";
 import {
   managedThemeEntrySchema,
   managedThemeDefinition,
+  managedThemeInventoryError,
   managedThemesKey,
+  parseManagedThemeResponse,
 } from "@/lib/theme-marketplace";
 import { setManagedThemes } from "@/lib/themes/user-registry";
-import { apiErrorMessage } from "@/lib/api-errors";
 
 export function useManagedThemes() {
   return useQuery({
@@ -18,7 +20,7 @@ export function useManagedThemes() {
     refetchIntervalInBackground: true,
     queryFn: async ({ signal }) => {
       const entries = await getManagedThemes(signal);
-      return managedThemeEntrySchema.array().parse(entries);
+      return parseManagedThemeResponse(managedThemeEntrySchema.array(), entries);
     },
   });
 }
@@ -32,10 +34,10 @@ function useManagedThemeRegistry(): void {
     if (definitions) setManagedThemes(definitions);
   }, [definitions]);
   useEffect(() => {
-    if (query.error)
-      toast.error(apiErrorMessage(query.error, "Could not load installed marketplace themes"), {
-        id: "managed-themes-load",
-      });
+    if (!query.error) return;
+    toast.error(managedThemeInventoryError(query.error, translateUi), {
+      id: "managed-themes-load",
+    });
   }, [query.error]);
 }
 

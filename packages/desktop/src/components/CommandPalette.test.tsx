@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor, within } from "@/test-utils";
+import { act, render, screen, waitFor, within } from "@/test-utils";
 import type { ConversationIndexEntry, MessageSearchHit } from "@/api/generated";
 import { registerShortcutAction } from "@/lib/command-palette/shortcut-actions";
+import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { CommandPalette } from "./CommandPalette";
 
 const mockNavigate = vi.fn();
@@ -168,6 +170,34 @@ describe("CommandPalette", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
     unregister();
+  });
+
+  it("finds standard and shortcut commands by translated and English aliases", async () => {
+    const unregister = registerShortcutAction("git-commit", vi.fn());
+    const user = userEvent.setup();
+    render(<Harness />);
+    uiI18n.addResourceBundle("fr", "ui", {
+      palette: {
+        commands: { "go-agents": { keywords: "tableau, collectif" } },
+        shortcutKeywords: { "git-commit": "préparer, révision" },
+      },
+    });
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      for (const [query, title] of [
+        [">tableau collectif", frFR.ui.palette.commands["go-agents"].title],
+        ["préparer révision", frFR.ui.palette.shortcuts["git-commit"]],
+        ["stage", frFR.ui.palette.shortcuts["git-commit"]],
+      ] as const) {
+        await user.clear(input());
+        await user.type(input(), query);
+        expect(rowTitles(), query).toContain(title);
+      }
+    } finally {
+      unregister();
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("offers the selection's actions on Tab and comes back on Escape", async () => {

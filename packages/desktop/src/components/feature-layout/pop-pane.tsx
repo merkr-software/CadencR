@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import {
   PanelBottomCloseIcon,
@@ -92,6 +93,7 @@ export function PopPaneRail({
   onActivateTab,
   onTogglePop,
 }: PopPaneRailProps): ReactNode {
+  const { t } = useUiTranslation();
   const drop = usePaneStripDrop(paneId, splitsEnabled);
   const placement = TOOLTIP_PLACEMENTS[paneEdge(slot)];
   return (
@@ -107,11 +109,18 @@ export function PopPaneRail({
         const def = tabs[tab];
         if (!def) return null;
         return (
-          <TabTooltip key={tab} def={def} label={`Show ${def.label}`} placement={placement}>
+          <TabTooltip
+            key={tab}
+            def={def}
+            label={t("workspace.tools.popPane.showTab", "Show {{name}}", { name: def.label })}
+            placement={placement}
+          >
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Show ${def.label}`}
+              aria-label={t("workspace.tools.popPane.showTab", "Show {{name}}", {
+                name: def.label,
+              })}
               data-feature-tab-kind={tab}
               onClick={() => onActivateTab(tab)}
               className={cn(
@@ -165,16 +174,23 @@ interface PopPaneToggleProps {
 
 /** Strip button that turns a floating pane into a pop pane, or pins it open again. */
 export function PopPaneToggle({ slot, pop, onToggle }: PopPaneToggleProps): ReactNode {
+  const { t } = useUiTranslation();
   const Icon = EDGE_ICONS[paneEdge(slot)];
   const label = pop
-    ? "Pop pane: shown only while focused. Click to keep it open"
-    : "Pop pane: fold to its header until focused";
+    ? t(
+        "workspace.tools.popPane.popPaneShownOnlyWhileFocusedClick",
+        "Pop pane: shown only while focused. Click to keep it open",
+      )
+    : t(
+        "workspace.tools.popPane.popPaneFoldToItsHeaderUntil",
+        "Pop pane: fold to its header until focused",
+      );
   return (
     <ShortcutTooltip label={label} alignRight>
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Pop pane"
+        aria-label={t("workspace.tools.popPane.popPane", "Pop pane")}
         aria-pressed={pop}
         onClick={() => onToggle(!pop)}
         className={cn(

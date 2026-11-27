@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, type ReactElement } from "react";
 import type { Feature } from "@/api/generated";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,6 +15,7 @@ import { SidebarSurfaceContext } from "@/stores/sidebar-surface-store";
  * "Collapsed rail" option is otherwise invisible while the sidebar is open.
  */
 export function SidebarSampleRail(): ReactElement {
+  const { t } = useUiTranslation();
   const { activeFeatureId, select, setProjectExpanded } = useSamplePreview();
   const { items, queue, byProject } = useSidebarAttention();
   const content = useSidebarOption("rail");
@@ -26,17 +28,22 @@ export function SidebarSampleRail(): ReactElement {
   const shown = attentionOnly ? queue : items;
   return (
     <section
-      aria-label="Collapsed rail"
+      aria-label={t("sidebar.sampleRail.collapsedRail", "Collapsed rail")}
       data-sidebar-sample-rail
       className="mx-1 mt-2 flex flex-col gap-1.5 border-t border-border/60 pt-2"
     >
-      <span className={EYEBROW_CLASS}>When collapsed</span>
+      <span className={EYEBROW_CLASS}>
+        {t("sidebar.sampleRail.whenCollapsed", "When collapsed")}
+      </span>
       <TooltipProvider delayDuration={300}>
         <SidebarSurfaceContext.Provider value="rail">
           <div className="flex flex-wrap gap-1.5 px-1">
             {content === "none" && (
               <span className="text-[11px] text-muted-foreground">
-                No rail: the sidebar hides entirely
+                {t(
+                  "sidebar.sampleRail.noRailTheSidebarHidesEntirely",
+                  "No rail: the sidebar hides entirely",
+                )}
               </span>
             )}
             {content === "projects" &&

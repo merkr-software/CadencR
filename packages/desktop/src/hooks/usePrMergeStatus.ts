@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGetPrMergeStatus } from "@/api/generated";
 import type { PrMergeStatus, PrStatusSnapshot } from "@/api/generated";
@@ -39,6 +40,7 @@ export interface PrMergeStatusQuery {
  * or the window is hidden: the tab stays mounted behind the others.
  */
 export function usePrMergeStatus(status: PrStatusSnapshot): PrMergeStatusQuery {
+  const { t } = useUiTranslation();
   const pr = status.pr;
   const enabled = pr != null && isOpenPr(pr);
   const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? status.feature_id;
@@ -65,10 +67,18 @@ export function usePrMergeStatus(status: PrStatusSnapshot): PrMergeStatusQuery {
     () => ({
       status: data,
       isLoading,
-      errorMessage: error ? apiErrorMessage(error, "Could not load merge status") : null,
+      errorMessage: error
+        ? apiErrorMessage(
+            error,
+            t(
+              "workspace.git.usePrMergeStatus.couldNotLoadMergeStatus",
+              "Could not load merge status",
+            ),
+          )
+        : null,
       refetch,
     }),
-    [data, isLoading, error, refetch],
+    [data, isLoading, error, refetch, t],
   );
 }
 

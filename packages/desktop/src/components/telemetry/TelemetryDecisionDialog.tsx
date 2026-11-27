@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Loader2 } from "lucide-react";
 import type { TelemetryState } from "@/api/telemetry";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -22,6 +23,7 @@ export function TelemetryDecisionDialog({
   retry: () => void;
   busy: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <Dialog open>
       <DialogContent
@@ -31,19 +33,28 @@ export function TelemetryDecisionDialog({
         className="max-h-[min(90dvh,var(--dialog-max-h))] sm:max-w-2xl"
       >
         <DialogHeader>
-          <DialogTitle>Help improve Cadencr</DialogTitle>
+          <DialogTitle>{t("telemetry.consent.title", "Help improve Cadencr")}</DialogTitle>
           <DialogDescription>
-            Optional reports help fix crashes and improve Cadencr.
+            {t(
+              "telemetry.consent.description",
+              "Optional reports help fix crashes and improve Cadencr.",
+            )}
           </DialogDescription>
         </DialogHeader>
         {error ? (
           <div className="space-y-3">
             <p role="alert" className="text-sm text-destructive">
-              {apiErrorMessage(error, "Could not load privacy preferences.")} Connect to the local
-              service and retry to continue.
+              {apiErrorMessage(
+                error,
+                t("telemetry.consent.loadError", "Could not load privacy preferences."),
+              )}{" "}
+              {t(
+                "telemetry.consent.retryHint",
+                "Connect to the local service and retry to continue.",
+              )}
             </p>
             <Button variant="outline" disabled={busy} onClick={retry}>
-              Retry
+              {t("common.retry", "Retry")}
             </Button>
           </div>
         ) : state ? (
@@ -51,7 +62,7 @@ export function TelemetryDecisionDialog({
         ) : (
           <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Loading privacy preferences…
+            {t("telemetry.consent.loading", "Loading privacy preferences…")}
           </p>
         )}
       </DialogContent>

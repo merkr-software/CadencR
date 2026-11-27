@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactElement, type ReactNode } from "react";
 import type { SidebarDisplayForm } from "@/components/SidebarDisplayOptions";
 import { SidebarPresetPicker } from "@/components/SidebarPresetPicker";
@@ -19,6 +20,7 @@ export function SidebarConfiguratorSteps({
   wide?: boolean;
   children: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const presetHeading = useId();
   const adjustHeading = useId();
   const picker = <SidebarPresetPicker form={form} wide={wide} />;
@@ -28,8 +30,8 @@ export function SidebarConfiguratorSteps({
         <StepHeading
           id={presetHeading}
           step={1}
-          title="Preset"
-          detail="The base every option starts from"
+          title={t("sidebar.configuratorSteps.preset", "Preset")}
+          detail={t("sidebar.configuratorSteps.baseDetail", "The base every option starts from")}
           wide={wide}
         />
         {wide ? <SettingsCard className="p-4">{picker}</SettingsCard> : picker}
@@ -44,8 +46,10 @@ export function SidebarConfiguratorSteps({
         <StepHeading
           id={adjustHeading}
           step={2}
-          title="Adjust"
-          detail={`On top of ${form.nearest.preset.label}`}
+          title={t("sidebar.configuratorSteps.adjust", "Adjust")}
+          detail={t("sidebar.configuratorSteps.adjustDetail", "On top of {{preset}}", {
+            preset: form.nearest.preset.label,
+          })}
           wide={wide}
         />
         {children}

@@ -182,6 +182,7 @@ export function metadataFor(
   return {
     id,
     title: "New tab",
+    defaultTitle: true,
     url: DEFAULT_URL,
     loading: false,
     canGoBack: false,

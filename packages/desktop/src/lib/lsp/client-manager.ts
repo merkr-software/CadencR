@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Module-scoped manager for `LSPClient` instances keyed by
  * `${workspaceRoot}::${lspId}` (Phase 4: a file may run several servers, e.g. a
@@ -349,7 +350,13 @@ function scheduleRetry(
   const entry = clients.get(key);
   if (!entry || entry.refCount === 0) return;
   entry.failCount += 1;
-  const msg = apiErrorMessage(err, "Language server reconnect failed");
+  const msg = apiErrorMessage(
+    err,
+    translateUi(
+      "workspace.editor.client-manager.reconnectFailed",
+      "Language server reconnect failed",
+    ),
+  );
   if (entry.failCount >= MAX_RECONNECT_ATTEMPTS) {
     setStatus(key, "error", msg);
     return;

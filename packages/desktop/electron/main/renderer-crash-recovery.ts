@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { relayRemoteDiagnostic } from "./telemetry-relay";
@@ -41,9 +42,15 @@ export function installDefaultRendererCrashRecovery(window: RendererCrashWindow)
     platform: process.platform,
     reloadWindowMs: 60_000,
     reportReloadSuppressed: (message) =>
-      dialog.showErrorBox("Cadencr renderer crashed repeatedly", message),
+      dialog.showErrorBox(
+        t("system.crash.repeated", "Cadencr renderer crashed repeatedly"),
+        message,
+      ),
     reportWriteFailure: (message) =>
-      dialog.showErrorBox("Cadencr renderer diagnostics failed", message),
+      dialog.showErrorBox(
+        t("system.crash.diagnosticsFailed", "Cadencr renderer diagnostics failed"),
+        message,
+      ),
   });
 }
 
@@ -61,14 +68,21 @@ export function installRendererCrashRecovery(
       appendRendererCrashDiagnostics(options.logPath, diagnostics);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      options.reportWriteFailure(`Could not write renderer crash diagnostics: ${message}`);
+      options.reportWriteFailure(
+        t("system.crash.writeFailure", "Could not write renderer crash diagnostics: {{message}}", {
+          message,
+        }),
+      );
     }
     if (window.isDestroyed()) return;
     const reloadCutoff = now.getTime() - options.reloadWindowMs;
     while (reloads.length > 0 && reloads[0] < reloadCutoff) reloads.shift();
     if (reloads.length >= options.maxReloads) {
       options.reportReloadSuppressed(
-        "Cadencr stopped auto-reloading after repeated renderer crashes.",
+        t(
+          "system.crash.reloadStopped",
+          "Cadencr stopped auto-reloading after repeated renderer crashes.",
+        ),
       );
       return;
     }

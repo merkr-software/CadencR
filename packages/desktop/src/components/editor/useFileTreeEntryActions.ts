@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent } from "@pierre/trees";
@@ -143,7 +144,16 @@ export function useFileTreeEntryActions({
               model.remove(pierrePath, isFolder ? { recursive: true } : undefined);
             }
           },
-          onError: (err) => toast.error(apiErrorMessage(err, "Failed to move to trash")),
+          onError: (err) =>
+            toast.error(
+              apiErrorMessage(
+                err,
+                translateUi(
+                  "workspace.editor.renameAndMove.trashFailed",
+                  "Failed to move to trash",
+                ),
+              ),
+            ),
         },
       );
     },

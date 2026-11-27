@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -87,6 +88,7 @@ function UnifiedAgentsFilterControl({
   onApplySuggestion,
   onShellMouseDown,
 }: UnifiedAgentsFilterControlProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="relative min-w-0 flex-1">
       <div
@@ -112,7 +114,10 @@ function UnifiedAgentsFilterControl({
             variant="ghost"
             size="icon"
             className="size-5 shrink-0 rounded text-muted-foreground hover:text-foreground"
-            aria-label="Explain agent filter language"
+            aria-label={t(
+              "agents.unifiedAgentsDynamicFilter.explainAgentFilterLanguage",
+              "Explain agent filter language",
+            )}
           >
             <HelpCircleIcon className="size-3" />
           </Button>
@@ -124,7 +129,10 @@ function UnifiedAgentsFilterControl({
             size="icon"
             className="size-5 shrink-0 rounded text-muted-foreground hover:text-foreground"
             onClick={onClear}
-            aria-label="Clear agent filter"
+            aria-label={t(
+              "agents.unifiedAgentsDynamicFilter.clearAgentFilter",
+              "Clear agent filter",
+            )}
           >
             <XIcon className="size-3" />
           </Button>
@@ -154,7 +162,11 @@ export const UnifiedAgentsDynamicFilter = memo(function UnifiedAgentsDynamicFilt
       namespace: "UnifiedAgentsDynamicFilter",
       theme: { paragraph: "m-0" },
       onError(error: Error) {
-        toast.error(`Filter editor error: ${error.message}`);
+        toast.error(
+          translateUi("agents.filter.editorError", "Filter editor error: {{message}}", {
+            message: error.message,
+          }),
+        );
       },
       editorState: () => initializeUnifiedAgentsFilterEditorText(initialValueRef.current),
     }),
@@ -181,6 +193,7 @@ function UnifiedAgentsDynamicFilterInner({
   onValueChange,
   onEnter,
 }: UnifiedAgentsDynamicFilterProps): ReactElement {
+  const { t } = useUiTranslation();
   const [editor] = useLexicalComposerContext();
   const [draft, setDraft] = useState(value);
   const [focused, setFocused] = useState(false);
@@ -192,9 +205,9 @@ function UnifiedAgentsDynamicFilterInner({
   const suggestions = useMemo(
     () =>
       activeSlashFilterToken
-        ? getUnifiedAgentsFilterSuggestions(activeSlashFilterToken, projects)
+        ? getUnifiedAgentsFilterSuggestions(activeSlashFilterToken, projects, t)
         : [],
-    [activeSlashFilterToken, projects],
+    [activeSlashFilterToken, projects, t],
   );
 
   const applyExternalValue = useCallback(

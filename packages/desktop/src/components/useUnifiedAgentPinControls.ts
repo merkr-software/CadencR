@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -55,7 +56,10 @@ export function useUnifiedAgentPinControls(
     [queryClient],
   );
   const onError = useCallback((error: unknown): void => {
-    const message = apiErrorMessage(error, "Failed to update pinned agent.");
+    const message = apiErrorMessage(
+      error,
+      translateUi("agents.overview.pin.error", "Failed to update pinned agent."),
+    );
     toast.error(message);
   }, []);
   const pinMutation = useUpdateFeaturePinned({
@@ -81,5 +85,9 @@ export function useUnifiedAgentPinControls(
 
 function showPinProgress(entry: UnifiedAgentEntry, enabled: boolean): string | number | null {
   if (!enabled) return null;
-  return toast.loading(entry.is_pinned ? "Unpinning agent…" : "Pinning agent…");
+  return toast.loading(
+    entry.is_pinned
+      ? translateUi("agents.overview.pin.unpinning", "Unpinning agent…")
+      : translateUi("agents.overview.pin.pinning", "Pinning agent…"),
+  );
 }

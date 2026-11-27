@@ -7,6 +7,7 @@ import { act, createTestQueryClient, render, screen, waitFor } from "@/test-util
 import { API_BASE_URL, server } from "@/test/msw-server";
 import { BrowserWorkspaceTab } from "./BrowserWorkspaceTab";
 import { BROWSER_DEFAULT_MODE_SETTING_KEY } from "@/lib/browser-settings";
+import { uiI18n } from "@/lib/i18n/ui";
 import { getGetWorkspaceSettingQueryKey } from "@/api/generated";
 import { MAX_BROWSER_FAVICON_DATA_URL_LENGTH } from "@/shared/browser-types";
 import {
@@ -57,6 +58,7 @@ function bridge(): CadencrBrowserBridge {
     runtimeConfig: vi.fn(() =>
       Promise.resolve({ baseUrl: "http://localhost:5005", authToken: null }),
     ),
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(),
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(),
@@ -836,6 +838,38 @@ describe("BrowserWorkspaceTab", () => {
       expect(screen.queryByText("Tab limit reached")).not.toBeInTheDocument();
     });
     expect(screen.getByRole("heading", { name: "This site can’t be reached" })).toBeVisible();
+  });
+
+  it("retranslates the existing IPC scope notice and keeps its diagnostic and focus", async () => {
+    const native = bridge();
+    const snapshot = await native.listBrowserTabs(1);
+    const detail = "EISDIR: raw system detail <tabs.json>";
+    snapshot.error = `Could not save Browser tabs: ${detail}`;
+    snapshot.scopeIssue = { kind: "saveTabs", detail };
+    native.listBrowserTabs = vi.fn(async () => snapshot);
+    setDesktopBridgeOverrideForTests(native);
+    render(<BrowserWorkspaceTab scopeId={1} onSendContext={vi.fn()} />);
+
+    const banner = await screen.findByRole("alert");
+    const dismiss = screen.getByRole("button", { name: "Dismiss browser error" });
+    dismiss.focus();
+    expect(banner).toHaveTextContent(snapshot.error);
+    uiI18n.addResource(
+      "fr",
+      "ui",
+      "workspace.browser.tab.saveFailed",
+      "Échec de sauvegarde · {{detail}}",
+    );
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(screen.getByRole("alert")).toBe(banner);
+      expect(banner).toHaveTextContent(`Échec de sauvegarde · ${detail}`);
+      expect(dismiss).toHaveFocus();
+      expect(native.listBrowserTabs).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("renders in-viewport BrowserPageError without global suppression or overlay screenshots, and retries via navigate", async () => {

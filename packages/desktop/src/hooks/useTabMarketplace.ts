@@ -13,7 +13,7 @@ import {
 import { themeCatalogSchema } from "@/lib/theme-marketplace";
 import { apiErrorCode } from "@/lib/api-errors";
 import { PLUGIN_TAB_ERROR } from "@/lib/plugin-tabs/error-codes";
-import type { MarketplaceNotice } from "@/lib/marketplace";
+import { confirmedAction, type MarketplaceNotice } from "@/lib/marketplace";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { useStableMutation, useStableQuery } from "./stable-query";
 
@@ -99,9 +99,14 @@ export function useTabMarketplace() {
       onSuccess: async (staged, action) => {
         setNotice({
           tone: "done",
-          text: staged
-            ? `${action.id}: update ${staged} downloaded and verified. Review its permissions to install it.`
-            : `${action.id}: ${action.kind} confirmed by Cadencr.`,
+          text: (t) =>
+            staged
+              ? t(
+                  "marketplace.activity.tabUpdateStaged",
+                  "{{id}}: update {{version}} downloaded and verified. Review its permissions to install it.",
+                  { id: action.id, version: staged },
+                )
+              : confirmedAction(t, action),
         });
         await reconcile();
       },
@@ -114,7 +119,12 @@ export function useTabMarketplace() {
         if (code === null)
           setNotice({
             tone: "error",
-            text: `${action.id}: the change was not confirmed. Reloading tab state.`,
+            text: (t) =>
+              t(
+                "marketplace.activity.tabUnconfirmed",
+                "{{id}}: the change was not confirmed. Reloading tab state.",
+                { id: action.id },
+              ),
           });
         await reconcile();
         // Which versions install here comes with the catalog: reload it too.

@@ -87,6 +87,12 @@ export interface PluginTabKeyInput {
   shift: boolean;
 }
 
+/** An expected reload refusal whose wording belongs to the renderer. */
+export interface PluginTabReloadFailure {
+  kind: "unknown-instance";
+  instanceId: string;
+}
+
 /** `desktopBridge.pluginTabs` — native guest views for custom tabs (desktop only). */
 export interface PluginTabsBridge {
   /** Create (or recreate) the guest for `instanceId`; idempotent for the same plugin. */
@@ -95,7 +101,7 @@ export interface PluginTabsBridge {
   setBounds: (instanceId: string, bounds: PluginTabBounds) => Promise<void>;
   setVisible: (instanceId: string, visible: boolean) => Promise<void>;
   /** Reload the guest; recreates a crashed or recycled one. */
-  reload: (instanceId: string) => Promise<void>;
+  reload: (instanceId: string) => Promise<PluginTabReloadFailure | void>;
   close: (instanceId: string) => Promise<void>;
   openDevTools: (instanceId: string) => Promise<void>;
   setTheme: (theme: PluginTabTheme) => Promise<void>;

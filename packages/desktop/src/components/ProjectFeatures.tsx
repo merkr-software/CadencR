@@ -70,7 +70,7 @@ function DormantFeatureList({ controller }: { controller: ProjectFeaturesControl
   const [expanded, setExpanded] = useState(false);
   return (
     <ArchivedFeatureSection
-      label="Dormant"
+      dormant
       features={controller.dormantFeatures}
       expanded={expanded}
       onToggle={() => setExpanded((open) => !open)}

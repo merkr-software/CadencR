@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { uiI18n } from "../../src/shared/ui-i18n";
 
 const setApplicationMenu = vi.fn();
 const buildFromTemplate = vi.fn((template: unknown) => template);
@@ -80,6 +81,41 @@ describe("installApplicationMenu", () => {
     expect(await menuFor("darwin", "Window")).toContain('"role":"zoom"');
     expect(await menuFor("linux", "Window")).not.toContain('"role":"zoom"');
     expect(await menuFor("linux", "Window")).toContain('"role":"togglefullscreen"');
+  });
+
+  it("refreshes the installed menu on a live language change", async () => {
+    const { startApplicationMenu } = await import("./menu");
+    const stop = startApplicationMenu(vi.fn());
+    try {
+      setApplicationMenu.mockClear();
+      await uiI18n.changeLanguage("fr");
+      expect(setApplicationMenu).toHaveBeenCalledOnce();
+    } finally {
+      stop();
+      await uiI18n.changeLanguage("en");
+    }
+  });
+
+  it("rebuilds both platform templates using the active UI language", async () => {
+    uiI18n.addResourceBundle("fr", "ui", {
+      "native.menu.edit": "Édition",
+      "native.menu.copy": "Copier",
+      "native.menu.file": "Fichier",
+      "native.menu.quit": "Quitter",
+      "native.menu.quitApp": "Quitter {{appName}}",
+    });
+    try {
+      await uiI18n.changeLanguage("fr");
+      expect(await menuFor("linux", "Édition")).toContain('"label":"Copier"');
+      expect(await menuFor("linux", "Fichier")).toContain('"label":"Quitter"');
+      expect(await menuFor("darwin", "Édition")).toContain('"role":"copy","label":"Copier"');
+      expect(await menuFor("darwin", "Cadencr")).toContain('"label":"Quitter Cadencr"');
+      await uiI18n.changeLanguage("en");
+      expect(await menuFor("linux", "Edit")).toContain('"label":"Copy"');
+    } finally {
+      await uiI18n.changeLanguage("en");
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("keeps native edit roles on macOS", async () => {

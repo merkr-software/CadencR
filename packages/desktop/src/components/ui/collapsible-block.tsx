@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { suppressAutoScrollPin } from "@/lib/agent-scroll-suppression";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 interface CollapsibleBlockProps {
   /** Total number of items in the list */
@@ -10,8 +11,8 @@ interface CollapsibleBlockProps {
   visibleCount: number;
   /** Older items exist outside the local preview; expanding loads them. */
   hasMore?: boolean;
-  /** Unit label for the truncation indicator (e.g. "lines", "actions") */
-  unit: string;
+  /** Complete truncation notice, formatted with the caller's unit. */
+  formatHiddenCount: (count: number) => string;
   /** Header content (icons, labels, etc.) — placed before the toggle button */
   header: ReactNode;
   /**
@@ -57,7 +58,7 @@ export function CollapsibleBlock({
   totalCount,
   visibleCount,
   hasMore = false,
-  unit,
+  formatHiddenCount,
   header,
   headerTrailing,
   children,
@@ -69,6 +70,7 @@ export function CollapsibleBlock({
   bodyHidden = false,
   onHeaderClick,
 }: CollapsibleBlockProps) {
+  const { t } = useUiTranslation();
   const [showAll, setShowAll] = useState(false);
   const needsCollapse = hasMore || totalCount > visibleCount;
   const hiddenCount = Math.max(0, totalCount - visibleCount);
@@ -95,10 +97,14 @@ export function CollapsibleBlock({
             }}
           >
             {showAll
-              ? `Show last ${visibleCount}`
+              ? t("conversation.stream.collapsibleBlock.showLast", "Show last {{count, number}}", {
+                  count: visibleCount,
+                })
               : hasMore
-                ? "Load previous lines"
-                : `Show all ${totalCount}`}
+                ? t("conversation.stream.collapsibleBlock.loadPrevious", "Load previous lines")
+                : t("conversation.stream.collapsibleBlock.showAll", "Show all {{count, number}}", {
+                    count: totalCount,
+                  })}
           </button>
         )}
         {headerTrailing}
@@ -107,7 +113,12 @@ export function CollapsibleBlock({
         <div className={bodyClassName}>
           {!showAll && needsCollapse && (
             <div className={cn("text-xs", truncationClassName)}>
-              {hasMore ? "... (earlier output available)" : `... (${hiddenCount} ${unit} above)`}
+              {hasMore
+                ? t(
+                    "conversation.stream.collapsibleBlock.earlierOutputAvailable",
+                    "... (earlier output available)",
+                  )
+                : formatHiddenCount(hiddenCount)}
             </div>
           )}
           {children({ showAll: showAll || !needsCollapse })}

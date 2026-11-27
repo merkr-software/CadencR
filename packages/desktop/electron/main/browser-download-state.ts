@@ -38,7 +38,9 @@ export function snapshotFromDownloadItem(
     private: input.private,
     startedAt: new Date(item.getStartTime() * 1000 || now).toISOString(),
     ...(terminal ? { finishedAt: new Date(now).toISOString() } : {}),
-    ...(input.state === "failed" ? { error: "The download was interrupted." } : {}),
+    ...(input.state === "failed"
+      ? { errorReason: "interrupted" as const, error: "The download was interrupted." }
+      : {}),
   };
 }
 
@@ -96,6 +98,19 @@ export function failedBrowserDownload(input: {
     private: input.private,
     startedAt: timestamp,
     finishedAt: timestamp,
-    error: downloadErrorMessage(input.error, "Download could not start"),
+    ...downloadFailure(input.error, "startFailed"),
+  };
+}
+
+export function downloadFailure(
+  cause: unknown,
+  reason: "startFailed" | "failed",
+): Pick<BrowserDownload, "error" | "errorReason"> {
+  if (cause instanceof Error && cause.message) {
+    return { error: cause.message, errorReason: undefined };
+  }
+  return {
+    error: reason === "startFailed" ? "Download could not start" : "Download failed",
+    errorReason: reason,
   };
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -13,6 +14,7 @@ const ignoredSchema = z.array(z.string());
 
 /** Reverses the project-wide Ignore action without editing the settings JSON. */
 export function IgnoredLspSuggestions({ projectId }: { projectId: number }) {
+  const { t } = useUiTranslation();
   const settings = useGetProjectSettings(projectId);
   const client = useQueryClient();
   const raw = settings.data?.find((entry) => entry.key === "editor_lsp_ignored_languages")?.value;
@@ -25,7 +27,7 @@ export function IgnoredLspSuggestions({ projectId }: { projectId: number }) {
     } catch (error) {
       return {
         languages: [],
-        error: apiErrorMessage(error, "Could not read ignored language suggestions"),
+        error,
       };
     }
   }, [raw]);
@@ -39,15 +41,34 @@ export function IgnoredLspSuggestions({ projectId }: { projectId: number }) {
       ]);
     },
   });
-  const error =
-    ignored.error ??
-    (reset.error ? apiErrorMessage(reset.error, "Could not restore language suggestions") : null);
+  const error = ignored.error
+    ? apiErrorMessage(
+        ignored.error,
+        t(
+          "workspace.editor.ignoredLspSuggestions.readFailed",
+          "Could not read ignored language suggestions",
+        ),
+      )
+    : reset.error
+      ? apiErrorMessage(
+          reset.error,
+          t(
+            "workspace.editor.ignoredLspSuggestions.restoreFailed",
+            "Could not restore language suggestions",
+          ),
+        )
+      : null;
   if (!ignored.languages.length && !error) return null;
   return (
     <div className="space-y-2 border-t border-border pt-3">
       <p className="text-xs text-muted-foreground">
-        Suggestions ignored for {ignored.languages.length} language
-        {ignored.languages.length === 1 ? "" : "s"} in this project.
+        {t("workspace.editor.ignoredLspSuggestions.summary", {
+          count: ignored.languages.length,
+          defaultValue_zero: "Suggestions ignored for {{count, number}} languages in this project.",
+          defaultValue_one: "Suggestions ignored for {{count, number}} language in this project.",
+          defaultValue_other:
+            "Suggestions ignored for {{count, number}} languages in this project.",
+        })}
       </p>
       <Button
         size="sm"
@@ -55,7 +76,9 @@ export function IgnoredLspSuggestions({ projectId }: { projectId: number }) {
         disabled={reset.isPending || settings.isPending || settings.isError || !!ignored.error}
         onClick={() => reset.mutate()}
       >
-        {reset.isPending ? "Restoring suggestions…" : "Show language suggestions again"}
+        {reset.isPending
+          ? t("workspace.editor.ignoredLspSuggestions.restoring", "Restoring suggestions…")
+          : t("workspace.editor.ignoredLspSuggestions.restore", "Show language suggestions again")}
       </Button>
       {error && (
         <p role="alert" className="text-xs text-destructive">

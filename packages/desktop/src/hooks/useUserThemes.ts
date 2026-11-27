@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { useListThemes, type UserTheme } from "@/api/generated";
@@ -26,12 +27,20 @@ import {
  * whole apply path — resolve a `user:` id at all.
  */
 
+class InvalidDisabledThemeIds extends Error {}
+
+export function userThemeLoadError(error: Error, t: UiTranslator): string {
+  return error instanceof InvalidDisabledThemeIds
+    ? t("appearance.library.expectedThemeIds", "expected a JSON array of theme ids")
+    : error.message;
+}
+
 /** Throws on a malformed list so the caller can surface it rather than
  *  silently showing themes the user hid (or hiding ones they didn't). */
 function parseDisabledIds(raw: string | null): string[] {
   if (!raw) return [];
   const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) throw new Error("expected a JSON array of theme ids");
+  if (!Array.isArray(parsed)) throw new InvalidDisabledThemeIds();
   return parsed.filter((id) => typeof id === "string");
 }
 
@@ -169,27 +178,30 @@ export function useUserThemeRegistry(): void {
   // Surface a selected theme that can't be applied.
   useEffect(() => {
     const broken = findUnapplicableSelection(entries, selectedThemeIds);
-    const signature = broken
-      ? `${broken.id}:${broken.issues.map((i) => i.message).join("|")}`
-      : null;
-    if (!signature) {
+    if (!broken) {
       didToastRef.current = null;
       return;
     }
+    const signature = `${broken.id}:${broken.issues.map((i) => i.message).join("|")}`;
     if (didToastRef.current === signature) return;
     didToastRef.current = signature;
-    const detail = broken?.issues[0];
-    const summary = detail
-      ? `${detail.token ? `${detail.token}: ` : ""}${detail.message}`
-      : "unknown error";
-    const name = broken ? userThemeLabel(broken) : "";
     // Deferred by a task, not fired inline: on a cold start this effect can run
     // in the same commit that mounts the toaster, and sonner drops anything
     // emitted before its `<Toaster>` subscribes — the toast would vanish, which
     // is precisely the silent revert it exists to prevent. Every effect in the
     // commit has run by the time a zero-delay timeout fires.
     toastTimerRef.current = setTimeout(() => {
-      toast.error(`Theme "${name}" is not valid, so it was not applied — ${summary}`);
+      const detail = broken.issues[0];
+      const summary = detail
+        ? `${detail.token ? `${detail.token}: ` : ""}${detail.message}`
+        : translateUi("appearance.library.unknownValidationError", "unknown error");
+      toast.error(
+        translateUi(
+          "appearance.library.invalidSelection",
+          'Theme "{{theme}}" is not valid, so it was not applied — {{error}}',
+          { theme: userThemeLabel(broken), error: summary },
+        ),
+      );
     }, 0);
   }, [entries, selectedThemeIds]);
 }

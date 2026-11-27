@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo, type ReactElement } from "react";
 import { LightboxThumbnail } from "@/components/image-lightbox/LightboxThumbnail";
 import { useBlobUrls } from "@/hooks/useBlobUrls";
@@ -55,10 +56,18 @@ function ImageGrid({
   blobUrls: ReadonlyMap<string, string>;
   failed: ReadonlySet<string>;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const resolved = useMemo(
     () =>
       images.map((image, position): LightboxImage => {
-        const alt = images.length > 1 ? `attached image ${position + 1}` : "attached image";
+        const alt =
+          images.length > 1
+            ? t(
+                "conversation.stream.userMessageImages.attachedImage",
+                "attached image {{position}}",
+                { position: position + 1 },
+              )
+            : t("conversation.stream.userMessageImages.attachedImageLabel", "attached image");
         return {
           // Refs and hashes are both content fingerprints, so two copies of one
           // screenshot in a single message share one — the position keeps React
@@ -71,7 +80,7 @@ function ImageGrid({
           mediaType: image.mediaType,
         };
       }),
-    [images, blobUrls],
+    [images, blobUrls, t],
   );
   const open = useCallback((position: number) => openImageLightbox(resolved, position), [resolved]);
 
@@ -97,7 +106,11 @@ function ImageGrid({
           placeholder the user would otherwise wait on indefinitely. */}
       {unavailable ? (
         <p className="text-xs text-muted-foreground">
-          {solo ? "This image is" : "Some images are"} no longer available in local storage.
+          {t("conversation.stream.userMessageImages.storageUnavailable", {
+            count: images.length,
+            defaultValue_one: "This image is no longer available in local storage.",
+            defaultValue_other: "Some images are no longer available in local storage.",
+          })}
         </p>
       ) : null}
     </div>

@@ -71,6 +71,14 @@ describe("registerPluginTabIpc", () => {
     expect(() => invoke("plugin-tab:close", untrusted, "i1")).toThrow("untrusted window");
   });
 
+  it("returns the missing instance as data the renderer can translate", () => {
+    registerPluginTabIpc({ getMainWindow: () => mainWindow, preloadPath: "/p.js" });
+    expect(invoke("plugin-tab:reload", trusted, "gone")).toEqual({
+      kind: "unknown-instance",
+      instanceId: "gone",
+    });
+  });
+
   it("validates ids, bounds and theme at the boundary", () => {
     registerPluginTabIpc({ getMainWindow: () => mainWindow, preloadPath: "/p.js" });
     expect(() => invoke("plugin-tab:open", trusted, "i1", "../evil")).toThrow(

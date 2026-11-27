@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Loader2, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CustomTabConsentDialog } from "@/components/settings/custom-tabs/CustomTabConsentDialog";
@@ -11,6 +12,7 @@ import { useMarketplaceState } from "./MarketplaceContext";
  * waiting for review (on its own row of the install panel's wrapping strip).
  */
 export function TabActivation({ id }: { id: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { tabs } = useMarketplaceState();
   const enablement = useCustomTabEnablement();
   const tab = tabs.summaries.data?.find((item) => item.id === id);
@@ -24,11 +26,13 @@ export function TabActivation({ id }: { id: string }): React.JSX.Element {
         onClick={() => tab && enablement.change(tab, null, !tab.enablement.global)}
       >
         {pending ? <Loader2 aria-hidden className="animate-spin" /> : <Power aria-hidden />}
-        {tab?.enablement.global ? "Disable" : "Enable"}
+        {tab?.enablement.global
+          ? t("marketplace.tabActivation.disable", "Disable")
+          : t("marketplace.tabActivation.enable", "Enable")}
       </Button>
       {tab?.enablement.global && tab.enablement.consent_required && (
         <Button variant="outline" disabled={pending} onClick={() => enablement.review(tab)}>
-          Review permissions
+          {t("marketplace.tabActivation.reviewPermissions", "Review permissions")}
         </Button>
       )}
       {tab?.pending_update ? (

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import type { MessageSearchHit } from "@/api/generated";
 import { MESSAGE_SEARCH_MIN_CHARS, type PaletteMode } from "@/lib/command-palette/palette-query";
@@ -10,7 +11,10 @@ import {
   type RankContext,
 } from "@/lib/command-palette/palette-ranking";
 import { queryTokens } from "@/lib/command-palette/palette-score";
-import type { PaletteCommandGroup } from "@/lib/command-palette/palette-shortcut-commands";
+import {
+  paletteCommandGroupLabel,
+  type PaletteCommandGroup,
+} from "@/lib/command-palette/palette-shortcut-commands";
 import type {
   FileEntry,
   MessageEntry,
@@ -30,10 +34,13 @@ const GROUP_ORDER: readonly PaletteCommandGroup[] = [
   "Settings",
 ];
 
-function commandSectionsByGroup(commands: readonly PaletteCommand[]): PaletteSection[] {
+function commandSectionsByGroup(
+  commands: readonly PaletteCommand[],
+  t: UiTranslator,
+): PaletteSection[] {
   return GROUP_ORDER.map((group) => ({
     id: `group-${group}`,
-    title: group,
+    title: paletteCommandGroupLabel(group, t),
     entries: commands
       .filter((command) => command.group === group)
       .map((command) => commandEntry(command)),
@@ -82,6 +89,7 @@ function rankedSections(
   sources: PaletteSources,
   commands: PaletteCommandSet,
   context: RankContext,
+  t: UiTranslator,
 ): PaletteSection[] {
   const conversations = rankConversations(tokens, sources.conversations, context, 12);
   const projects = rankProjects(tokens, sources.projects, sources.conversations, 4);
@@ -91,18 +99,26 @@ function rankedSections(
       top: conversations.top,
       section: {
         id: "conversations",
-        title: "Conversations",
+        title: t("palette.sections.conversations", "Conversations"),
         entries: conversations.entries,
         ...conversationsState(sources),
       },
     },
     {
       top: projects.top,
-      section: { id: "projects", title: "Projects", entries: projects.entries },
+      section: {
+        id: "projects",
+        title: t("palette.sections.projects", "Projects"),
+        entries: projects.entries,
+      },
     },
     {
       top: commandHits.top,
-      section: { id: "commands", title: "Commands", entries: commandHits.entries },
+      section: {
+        id: "commands",
+        title: t("palette.mode.commands", "Commands"),
+        entries: commandHits.entries,
+      },
     },
   ]
     .sort((a, b) => b.top - a.top)
@@ -116,20 +132,21 @@ function localSections(
   sources: PaletteSources,
   commands: PaletteCommandSet,
   context: RankContext,
+  t: UiTranslator,
 ): PaletteSection[] {
   if (mode === "commands") {
     return tokens.length === 0
-      ? commandSectionsByGroup(commands.all)
+      ? commandSectionsByGroup(commands.all, t)
       : [
           {
             id: "commands",
-            title: "Commands",
+            title: t("palette.mode.commands", "Commands"),
             entries: rankCommands(tokens, commands.all, context, 40).entries,
           },
         ];
   }
   if (mode !== "all") return [];
-  if (tokens.length > 0) return rankedSections(tokens, sources, commands, context);
+  if (tokens.length > 0) return rankedSections(tokens, sources, commands, context, t);
   const empty = emptyStateSections(
     {
       conversations: sources.conversations,
@@ -137,6 +154,7 @@ function localSections(
       suggestions: commands.suggestions,
     },
     context,
+    t,
   );
   // Nothing to show yet: a skeleton (or the error) where Recent will be.
   if (
@@ -144,7 +162,12 @@ function localSections(
     (sources.conversationsLoading || sources.conversationsError)
   ) {
     return [
-      { id: "recent", title: "Recent", entries: [], ...conversationsState(sources) },
+      {
+        id: "recent",
+        title: t("palette.sections.recent", "Recent"),
+        entries: [],
+        ...conversationsState(sources),
+      },
       ...empty,
     ];
   }
@@ -166,23 +189,34 @@ interface SectionInputs {
  * below the local groups, so they never shift the rows the user is aiming at.
  */
 export function usePaletteSections(inputs: SectionInputs): PaletteSection[] {
+  const { t } = useUiTranslation();
   const { mode, text, context, sources, commands, messages, files } = inputs;
   const tokens = useMemo(() => queryTokens(text), [text]);
   const local = useMemo(
-    () => localSections(mode, tokens, sources, commands, context),
-    [commands, context, mode, sources, tokens],
+    () => localSections(mode, tokens, sources, commands, context, t),
+    [commands, context, mode, sources, t, tokens],
   );
   return useMemo(() => {
-    if (mode === "files") return [remoteSection("files", "Files", files, fileEntries)];
+    if (mode === "files")
+      return [remoteSection("files", t("palette.mode.files", "Files"), files, fileEntries)];
     if (mode === "messages")
-      return [remoteSection("messages", "Messages", messages, messageEntries)];
+      return [
+        remoteSection("messages", t("palette.mode.messages", "Messages"), messages, messageEntries),
+      ];
     if (mode !== "all" || tokens.length === 0) return local;
     const sections = [...local];
     if (context.activeFeatureId != null)
-      sections.push(remoteSection("files", "Files", files, fileEntries));
+      sections.push(remoteSection("files", t("palette.mode.files", "Files"), files, fileEntries));
     if (text.trim().length >= MESSAGE_SEARCH_MIN_CHARS) {
-      sections.push(remoteSection("messages", "In messages", messages, messageEntries));
+      sections.push(
+        remoteSection(
+          "messages",
+          t("palette.sections.inMessages", "In messages"),
+          messages,
+          messageEntries,
+        ),
+      );
     }
     return sections;
-  }, [context.activeFeatureId, files, local, messages, mode, text, tokens.length]);
+  }, [context.activeFeatureId, files, local, messages, mode, t, text, tokens.length]);
 }

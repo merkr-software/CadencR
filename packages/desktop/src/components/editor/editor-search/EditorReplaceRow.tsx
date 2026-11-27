@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Replace-row affordances rendered below `EditorSearchPanel`'s find row when
  * the user opens Find & Replace (⌘⌥F). Split out to keep the parent panel
@@ -32,6 +33,7 @@ export function EditorReplaceRow({
   onKeyDown,
   disabled,
 }: EditorReplaceRowProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-1 border-t border-border/60 pt-1 mt-1">
       <Replace className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -42,8 +44,8 @@ export function EditorReplaceRow({
         value={replacement}
         onChange={(e) => onReplacementChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Replace"
-        aria-label="Replacement"
+        placeholder={t("workspace.editor.editorReplaceRow.replace", "Replace")}
+        aria-label={t("workspace.editor.editorReplaceRow.replacement", "Replacement")}
         className={cn(
           "w-44 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70",
         )}
@@ -53,8 +55,8 @@ export function EditorReplaceRow({
         <Button
           variant="ghost"
           size="icon-xs"
-          title="Replace match (Enter)"
-          aria-label="Replace match"
+          title={t("workspace.editor.editorReplaceRow.replaceMatchEnter", "Replace match (Enter)")}
+          aria-label={t("workspace.editor.editorReplaceRow.replaceMatch", "Replace match")}
           onClick={onReplaceOne}
           disabled={disabled}
         >
@@ -63,8 +65,12 @@ export function EditorReplaceRow({
         <Button
           variant="ghost"
           size="icon-xs"
-          title={`Replace all (${REPLACE_ALL_COMBO})`}
-          aria-label="Replace all"
+          title={t(
+            "workspace.editor.editorReplaceRow.replaceAllShortcut",
+            "Replace all ({{shortcut}})",
+            { shortcut: REPLACE_ALL_COMBO },
+          )}
+          aria-label={t("workspace.editor.editorReplaceRow.replaceAll", "Replace all")}
           onClick={onReplaceAll}
           disabled={disabled}
         >

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Mode segment of the pre-first-prompt worktree chip. Opens a popover listing
  * the explicit branch/worktree behaviors (see `lib/worktree-mode`), each with
@@ -64,13 +65,14 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   variant = "chip",
   projectId,
 }: WorktreeModePickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const saving = useIsMutating({ mutationKey: defaultWorktreeModeMutationKey(projectId) }) > 0;
   const [open, setOpen] = useState(false);
   const active = modeUsesWorktree(mode);
   const label =
     variant === "manifest"
-      ? manifestModeLabel(mode, state)
-      : describeWorktreeMode(mode, state).label;
+      ? manifestModeLabel(mode, state, t)
+      : describeWorktreeMode(mode, state, t).label;
   const handlePick = useCallback(
     (next: WorktreeMode) => {
       onModeChange(next);
@@ -106,14 +108,13 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
               : cn(active ? WORKTREE_SEGMENT_ACTIVE : WORKTREE_SEGMENT, "rounded-r-md")
           }
           aria-busy={saving}
-          aria-label={
-            variant === "manifest"
-              ? `Where the agent works: ${label}`
-              : "Branch / worktree behavior"
-          }
+          aria-label={worktreePickerLabel(t, variant, label)}
         >
           {saving ? (
-            <LoaderCircle aria-label="Saving" className="size-3 shrink-0 animate-spin" />
+            <LoaderCircle
+              aria-label={t("conversation.stream.worktreeModePicker.saving", "Saving")}
+              className="size-3 shrink-0 animate-spin"
+            />
           ) : (
             <GitBranchIcon className="size-3 shrink-0" />
           )}
@@ -144,7 +145,7 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
             )}
             {enableModeShortcut && (
               <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                Cycle
+                {t("conversation.stream.worktreeModePicker.cycle", "Cycle")}
                 <ResolvedShortcutHint shortcutId="agent-worktree-mode" />
               </span>
             )}
@@ -163,7 +164,8 @@ interface WorktreeModeRowProps {
 }
 
 function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps): ReactElement {
-  const descriptor = describeWorktreeMode(mode, state);
+  const { t } = useUiTranslation();
+  const descriptor = describeWorktreeMode(mode, state, t);
   const disabled = isWorktreeModeDisabled(mode, state);
   return (
     <button
@@ -183,7 +185,7 @@ function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps
       {modeUsesWorktree(mode) ? (
         <GitBranchIcon
           className="mt-0.5 size-3.5 shrink-0 text-[var(--chip-worktree-fg)]"
-          aria-label="Uses a worktree"
+          aria-label={t("conversation.stream.worktreeModePicker.usesAWorktree", "Uses a worktree")}
         />
       ) : (
         <span className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -191,7 +193,7 @@ function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium leading-tight">{descriptor.label}</div>
         <div className="text-xs leading-tight text-muted-foreground">
-          {disabled ? disabledReason(state) : descriptor.description}
+          {disabled ? disabledReason(state, t) : descriptor.description}
         </div>
       </div>
       {selected && <CheckIcon className="size-3.5 shrink-0 text-[var(--chip-worktree-fg)]" />}
@@ -199,24 +201,59 @@ function WorktreeModeRow({ mode, state, selected, onPick }: WorktreeModeRowProps
   );
 }
 
+function worktreePickerLabel(
+  t: UiTranslator,
+  variant: WorktreeModePickerProps["variant"],
+  label: string,
+): string {
+  return variant === "manifest"
+    ? t(
+        "conversation.stream.worktreeModePicker.whereTheAgentWorks",
+        "Where the agent works: {{label}}",
+        { label },
+      )
+    : t(
+        "conversation.stream.worktreeModePicker.branchWorktreeBehavior",
+        "Branch / worktree behavior",
+      );
+}
+
 /** Why `branch_worktree` can't apply to this branch (see `isWorktreeModeDisabled`). */
-function disabledReason(state: BranchWorktreeState): string {
-  const branch = state.effectiveBranch ?? "This branch";
+function disabledReason(state: BranchWorktreeState, t: UiTranslator): string {
+  const branch =
+    state.effectiveBranch ?? t("conversation.stream.worktreeModePicker.thisBranch", "This branch");
   if (!state.isLocal)
-    return `${branch} is a remote branch: start from it in a new worktree instead.`;
-  return `${branch} is checked out in the project folder, and git can't check a branch out twice. Start from it in a new worktree instead.`;
+    return t(
+      "conversation.stream.worktreeModePicker.isARemoteBranchStartFromIt",
+      "{{branch}} is a remote branch: start from it in a new worktree instead.",
+      { branch },
+    );
+  return t(
+    "conversation.stream.worktreeModePicker.isCheckedOutInTheProjectFolder",
+    "{{branch}} is checked out in the project folder, and git can't check a branch out twice. Start from it in a new worktree instead.",
+    { branch },
+  );
 }
 
 /** Short noun for the launch sentence: "<label> from|on <branch>". */
-function manifestModeLabel(mode: WorktreeMode, state: BranchWorktreeState): string {
+function manifestModeLabel(
+  mode: WorktreeMode,
+  state: BranchWorktreeState,
+  t: UiTranslator,
+): string {
   switch (mode) {
     case "on_branch":
-      return "Project folder";
+      return t("conversation.stream.worktreeModePicker.projectFolder", "Project folder");
     case "branch_worktree":
-      return state.hasWorktree ? "Its worktree" : "New worktree";
+      return state.hasWorktree
+        ? t("conversation.stream.worktreeModePicker.itsWorktree", "Its worktree")
+        : t("conversation.stream.worktreeModePicker.newWorktree", "New worktree");
     case "from_branch":
-      return "New branch, project folder";
+      return t(
+        "conversation.stream.worktreeModePicker.newBranchProjectFolder",
+        "New branch, project folder",
+      );
     case "from_branch_worktree":
-      return "New worktree";
+      return t("conversation.stream.worktreeModePicker.newWorktree", "New worktree");
   }
 }

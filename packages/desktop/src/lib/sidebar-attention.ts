@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { LiveAgentStatus } from "@/types/agent";
 
 /**
@@ -33,11 +34,21 @@ const RANK: Record<AttentionState, number> = {
 
 /** How each state reads in a label: the rail's tooltips, the status lens's headers. */
 export const ATTENTION_LABEL: Record<AttentionState, string> = {
-  waiting: "Waiting on you",
-  failed: "Failed",
-  working: "Working",
-  unread: "Unread",
-  idle: "Idle",
+  get waiting() {
+    return translateUi("sidebar.attention.waiting", "Waiting on you");
+  },
+  get failed() {
+    return translateUi("sidebar.attention.failed", "Failed");
+  },
+  get working() {
+    return translateUi("sidebar.attention.working", "Working");
+  },
+  get unread() {
+    return translateUi("sidebar.attention.unread", "Unread");
+  },
+  get idle() {
+    return translateUi("sidebar.attention.idle", "Idle");
+  },
 };
 
 /** Whether `a` is more urgent than `b`: the one a collapsed parent shows. */

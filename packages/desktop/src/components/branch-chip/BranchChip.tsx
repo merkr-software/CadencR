@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Header chip naming the branch checked out in the conversation's directory —
  * always the live checkout, even when it is not one of the conversation's
@@ -34,6 +35,7 @@ export const BranchChip = memo(function BranchChip({
   featureId,
   projectId,
 }: BranchChipProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const snapshot = useGitStatusStore(selectGitStatus(featureId));
   const prStatus = usePrStatusStore(selectPrStatus(featureId));
   const [open, setOpen] = useState(false);
@@ -62,8 +64,12 @@ export const BranchChip = memo(function BranchChip({
           type="button"
           data-branch-chip
           className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-accent"
-          title={chipTitle(checkout)}
-          aria-label={`Branch ${checkout.name}, ${branches.length} in this conversation`}
+          title={chipTitle(checkout, t)}
+          aria-label={t(
+            "workspace.git.branchChip.branchBranchCountInThisConversation",
+            "Branch {{branch}}, {{count, number}} in this conversation",
+            { branch: checkout.name, count: branches.length },
+          )}
         >
           <GitBranch className="size-3 shrink-0 text-muted-foreground" />
           <span
@@ -102,8 +108,14 @@ function focusCurrentTarget(event: Event): void {
   target.focus();
 }
 
-function chipTitle({ name, branch }: ThreadCheckout): string {
-  if (!branch) return `${name} (checked out, not one of this conversation's branches)`;
+function chipTitle({ name, branch }: ThreadCheckout, t: UiTranslator): string {
+  if (!branch) {
+    return t(
+      "workspace.git.branchChip.externalBranch",
+      "{{name}} (checked out, not one of this conversation's branches)",
+      { name },
+    );
+  }
   return branch.target_branch ? `${name} → ${branch.target_branch}` : name;
 }
 

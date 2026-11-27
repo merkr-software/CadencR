@@ -27,16 +27,13 @@ import type { RendererErrorReportPayload } from "../../src/shared/renderer-error
 import type { AppCloseRequest } from "../../src/shared/app-close";
 import type { ServiceStatus } from "../../src/shared/service-status";
 import { UPDATE_STATE_CHANNEL, type UpdateSnapshot } from "../../src/shared/update-state";
+import type { RuntimeConfig } from "../../src/lib/desktop-bridge-types";
 import { cliHostBridge } from "./cli-host-bridge";
 import { notchHostBridge } from "./notch-host-bridge";
 import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
 
 type RouteType = "workflow" | "session";
 type DesktopTheme = "light" | "dark";
-
-interface RuntimeConfig {
-  baseUrl: string;
-}
 
 interface NotificationClickPayload {
   feature_id: number;
@@ -152,6 +149,8 @@ contextBridge.exposeInMainWorld("cadencr", {
   isElectron: true,
   usesCustomWindowControls: process.platform === "linux",
   runtimeConfig: (): Promise<RuntimeConfig> => ipcRenderer.invoke("runtime-config"),
+  setInterfaceLanguage: (language: string): Promise<void> =>
+    ipcRenderer.invoke("app:set-interface-language", language),
   readFileBase64: (handle: string): Promise<string> =>
     ipcRenderer.invoke("fs:read-file-base64", handle),
   suppressNextNativeContextMenu: (): void => {

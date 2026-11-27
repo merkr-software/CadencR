@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +28,7 @@ export function storedAutoNamePrompt(text: string, defaultPrompt: string): strin
  * settings file, which refreshes settings-derived caches in every window.
  */
 export function AutoNamePromptSetting(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const defaultQuery = useGetAutoNamePrompt({ query: { staleTime: Infinity } });
   const setting = useSetting(AUTO_NAME_SYSTEM_PROMPT_KEY);
   const defaultPrompt = defaultQuery.data?.default_prompt;
@@ -61,11 +63,17 @@ export function AutoNamePromptSetting(): React.JSX.Element {
 
   return (
     <SettingsSubsection
-      title="Naming prompt"
+      title={t("settings.agents.naming.prompt.title", "Naming prompt")}
       description={
         isCustom
-          ? "Custom system prompt used to title new conversations."
-          : "System prompt used to title new conversations (default)."
+          ? t(
+              "settings.agents.naming.prompt.custom",
+              "Custom system prompt used to title new conversations.",
+            )
+          : t(
+              "settings.agents.naming.prompt.default",
+              "System prompt used to title new conversations (default).",
+            )
       }
       action={
         isCustom ? (
@@ -74,22 +82,27 @@ export function AutoNamePromptSetting(): React.JSX.Element {
             variant="ghost"
             size="sm"
             className="h-6 px-2 text-[11px]"
-            aria-label="Reset naming prompt"
+            aria-label={t("settings.agents.naming.prompt.resetLabel", "Reset naming prompt")}
             onClick={reset}
             disabled={setting.isSaving}
           >
-            Reset
+            {t("common.reset", "Reset")}
           </Button>
         ) : null
       }
     >
       {defaultQuery.error ? (
-        <ErrorRow label="Failed to load the default naming prompt." />
+        <ErrorRow
+          label={t(
+            "settings.agents.naming.prompt.error",
+            "Failed to load the default naming prompt.",
+          )}
+        />
       ) : !isReady ? (
-        <LoadingRow label="Loading naming prompt…" />
+        <LoadingRow label={t("settings.agents.naming.prompt.loading", "Loading naming prompt…")} />
       ) : (
         <Textarea
-          aria-label="Auto-naming system prompt"
+          aria-label={t("settings.agents.naming.prompt.inputLabel", "Auto-naming system prompt")}
           placeholder={defaultPrompt}
           rows={5}
           value={input.value}

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type RefObject } from "react";
 import { StarIcon } from "lucide-react";
 import {
@@ -74,6 +75,7 @@ function scrollHighlightedPickerItem(listRef: RefObject<HTMLDivElement | null>):
 }
 
 function FavoriteShortcut({ onToggleHighlighted }: FavoriteShortcutProps): React.ReactNode {
+  const { t } = useUiTranslation();
   const hasMatches = useCommandState((state) => state.filtered.count > 0);
 
   useShortcut(
@@ -91,7 +93,9 @@ function FavoriteShortcut({ onToggleHighlighted }: FavoriteShortcutProps): React
       {hasMatches ? (
         <>
           <StarIcon className="size-3 shrink-0" />
-          <span>Star / unstar</span>
+          <span>
+            {t("conversation.composer.runtimeModelPickerContent.starUnstar", "Star / unstar")}
+          </span>
           <ResolvedShortcutHint shortcutId="model-picker-favorite" />
         </>
       ) : null}

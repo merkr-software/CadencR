@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import {
   ArchiveIcon,
@@ -91,6 +92,9 @@ export function FeatureRowMetaItems({
 }): ReactElement | null {
   const items = rowMetaPart(all, part);
   const { branch, model, stats, todos } = items;
+  const { t } = useUiTranslation();
+  const modelLabel =
+    model && (feature.model_session?.trim() || t("sidebar.provider.defaultModel", "Default"));
   // The label editor belongs with the label, never on the code line.
   const editor = part === "code" ? undefined : labelEditor;
   if (!editor && !hasCodeItems(items) && !hasActivityItems(items)) return null;
@@ -127,10 +131,10 @@ export function FeatureRowMetaItems({
       {model && (
         <span
           data-feature-model
-          title={model}
+          title={modelLabel ?? undefined}
           className="min-w-0 truncate font-mono text-[10.5px] text-muted-foreground"
         >
-          {model}
+          {modelLabel}
         </span>
       )}
       {stats && (
@@ -138,7 +142,11 @@ export function FeatureRowMetaItems({
           <NumStat
             additions={stats.insertions}
             deletions={stats.deletions}
-            notice={stats.unavailable_line_counts ? "Partial" : undefined}
+            notice={
+              stats.unavailable_line_counts
+                ? t("sidebar.row.partialDiffStats", "Partial")
+                : undefined
+            }
             className="text-[11px] leading-tight"
           />
         </span>
@@ -169,6 +177,7 @@ function MetaLineLabel({
   style: SidebarConfig["label"];
   editor: FeatureLabelEditing | undefined;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!editor) {
     return style === "dot" ? <FeatureLabelDot label={label} /> : <FeatureLabelChip label={label} />;
   }
@@ -182,7 +191,7 @@ function MetaLineLabel({
           <FeatureLabelChip label={feature.label} />
         ) : (
           <span className="rounded border border-dashed border-border px-1.5 py-0 font-mono text-[10.5px] leading-4 text-muted-foreground">
-            Set label
+            {t("sidebar.projectFeatureRowParts.setLabel", "Set label")}
           </span>
         )
       }
@@ -195,12 +204,13 @@ function MetaLineLabel({
 
 /** The quiet label style: a dot that names the label on hover. */
 function FeatureLabelDot({ label }: { label: string | null | undefined }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!label) return null;
   return (
     <span
       role="img"
       data-feature-label
-      aria-label={`Label: ${label}`}
+      aria-label={t("sidebar.row.label", "Label: {{label}}", { label })}
       title={label}
       className="size-1.5 shrink-0 rounded-full bg-primary"
     />
@@ -211,13 +221,13 @@ function FeatureLabelDot({ label }: { label: string | null | undefined }): React
  * Both the hover affordance and the context menu name these actions by what the
  * click will do, so the wording lives next to the state it reads.
  */
-export function pinActionLabel(isPinned: boolean): string {
-  return isPinned ? "Unpin" : "Pin";
+export function pinActionLabel(isPinned: boolean, t = translateUi): string {
+  return isPinned ? t("sidebar.row.unpin", "Unpin") : t("sidebar.row.pin", "Pin");
 }
 
 /** Archiving is reversible; a second pass on an archived row deletes it. */
-export function archiveActionLabel(isArchived: boolean): string {
-  return isArchived ? "Delete" : "Archive";
+export function archiveActionLabel(isArchived: boolean, t = translateUi): string {
+  return isArchived ? t("sidebar.row.delete", "Delete") : t("sidebar.row.archive", "Archive");
 }
 
 /**
@@ -237,6 +247,7 @@ export function FeatureRowActions({
   onTogglePin: (featureId: number, pinned: boolean) => void;
   onArchiveOrDelete: (featureId: number) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="sidebar-row-actions shrink-0 items-center gap-1">
       {!isArchived && (
@@ -253,7 +264,7 @@ export function FeatureRowActions({
           }}
         >
           {isPinned ? <PinOffIcon className="size-3.5" /> : <PinIcon className="size-3.5" />}
-          <span className="sr-only">{pinActionLabel(isPinned)}</span>
+          <span className="sr-only">{pinActionLabel(isPinned, t)}</span>
         </Button>
       )}
       <Button
@@ -266,14 +277,18 @@ export function FeatureRowActions({
         }}
       >
         {isArchived ? <TrashIcon className="size-3.5" /> : <ArchiveIcon className="size-3.5" />}
-        <span className="sr-only">{archiveActionLabel(isArchived)}</span>
+        <span className="sr-only">{archiveActionLabel(isArchived, t)}</span>
       </Button>
     </div>
   );
 }
 
 function FeatureSubagentBadge({ count }: { count: number }): ReactElement {
-  const label = `${count} ${count === 1 ? "sub-agent running" : "sub-agents running"}`;
+  const { t } = useUiTranslation();
+  const label = t("sidebar.row.runningSubagents", "{{count}} sub-agents running", {
+    count,
+    defaultValue_one: "{{count}} sub-agent running",
+  });
   return (
     <span data-feature-subagents className="inline-flex shrink-0">
       <FeatureMetaBadge icon={<AgentIcon className="size-3" />} label={label}>
@@ -292,30 +307,43 @@ function FeatureActivityIndicators({
   browserCount: number;
   downloadCount: number;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (shellCount <= 0 && browserCount <= 0 && downloadCount <= 0) return null;
   return (
     <span data-feature-activity-indicators className="inline-flex shrink-0 items-center gap-1">
-      <FeatureActivityBadge
-        kind="shell"
-        count={shellCount}
-        labelSingular="shell command running"
-        labelPlural="shell commands running"
-        icon={<TerminalIcon className="size-3" />}
-      />
-      <FeatureActivityBadge
-        kind="browser"
-        count={browserCount}
-        labelSingular="browser tab open"
-        labelPlural="browser tabs open"
-        icon={<GlobeIcon className="size-3" />}
-      />
-      <FeatureActivityBadge
-        kind="download"
-        count={downloadCount}
-        labelSingular="browser download active"
-        labelPlural="browser downloads active"
-        icon={<DownloadIcon className="size-3" />}
-      />
+      {shellCount > 0 && (
+        <FeatureActivityBadge
+          kind="shell"
+          count={shellCount}
+          label={t("sidebar.row.shellCommand", "{{count}} shell commands running", {
+            count: shellCount,
+            defaultValue_one: "{{count}} shell command running",
+          })}
+          icon={<TerminalIcon className="size-3" />}
+        />
+      )}
+      {browserCount > 0 && (
+        <FeatureActivityBadge
+          kind="browser"
+          count={browserCount}
+          label={t("sidebar.row.browserTab", "{{count}} browser tabs open", {
+            count: browserCount,
+            defaultValue_one: "{{count}} browser tab open",
+          })}
+          icon={<GlobeIcon className="size-3" />}
+        />
+      )}
+      {downloadCount > 0 && (
+        <FeatureActivityBadge
+          kind="download"
+          count={downloadCount}
+          label={t("sidebar.row.browserDownload", "{{count}} browser downloads active", {
+            count: downloadCount,
+            defaultValue_one: "{{count}} browser download active",
+          })}
+          icon={<DownloadIcon className="size-3" />}
+        />
+      )}
     </span>
   );
 }
@@ -323,19 +351,15 @@ function FeatureActivityIndicators({
 function FeatureActivityBadge({
   kind,
   count,
-  labelSingular,
-  labelPlural,
+  label,
   icon,
 }: {
   /** Names the badge for the row CSS (each kind takes its own color in "Increased"). */
   kind: "shell" | "browser" | "download";
   count: number;
-  labelSingular: string;
-  labelPlural: string;
+  label: string;
   icon: ReactElement;
-}): ReactElement | null {
-  if (count <= 0) return null;
-  const label = `${count} ${count === 1 ? labelSingular : labelPlural}`;
+}): ReactElement {
   return (
     <span data-feature-activity={kind} className="contents">
       <FeatureMetaBadge icon={icon} label={label}>

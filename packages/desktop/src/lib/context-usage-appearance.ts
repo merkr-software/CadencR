@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 export interface ContextUsageAppearance {
   barClassName: string;
   glowColor: string;
@@ -5,12 +6,18 @@ export interface ContextUsageAppearance {
   verdict: string;
 }
 
-export function getContextUsageAppearance(ratio: number): ContextUsageAppearance {
+export function getContextUsageAppearance(
+  ratio: number,
+  t: UiTranslator = translateUi,
+): ContextUsageAppearance {
   if (ratio > 0.9) {
     return {
       barClassName: "bg-[var(--acc-red)]",
       glowColor: "var(--acc-red)",
-      verdict: "Nearly full — the agent will have to compact soon.",
+      verdict: t(
+        "conversation.composer.context-usage-appearance.nearlyFull",
+        "Nearly full — the agent will have to compact soon.",
+      ),
     };
   }
 
@@ -18,7 +25,10 @@ export function getContextUsageAppearance(ratio: number): ContextUsageAppearance
     return {
       barClassName: "bg-[var(--acc-orange)]",
       glowColor: "var(--acc-orange)",
-      verdict: "Getting full — compacting now keeps the agent sharp.",
+      verdict: t(
+        "conversation.composer.context-usage-appearance.gettingFull",
+        "Getting full — compacting now keeps the agent sharp.",
+      ),
     };
   }
 
@@ -26,13 +36,13 @@ export function getContextUsageAppearance(ratio: number): ContextUsageAppearance
     return {
       barClassName: "bg-[var(--acc-yellow)]",
       glowColor: "var(--acc-yellow)",
-      verdict: "Over half used.",
+      verdict: t("conversation.composer.context-usage-appearance.overHalf", "Over half used."),
     };
   }
 
   return {
     barClassName: "bg-[var(--acc-green)]",
     glowColor: "var(--acc-green)",
-    verdict: "Plenty of room.",
+    verdict: t("conversation.composer.context-usage-appearance.room", "Plenty of room."),
   };
 }

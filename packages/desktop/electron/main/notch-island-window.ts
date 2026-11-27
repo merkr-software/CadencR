@@ -34,14 +34,21 @@ export class NotchIslandWindow {
   private pollTimer: NodeJS.Timeout | null = null;
   private snapshot: NotchSnapshot;
   private prefs: NotchPrefs;
+  private locale: string;
   private snoozedUntil: number | null;
 
   constructor(
     private placement: NotchPlacement,
-    state: { snapshot: NotchSnapshot; prefs: NotchPrefs; snoozedUntil: number | null },
+    state: {
+      snapshot: NotchSnapshot;
+      prefs: NotchPrefs;
+      locale: string;
+      snoozedUntil: number | null;
+    },
   ) {
     this.snapshot = state.snapshot;
     this.prefs = state.prefs;
+    this.locale = state.locale;
     this.snoozedUntil = state.snoozedUntil;
     this.bounds = windowBounds(placement);
     this.window = createWindow(this.bounds);
@@ -61,6 +68,12 @@ export class NotchIslandWindow {
   updatePrefs(prefs: NotchPrefs): void {
     this.prefs = prefs;
     if (this.ready) sendToWindow(this.window, "notch:prefs", prefs);
+  }
+
+  updateLocale(locale: string): void {
+    if (this.locale === locale) return;
+    this.locale = locale;
+    if (this.ready) sendToWindow(this.window, "notch:locale", locale);
   }
 
   pushSnapshot(snapshot: NotchSnapshot): void {
@@ -98,6 +111,7 @@ export class NotchIslandWindow {
       geometry: this.geometry(),
       snapshot: this.snapshot,
       prefs: this.prefs,
+      locale: this.locale,
       snoozedUntil:
         this.snoozedUntil != null && Date.now() < this.snoozedUntil ? this.snoozedUntil : null,
     };

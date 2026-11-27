@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, useMemo } from "react";
 import { useKeptDraft } from "./kept-drafts";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -40,10 +41,14 @@ export function CustomTabConfigFields({
   /** Where the unsaved draft is kept when the form unmounts (`useKeptDraft`). */
   draftSlot?: { id: string; version: string };
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const initial = useMemo(() => initialDraft(fields, stored), [fields, stored]);
   const [edits, setEdits, resetEdits] = useKeptDraft(draftSlot);
   const draft = useMemo(() => withDeclaredFields(edits, initial), [edits, initial]);
-  const payload = useMemo(() => draftPayload(fields, draft, initial), [draft, fields, initial]);
+  const payload = useMemo(
+    () => draftPayload(fields, draft, initial, t),
+    [draft, fields, initial, t],
+  );
   const dirty = Object.keys(payload.values).length > 0;
   const invalid = Object.keys(payload.errors).length > 0;
   const set = (key: string, value: DraftValue): void =>
@@ -84,11 +89,11 @@ export function CustomTabConfigFields({
           disabled={!dirty || saving}
           onClick={resetEdits}
         >
-          Discard
+          {t("customTabs.customTabConfigFields.discard", "Discard")}
         </Button>
         <Button type="submit" size="sm" disabled={!dirty || invalid || saving}>
           {saving ? <Loader2 className="animate-spin" aria-hidden /> : null}
-          Save
+          {t("common.save", "Save")}
         </Button>
       </div>
     </form>
@@ -108,9 +113,10 @@ function ConfigField({
   disabled: boolean;
   onChange: (value: DraftValue) => void;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const id = useId();
   if (value === undefined) return null;
-  const hint = error ?? defaultHint(field);
+  const hint = error ?? defaultHint(field, t);
   const label = (
     <label htmlFor={id} className="text-xs font-medium">
       {field.label}
@@ -140,7 +146,7 @@ function ConfigField({
           id={id}
           value={value}
           options={(field.options ?? []).map((option) => ({ value: option, label: option }))}
-          placeholder="Choose…"
+          placeholder={t("customTabs.customTabConfigFields.choose", "Choose…")}
           disabled={disabled}
           onValueChange={onChange}
         />
@@ -169,48 +175,19 @@ function ConfigField({
   );
 }
 
-/** A secret is never shown: it is Set (Replace, Clear) or a fresh password field. */
-function SecretControl({
-  id,
-  label,
-  draft,
-  disabled,
-  onChange,
-}: {
+interface SecretControlProps {
   id: string;
   label: string;
   draft: SecretDraft;
   disabled: boolean;
   onChange: (value: SecretDraft) => void;
-}): React.JSX.Element {
-  if (draft.mode === "replace") {
-    return (
-      <div className="flex gap-2">
-        <Input
-          id={id}
-          type="password"
-          autoComplete="off"
-          value={draft.value}
-          placeholder={draft.isSet ? "New value" : "Not set"}
-          disabled={disabled}
-          autoFocus={draft.isSet}
-          onChange={(event) => onChange({ ...draft, value: event.target.value })}
-          className="h-8 text-sm"
-        />
-        {draft.isSet ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={disabled}
-            onClick={() => onChange({ ...draft, mode: "keep", value: "" })}
-          >
-            Cancel
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
+}
+
+/** A secret is never shown: it is Set (Replace, Clear) or a fresh password field. */
+function SecretControl(props: SecretControlProps): React.JSX.Element {
+  const { id, label, draft, disabled, onChange } = props;
+  const { t } = useUiTranslation();
+  if (draft.mode === "replace") return <ReplaceSecret {...props} />;
   const clearing = draft.mode === "clear";
   return (
     <div className="flex items-center gap-2">
@@ -218,7 +195,9 @@ function SecretControl({
         id={id}
         className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
       >
-        {clearing ? "Cleared on save" : "Set"}
+        {clearing
+          ? t("customTabs.customTabConfigFields.clearedOnSave", "Cleared on save")
+          : t("customTabs.customTabConfigFields.set", "Set")}
       </span>
       <div className="ml-auto flex gap-1">
         {clearing ? (
@@ -227,10 +206,14 @@ function SecretControl({
             size="xs"
             variant="ghost"
             disabled={disabled}
-            aria-label={`Undo clearing ${label}`}
+            aria-label={t(
+              "customTabs.customTabConfigFields.undoClearingLabel",
+              "Undo clearing {{label}}",
+              { label },
+            )}
             onClick={() => onChange({ ...draft, mode: "keep" })}
           >
-            Undo
+            {t("customTabs.customTabConfigFields.undo", "Undo")}
           </Button>
         ) : (
           <>
@@ -239,24 +222,62 @@ function SecretControl({
               size="xs"
               variant="outline"
               disabled={disabled}
-              aria-label={`Replace ${label}`}
+              aria-label={t("customTabs.customTabConfigFields.replaceLabel", "Replace {{label}}", {
+                label,
+              })}
               onClick={() => onChange({ ...draft, mode: "replace" })}
             >
-              Replace
+              {t("customTabs.customTabConfigFields.replace", "Replace")}
             </Button>
             <Button
               type="button"
               size="xs"
               variant="ghost"
               disabled={disabled}
-              aria-label={`Clear ${label}`}
+              aria-label={t("customTabs.customTabConfigFields.clearLabel", "Clear {{label}}", {
+                label,
+              })}
               onClick={() => onChange({ ...draft, mode: "clear" })}
             >
-              Clear
+              {t("customTabs.customTabConfigFields.clear", "Clear")}
             </Button>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function ReplaceSecret({ id, draft, disabled, onChange }: SecretControlProps): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <div className="flex gap-2">
+      <Input
+        id={id}
+        type="password"
+        autoComplete="off"
+        value={draft.value}
+        placeholder={
+          draft.isSet
+            ? t("customTabs.customTabConfigFields.newValue", "New value")
+            : t("customTabs.customTabConfigFields.notSet", "Not set")
+        }
+        disabled={disabled}
+        autoFocus={draft.isSet}
+        onChange={(event) => onChange({ ...draft, value: event.target.value })}
+        className="h-8 text-sm"
+      />
+      {draft.isSet ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={disabled}
+          onClick={() => onChange({ ...draft, mode: "keep", value: "" })}
+        >
+          {t("common.cancel", "Cancel")}
+        </Button>
+      ) : null}
     </div>
   );
 }

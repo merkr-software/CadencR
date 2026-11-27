@@ -1,3 +1,9 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
+import {
+  BrowserScopeFailure,
+  browserErrorMessage,
+  browserTabSaveFailure,
+} from "./browser-scope-failure";
 import type { BrowserTabSessionStore, RestorableBrowserScope } from "./browser-tab-session-store";
 
 const SAVE_DELAY_MS = 120;
@@ -15,7 +21,7 @@ export class BrowserTabPersistenceController {
 
   constructor(
     private readonly store: BrowserTabSessionStore,
-    private readonly reportError: (message: string, scopeId: number) => void,
+    private readonly reportError: (error: BrowserScopeFailure, scopeId: number) => void,
   ) {}
 
   restoreScope(scopeId: number): Promise<RestorableBrowserScope | null> {
@@ -29,7 +35,15 @@ export class BrowserTabPersistenceController {
       })
       .catch((error: unknown) => {
         this.disabledScopes.add(scopeId);
-        this.reportError(errorMessage(error), scopeId);
+        this.reportError(
+          error instanceof BrowserScopeFailure
+            ? error
+            : new BrowserScopeFailure(
+                { kind: "restoreTabs", detail: browserErrorMessage(error) },
+                { cause: error },
+              ),
+          scopeId,
+        );
         return null;
       });
     this.restorePromises.set(scopeId, restoring);
@@ -61,7 +75,10 @@ export class BrowserTabPersistenceController {
     if (this.writeFailures.size > 0) {
       throw new AggregateError(
         [...this.writeFailures.values()],
-        "One or more Browser tab sessions could not be saved.",
+        t(
+          "workspace.browser.tab.sessionSaveFailed",
+          "One or more Browser tab sessions could not be saved.",
+        ),
       );
     }
   }
@@ -87,15 +104,11 @@ export class BrowserTabPersistenceController {
       })
       .catch((error: unknown) => {
         this.writeFailures.set(scopeId, error);
-        this.reportError(`Could not save Browser tabs: ${errorMessage(error)}`, scopeId);
+        this.reportError(browserTabSaveFailure(error), scopeId);
         throw error;
       })
       .finally(() => this.outstandingWrites.delete(write));
     this.outstandingWrites.add(write);
     void write.catch(() => undefined);
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

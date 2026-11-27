@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Inline rename overlay. Opened by F2 while the editor is focused. Mirrors
  * `EditorGoToLinePanel`: a real DOM input rendered next to the editor surface
@@ -55,7 +56,12 @@ function usePrepareRename({
         const prep = await prepareRename(view);
         if (cancelled) return;
         if (!prep) {
-          toast.info("Nothing to rename at the cursor.");
+          toast.info(
+            translateUi(
+              "workspace.editor.renameSymbol.nothingToRename",
+              "Nothing to rename at the cursor.",
+            ),
+          );
           handleClose();
           return;
         }
@@ -64,7 +70,13 @@ function usePrepareRename({
         inputRef.current?.select();
       } catch (error) {
         if (cancelled) return;
-        toast.error(`Rename unavailable: ${apiErrorMessage(error, String(error))}`);
+        toast.error(
+          translateUi(
+            "workspace.editor.renameSymbol.unavailable",
+            "Rename unavailable: {{error}}",
+            { error: apiErrorMessage(error, String(error)) },
+          ),
+        );
         handleClose();
       }
     })();
@@ -75,6 +87,7 @@ function usePrepareRename({
 }
 
 export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorRenamePanelProps) {
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -92,10 +105,21 @@ export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorR
     setBusy(true);
     try {
       const { fileCount } = await performRename(view, next, host);
-      toast.success(`Renamed in ${fileCount} file${fileCount === 1 ? "" : "s"}.`);
+      toast.success(
+        translateUi("workspace.editor.renameSymbol.renamedInFiles", {
+          count: fileCount,
+          defaultValue_zero: "Renamed in {{count, number}} files.",
+          defaultValue_one: "Renamed in {{count, number}} file.",
+          defaultValue_other: "Renamed in {{count, number}} files.",
+        }),
+      );
       handleClose();
     } catch (err) {
-      toast.error(`Rename failed: ${apiErrorMessage(err, String(err))}`);
+      toast.error(
+        translateUi("workspace.editor.renameSymbol.failed", "Rename failed: {{error}}", {
+          error: apiErrorMessage(err, String(err)),
+        }),
+      );
     } finally {
       setBusy(false);
     }
@@ -120,7 +144,7 @@ export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorR
     <div
       className="absolute top-2 right-3 z-20 flex items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1 shadow-md backdrop-blur"
       role="dialog"
-      aria-label="Rename symbol"
+      aria-label={t("workspace.editor.renameSymbol.renameSymbol", "Rename symbol")}
       onMouseDown={(event) => {
         if (event.target !== inputRef.current) event.preventDefault();
       }}
@@ -134,7 +158,7 @@ export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorR
         disabled={busy}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="New name"
+        placeholder={t("workspace.editor.renameSymbol.newName", "New name")}
         className={cn(
           "w-44 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70",
           busy && "opacity-60",
@@ -143,8 +167,8 @@ export function EditorRenamePanel({ view, reopenSignal, host, onClose }: EditorR
       <Button
         variant="ghost"
         size="icon-xs"
-        title="Close (Esc)"
-        aria-label="Close rename"
+        title={t("workspace.editor.renameSymbol.closeEsc", "Close (Esc)")}
+        aria-label={t("workspace.editor.renameSymbol.closeRename", "Close rename")}
         onClick={handleClose}
       >
         <X />

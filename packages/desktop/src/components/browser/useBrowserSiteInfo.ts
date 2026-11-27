@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   type Dispatch,
   type MutableRefObject,
@@ -67,7 +68,13 @@ function useBrowserSiteInfoQuery(
       })
       .catch((error: unknown) => {
         if (generationRef.current === generation) {
-          showBrowserError(error, "Could not load site information");
+          showBrowserError(
+            error,
+            translateUi(
+              "workspace.tools.useBrowserSiteInfo.couldNotLoadSiteInformation",
+              "Could not load site information",
+            ),
+          );
         }
       })
       .finally(() => {
@@ -108,7 +115,13 @@ function useBrowserSiteActions(
         );
         if (generationRef.current === generation) setInfo(next);
       } catch (error) {
-        showBrowserError(error, "Could not update website permission");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserSiteInfo.couldNotUpdateWebsitePermission",
+            "Could not update website permission",
+          ),
+        );
       } finally {
         if (generationRef.current === generation) setAction(null);
       }
@@ -128,7 +141,13 @@ function useBrowserSiteActions(
         );
         if (generationRef.current === generation && next.tabId === tabId) setInfo(next);
       } catch (error) {
-        showBrowserError(error, "Could not update agent sharing");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserSiteInfo.couldNotUpdateAgentSharing",
+            "Could not update agent sharing",
+          ),
+        );
       } finally {
         if (generationRef.current === generation) setAction(null);
       }
@@ -151,7 +170,13 @@ function useBrowserSiteActions(
           setInfo(next);
         }
       } catch (error) {
-        showBrowserError(error, "Could not clear site data");
+        showBrowserError(
+          error,
+          translateUi(
+            "workspace.tools.useBrowserSiteInfo.couldNotClearSiteData",
+            "Could not clear site data",
+          ),
+        );
       } finally {
         if (generationRef.current === generation) setAction(null);
       }

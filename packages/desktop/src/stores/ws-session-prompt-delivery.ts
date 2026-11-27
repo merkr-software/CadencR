@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Delivery promises for prompts that could not leave immediately: queued
  * before `session.initialized` (keyed by `messageUuid`), or parked in the
@@ -14,7 +15,12 @@ interface DeliveryWaiter {
   reject: (error: Error) => void;
 }
 
-export const SESSION_CLOSED_BEFORE_DELIVERY = "The session closed before the message was sent.";
+export function sessionClosedBeforeDelivery(): string {
+  return translateUi(
+    "conversation.delivery.closed",
+    "The session closed before the message was sent.",
+  );
+}
 
 /** One session's delivery promises, owned by its store's transport registry. */
 export function createPromptDeliveryTracker() {

@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -45,6 +46,7 @@ export function ProjectSettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const { data: settingsArray } = useGetProjectSettings(projectId, { query: { enabled: open } });
   const settings = useMemo(() => settingsArrayToMap(settingsArray), [settingsArray]);
@@ -74,32 +76,21 @@ export function ProjectSettingsDialog({
       <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] w-[90vw] flex-col gap-0 p-0 sm:max-w-6xl">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
-            Project settings — <span className="text-muted-foreground">{projectName}</span>
+            <UiTrans
+              i18nKey="project.settingsDialog.title"
+              defaults="Project settings — <project>{{name}}</project>"
+              components={{ project: <span className="text-muted-foreground" /> }}
+              values={{ name: projectName }}
+            />
           </DialogTitle>
-          <p className="text-[11px] text-muted-foreground">Changes save automatically.</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("project.settingsDialog.changesSaveAutomatically", "Changes save automatically.")}
+          </p>
         </DialogHeader>
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
-          {authoringTarget === "provider" ? (
-            <>
-              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
-              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
-            </>
-          ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
-            <>
-              <ProviderPublicationPreparation
-                projectId={projectId}
-                enabled={open}
-                pluginKind={authoringTarget}
-              />
-              <ThemePublicationPackagePreparation
-                projectId={projectId}
-                enabled={open}
-                pluginKind={authoringTarget}
-              />
-            </>
-          ) : null}
+          <PublicationSection projectId={projectId} enabled={open} target={authoringTarget} />
           <IdentitySection
             projectId={projectId}
             color={settings[PROJECT_SETTING_KEYS.color]}
@@ -108,9 +99,12 @@ export function ProjectSettingsDialog({
           />
           <SettingsSection
             size="sm"
-            title="Custom actions"
-            subtitle="Header launcher"
-            description="This project's own actions, shown in its header before the global ones (Settings → Custom actions)."
+            title={t("project.settingsDialog.customActions", "Custom actions")}
+            subtitle={t("project.settingsDialog.headerLauncher", "Header launcher")}
+            description={t(
+              "project.settingsDialog.customActionsDescription",
+              "This project's own actions, shown in its header before the global ones (Settings → Custom actions).",
+            )}
           >
             <SettingsCard padded>
               <CustomActionsManager scope="project" projectId={projectId} />
@@ -130,6 +124,32 @@ export function ProjectSettingsDialog({
   );
 }
 
+function PublicationSection({
+  projectId,
+  enabled,
+  target,
+}: {
+  projectId: number;
+  enabled: boolean;
+  target: Project["authoring_target"];
+}): React.JSX.Element | null {
+  return target === "provider" ? (
+    <>
+      <ProviderPublicationPreparation projectId={projectId} enabled={enabled} />
+      <ProviderPublicationPackagePreparation projectId={projectId} enabled={enabled} />
+    </>
+  ) : target === "theme" || target === "tab" ? (
+    <>
+      <ProviderPublicationPreparation projectId={projectId} enabled={enabled} pluginKind={target} />
+      <ThemePublicationPackagePreparation
+        projectId={projectId}
+        enabled={enabled}
+        pluginKind={target}
+      />
+    </>
+  ) : null;
+}
+
 function ConfigurationSection({
   projectId,
   enabled,
@@ -137,8 +157,13 @@ function ConfigurationSection({
   projectId: number;
   enabled: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <SettingsSection size="sm" title="Configuration" subtitle="Edit JSON · Copy path">
+    <SettingsSection
+      size="sm"
+      title={t("project.settingsDialog.configuration", "Configuration")}
+      subtitle={t("project.settingsDialog.editJsonCopyPath", "Edit JSON · Copy path")}
+    >
       <SettingsCard padded>
         <ProjectJsonSettings projectId={projectId} enabled={enabled} />
       </SettingsCard>
@@ -157,8 +182,13 @@ function IdentitySection({
   iconPath: string | undefined;
   saveProjectSetting: (key: ProjectSettingKey, value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <SettingsSection size="sm" title="Identity" subtitle="Color · Icon · Display">
+    <SettingsSection
+      size="sm"
+      title={t("project.settingsDialog.identity", "Identity")}
+      subtitle={t("project.settingsDialog.colorIconDisplay", "Color · Icon · Display")}
+    >
       <SettingsCard padded>
         <div className="space-y-5">
           <ProjectColorField
@@ -181,12 +211,19 @@ function EditorToolingSection({
   projectId: number;
   enabled: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSection
       size="sm"
-      title="Editor Tooling"
-      subtitle="Language servers · Formatter"
-      description="Type checker, linter, and formatter for this project's editor. Each falls back to the global default when unset."
+      title={t("project.settingsDialog.editorTooling", "Editor Tooling")}
+      subtitle={t(
+        "project.settingsDialog.languageServersFormatter",
+        "Language servers · Formatter",
+      )}
+      description={t(
+        "project.settingsDialog.editorToolingDescription",
+        "Type checker, linter, and formatter for this project's editor. Each falls back to the global default when unset.",
+      )}
     >
       <SettingsCard padded>
         <ProjectEditorToolingSettings projectId={projectId} enabled={enabled} />
@@ -206,12 +243,16 @@ function GitAutomationSection({
   setupWorktree: string | undefined;
   saveProjectSetting: (key: ProjectSettingKey, value: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSection
       size="sm"
-      title="Git & Automation"
-      subtitle="Worktree defaults"
-      description="Defaults applied to worktrees created for this project."
+      title={t("project.settingsDialog.gitAutomation", "Git & Automation")}
+      subtitle={t("project.settingsDialog.worktreeDefaults", "Worktree defaults")}
+      description={t(
+        "project.settingsDialog.worktreeDefaultsDescription",
+        "Defaults applied to worktrees created for this project.",
+      )}
     >
       <SettingsCard padded className="space-y-5">
         <WorktreeSetupFields
@@ -226,12 +267,16 @@ function GitAutomationSection({
 }
 
 function WorktreesSection({ projectId }: { projectId: number }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSection
       size="sm"
-      title="Worktrees"
-      subtitle="Active checkouts"
-      description="Git worktrees created for this project's features."
+      title={t("project.settingsDialog.worktrees", "Worktrees")}
+      subtitle={t("project.settingsDialog.activeCheckouts", "Active checkouts")}
+      description={t(
+        "project.settingsDialog.worktreesDescription",
+        "Git worktrees created for this project's features.",
+      )}
     >
       <SettingsCard padded>
         <WorktreeList projectId={projectId} />

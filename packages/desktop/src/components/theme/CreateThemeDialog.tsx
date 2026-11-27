@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useId, useState, type FormEvent, type ReactElement } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDialogSubmitShortcut } from "@/components/git-actions/useDialogSubmitShortcut";
 import { THEME_LIST, type ThemeDefinition } from "@/lib/themes";
+import { themeDisplayLabel } from "@/lib/themes/display";
 import { ThemeCard } from "./ThemeCard";
 
 /** Matches `MAX_LABEL_LEN` in the backend's theme validator, which 400s past it. */
@@ -48,6 +50,7 @@ export function CreateThemeDialog({
   onCreate: (base: ThemeDefinition, label: string) => void;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const themes = [...THEME_LIST, ...userThemes];
   const nameId = useId();
   // The id rather than the definition: the list gets a new identity whenever a
@@ -78,11 +81,14 @@ export function CreateThemeDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[min(80vh,var(--dialog-max-h))] gap-0 p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle className="text-base font-semibold">Create theme</DialogTitle>
+          <DialogTitle className="text-base font-semibold">
+            {t("appearance.library.create", "Create theme")}
+          </DialogTitle>
           <DialogDescription>
-            Name your theme and pick the one to start from. You get a complete copy of its colors in
-            a project of its own, and the app puts it on so you can see your changes. The original
-            is untouched.
+            {t(
+              "appearance.library.createDescription",
+              "Name your theme and pick the one to start from. You get a complete copy of its colors in a project of its own, and the app puts it on so you can see your changes. The original is untouched.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <ThemeBaseGrid
@@ -95,31 +101,35 @@ export function CreateThemeDialog({
           <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1 space-y-1.5">
               <label htmlFor={nameId} className="text-xs font-medium">
-                Name
+                {t("appearance.library.name", "Name")}
               </label>
               <Input
                 id={nameId}
                 autoFocus
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Midnight Ember"
+                placeholder={t("appearance.library.nameExample", "Midnight Ember")}
                 maxLength={MAX_LABEL_LENGTH}
                 disabled={isCreating}
               />
             </div>
             <Button type="submit" disabled={incomplete || isCreating}>
               {isCreating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-              {isCreating ? "Creating…" : "Create theme"}
+              {isCreating
+                ? t("appearance.library.creating", "Creating…")
+                : t("appearance.library.create", "Create theme")}
             </Button>
           </div>
           {/* Announced: submitting disables the field the user was in, so the
               only remaining signal is this line. */}
           <p aria-live="polite" className="text-xs text-muted-foreground">
             {isCreating
-              ? "Copying the colors and opening its project…"
+              ? t("appearance.library.copying", "Copying the colors and opening its project…")
               : base
-                ? `Starting from ${base.label}.`
-                : "Pick a theme above to start from."}
+                ? t("appearance.library.startingFrom", "Starting from {{theme}}.", {
+                    theme: themeDisplayLabel(base, t),
+                  })
+                : t("appearance.library.pickSource", "Pick a theme above to start from.")}
           </p>
         </form>
       </DialogContent>
@@ -143,6 +153,7 @@ function ThemeBaseGrid({
   disabled: boolean;
   onSelect: (id: string) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     const step = ARROW_STEPS[event.key];
     if (!step) return;
@@ -157,7 +168,7 @@ function ThemeBaseGrid({
   return (
     <div
       role="radiogroup"
-      aria-label="Theme to start from"
+      aria-label={t("appearance.library.baseTheme", "Theme to start from")}
       onKeyDown={onKeyDown}
       className="grid max-h-[calc(var(--app-vh)*0.6)] grid-cols-2 gap-2 overflow-y-auto p-4 sm:grid-cols-4"
     >

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ImageOffIcon, MaximizeIcon } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ export function LightboxThumbnail({
   className,
   imageClassName,
 }: LightboxThumbnailProps): ReactElement {
+  const { t } = useUiTranslation();
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
 
@@ -41,7 +43,9 @@ export function LightboxThumbnail({
         )}
       >
         <ImageOffIcon className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="truncate">Image unavailable</span>
+        <span className="truncate">
+          {t("conversation.stream.lightboxThumbnail.imageUnavailable", "Image unavailable")}
+        </span>
       </span>
     );
   }
@@ -50,7 +54,7 @@ export function LightboxThumbnail({
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Open ${alt}`}
+      aria-label={t("conversation.stream.lightboxThumbnail.open", "Open {{alt}}", { alt })}
       title={alt}
       className={cn(
         "group/thumb relative block overflow-hidden rounded-md border border-border",

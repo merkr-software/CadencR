@@ -1,3 +1,4 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 /**
  * The header branch chip's popover: every branch of the conversation, the
  * current one first — under the directory's checkout when that is not one of
@@ -34,6 +35,7 @@ export function ThreadBranchesPanel({
   projectId,
   snapshot,
 }: ThreadBranchesPanelProps): ReactElement {
+  const { t } = useUiTranslation();
   const [view, setView] = useState<PanelView>({ kind: "list" });
   const backToList = useCallback(() => setView({ kind: "list" }), []);
   const editTarget = useCallback((branch: ThreadBranch) => setView({ kind: "target", branch }), []);
@@ -42,7 +44,12 @@ export function ThreadBranchesPanel({
     return (
       <div className="flex flex-col">
         <PanelHeader onBack={backToList}>
-          Target for <span className="font-mono">{view.branch.name}</span>
+          <UiTrans
+            i18nKey="workspace.git.threadBranchesPanel.targetFor"
+            defaults="Target for <branch>{{branch}}</branch>"
+            values={{ branch: view.branch.name }}
+            components={{ branch: <span className="font-mono" /> }}
+          />
         </PanelHeader>
         <TargetBranchPicker
           featureId={featureId}
@@ -57,7 +64,9 @@ export function ThreadBranchesPanel({
   if (view.kind === "link") {
     return (
       <div className="flex flex-col">
-        <PanelHeader onBack={backToList}>Link a branch</PanelHeader>
+        <PanelHeader onBack={backToList}>
+          {t("workspace.git.threadBranchesPanel.linkABranch", "Link a branch")}
+        </PanelHeader>
         <LinkBranchPicker featureId={featureId} projectId={projectId} onLinked={backToList} />
       </div>
     );
@@ -83,6 +92,7 @@ function BranchList({
   onEditTarget: (branch: ThreadBranch) => void;
   onLink: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const prs = threadPrs(usePrStatusStore(selectPrStatus(featureId)));
   const branches = threadBranchesOf(snapshot);
   const checkout = checkoutOf(snapshot, branches);
@@ -90,7 +100,9 @@ function BranchList({
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="text-xs font-medium">Conversation branches</p>
+        <p className="text-xs font-medium">
+          {t("workspace.git.threadBranchesPanel.conversationBranches", "Conversation branches")}
+        </p>
         <span className="text-[11px] tabular-nums text-muted-foreground">{branches.length}</span>
       </div>
       <ul className="max-h-[min(24rem,60vh)] divide-y divide-border/60 overflow-y-auto">
@@ -119,8 +131,11 @@ function BranchList({
         >
           <Users className="mt-0.5 size-3 shrink-0" aria-hidden />
           <p>
-            Worktree shared with {sharedWith.map((s) => s.title).join(", ")}. Changes here affect
-            their view too.
+            {t(
+              "workspace.git.threadBranchesPanel.sharedWorktree",
+              "Worktree shared with {{conversations}}. Changes here affect their view too.",
+              { conversations: sharedWith.map((s) => s.title).join(", ") },
+            )}
           </p>
         </div>
       )}
@@ -133,7 +148,7 @@ function BranchList({
           onClick={onLink}
         >
           <LinkIcon />
-          Link a branch…
+          {t("workspace.git.threadBranchesPanel.linkABranchMenu", "Link a branch…")}
         </Button>
       </div>
     </div>
@@ -147,13 +162,14 @@ function PanelHeader({
   onBack: () => void;
   children: React.ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex min-w-0 items-center gap-1 border-b px-1.5 py-1.5">
       <Button
         type="button"
         variant="ghost"
         size="icon-xs"
-        aria-label="Back to branches"
+        aria-label={t("workspace.git.threadBranchesPanel.backToBranches", "Back to branches")}
         onClick={onBack}
       >
         <ArrowLeftIcon />

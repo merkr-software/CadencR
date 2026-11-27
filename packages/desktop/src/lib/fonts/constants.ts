@@ -5,7 +5,7 @@
  * behind it as a graceful fallback for missing glyphs.
  */
 export const DEFAULT_MONO_STACK =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace, "Noto Sans JP Variable"';
 
 /** Workspace setting key. Mirrored in packages/service settings allowlist. */
 export const MONO_FONT_SETTING_KEY = "mono_font_family";

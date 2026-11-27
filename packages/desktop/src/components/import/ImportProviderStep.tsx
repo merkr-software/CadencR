@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { PROVIDER_IDS, getProviderMetadata, type ProviderId } from "@/lib/providers";
@@ -6,21 +7,21 @@ import { ProviderIcon } from "@/lib/provider-icons";
 interface ProviderOption {
   /** Canonical provider ID used by the catalog + icon asset map. */
   catalogId: ProviderId;
-  description: string;
+  path: string;
 }
 
 const PROVIDERS: readonly ProviderOption[] = [
   {
     catalogId: PROVIDER_IDS.CLAUDE_CODE,
-    description: "Sessions stored under ~/.claude/projects/",
+    path: "~/.claude/projects/",
   },
   {
     catalogId: PROVIDER_IDS.CODEX_CLI,
-    description: "Sessions stored under ~/.codex/sessions/",
+    path: "~/.codex/sessions/",
   },
   {
     catalogId: PROVIDER_IDS.OPENCODE,
-    description: "Sessions stored under ~/.local/share/opencode/",
+    path: "~/.local/share/opencode/",
   },
 ];
 
@@ -30,10 +31,14 @@ interface ImportProviderStepProps {
 }
 
 function ImportProviderStepInner({ onSelect }: ImportProviderStepProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Choose where your existing conversations live.
+        {t(
+          "conversation.importProviderStep.chooseWhereYourExistingConversationsLive",
+          "Choose where your existing conversations live.",
+        )}
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {PROVIDERS.map((p) => {
@@ -43,7 +48,11 @@ function ImportProviderStepInner({ onSelect }: ImportProviderStepProps) {
               key={p.catalogId}
               catalogId={p.catalogId}
               label={meta?.label ?? p.catalogId}
-              description={p.description}
+              description={t(
+                "conversation.importProviderStep.sessionsStoredUnder",
+                "Sessions stored under {{path}}",
+                { path: p.path },
+              )}
               onClick={() => onSelect(p.catalogId)}
             />
           );
@@ -61,6 +70,7 @@ interface ProviderCardProps {
 }
 
 function ProviderCard({ catalogId, label, description, onClick }: ProviderCardProps) {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
@@ -71,7 +81,13 @@ function ProviderCard({ catalogId, label, description, onClick }: ProviderCardPr
       )}
     >
       <div className="flex items-center gap-2">
-        <ProviderIcon providerId={catalogId} alt={`${label} logo`} className="size-5 rounded-sm" />
+        <ProviderIcon
+          providerId={catalogId}
+          alt={t("conversation.importProviderStep.providerLogo", "{{provider}} logo", {
+            provider: label,
+          })}
+          className="size-5 rounded-sm"
+        />
         <span className="text-sm font-medium">{label}</span>
       </div>
       <span className="text-[11px] text-muted-foreground">{description}</span>

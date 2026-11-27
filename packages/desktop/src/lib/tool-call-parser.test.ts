@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
 import {
   getToolActivityLabel,
   isCadencrPlanPresentationTool,
@@ -220,6 +221,26 @@ describe("parseToolCall", () => {
 });
 
 describe("getToolActivityLabel", () => {
+  it("translates host labels while keeping command text and URLs intact", () => {
+    uiI18n.addResource("fr", "ui", "tools.activity.runningCommand", "Exécution de la commande");
+    uiI18n.addResource("fr", "ui", "tools.mcp.openingUrl", "Ouverture de l’URL");
+    const t = uiI18n.getFixedT("fr", "ui");
+    try {
+      expect(getToolActivityLabel("Bash", '{"command":"git status"}', t)).toBe(
+        "Exécution de la commande: git status",
+      );
+      expect(
+        getToolActivityLabel(
+          "mcp__cadencr-browser__browser_open_url",
+          '{"url":"https://example.com/path?q=original"}',
+          t,
+        ),
+      ).toBe("[browser] Ouverture de l’URL: https://example.com/path?q=original");
+    } finally {
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
+
   it("returns label with detail when detail is present", () => {
     expect(getToolActivityLabel("Read", JSON.stringify({ file_path: "foo.ts" }))).toBe(
       "Reading file: foo.ts",

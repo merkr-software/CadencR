@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
@@ -24,13 +25,19 @@ export function useAddTerminalSelectionToPrompt({
       event.stopPropagation();
       const text = paneRefs.current.get(activePaneId)?.getSelection() ?? null;
       if (!text?.trim()) {
-        toast.error("Select terminal output first, then add it to the prompt.");
+        toast.error(
+          translateUi(
+            "workspace.tools.useAddTerminalSelectionToPrompt.selectTerminalOutputFirstThenAddIt",
+            "Select terminal output first, then add it to the prompt.",
+          ),
+        );
         return;
       }
       addToPrompt(featureId, {
         kind: "terminal",
         label: "Terminal output",
         detail: lineCountLabel(text),
+        lineCount: text.split("\n").length,
         content: text,
       });
     },

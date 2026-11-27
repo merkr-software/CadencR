@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
 import { PublicationOperationsStatus } from "./PublicationOperationsStatus";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -40,9 +41,11 @@ function record(status: "succeeded" | "unknown" | "running") {
 beforeEach(() => {
   request.mockReset();
 });
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   vi.useRealTimers();
+  await uiI18n.changeLanguage("en");
+  uiI18n.removeResourceBundle("fr", "ui");
 });
 describe("durable publication status", () => {
   it("shows recorded unknown outcomes without calling them failed", async () => {
@@ -52,6 +55,36 @@ describe("durable publication status", () => {
     expect(screen.getByText(id)).toBeInTheDocument();
     expect(screen.getByText(/Reconcile this confirmed operation/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("translates a mounted journal row without changing the operation details", async () => {
+    request.mockResolvedValue({ operations: [record("unknown")], next_cursor: null });
+    setup();
+    await screen.findByText("release · unknown · attempt 1");
+    const operation = screen.getByText(id);
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      marketplace: {
+        publication: {
+          operations: {
+            title: "Journal de publication",
+            releaseKind: "publication",
+            unknown: "inconnue",
+            operationAttempt: "Tentative {{attempt, number}} · {{kind}} · {{status}}",
+          },
+        },
+      },
+    });
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+
+    expect(screen.getByRole("region", { name: "Journal de publication" })).toBeVisible();
+    expect(screen.getByText("Tentative 1 · publication · inconnue")).toBeVisible();
+    expect(screen.getByText(id)).toBe(operation);
+    expect(
+      screen.getByText("PUBLICATION_OPERATION_UNKNOWN: Reconcile this confirmed operation."),
+    ).toBeVisible();
+    expect(request).toHaveBeenCalledOnce();
   });
   it("does not infer that a missing journal record means publication never started", async () => {
     request.mockImplementation(({ url }: { url: string }) =>

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Loader2 } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Button } from "@/components/ui/button";
@@ -28,22 +29,31 @@ export function SettingsUnreadableDialog({
   openSettings: () => void;
   modal: boolean;
 }): React.JSX.Element {
-  const title = "Cadencr can't read your settings";
-  const instructions = "Fix or replace the settings file, then retry.";
+  const { t } = useUiTranslation();
+  const title = t("onboarding.unreadable.title", "Cadencr can't read your settings");
+  const instructions = t(
+    "onboarding.unreadable.instructions",
+    "Fix or replace the settings file, then retry.",
+  );
   const recovery = (
     <>
       <p
         role="alert"
         className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-xs text-destructive"
       >
-        {apiErrorMessage(error, "The settings file could not be read.")}
+        {apiErrorMessage(
+          error,
+          t("onboarding.unreadable.error", "The settings file could not be read."),
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" disabled={busy} onClick={retry}>
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-          Retry
+          {t("common.retry", "Retry")}
         </Button>
-        <Button onClick={openSettings}>Open Settings</Button>
+        <Button onClick={openSettings}>
+          {t("onboarding.unreadable.openSettings", "Open Settings")}
+        </Button>
       </div>
     </>
   );
@@ -70,7 +80,10 @@ export function SettingsUnreadableDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Setup and preferences stay on hold until the settings file can be read. {instructions}
+            {t(
+              "onboarding.unreadable.description",
+              "Setup and preferences stay on hold until the settings file can be read. Fix or replace it, then retry.",
+            )}
           </DialogDescription>
         </DialogHeader>
         {recovery}

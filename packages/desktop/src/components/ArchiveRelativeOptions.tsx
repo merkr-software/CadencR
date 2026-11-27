@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { GitForkIcon, Undo2Icon } from "lucide-react";
 import { useGetFeatureArchivePreview, type ArchiveRequest } from "@/api/generated";
@@ -118,8 +119,16 @@ interface ArchiveRelativeOptionsContentProps {
 }
 
 function ArchiveRelativeOptionsContent(props: ArchiveRelativeOptionsContentProps): ReactElement {
+  const { t } = useUiTranslation();
   if (props.isLoading) {
-    return <p className="text-xs text-muted-foreground">Checking linked sessions…</p>;
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t(
+          "conversation.archiveRelativeOptions.checkingLinkedSessions",
+          "Checking linked sessions…",
+        )}
+      </p>
+    );
   }
   if (props.error != null) {
     return (
@@ -127,9 +136,17 @@ function ArchiveRelativeOptionsContent(props: ArchiveRelativeOptionsContentProps
         role="alert"
         className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive"
       >
-        <span>{apiErrorMessage(props.error, "Could not check linked sessions")}</span>
+        <span>
+          {apiErrorMessage(
+            props.error,
+            t(
+              "conversation.archiveRelativeOptions.couldNotCheckLinkedSessions",
+              "Could not check linked sessions",
+            ),
+          )}
+        </span>
         <Button size="sm" variant="outline" onClick={props.onRetry}>
-          Retry
+          {t("conversation.archiveRelativeOptions.retry", "Retry")}
         </Button>
       </div>
     );
@@ -141,9 +158,12 @@ function ArchiveRelativeOptionsContent(props: ArchiveRelativeOptionsContentProps
           checked={props.includeParent}
           disabled={props.disabled}
           icon={<Undo2Icon className="size-4" />}
-          label="Archive parent"
+          label={t("conversation.archiveRelativeOptions.archiveParent", "Archive parent")}
           shortcut="P"
-          description="Also archive the direct parent session."
+          description={t(
+            "conversation.archiveRelativeOptions.alsoArchiveTheDirectParentSession",
+            "Also archive the direct parent session.",
+          )}
           onCheckedChange={props.toggleParent}
         />
       )}
@@ -152,9 +172,16 @@ function ArchiveRelativeOptionsContent(props: ArchiveRelativeOptionsContentProps
           checked={props.includeDescendants}
           disabled={props.disabled}
           icon={<GitForkIcon className="size-4" />}
-          label={`Archive ${props.descendantCount} descendant${props.descendantCount === 1 ? "" : "s"}`}
+          label={t("conversation.archiveRelativeOptions.archiveDescendant", {
+            count: props.descendantCount,
+            defaultValue_one: "Archive {{count}} descendant",
+            defaultValue_other: "Archive {{count}} descendants",
+          })}
           shortcut="C"
-          description="Also archive every active descendant session."
+          description={t(
+            "conversation.archiveRelativeOptions.alsoArchiveEveryActiveDescendantSession",
+            "Also archive every active descendant session.",
+          )}
           onCheckedChange={props.toggleDescendants}
         />
       )}

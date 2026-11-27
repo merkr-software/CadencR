@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import type { ProjectAttentionCounts } from "@/hooks/useResolvedAttention";
 import { cn } from "@/lib/utils";
@@ -7,10 +8,18 @@ type BadgeMode = "count" | "dot";
 /** Screen-reader summary, most urgent first: "2 waiting, 1 unread". */
 export function attentionSummary(counts: ProjectAttentionCounts): string {
   const parts = [
-    counts.waiting > 0 && `${counts.waiting} waiting`,
-    counts.failed > 0 && `${counts.failed} failed`,
-    counts.working > 0 && `${counts.working} working`,
-    counts.unread > 0 && `${counts.unread} unread`,
+    counts.waiting > 0 &&
+      translateUi("sidebar.projectAttention.waiting", "{{count}} waiting", {
+        count: counts.waiting,
+      }),
+    counts.failed > 0 &&
+      translateUi("sidebar.projectAttention.failed", "{{count}} failed", { count: counts.failed }),
+    counts.working > 0 &&
+      translateUi("sidebar.projectAttention.working", "{{count}} working", {
+        count: counts.working,
+      }),
+    counts.unread > 0 &&
+      translateUi("sidebar.projectAttention.unread", "{{count}} unread", { count: counts.unread }),
   ].filter(Boolean);
   return parts.join(", ");
 }
@@ -30,6 +39,7 @@ export const ProjectAttentionBadges = memo(function ProjectAttentionBadges({
   mode: BadgeMode;
   className?: string;
 }): ReactElement | null {
+  useUiTranslation();
   if (!counts) return null;
   const summary = attentionSummary(counts);
   if (!summary) return null;

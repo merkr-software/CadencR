@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGetFeatureSettings } from "@/api/generated";
 import { settingsArrayToMap } from "@/api/settings";
@@ -58,6 +59,7 @@ export interface WorktreeSetupInput {
 }
 
 export interface SetupStepItem {
+  id: "name" | "worktree" | "commands";
   label: string;
   complete: boolean;
   active: boolean;
@@ -113,25 +115,28 @@ function useWorktreeSetupDisclosure(
   return [isOpen, () => setUserToggle((prev) => !(prev ?? isOpen))];
 }
 
-function buildSetupSteps(step: SetupStep, branch: string): SetupStepItem[] {
+function buildSetupSteps(step: SetupStep, branch: string, t: UiTranslator): SetupStepItem[] {
   const currentStep = stepIndex(step);
   const worktreeCreated = !!branch;
   return [
     {
-      label: "Define name",
+      id: "name",
+      label: t("conversation.useWorktreeSetup.defineName", "Define name"),
       complete: worktreeCreated || currentStep >= 1,
       active: step === "naming",
       error: false,
     },
     {
-      label: "Create worktree",
+      id: "worktree",
+      label: t("conversation.useWorktreeSetup.createWorktree", "Create worktree"),
       complete: worktreeCreated || currentStep >= 3,
       active: step === "creating",
       error: false,
       detail: branch ? branch : undefined,
     },
     {
-      label: "Run setup commands",
+      id: "commands",
+      label: t("conversation.useWorktreeSetup.runSetupCommands", "Run setup commands"),
       complete: step === "done",
       active: step === "setup",
       error: step === "error",
@@ -155,6 +160,7 @@ export function useWorktreeSetup({
   wsWorktreeError,
   onRetrySetup,
 }: WorktreeSetupInput): WorktreeSetupState | null {
+  const { t } = useUiTranslation();
   const useWsMode = wsWorktreeStatus != null && wsWorktreeStatus !== "idle";
   const hasWsSetupOutput = (wsWorktreeSetupOutput?.length ?? 0) > 0;
   const shouldLoadSettings = !useWsMode || !hasWsSetupOutput;
@@ -209,7 +215,7 @@ export function useWorktreeSetup({
       onToggle: toggleOpen,
     },
     details: {
-      steps: buildSetupSteps(step, branch),
+      steps: buildSetupSteps(step, branch, t),
       branch,
       branchExists,
       healthError: health.error,

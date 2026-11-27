@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -111,7 +112,18 @@ export function useAutoLayoutMode(featureId: number): AutoLayoutModeResult {
             );
           },
           onError: (err: unknown): void => {
-            toast.error(`Could not change auto layout: ${apiErrorMessage(err, "Unknown error")}`);
+            toast.error(
+              translateUi(
+                "workspace.tools.autoLayoutMode.changeFailed",
+                "Could not change auto layout: {{message}}",
+                {
+                  message: apiErrorMessage(
+                    err,
+                    translateUi("workspace.tools.autoLayoutMode.unknownError", "Unknown error"),
+                  ),
+                },
+              ),
+            );
           },
         },
       );

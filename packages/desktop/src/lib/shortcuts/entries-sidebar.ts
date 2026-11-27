@@ -14,7 +14,9 @@ export const SIDEBAR_SHORTCUTS = [
     // merges — cycling from the open conversation.
     id: "attention-next-needs-you",
     keys: ["mod", "j"],
-    description: "Next action for me",
+    describe(t) {
+      return t("shortcuts.descriptions.attention-next-needs-you", "Next action for me");
+    },
     scope: "global",
     aliases: ["for me", "next action", "pending", "approval", "pull request", "inbox"],
   },
@@ -25,14 +27,18 @@ export const SIDEBAR_SHORTCUTS = [
     // Agent tab's.
     id: "answer-newest-request",
     keys: ["mod", "alt", "a"],
-    description: "Answer the newest request",
+    describe(t) {
+      return t("shortcuts.descriptions.answer-newest-request", "Answer the newest request");
+    },
     scope: "global",
     aliases: ["for me", "pending", "approval", "permission", "question", "quick reply"],
   },
   {
     id: "attention-next-unread",
     keys: ["mod", "alt", "j"],
-    description: "Next unread conversation",
+    describe(t) {
+      return t("shortcuts.descriptions.attention-next-unread", "Next unread conversation");
+    },
     scope: "global",
     aliases: ["for me", "inbox"],
   },
@@ -42,56 +48,77 @@ export const SIDEBAR_SHORTCUTS = [
     // dismissed until the pull request moves). Fires from the composer too.
     id: "for-me-done",
     keys: ["mod", "alt", "enter"],
-    description: "Mark done for me",
+    describe(t) {
+      return t("shortcuts.descriptions.for-me-done", "Mark done for me");
+    },
     scope: "global",
     aliases: ["for me", "done", "acknowledge", "dismiss", "inbox"],
   },
   {
     id: "sidebar-focus-down",
     keys: ["mod", "alt", "down"],
-    description: "Move focus down",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-focus-down", "Move focus down");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-focus-up",
     keys: ["mod", "alt", "up"],
-    description: "Move focus up",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-focus-up", "Move focus up");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-activate",
     keys: ["enter"],
-    description: "Open focused item",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-activate", "Open focused item");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-row-pin",
     keys: ["mod", "alt", "p"],
-    description: "Pin / unpin the focused conversation",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-row-pin", "Pin / unpin the focused conversation");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-row-archive",
     keys: ["mod", "backspace"],
-    description: "Archive the focused conversation",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-row-archive", "Archive the focused conversation");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-row-rename",
     keys: ["f2"],
-    description: "Rename the focused conversation",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-row-rename", "Rename the focused conversation");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-row-label",
     keys: ["mod", "alt", "l"],
-    description: "Set the focused conversation's label",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-row-label", "Set the focused conversation's label");
+    },
     scope: "sidebar",
   },
   {
     id: "sidebar-row-toggle-unread",
     keys: ["mod", "alt", "u"],
-    description: "Mark the focused conversation read / unread",
+    describe(t) {
+      return t(
+        "shortcuts.descriptions.sidebar-row-toggle-unread",
+        "Mark the focused conversation read / unread",
+      );
+    },
     scope: "sidebar",
   },
   {
@@ -100,14 +127,18 @@ export const SIDEBAR_SHORTCUTS = [
     // the group's edge nothing happens. The first move switches to Manual.
     id: "sidebar-reorder-up",
     keys: ["mod", "alt", "shift", "up"],
-    description: "Move the focused conversation up",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-reorder-up", "Move the focused conversation up");
+    },
     scope: "sidebar",
     aliases: ["reorder", "manual order", "drag"],
   },
   {
     id: "sidebar-reorder-down",
     keys: ["mod", "alt", "shift", "down"],
-    description: "Move the focused conversation down",
+    describe(t) {
+      return t("shortcuts.descriptions.sidebar-reorder-down", "Move the focused conversation down");
+    },
     scope: "sidebar",
     aliases: ["reorder", "manual order", "drag"],
   },

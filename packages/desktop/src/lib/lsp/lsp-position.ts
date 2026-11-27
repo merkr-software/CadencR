@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Shared LSP position/location plumbing for Cadencr's language-feature
  * commands (go-to-definition, find-references, rename, symbols).
@@ -37,38 +38,64 @@ export type SymbolKind = number;
  * breadcrumbs. Unknown kinds fall back to an empty string so the UI just
  * shows the name.
  */
-export function symbolKindLabel(kind: SymbolKind): string {
-  return SYMBOL_KIND_LABELS[kind] ?? "";
+export function symbolKindLabel(kind: SymbolKind, t: UiTranslator = translateUi): string {
+  switch (kind) {
+    case 1:
+      return t("workspace.editor.symbols.file", "file");
+    case 2:
+      return t("workspace.editor.symbols.module", "module");
+    case 3:
+      return t("workspace.editor.symbols.namespace", "namespace");
+    case 4:
+      return t("workspace.editor.symbols.package", "package");
+    case 5:
+      return t("workspace.editor.symbols.class", "class");
+    case 6:
+      return t("workspace.editor.symbols.method", "method");
+    case 7:
+      return t("workspace.editor.symbols.property", "property");
+    case 8:
+      return t("workspace.editor.symbols.field", "field");
+    case 9:
+      return t("workspace.editor.symbols.constructor", "constructor");
+    case 10:
+      return t("workspace.editor.symbols.enum", "enum");
+    case 11:
+      return t("workspace.editor.symbols.interface", "interface");
+    case 12:
+      return t("workspace.editor.symbols.function", "function");
+    case 13:
+      return t("workspace.editor.symbols.variable", "variable");
+    case 14:
+      return t("workspace.editor.symbols.constant", "constant");
+    case 15:
+      return t("workspace.editor.symbols.string", "string");
+    case 16:
+      return t("workspace.editor.symbols.number", "number");
+    case 17:
+      return t("workspace.editor.symbols.boolean", "boolean");
+    case 18:
+      return t("workspace.editor.symbols.array", "array");
+    case 19:
+      return t("workspace.editor.symbols.object", "object");
+    case 20:
+      return t("workspace.editor.symbols.key", "key");
+    case 21:
+      return t("workspace.editor.symbols.null", "null");
+    case 22:
+      return t("workspace.editor.symbols.enumMember", "enum member");
+    case 23:
+      return t("workspace.editor.symbols.struct", "struct");
+    case 24:
+      return t("workspace.editor.symbols.event", "event");
+    case 25:
+      return t("workspace.editor.symbols.operator", "operator");
+    case 26:
+      return t("workspace.editor.symbols.typeParam", "type param");
+    default:
+      return "";
+  }
 }
-
-const SYMBOL_KIND_LABELS: Record<number, string> = {
-  1: "file",
-  2: "module",
-  3: "namespace",
-  4: "package",
-  5: "class",
-  6: "method",
-  7: "property",
-  8: "field",
-  9: "constructor",
-  10: "enum",
-  11: "interface",
-  12: "function",
-  13: "variable",
-  14: "constant",
-  15: "string",
-  16: "number",
-  17: "boolean",
-  18: "array",
-  19: "object",
-  20: "key",
-  21: "null",
-  22: "enum member",
-  23: "struct",
-  24: "event",
-  25: "operator",
-  26: "type param",
-};
 
 /**
  * Convert a single LSP position to a CodeMirror offset, clamped to the

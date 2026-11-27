@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cellScopeStyle, chartHeightCss, type UsageDensity } from "./usage-cell-grid";
 
@@ -35,9 +36,14 @@ export function UsagePlotSkeleton({
   days: number;
   density: UsageDensity;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <UsagePlotPlaceholder days={days} density={density}>
-      <Skeleton className="size-full rounded-lg" aria-busy="true" aria-label="Loading usage" />
+      <Skeleton
+        className="size-full rounded-lg"
+        aria-busy="true"
+        aria-label={t("system.usagePlotPlaceholder.loadingUsage", "Loading usage")}
+      />
     </UsagePlotPlaceholder>
   );
 }

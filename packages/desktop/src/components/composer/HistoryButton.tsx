@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useRef, useState, type ReactElement } from "react";
 import { History } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ function focusIsInComposer(anchor: HTMLElement | null): boolean {
  * Ctrl+S sets the current draft aside without losing it.
  */
 export const HistoryButton = memo(function HistoryButton(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { projectId, editor, history } = useComposerContext();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -44,12 +46,26 @@ export const HistoryButton = memo(function HistoryButton(): ReactElement | null 
       event.preventDefault();
       const text = editor.getText().trim();
       if (!text) {
-        toast.info("Nothing to stash: the draft is empty.");
+        toast.info(
+          translateUi(
+            "conversation.composer.historyButton.nothingToStash",
+            "Nothing to stash: the draft is empty.",
+          ),
+        );
         return;
       }
       usePromptStashStore.getState().push(projectId, text);
       editor.setText("");
-      toast.success("Draft stashed", { description: `${searchLabel} brings it back.` });
+      toast.success(
+        translateUi("conversation.composer.historyButton.draftStashed", "Draft stashed"),
+        {
+          description: translateUi(
+            "conversation.composer.historyButton.restoreHint",
+            "{{shortcut}} brings it back.",
+            { shortcut: searchLabel },
+          ),
+        },
+      );
     },
     "agent",
     { enabled: projectId != null },
@@ -64,12 +80,22 @@ export const HistoryButton = memo(function HistoryButton(): ReactElement | null 
         if (!next) requestAnimationFrame(() => editor.focus());
       }}
     >
-      <ShortcutTooltip label="History & stashed drafts" keys={searchKeys} disabled={open}>
+      <ShortcutTooltip
+        label={t(
+          "conversation.composer.historyButton.historyStashedDrafts",
+          "History & stashed drafts",
+        )}
+        keys={searchKeys}
+        disabled={open}
+      >
         <PopoverTrigger asChild>
           <button
             ref={anchorRef}
             type="button"
-            aria-label="Prompt history and stashed drafts"
+            aria-label={t(
+              "conversation.composer.historyButton.promptHistoryAndStashedDrafts",
+              "Prompt history and stashed drafts",
+            )}
             data-composer-secondary
             className="composer-instrument composer-instrument-icon text-muted-foreground"
           >

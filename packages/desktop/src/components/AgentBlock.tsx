@@ -1,6 +1,8 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { AgentResultBlock, CodeBlock, TextBlock } from "@/components/AgentTextBlocks";
 import { toRelativePath } from "@/lib/utils";
+import { displayBlockPreview } from "@/lib/block-content-budget";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import {
   extractBashCommand,
@@ -14,7 +16,12 @@ import { ToolCallBlock } from "@/components/AgentToolCallBlock";
 import { renderFileChangeBlocks } from "@/components/file-change-block";
 import { UserMessageBlock } from "@/components/UserMessageBlock";
 import { AgentMessageSender } from "@/components/AgentMessageSender";
-import { isAgentSentMessage, isRestartContinuationMessage } from "@/lib/agent-message-origin";
+import {
+  interruptedToolResultText,
+  isAgentSentMessage,
+  isRestartContinuationMessage,
+} from "@/lib/agent-message-origin";
+import { toolResultOf } from "@/lib/tool-results";
 import { renderGeneratedSessionMessage } from "@/components/session-generated-message";
 import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
 import { TaskAgentBlock } from "@/components/TaskAgentBlock";
@@ -128,7 +135,9 @@ export const AgentBlock = memo(function AgentBlock({
         />
       );
     case "tool_result":
-      return <ToolResultContent block={block} actions={actions} />;
+      return rendersStandaloneToolResult(block) ? (
+        <ToolResultContent block={block} actions={actions} />
+      ) : null;
     case "thinking":
       return (
         <ThinkingBlock
@@ -192,9 +201,11 @@ function TruncatedBlockBody({
       return { ...block, content, toolArgs, truncatedContent: false };
     }
     const prose = block.type === "text" || block.type === "thinking";
+    const preview = displayBlockPreview(block);
     return {
       ...block,
-      content: prose ? sliceUtf16(block.content, PROSE_PREVIEW_CHARS) : block.content,
+      content: prose ? sliceUtf16(preview, PROSE_PREVIEW_CHARS) : preview,
+      toolArgs: block.toolArgs === block.content ? preview : block.toolArgs,
       truncatedContent: false,
     };
   }, [block, content, mode]);
@@ -237,31 +248,35 @@ function ToolCallContent({
   onExpandedChange,
   compact,
 }: ToolCallContentProps): ReactNode {
+  const { t } = useUiTranslation();
   if (!rendersToolCall(block)) return null;
   const skill = semanticSkillPresentation(block.toolName, block.toolArgs);
-  if (skill) return <ToolCallBlock name="Skill" args={skill.args} basePath={basePath} />;
+  if (skill) return <ToolCallBlock name="Skill" skill args={skill.args} basePath={basePath} />;
   if (isSubagentCarrier(block)) {
     return <TaskAgentBlock block={block} basePath={basePath} compact={compact} />;
   }
-  if (isSpawnedSessionCarrier(block)) {
-    const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
+  const result = toolResultOf(toolResultMap, block);
+  if (isSpawnedSessionCarrier(block))
     return <SpawnedSessionBlock block={block} result={result} basePath={basePath} />;
-  }
   if (
     block.toolName === "ExitPlanMode" ||
     (isPlanPresentationTool(block.toolName) && hasAttachedPlanContent(block.toolArgs))
   ) {
     return <PlanBlock args={block.toolArgs} approvalStatus={block.planApprovalStatus} />;
   }
+  const interruption = result ? interruptedToolResultText(result, t) : undefined;
   if (block.toolName === "Bash") {
-    const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
     const outputBlock = result ?? block;
-    const resultOutput = result ? extractBashResultOutput(result.content) : undefined;
+    const resultOutput =
+      interruption ?? (result ? extractBashResultOutput(result.content) : undefined);
     const rawCommand = extractBashCommand(block.toolArgs);
     return (
       <BashBlock
         command={rawCommand ? toRelativePath(rawCommand, basePath) : rawCommand}
         content={resultOutput ?? extractBashOutput(block.toolArgs)}
+        previewContent={
+          result && resultOutput === result.content ? displayBlockPreview(result) : undefined
+        }
         running={!result && isToolCallRunning(block.toolArgs)}
         isError={result?.isError ?? isToolCallError(block.toolArgs)}
         messageId={blockMessageDbId(outputBlock) ?? undefined}
@@ -284,13 +299,12 @@ function ToolCallContent({
   }
   // A failed call shows its result's message (a Read of a missing file); a
   // successful one keeps its result folded away.
-  const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
   return (
     <ToolCallBlock
-      name={block.toolName ?? "unknown"}
+      name={block.toolName}
       args={block.toolArgs}
       basePath={basePath}
-      error={result?.isError ? result.content : undefined}
+      error={result?.isError ? (interruption ?? displayBlockPreview(result)) : undefined}
     />
   );
 }
@@ -302,11 +316,12 @@ function ToolResultContent({
   block: AgentBlockData;
   actions: boolean;
 }): ReactNode {
-  if (!rendersStandaloneToolResult(block)) return null;
+  const { t } = useUiTranslation();
+  const content = interruptedToolResultText(block, t) ?? block.content;
   if (block.isError && shouldHideToolCall(block.sourceToolName)) {
-    return <ErrorBlock content={block.content} />;
+    return <ErrorBlock content={content} />;
   }
-  return <AgentResultBlock content={block.content} actions={actions} />;
+  return <AgentResultBlock content={content} actions={actions} />;
 }
 
 function UserMessageContent({

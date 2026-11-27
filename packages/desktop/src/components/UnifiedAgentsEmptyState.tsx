@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { AlertTriangleIcon, SearchXIcon } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -25,15 +26,26 @@ function Actions({ children }: { children: ReactNode }): ReactElement {
 
 /** Nothing to show yet: say where agents come from and how to start one. */
 export const UnifiedAgentsNoAgents = memo(function UnifiedAgentsNoAgents(): ReactElement {
+  const { t } = useUiTranslation();
   const keys = useShortcutKeys("agents-new-feature");
   return (
     <GridEmptyState
       icon={<AgentIcon className="size-5" aria-hidden />}
-      title="No agents yet"
-      description="Every conversation you start in a project appears here, with the ones that need you first."
+      title={t("agents.unifiedAgentsEmptyState.noAgentsYet", "No agents yet")}
+      description={t(
+        "agents.unifiedAgentsEmptyState.everyConversationYouStartInAProject",
+        "Every conversation you start in a project appears here, with the ones that need you first.",
+      )}
       action={
         <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          Start one with <span className="font-medium text-foreground">New</span>
+          <span>
+            <UiTrans
+              i18nKey="agents.overview.empty.start"
+              defaults="Start one with <action>{{actionName}}</action>"
+              values={{ actionName: t("agents.unifiedAgentsNewFeatureButton.new", "New") }}
+              components={{ action: <span className="font-medium text-foreground" /> }}
+            />
+          </span>
           <KbdShortcut keys={keys} variant="hint" />
         </p>
       }
@@ -51,20 +63,30 @@ export const UnifiedAgentsNoMatches = memo(function UnifiedAgentsNoMatches({
   onClearFilter: () => void;
   onShowAll: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <GridEmptyState
       icon={<SearchXIcon className="size-5" aria-hidden />}
-      title="No agents match this filter"
+      title={t(
+        "agents.unifiedAgentsEmptyState.noAgentsMatchThisFilter",
+        "No agents match this filter",
+      )}
       description={
         canShowAll
-          ? "Only agents active in the chosen window are shown."
-          : "Loosen or clear the filter to see the others."
+          ? t(
+              "agents.unifiedAgentsEmptyState.onlyAgentsActiveInTheChosenWindow",
+              "Only agents active in the chosen window are shown.",
+            )
+          : t(
+              "agents.unifiedAgentsEmptyState.loosenOrClearTheFilterToSee",
+              "Loosen or clear the filter to see the others.",
+            )
       }
       action={
         <Actions>
           {canShowAll && (
             <Button type="button" size="sm" variant="secondary" onClick={onShowAll}>
-              Show every agent
+              {t("agents.unifiedAgentsEmptyState.showEveryAgent", "Show every agent")}
             </Button>
           )}
           <Button
@@ -73,7 +95,7 @@ export const UnifiedAgentsNoMatches = memo(function UnifiedAgentsNoMatches({
             variant={canShowAll ? "ghost" : "secondary"}
             onClick={onClearFilter}
           >
-            Clear filter
+            {t("agents.unifiedAgentsEmptyState.clearFilter", "Clear filter")}
           </Button>
         </Actions>
       }
@@ -88,15 +110,16 @@ export const UnifiedAgentsLoadError = memo(function UnifiedAgentsLoadError({
   message: string;
   onRetry: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <GridEmptyState
       role="alert"
       icon={<AlertTriangleIcon className="size-5 text-(--acc-red)" aria-hidden />}
-      title="Couldn't load agents"
+      title={t("agents.unifiedAgentsEmptyState.couldnTLoadAgents", "Couldn't load agents")}
       description={message}
       action={
         <Button type="button" size="sm" variant="secondary" onClick={onRetry}>
-          Try again
+          {t("agents.unifiedAgentsEmptyState.tryAgain", "Try again")}
         </Button>
       }
     />

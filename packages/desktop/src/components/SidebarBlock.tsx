@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode, Ref } from "react";
 import { ChevronDown, ChevronRight, type LucideIcon } from "lucide-react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -67,6 +68,7 @@ export function SidebarBlock({
   ref,
   children,
 }: SidebarBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const open = fold?.expanded ?? true;
   const reorder = useSidebarSectionReorder(block);
   const content = (
@@ -113,7 +115,11 @@ export function SidebarBlock({
             type="button"
             data-nav-item
             aria-expanded={open}
-            title={open ? `Collapse ${label}` : `Expand ${label}`}
+            title={
+              open
+                ? t("sidebar.block.collapse", "Collapse {{label}}", { label })
+                : t("sidebar.block.expand", "Expand {{label}}", { label })
+            }
             onClick={fold.toggle}
             {...reorder.handle}
             className={cn(
@@ -149,8 +155,12 @@ function BlockCounter({
   count: number;
   strongCount: number;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const mode = useSidebarOption("blockCounts");
-  const detail = strongCount > 0 ? `, ${strongCount} need an action` : "";
+  const detail =
+    strongCount > 0
+      ? t("sidebar.block.needingAction", ", {{count}} need an action", { count: strongCount })
+      : "";
   if (mode === "none" || count === 0) {
     return detail ? <span className="sr-only">{detail}</span> : null;
   }
@@ -159,7 +169,18 @@ function BlockCounter({
       <span
         role="img"
         data-sidebar-block-counter
-        aria-label={`${count}${detail}`}
+        aria-label={
+          strongCount > 0
+            ? t(
+                "sidebar.block.countAndNeedingAction",
+                "{{count}}, {{strongCount}} need an action",
+                {
+                  count,
+                  strongCount,
+                },
+              )
+            : String(count)
+        }
         className={cn(
           "size-1.5 shrink-0 rounded-full",
           strongCount > 0 ? "bg-amber-400" : "bg-muted-foreground",

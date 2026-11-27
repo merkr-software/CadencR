@@ -6,7 +6,6 @@ import {
   clampParsedJsonText,
   clampTailText,
   clampText,
-  TRUNCATION_NOTICE,
   type ClampedText,
 } from "@/lib/block-content-budget";
 
@@ -21,7 +20,7 @@ const BASH_OUTPUT_DELTA_KEY = "__cadencr_output_delta";
  */
 const LIVE_BASH_OUTPUT_MAX_CHARS = 16 * 1024;
 
-export function latestValidJsonSnapshot(content: string): string | undefined {
+export function latestValidJsonSnapshot(content: string, truncated = false): string | undefined {
   try {
     JSON.parse(content);
     return content;
@@ -33,7 +32,7 @@ export function latestValidJsonSnapshot(content: string): string | undefined {
   // below would find some *nested* object in the tail and hand it back as the
   // tool's arguments. Refuse to guess — the caller keeps the last snapshot that
   // did parse, which is stale but never wrong.
-  if (content.includes(TRUNCATION_NOTICE)) return undefined;
+  if (truncated) return undefined;
 
   for (let index = content.lastIndexOf("{"); index >= 0;) {
     const candidate = content.slice(index);
@@ -113,7 +112,10 @@ function mergeParsedJsonObjects(
     const output = clampTailText(priorOutput + outputDelta, LIVE_BASH_OUTPUT_MAX_CHARS);
     const merged = { ...base, ...nextDelta, output: output.text };
     const clamped = clampParsedJsonText(JSON.stringify(merged), merged);
-    return { text: clamped.text, truncated: output.truncated || clamped.truncated };
+    if (output.truncated && !clamped.truncated) {
+      return { ...clamped, truncated: true, bashOutputOnly: true };
+    }
+    return clamped;
   }
   const merged = { ...base, ...nextDelta };
   return clampParsedJsonText(JSON.stringify(merged), merged);

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { parseErrorPayload } from "./ws-envelope-payload-session";
 
@@ -9,10 +10,17 @@ export function handleAppSocketError(domain: string, action: string, payload: un
   if (domain !== "session" || action !== "error") return false;
   const error = parseErrorPayload(payload);
   const title =
-    error?.code === "WATCHER_ERROR" ? "Editor file watching stopped" : "Background update failed";
+    error?.code === "WATCHER_ERROR"
+      ? translateUi("appSocket.errors.editorWatchingStopped", "Editor file watching stopped")
+      : translateUi("appSocket.errors.backgroundUpdateFailed", "Background update failed");
   toast.error(title, {
     id: `app-socket-error:${error?.code ?? "unknown"}`,
-    description: error?.message ?? "The service rejected a background subscription.",
+    description:
+      error?.message ??
+      translateUi(
+        "appSocket.errors.subscriptionRejected",
+        "The service rejected a background subscription.",
+      ),
   });
   return true;
 }

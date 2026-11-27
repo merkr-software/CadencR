@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useAgentCatalog } from "../../api/agentRuntime";
@@ -68,7 +69,13 @@ export function useAgentSessionModelAndProfile(
       try {
         await props.onFastModeChange(enabled);
       } catch (error) {
-        toastError(error, "Could not update fast mode");
+        toastError(
+          error,
+          translateUi(
+            "conversation.stream.useAgentSessionModelAndProfile.couldNotUpdateFastMode",
+            "Could not update fast mode",
+          ),
+        );
       }
     },
     [isFastModePending, props.onFastModeChange],

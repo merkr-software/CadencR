@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import * as React from "react";
 import { ImageIcon, Trash2Icon } from "lucide-react";
 
@@ -57,6 +58,7 @@ function place(box: BrowserCommentDraft["box"], container: DOMRect, formHeight: 
  * changes, and after the form lays out, so it never spills past the viewport.
  */
 function BrowserCommentOverlayImpl(props: BrowserCommentOverlayProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { draft, containerRef, onSave, onCancel, onToggleScreenshot, onRemove, pageGeometry } =
     props;
   const formRef = React.useRef<HTMLDivElement | null>(null);
@@ -95,7 +97,11 @@ function BrowserCommentOverlayImpl(props: BrowserCommentOverlayProps): React.JSX
           type="button"
           variant="ghost"
           size="icon-xs"
-          aria-label={draft.includeScreenshot ? "Screenshot attached" : "Attach screenshot"}
+          aria-label={
+            draft.includeScreenshot
+              ? t("workspace.tools.browserCommentOverlay.screenshotAttached", "Screenshot attached")
+              : t("workspace.tools.browserCommentOverlay.attachScreenshot", "Attach screenshot")
+          }
           aria-pressed={draft.includeScreenshot}
           className={cn(draft.includeScreenshot ? "text-primary" : "text-muted-foreground")}
           onClick={onToggleScreenshot}
@@ -107,7 +113,7 @@ function BrowserCommentOverlayImpl(props: BrowserCommentOverlayProps): React.JSX
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label="Remove comment"
+            aria-label={t("workspace.tools.browserCommentOverlay.removeComment", "Remove comment")}
             className="text-muted-foreground hover:text-destructive"
             onClick={() => onRemove(draft.id)}
           >
@@ -117,7 +123,11 @@ function BrowserCommentOverlayImpl(props: BrowserCommentOverlayProps): React.JSX
       </div>
       <CommentForm
         initialContent={draft.initialText}
-        submitLabel={draft.editing ? "Update" : "Comment"}
+        submitLabel={
+          draft.editing
+            ? t("workspace.tools.browserCommentOverlay.update", "Update")
+            : t("workspace.tools.browserCommentOverlay.comment", "Comment")
+        }
         onSubmit={onSave}
         onClose={onCancel}
       />

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -82,15 +83,27 @@ export function usePinnedActivity(pinned: readonly Feature[], withShells = true)
 
   useEffect(() => {
     if (!activity.error) return;
-    toast.error(apiErrorMessage(activity.error, "Failed to load sidebar activity"), {
-      id: FEATURE_ACTIVITY_ERROR_TOAST_ID,
-    });
+    toast.error(
+      apiErrorMessage(
+        activity.error,
+        translateUi("sidebar.activity.loadError", "Failed to load sidebar activity"),
+      ),
+      {
+        id: FEATURE_ACTIVITY_ERROR_TOAST_ID,
+      },
+    );
   }, [activity.error]);
   useEffect(() => {
     if (!worktrees.error) return;
-    toast.error(apiErrorMessage(worktrees.error, "Failed to load worktrees"), {
-      id: "sidebar-worktrees-load-error",
-    });
+    toast.error(
+      apiErrorMessage(
+        worktrees.error,
+        translateUi("sidebar.activity.worktreesError", "Failed to load worktrees"),
+      ),
+      {
+        id: "sidebar-worktrees-load-error",
+      },
+    );
   }, [worktrees.error]);
 
   return useMemo(

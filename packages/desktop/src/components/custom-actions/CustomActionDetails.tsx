@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { ArrowLeftIcon, CalendarClockIcon, PencilIcon, Trash2Icon } from "lucide-react";
 
@@ -36,6 +37,7 @@ export interface CustomActionDetailsProps {
  * action is one pick away in the title.
  */
 export function CustomActionDetails(props: CustomActionDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   const { action, featureId, projectId, outputClassName, onBack, onLeave } = props;
   return (
     <section aria-label={`${action.name} details`} className="flex min-w-0 flex-col gap-3 p-3">
@@ -44,8 +46,8 @@ export function CustomActionDetails(props: CustomActionDetailsProps): ReactEleme
           variant="ghost"
           size="icon-sm"
           className="shrink-0 text-muted-foreground"
-          aria-label="All actions"
-          title="All actions"
+          aria-label={t("customActions.customActionDetails.allActions", "All actions")}
+          title={t("customActions.customActionDetails.allActions", "All actions")}
           autoFocus
           onClick={onBack}
         >
@@ -77,11 +79,12 @@ export function CustomActionDetails(props: CustomActionDetailsProps): ReactEleme
 
 /** The title doubles as a picker, so every action's runs are reachable from here. */
 function ActionSwitcher({ actions, action, onShowAction }: CustomActionDetailsProps) {
+  const { t } = useUiTranslation();
   return (
     <Select value={String(action.id)} onValueChange={(value) => onShowAction(Number(value))}>
       <SelectTrigger
         size="sm"
-        aria-label="Action to show"
+        aria-label={t("customActions.customActionDetails.actionToShow", "Action to show")}
         className="h-8 max-w-full border-transparent px-2 font-semibold shadow-none hover:bg-accent"
       >
         <SelectValue />
@@ -106,6 +109,7 @@ function ActionSettings({
   onLeave,
   onDelete,
 }: CustomActionDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   const openScheduleEditor = useOpenScheduleEditorForAction();
   return (
     <div className="ml-auto flex shrink-0 items-center gap-0.5">
@@ -120,7 +124,7 @@ function ActionSettings({
         }}
       >
         <PencilIcon />
-        Edit
+        {t("customActions.customActionDetails.edit", "Edit")}
       </Button>
       {!action.run_in_terminal && (
         <Button
@@ -132,15 +136,15 @@ function ActionSettings({
           }}
         >
           <CalendarClockIcon />
-          Schedule…
+          {t("customActions.customActionDetails.schedule", "Schedule…")}
         </Button>
       )}
       <Button
         variant="ghost"
         size="icon-sm"
         className="text-muted-foreground hover:text-[var(--acc-red)]"
-        aria-label={`Delete “${action.name}”…`}
-        title="Delete…"
+        aria-label={t("customActions.deleteNamed", "Delete “{{name}}”…", { name: action.name })}
+        title={t("customActions.deleteAction", "Delete…")}
         onClick={() => {
           onLeave();
           onDelete(action);

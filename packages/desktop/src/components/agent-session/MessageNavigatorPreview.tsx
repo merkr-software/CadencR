@@ -1,4 +1,5 @@
-import { format, isThisYear, isToday } from "date-fns";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { isThisYear, isToday } from "date-fns";
 import { ImageIcon, Loader2Icon, MessageSquareTextIcon, PaperclipIcon } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -6,6 +7,7 @@ import type { UserMessageMark } from "@/lib/agent-message-navigator";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { Badge } from "@/components/ui/badge";
 import { parseUTCDateTime } from "@/lib/date-utils";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 
 export interface RailBox {
   /** Rail box in viewport coordinates. */
@@ -30,15 +32,29 @@ const PREVIEW_GAP_PX = 10;
 /** Space kept between the card and the top of the stream. */
 const PREVIEW_CEILING_GAP_PX = 8;
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+function previewDateFormats(locale: string) {
+  const time = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } as const;
+  const day = { month: "short", day: "numeric" } as const;
+  return {
+    today: new Intl.DateTimeFormat(locale, time),
+    thisYear: new Intl.DateTimeFormat(locale, { ...day, ...time }),
+    earlier: new Intl.DateTimeFormat(locale, { ...day, year: "numeric" }),
+  };
 }
 
+const formatsByLocale = new Map<string, ReturnType<typeof previewDateFormats>>();
+
 /** "14:32" today, "Sep 20, 23:13" this year, "Sep 20, 2025" before. */
-function formatSentAt(iso: string): string {
+function formatSentAt(iso: string, locale: string): string {
+  let formats = formatsByLocale.get(locale);
+  if (!formats) {
+    formats = previewDateFormats(locale);
+    formatsByLocale.set(locale, formats);
+  }
   const date = parseUTCDateTime(iso);
-  if (isToday(date)) return format(date, "HH:mm");
-  return format(date, isThisYear(date) ? "MMM d, HH:mm" : "MMM d, yyyy");
+  return (
+    isToday(date) ? formats.today : isThisYear(date) ? formats.thisYear : formats.earlier
+  ).format(date);
 }
 
 function Extra({ icon, children }: { icon: ReactNode; children: ReactNode }): ReactElement {
@@ -54,6 +70,7 @@ function Extra({ icon, children }: { icon: ReactNode; children: ReactNode }): Re
 }
 
 function PreviewFooter({ loading }: { loading: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   if (loading) {
     return (
       <div
@@ -61,14 +78,24 @@ function PreviewFooter({ loading }: { loading: boolean }): ReactElement {
         className="flex items-center gap-1.5 border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[10.5px] text-muted-foreground"
       >
         <Loader2Icon className="size-3 shrink-0 animate-spin text-primary" aria-hidden />
-        <span className="text-foreground/80">Loading this message…</span>
-        <span className="ml-auto">Click again to cancel</span>
+        <span className="text-foreground/80">
+          {t(
+            "conversation.stream.messageNavigatorPreview.loadingThisMessage",
+            "Loading this message…",
+          )}
+        </span>
+        <span className="ml-auto">
+          {t(
+            "conversation.stream.messageNavigatorPreview.clickAgainToCancel",
+            "Click again to cancel",
+          )}
+        </span>
       </div>
     );
   }
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[10.5px] text-muted-foreground">
-      <span>Click to jump</span>
+      <span>{t("conversation.stream.messageNavigatorPreview.clickToJump", "Click to jump")}</span>
       <span className="ml-auto inline-flex items-center gap-1">
         <ResolvedShortcutHint shortcutId="agent-previous-message" />
         <ResolvedShortcutHint shortcutId="agent-next-message" />
@@ -78,6 +105,7 @@ function PreviewFooter({ loading }: { loading: boolean }): ReactElement {
 }
 
 function PreviewBody({ mark }: { mark: UserMessageMark }): ReactElement {
+  const { t } = useUiTranslation();
   const hasExtras = mark.imageCount > 0 || mark.attachmentCount > 0;
   return (
     <div className="px-3 pb-3">
@@ -87,17 +115,27 @@ function PreviewBody({ mark }: { mark: UserMessageMark }): ReactElement {
         </p>
       ) : (
         <p className="border-l-2 border-border pl-2.5 text-xs text-muted-foreground italic">
-          No text
+          {t("conversation.stream.messageNavigatorPreview.noText", "No text")}
         </p>
       )}
       {hasExtras && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {mark.imageCount > 0 && (
-            <Extra icon={<ImageIcon aria-hidden />}>{plural(mark.imageCount, "image")}</Extra>
+            <Extra icon={<ImageIcon aria-hidden />}>
+              {t("conversation.stream.messageNavigatorPreview.imageCount", {
+                count: mark.imageCount,
+                defaultValue_one: "{{count}} image",
+                defaultValue_other: "{{count}} images",
+              })}
+            </Extra>
           )}
           {mark.attachmentCount > 0 && (
             <Extra icon={<PaperclipIcon aria-hidden />}>
-              {plural(mark.attachmentCount, "file")}
+              {t("conversation.stream.messageNavigatorPreview.fileCount", {
+                count: mark.attachmentCount,
+                defaultValue_one: "{{count}} file",
+                defaultValue_other: "{{count}} files",
+              })}
             </Extra>
           )}
         </div>
@@ -138,6 +176,7 @@ export function MessageNavigatorPreview({
   rail,
   loading,
 }: MessageNavigatorPreviewProps): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const cardRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   // Re-measured after every render (the hovered prompt or the loading row
@@ -165,13 +204,15 @@ export function MessageNavigatorPreview({
       >
         <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-2 text-[11px]">
           <MessageSquareTextIcon className="size-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="font-medium text-foreground/90">Your message</span>
+          <span className="font-medium text-foreground/90">
+            {t("conversation.stream.messageNavigatorPreview.yourMessage", "Your message")}
+          </span>
           <span className="font-mono text-muted-foreground tabular-nums">
             {index + 1}/{count}
           </span>
           {mark.createdAt && (
             <span className="ml-auto font-mono text-muted-foreground tabular-nums">
-              {formatSentAt(mark.createdAt)}
+              {formatSentAt(mark.createdAt, formattingLocale(i18n.language))}
             </span>
           )}
         </div>

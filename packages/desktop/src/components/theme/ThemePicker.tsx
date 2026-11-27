@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ export function ThemePicker({
   disabled,
   autoFocus = false,
 }: ThemePickerProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const selectedIndex = useMemo(
     () =>
@@ -105,7 +107,7 @@ export function ThemePicker({
           type="button"
           variant="outline"
           size="icon-xs"
-          aria-label={`Previous ${title}`}
+          aria-label={t("appearance.theme.previous", "Previous {{title}}", { title })}
           disabled={disabled}
           onClick={() => step(-1)}
           className="absolute left-0 top-1/2 z-10 -translate-y-1/2 shadow-md"
@@ -116,7 +118,7 @@ export function ThemePicker({
           type="button"
           variant="outline"
           size="icon-xs"
-          aria-label={`Next ${title}`}
+          aria-label={t("appearance.theme.next", "Next {{title}}", { title })}
           disabled={disabled}
           onClick={() => step(1)}
           className="absolute right-0 top-1/2 z-10 -translate-y-1/2 shadow-md"

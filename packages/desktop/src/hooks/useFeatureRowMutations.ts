@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -46,13 +47,31 @@ export function useFeatureRowMutations({
   const { mutate: updatePinned } = useUpdateFeaturePinned({
     mutation: {
       onSuccess: invalidateFeatures,
-      onError: (error) => toast.error(apiErrorMessage(error, "Failed to update pinned state")),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "sidebar.useFeatureRowMutations.failedToUpdatePinnedState",
+              "Failed to update pinned state",
+            ),
+          ),
+        ),
     },
   });
   const { mutate: updateStatus } = useUpdateFeatureStatus({
     mutation: {
       onSuccess: invalidateFeatures,
-      onError: (error) => toast.error(apiErrorMessage(error, "Failed to update feature status")),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "sidebar.useFeatureRowMutations.failedToUpdateFeatureStatus",
+              "Failed to update feature status",
+            ),
+          ),
+        ),
     },
   });
   const { mutate: deleteMutate } = useDeleteFeature({
@@ -63,7 +82,16 @@ export function useFeatureRowMutations({
         forgetFeatureProject(variables.id);
         invalidateFeatures();
       },
-      onError: (error) => toast.error(apiErrorMessage(error, "Failed to delete conversation")),
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            translateUi(
+              "sidebar.useFeatureRowMutations.failedToDeleteConversation",
+              "Failed to delete conversation",
+            ),
+          ),
+        ),
     },
   });
   const togglePin = useCallback(

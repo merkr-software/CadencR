@@ -23,17 +23,36 @@ export type CliRendererItem =
   | { id: string; kind: "update" }
   | { id: string; kind: "error"; message: string };
 
+export type CliInstallUnavailableCode =
+  | "development"
+  | "unsupported-platform"
+  | "unofficial-linux-package"
+  | "temporary-macos-location"
+  | "missing-command"
+  | "desktop-required";
+
+export type CliInstallConflict =
+  | { kind: "link"; path: string }
+  | { kind: "unmanaged-program" }
+  | { kind: "replaced-program" };
+
 /** Where the `cadencr` command stands on this machine, for Settings. */
 export type CliInstallStatus =
   /** No action can install it here (dev build, unofficial package, missing binary). */
-  | { state: "unavailable"; reason: string }
+  | { state: "unavailable"; reason: string; code?: CliInstallUnavailableCode }
   /** The DEB or RPM package put it on PATH at `path`. */
   | { state: "package"; path: string }
   | { state: "not-installed"; target: string; onPath: boolean }
   /** `current` is false when the installed command belongs to another copy of the app. */
   | { state: "installed"; target: string; onPath: boolean; current: boolean }
   /** Something that is not Cadencr's command already sits at `target`. */
-  | { state: "conflict"; target: string; existing: string; onPath: boolean };
+  | {
+      state: "conflict";
+      target: string;
+      existing: string;
+      conflict?: CliInstallConflict;
+      onPath: boolean;
+    };
 
 export interface CliInstallOptions {
   /** Replace a `conflict` target; only after the user confirmed it. */

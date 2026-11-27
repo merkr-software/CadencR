@@ -146,7 +146,7 @@ function SampleConversations({
     <div className="flex flex-col gap-0.5">
       {awake.map(renderSubtree)}
       <ArchivedFeatureSection
-        label="Dormant"
+        dormant
         features={dormant.map((node) => node.feature)}
         expanded={showDormant}
         onToggle={() => setShowDormant((open) => !open)}

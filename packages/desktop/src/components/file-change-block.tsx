@@ -63,6 +63,7 @@ function renderInlineDiffBlock(
       filePath={diff.filePath}
       oldContent={diff.oldContent}
       newContent={diff.newContent}
+      emptyFileAction={diff.emptyFileAction}
       basePath={basePath}
       toolName={toolName}
       expanded={expanded}

@@ -1,3 +1,4 @@
+import { UiTrans } from "@/lib/i18n/ui";
 import type { DiagnosticContext } from "@/shared/renderer-diagnostics";
 import { formatDiagnosticError } from "@/lib/renderer-diagnostics";
 import { Component, type ErrorInfo, type ReactNode } from "react";
@@ -52,17 +53,21 @@ export class GlobalErrorBoundary extends Component<
         <Toaster duration={Infinity} />
         <div className="flex items-center gap-2 text-amber-500">
           <AlertTriangleIcon className="size-5" />
-          <h1 className="text-base font-semibold text-foreground">Cadencr UI crashed</h1>
+          <h1 className="text-base font-semibold text-foreground">
+            <UiTrans i18nKey="shell.errors.crashed" defaults="Cadencr UI crashed" />
+          </h1>
         </div>
         <p className="max-w-md text-center text-sm text-muted-foreground">
-          Your agents may still be running in the background. Reload the UI to reconnect to the
-          local service.
+          <UiTrans
+            i18nKey="shell.errors.crashedHint"
+            defaults="Your agents may still be running in the background. Reload the UI to reconnect to the local service."
+          />
         </p>
         <ErrorDetailsPanel details={details} />
         <div className="flex flex-wrap items-center justify-center gap-2">
           <Button onClick={this.reload}>
             <RotateCcwIcon className="size-4" />
-            Reload UI
+            <UiTrans i18nKey="shell.errors.reload" defaults="Reload UI" />
           </Button>
         </div>
       </div>

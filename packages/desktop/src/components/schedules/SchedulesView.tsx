@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { CalendarClock, Loader2Icon, PlusIcon } from "lucide-react";
 import { useListProjects, type Schedule } from "@/api/generated";
@@ -6,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { fireAndForget, useSchedules } from "@/hooks/useSchedules";
-import { nextRunAcross } from "@/lib/schedules/status";
+import { nextRunAcross, scheduleStateLabel } from "@/lib/schedules/status";
 import { formatRelative } from "@/lib/schedules/format";
 import type { ScheduleActionTarget } from "@/lib/schedules/action-link";
 import { cn } from "@/lib/utils";
@@ -17,18 +18,13 @@ import type { ScheduleActionPreset } from "./useScheduleDraft";
 import {
   filterByState,
   groupByProject,
+  indexScheduleSearch,
   searchSchedules,
   stateCounts,
   type ScheduleFilterState,
 } from "./schedule-filters";
 
-const FILTERS: { state: ScheduleFilterState; label: string }[] = [
-  { state: "all", label: "All" },
-  { state: "upcoming", label: "Upcoming" },
-  { state: "failed", label: "Failed" },
-  { state: "paused", label: "Paused" },
-  { state: "completed", label: "Done" },
-];
+const FILTERS: ScheduleFilterState[] = ["all", "upcoming", "failed", "paused", "completed"];
 
 /**
  * The Schedules screen: every configured schedule across every project, in one
@@ -45,6 +41,8 @@ export function SchedulesView({
    *  for that action. */
   actionPreset?: ScheduleActionTarget | null;
 }): ReactElement {
+  const { i18n } = useUiTranslation();
+  const locale = i18n.language;
   const projectsQuery = useListProjects();
   const { schedules, isLoading, isMutating, save, remove, setEnabled, runNow } = useSchedules();
 
@@ -54,7 +52,15 @@ export function SchedulesView({
   const [editorOpen, setEditorOpen] = useState(false);
   const [initialAction, setInitialAction] = useState<ScheduleActionPreset | undefined>(undefined);
 
-  const searched = useMemo(() => searchSchedules(schedules, query), [schedules, query]);
+  const isSearching = query.trim().length > 0;
+  const searchIndex = useMemo(
+    () => (isSearching ? indexScheduleSearch(schedules, locale) : null),
+    [isSearching, schedules, locale],
+  );
+  const searched = useMemo(
+    () => (searchIndex ? searchSchedules(searchIndex, query, locale) : schedules),
+    [searchIndex, schedules, query, locale],
+  );
   const counts = useMemo(() => stateCounts(searched), [searched]);
   const groups = useMemo(() => groupByProject(filterByState(searched, state)), [searched, state]);
   const nextRun = useMemo(() => nextRunAcross(schedules), [schedules]);
@@ -95,7 +101,7 @@ export function SchedulesView({
           groups={groups}
           isLoading={isLoading}
           hasAnySchedule={schedules.length > 0}
-          isFiltered={query.trim().length > 0 || state !== "all"}
+          isFiltered={isSearching || state !== "all"}
           busy={isMutating}
           onEdit={openEditor}
           onToggle={toggle}
@@ -140,6 +146,7 @@ function SchedulesHeader({
   counts,
   onCreate,
 }: SchedulesHeaderProps): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <header className="titlebar-drag flex shrink-0 flex-col gap-3 border-b border-border/60 px-5 py-4">
@@ -147,10 +154,16 @@ function SchedulesHeader({
         <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
         <CalendarClock className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold leading-tight">Schedules</h1>
-          <p className="text-xs text-muted-foreground">{summaryLine(total, nextRun)}</p>
+          <h1 className="text-base font-semibold leading-tight">
+            {t("schedules.page.title", "Schedules")}
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            {summaryLine(t, total, nextRun, i18n.language)}
+          </p>
         </div>
-        {isLoading && <Loader2Icon className="size-4 animate-spin text-muted-foreground" />}
+        {isLoading && (
+          <Loader2Icon className="size-4 animate-spin text-muted-foreground" aria-hidden />
+        )}
         <Button
           type="button"
           size="sm"
@@ -158,7 +171,7 @@ function SchedulesHeader({
           onClick={onCreate}
         >
           <PlusIcon className="size-3.5" />
-          New schedule
+          {t("schedules.editor.createTitle", "New schedule")}
         </Button>
       </div>
 
@@ -166,26 +179,34 @@ function SchedulesHeader({
         <Input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search schedules…"
-          aria-label="Search schedules"
+          placeholder={t("schedule.list.schedulesView.searchPlaceholder", "Search schedules…")}
+          aria-label={t("schedule.list.schedulesView.searchSchedules", "Search schedules")}
           className="h-8 max-w-xs text-sm"
         />
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label={t("schedule.list.schedulesView.filterByStatus", "Filter by status")}
+        >
           {FILTERS.map((filter) => (
             <button
-              key={filter.state}
+              key={filter}
               type="button"
-              aria-pressed={state === filter.state}
-              onClick={() => onStateChange(filter.state)}
+              aria-pressed={state === filter}
+              onClick={() => onStateChange(filter)}
               className={cn(
                 "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                state === filter.state
+                state === filter
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border/60 text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
             >
-              {filter.label}
-              <span className="ml-1.5 tabular-nums opacity-70">{counts[filter.state]}</span>
+              {filter === "all"
+                ? t("schedule.list.schedulesView.all", "All")
+                : scheduleStateLabel(t, filter)}
+              <span className="ml-1.5 tabular-nums opacity-70">
+                {counts[filter].toLocaleString(i18n.language)}
+              </span>
             </button>
           ))}
         </div>
@@ -194,8 +215,18 @@ function SchedulesHeader({
   );
 }
 
-function summaryLine(total: number, nextRun: Date | null): string {
-  if (total === 0) return "Nothing scheduled yet";
-  const count = `${total} schedule${total === 1 ? "" : "s"}`;
-  return nextRun ? `${count} · next run ${formatRelative(nextRun)}` : `${count} · none upcoming`;
+function summaryLine(t: UiTranslator, count: number, nextRun: Date | null, locale: string): string {
+  if (count === 0)
+    return t("schedule.list.schedulesView.nothingScheduledYet", "Nothing scheduled yet");
+  return nextRun
+    ? t("schedule.list.schedulesView.nextRun", "{{count, number}} schedules · next run {{when}}", {
+        count,
+        when: formatRelative(nextRun, locale),
+        defaultValue_one: "{{count, number}} schedule · next run {{when}}",
+      })
+    : t("schedule.list.schedulesView.noneUpcoming", "{{count, number}} schedules · none upcoming", {
+        count,
+        defaultValue_zero: "{{count, number}} schedules · none upcoming",
+        defaultValue_one: "{{count, number}} schedule · none upcoming",
+      });
 }

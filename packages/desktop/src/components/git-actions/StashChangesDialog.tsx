@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Archive } from "lucide-react";
 import {
@@ -44,6 +45,7 @@ const StashChangesDialog = memo(function StashChangesDialog({
   open,
   onOpenChange,
 }: StashChangesDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const filesQuery = useGetUncommittedFiles(
     { feature_id: featureId },
@@ -79,10 +81,14 @@ const StashChangesDialog = memo(function StashChangesDialog({
                 <Archive aria-hidden="true" className="size-4" />
               </div>
               <div className="min-w-0 space-y-1">
-                <DialogTitle>Stash changes</DialogTitle>
+                <DialogTitle>
+                  {t("workspace.git.stashChangesDialog.stashChanges", "Stash changes")}
+                </DialogTitle>
                 <DialogDescription>
-                  Save your current work without committing it. Ignored files always stay in the
-                  worktree.
+                  {t(
+                    "workspace.git.stashChangesDialog.saveYourCurrentWorkWithoutCommittingIt",
+                    "Save your current work without committing it. Ignored files always stay in the worktree.",
+                  )}
                 </DialogDescription>
               </div>
             </div>
@@ -129,9 +135,7 @@ function useStashPushSubmission({
   const ownsPush = coordinator.activeMutation?.kind === "push";
   const pending = ownsPush || pushStash.isPending;
   const blockedReason = ownsPush ? null : coordinator.blockedReason;
-  const error =
-    responseError ??
-    (pushStash.error ? apiErrorMessage(pushStash.error, "Could not stash changes.") : null);
+  const error = responseError ?? (pushStash.error ? stashPushErrorMessage(pushStash.error) : null);
   const hasStashable = useHasStashableChanges(files, includeUntracked);
   const canSubmit = filesReady && hasStashable && !pending && !blockedReason;
 
@@ -229,7 +233,11 @@ async function submitStashPush(options: SubmitStashPushOptions): Promise<void> {
   const lease = options.coordinator.tryAcquire({ kind: "push" });
   if (!lease) {
     options.setResponseError(
-      options.coordinator.getBlockedReason() ?? "Another stash operation is in progress",
+      options.coordinator.getBlockedReason() ??
+        translateUi(
+          "workspace.git.stashChangesDialog.anotherStashOperationIsInProgress",
+          "Another stash operation is in progress",
+        ),
     );
     return;
   }
@@ -249,7 +257,15 @@ async function submitStashPush(options: SubmitStashPushOptions): Promise<void> {
       return;
     }
     await options.refreshStashes();
-    toast.success(submittedName ? `Stashed changes as “${submittedName}”` : "Stashed changes");
+    toast.success(
+      submittedName
+        ? translateUi(
+            "workspace.git.stashChangesDialog.stashedChangesAsName",
+            "Stashed changes as “{{name}}”",
+            { name: submittedName },
+          )
+        : translateUi("workspace.git.stashChangesDialog.stashedChanges", "Stashed changes"),
+    );
     options.onOpenChange(false);
   } catch {
     // React Query retains the generated mutation error for the inline alert.
@@ -293,9 +309,21 @@ function useRefreshStashes(featureId: number): () => Promise<void> {
         exact: true,
       });
     } catch (caught) {
-      toast.error("Stashed changes, but could not refresh the stash list", {
-        description: apiErrorMessage(caught, "The stash list may be stale."),
-      });
+      toast.error(
+        translateUi(
+          "workspace.git.stashChangesDialog.stashedChangesButCouldNotRefreshThe",
+          "Stashed changes, but could not refresh the stash list",
+        ),
+        {
+          description: apiErrorMessage(
+            caught,
+            translateUi(
+              "workspace.git.stashChangesDialog.theStashListMayBeStale",
+              "The stash list may be stale.",
+            ),
+          ),
+        },
+      );
     }
   }, [featureId, queryClient]);
 }
@@ -308,3 +336,13 @@ function useHasStashableChanges(files: UncommittedFile[], includeUntracked: bool
 }
 
 export default StashChangesDialog;
+
+function stashPushErrorMessage(error: unknown): string {
+  return apiErrorMessage(
+    error,
+    translateUi(
+      "workspace.git.stashChangesDialog.couldNotStashChanges",
+      "Could not stash changes.",
+    ),
+  );
+}

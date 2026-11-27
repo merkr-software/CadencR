@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { CopyButton as SharedCopyButton } from "@/components/CopyButton";
 import { cn } from "@/lib/utils";
@@ -15,17 +16,18 @@ interface CopyButtonProps {
 
 export function CopyButton({
   text,
-  label = "Copy path",
-  copiedLabel = "Copied",
+  label,
+  copiedLabel,
   hoverClass = "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
   sizeClass = "h-3 w-3",
   className,
 }: CopyButtonProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <SharedCopyButton
       text={text}
-      label={label}
-      copiedLabel={copiedLabel}
+      label={label ?? t("workspace.git.copyButton.copyPath", "Copy path")}
+      copiedLabel={copiedLabel ?? t("workspace.git.copyButton.copied", "Copied")}
       className={cn("hover:text-foreground", className)}
       copiedClassName="text-[var(--acc-green)]"
       idleClassName={cn("text-muted-foreground", hoverClass)}

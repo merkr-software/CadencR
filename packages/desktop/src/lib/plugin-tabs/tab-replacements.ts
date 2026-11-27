@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { z } from "zod";
 
 import { parseJsonSetting, type ParsedJsonSetting } from "@/lib/json-setting";
@@ -25,12 +26,16 @@ export const REPLACEABLE_TABS = [
 export type ReplaceableTab = (typeof REPLACEABLE_TABS)[number];
 
 /** The built-ins' tab-strip labels. */
-export const BUILTIN_TAB_LABELS: Readonly<Record<ReplaceableTab, string>> = {
-  terminal: "Terminal",
-  git: "Git",
-  editor: "Editor",
-  preview: "Preview",
+const builtinTabLabels: Record<ReplaceableTab, (t: UiTranslator) => string> = {
+  terminal: (t) => t("conversation.webSocketSessionFeatureBlockTabs.terminalTab", "Terminal"),
+  git: (t) => t("conversation.webSocketSessionFeatureBlockTabs.gitTab", "Git"),
+  editor: (t) => t("conversation.webSocketSessionFeatureBlockTabs.editorTab", "Editor"),
+  preview: (t) => t("conversation.webSocketSessionFeatureBlockTabs.previewTab", "Preview"),
 };
+
+export function builtinTabLabel(tab: ReplaceableTab, t: UiTranslator): string {
+  return builtinTabLabels[tab](t);
+}
 
 /** Built-in tab → id of the custom tab chosen to replace it. */
 export type TabReplacementChoices = Readonly<Partial<Record<ReplaceableTab, string>>>;
@@ -52,11 +57,15 @@ const choicesSchema = z
  */
 export function readTabReplacements(
   value: string | null | undefined,
+  t: UiTranslator = translateUi,
 ): ParsedJsonSetting<TabReplacementChoices> {
   return parseJsonSetting(
     value,
     choicesSchema,
-    "expected each built-in tab mapped to a different custom tab id",
+    t(
+      "customTabs.replacements.invalidSetting",
+      "expected each built-in tab mapped to a different custom tab id",
+    ),
   );
 }
 

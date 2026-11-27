@@ -1,6 +1,9 @@
+import { type UiTranslator } from "@/lib/i18n/ui";
 import {
   GIT_MERGE_FLAG_COLOR_VAR,
-  GIT_MERGE_MODE_OPTIONS,
+  GIT_MERGE_MODES,
+  gitMergeModeFlag,
+  gitMergeModeOptions,
   type GitMergeMode,
 } from "@/lib/git-merge-mode";
 import { type RadioCardOption } from "./RadioCardGroup";
@@ -8,7 +11,7 @@ import { type RadioCardOption } from "./RadioCardGroup";
 // Every chip is as wide as the longest flag, so each card's label starts at the
 // same x whatever chip it carries (0.75rem = the chip's horizontal padding).
 const FLAG_CHIP_WIDTH = `calc(${Math.max(
-  ...GIT_MERGE_MODE_OPTIONS.map((option) => option.flag.length),
+  ...GIT_MERGE_MODES.map((mode) => gitMergeModeFlag(mode).length),
 )}ch + 0.75rem)`;
 
 /**
@@ -19,8 +22,8 @@ const FLAG_CHIP_WIDTH = `calc(${Math.max(
  * `GIT_MERGE_MODE_OPTIONS`), so it lives at module scope instead of being
  * rebuilt per render.
  */
-export const GIT_MERGE_RADIO_OPTIONS: RadioCardOption<GitMergeMode>[] = GIT_MERGE_MODE_OPTIONS.map(
-  (option) => ({
+export function gitMergeRadioOptions(t: UiTranslator): RadioCardOption<GitMergeMode>[] {
+  return gitMergeModeOptions(t).map((option) => ({
     value: option.value,
     label: option.label,
     description: option.description,
@@ -32,5 +35,5 @@ export const GIT_MERGE_RADIO_OPTIONS: RadioCardOption<GitMergeMode>[] = GIT_MERG
         {option.flag}
       </span>
     ),
-  }),
-);
+  }));
+}

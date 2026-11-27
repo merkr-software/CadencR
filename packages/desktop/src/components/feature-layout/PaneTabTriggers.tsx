@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ComponentProps, type ReactNode } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
@@ -95,12 +96,17 @@ function TabCloseButton({
   action: "close" | "dock";
   onClose: () => void;
 }): ReactNode {
+  const { t } = useUiTranslation();
   // Docking only returns a split-out tab to the root strip, so it must not look
   // like a close.
   const Icon = action === "close" ? XIcon : MinusIcon;
   return (
     <ShortcutTooltip
-      label={action === "close" ? "Close tab" : "Return to main tabs"}
+      label={
+        action === "close"
+          ? t("workspace.tools.paneTabTriggers.closeTab", "Close tab")
+          : t("workspace.tools.paneTabTriggers.returnToMainTabs", "Return to main tabs")
+      }
       className="absolute right-1.5 top-1/2 -translate-y-1/2"
     >
       <button
@@ -111,7 +117,15 @@ function TabCloseButton({
         }}
         className="flex rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         aria-label={
-          action === "close" ? `Close ${def.label}` : `Return ${def.label} to the root tab strip`
+          action === "close"
+            ? t("workspace.tools.paneTabTriggers.closeNamedTab", "Close {{name}}", {
+                name: def.label,
+              })
+            : t(
+                "workspace.tools.paneTabTriggers.returnNamedTab",
+                "Return {{name}} to the root tab strip",
+                { name: def.label },
+              )
         }
       >
         <Icon className="size-3" />

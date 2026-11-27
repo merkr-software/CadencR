@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useRef, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -39,6 +40,7 @@ export function UnifiedAgentsView(): ReactElement {
 }
 
 function UnifiedAgentsContent({ view }: { view: ViewState }): ReactElement {
+  const { t } = useUiTranslation();
   const { data, filters, projects, filterText } = view;
   const { replaceFilterText } = filterText;
   const clearFilter = useCallback((): void => replaceFilterText(""), [replaceFilterText]);
@@ -48,13 +50,21 @@ function UnifiedAgentsContent({ view }: { view: ViewState }): ReactElement {
     [filters, projects, replaceFilterText],
   );
   if (data.isError) {
-    return <UnifiedAgentsLoadError message={data.errorMessage} onRetry={data.refresh} />;
+    return (
+      <UnifiedAgentsLoadError
+        message={apiErrorMessage(
+          data.error,
+          t("agents.overview.loadError", "Failed to load agents"),
+        )}
+        onRetry={data.refresh}
+      />
+    );
   }
   if (data.isLoading) {
     return (
       <div
         role="status"
-        aria-label="Loading agents"
+        aria-label={t("agents.unifiedAgentsView.loadingAgents", "Loading agents")}
         className="flex flex-1 items-center justify-center"
       >
         <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
@@ -86,6 +96,7 @@ function UnifiedAgentsContent({ view }: { view: ViewState }): ReactElement {
 }
 
 function UnifiedAgentsHeader({ view }: { view: ViewState }): ReactElement {
+  const { t } = useUiTranslation();
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarCollapsed();
   return (
     <header
@@ -99,7 +110,7 @@ function UnifiedAgentsHeader({ view }: { view: ViewState }): ReactElement {
         visible={sidebarCollapsed}
         onExpand={() => setSidebarCollapsed(false)}
       />
-      <h1 className="sr-only">Agents</h1>
+      <h1 className="sr-only">{t("agents.unifiedAgentsView.agents", "Agents")}</h1>
       <div className="min-w-0 flex-1">
         <UnifiedAgentsFilters
           filterText={view.filterText.filterText}
@@ -114,7 +125,10 @@ function UnifiedAgentsHeader({ view }: { view: ViewState }): ReactElement {
         />
         {view.projectsError ? (
           <p className="mt-2 px-1 text-xs text-destructive">
-            {apiErrorMessage(view.projectsError, "Failed to load projects.")}
+            {apiErrorMessage(
+              view.projectsError,
+              t("agents.overview.projects.error", "Failed to load projects."),
+            )}
           </p>
         ) : null}
       </div>

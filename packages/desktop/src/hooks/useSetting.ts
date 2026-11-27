@@ -5,16 +5,16 @@ import {
   isSettingSaving,
   subscribeSettingWrites,
   writeSetting,
-  type SettingUpdate,
+  type SettingWrite,
 } from "./setting-persistence";
 
 export interface SettingWriter {
   /**
    * Persists a value, or one computed from the confirmed value when the write
-   * goes out. Resolves true once the backend holds it, false after a failed
-   * write (already toasted). Never rejects.
+   * goes out. Conditional requests keep the server's value on a mismatch.
+   * Resolves false after a failed write (already toasted). Never rejects.
    */
-  setValue: (next: string | SettingUpdate) => Promise<boolean>;
+  setValue: (next: SettingWrite) => Promise<boolean>;
   /** A write to this key is queued or on its way. */
   isSaving: boolean;
 }
@@ -39,7 +39,7 @@ export function useSettingWriter(key: string): SettingWriter {
     () => isSettingSaving(key),
   );
   const setValue = useCallback(
-    (next: string | SettingUpdate) => writeSetting(queryClient, key, next),
+    (next: SettingWrite) => writeSetting(queryClient, key, next),
     [key, queryClient],
   );
   return useMemo(() => ({ setValue, isSaving }), [setValue, isSaving]);

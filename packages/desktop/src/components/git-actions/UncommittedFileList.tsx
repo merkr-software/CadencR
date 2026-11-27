@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Grouped checkbox list of uncommitted files for `CommitDialog`. Displays one
  * group per status bucket (Staged / Unstaged / Untracked) with a small
@@ -22,9 +23,14 @@ export const UncommittedFileList = memo(function UncommittedFileList({
   selected,
   onToggle,
 }: UncommittedFileListProps): ReactElement {
-  const groups = groupUncommittedFiles(files);
+  const { t } = useUiTranslation();
+  const groups = groupUncommittedFiles(files, t);
   if (groups.length === 0) {
-    return <p className="text-sm text-muted-foreground py-4 text-center">No uncommitted files.</p>;
+    return (
+      <p className="text-sm text-muted-foreground py-4 text-center">
+        {t("workspace.git.uncommittedFileList.noUncommittedFiles", "No uncommitted files.")}
+      </p>
+    );
   }
   return (
     // `pr-3` reserves a gutter for the overlay scrollbar so it doesn't

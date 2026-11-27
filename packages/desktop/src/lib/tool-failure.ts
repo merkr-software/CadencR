@@ -1,5 +1,7 @@
 import type { AgentBlockData } from "@/types/agent-block";
 import { shouldGateFullContent } from "@/lib/agent-block-content";
+import { interruptedToolResultText } from "@/lib/agent-message-origin";
+import type { UiTranslator } from "@/lib/i18n/ui";
 import {
   extractBashOutputFromArgs,
   extractBashResultOutput,
@@ -26,16 +28,17 @@ export interface ToolCallFailure {
 export function toolCallFailure(
   call: AgentBlockData,
   result: AgentBlockData | undefined,
+  t: UiTranslator,
 ): ToolCallFailure | null {
   if (call.type !== "tool_call") return null;
   if (result?.isError !== undefined) {
-    return result.isError ? failure(resultReason(result)) : null;
+    return result.isError ? failure(resultReason(result, t)) : null;
   }
   // A cut wire preview's arguments are partial: they cannot say how it ended.
   if (shouldGateFullContent(call)) return null;
   const args = parseToolArgsObject(call.toolArgs);
   if (!args || !isFailedToolStatus(toolStatusOf(args))) return null;
-  return failure(result ? resultReason(result) : argsReason(args));
+  return failure(result ? resultReason(result, t) : argsReason(args));
 }
 
 /**
@@ -48,8 +51,12 @@ function failure(output: string | undefined): ToolCallFailure {
   return { reason: output ? firstLine(output) : undefined };
 }
 
-function resultReason(result: AgentBlockData): string | undefined {
-  return extractBashResultOutput(result.content) ?? result.content;
+function resultReason(result: AgentBlockData, t: UiTranslator): string | undefined {
+  return (
+    interruptedToolResultText(result, t) ??
+    extractBashResultOutput(result.content) ??
+    result.content
+  );
 }
 
 /** A call that carries its own outcome: its `error`, else its output (a `!` command's). */

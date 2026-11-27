@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type RefObject } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import type { ChangedFile } from "@/api/generated";
@@ -99,6 +100,7 @@ function DiffContentImpl({
   themeAppearance,
   themeId,
 }: DiffContentProps) {
+  const { t } = useUiTranslation();
   const orderedFiles = useMemo(() => sortChangedFilesForDiff(files), [files]);
   return (
     <>
@@ -146,7 +148,7 @@ function DiffContentImpl({
       </DiffVirtualizer>
       {isViewedPending && (
         <span className="sr-only" role="status">
-          Updating viewed state
+          {t("workspace.git.diffContent.updatingViewedState", "Updating viewed state")}
         </span>
       )}
     </>

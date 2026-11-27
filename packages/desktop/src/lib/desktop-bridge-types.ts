@@ -38,6 +38,7 @@ import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
 
 export interface RuntimeConfig {
   baseUrl: string;
+  preferredLanguages?: readonly string[];
 }
 
 export type RouteType = "session";
@@ -91,6 +92,7 @@ export interface CadencrDesktopBridge {
   isElectron: boolean;
   usesCustomWindowControls?: boolean;
   runtimeConfig: () => Promise<RuntimeConfig>;
+  setInterfaceLanguage: (locale: string) => Promise<void>;
   readFileBase64: (handle: string) => Promise<string>;
   suppressNextNativeContextMenu?: () => void;
   onFileDrop: (cb: (payload: FileDropPayload) => void) => () => void;

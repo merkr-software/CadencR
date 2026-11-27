@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useRef } from "react";
 import type {
   FileTree,
@@ -108,24 +109,27 @@ export function sortChangedFilesForDiff(files: readonly ChangedFile[]): ChangedF
   return ordered;
 }
 
-export function conflictKindLabel(kind: ConflictKindValue | null | undefined): string {
+export function conflictKindLabel(
+  kind: ConflictKindValue | null | undefined,
+  t: UiTranslator = translateUi,
+): string {
   switch (kind) {
     case ConflictKind.dd:
-      return "both deleted";
+      return t("workspace.git.useGitDiffFileTreeModel.bothDeleted", "both deleted");
     case ConflictKind.au:
-      return "added by us";
+      return t("workspace.git.useGitDiffFileTreeModel.addedByUs", "added by us");
     case ConflictKind.ud:
-      return "deleted by them";
+      return t("workspace.git.useGitDiffFileTreeModel.deletedByThem", "deleted by them");
     case ConflictKind.ua:
-      return "added by them";
+      return t("workspace.git.useGitDiffFileTreeModel.addedByThem", "added by them");
     case ConflictKind.du:
-      return "deleted by us";
+      return t("workspace.git.useGitDiffFileTreeModel.deletedByUs", "deleted by us");
     case ConflictKind.aa:
-      return "both added";
+      return t("workspace.git.useGitDiffFileTreeModel.bothAdded", "both added");
     case ConflictKind.uu:
-      return "both modified";
+      return t("workspace.git.useGitDiffFileTreeModel.bothModified", "both modified");
     default:
-      return "unmerged";
+      return t("workspace.git.useGitDiffFileTreeModel.unmerged", "unmerged");
   }
 }
 
@@ -135,25 +139,48 @@ export function isUnavailableDeleteConflict(file: ChangedFile): boolean {
   );
 }
 
-export function gitDiffTreeConflictDecoration(file: ChangedFile): FileTreeRowDecoration | null {
+export function gitDiffTreeConflictDecoration(
+  file: ChangedFile,
+  t: UiTranslator = translateUi,
+): FileTreeRowDecoration | null {
   if (resolvedStageState(file) !== FileStageState.conflicted) return null;
-  const label = `Conflict: ${conflictKindLabel(file.conflict_kind)}`;
-  return { text: "Conflict", title: label };
+  const label = t("workspace.git.useGitDiffFileTreeModel.conflictKind", "Conflict: {{kind}}", {
+    kind: conflictKindLabel(file.conflict_kind, t),
+  });
+  return { text: t("workspace.git.useGitDiffFileTreeModel.conflict", "Conflict"), title: label };
 }
 
 function reviewDecoration(
   count: number,
   conflict: FileTreeRowDecoration | null,
+  t: UiTranslator,
 ): FileTreeRowDecoration | null {
   if (count === 0) return conflict;
-  const reviewLabel = `${count} open review ${count === 1 ? "thread" : "threads"}`;
+  const reviewLabel = t(
+    "workspace.git.useGitDiffFileTreeModel.openReviewThreads",
+    "{{count, number}} open review threads",
+    { count, defaultValue_one: "{{count, number}} open review thread" },
+  );
   if (conflict) {
     return {
-      text: `Conflict · ${count}`,
-      title: `${conflict.title}; ${reviewLabel}`,
+      text: t(
+        "workspace.git.useGitDiffFileTreeModel.conflictAndCount",
+        "Conflict · {{count, number}}",
+        {
+          count,
+        },
+      ),
+      title: t(
+        "workspace.git.useGitDiffFileTreeModel.conflictAndReview",
+        "{{conflict}}; {{review}}",
+        { conflict: conflict.title, review: reviewLabel },
+      ),
     };
   }
-  return { text: `${count} open`, title: reviewLabel };
+  return {
+    text: t("workspace.git.useGitDiffFileTreeModel.openCount", "{{count, number}} open", { count }),
+    title: reviewLabel,
+  };
 }
 
 function selectGitDiffTreePath(model: FileTree, filePath: string): boolean {
@@ -304,6 +331,7 @@ export function useGitDiffFileTreeModel({
   onSelectionChange,
   reviewCountsByFile,
 }: UseGitDiffFileTreeModelOptions): GitDiffFileTreeModelResult {
+  const { t } = useUiTranslation();
   const {
     displayMode,
     setDisplayMode,
@@ -329,18 +357,22 @@ export function useGitDiffFileTreeModel({
     },
     [filePaths, onSelectionChange],
   );
+  const hasLocalizedDecorations =
+    conflictSort.version.length > 0 ||
+    (displayMode === "filenames" && (reviewCountsByFile?.size ?? 0) > 0);
+  const decorationTranslator = hasLocalizedDecorations ? t : translateUi;
   const renderRowDecoration = useCallback(
     ({ item }: { item: { kind: "directory" | "file"; path: string } }) => {
       if (item.kind === "directory") return null;
       const file = fileByPath.get(item.path);
-      const conflict = file ? gitDiffTreeConflictDecoration(file) : null;
+      const conflict = file ? gitDiffTreeConflictDecoration(file, decorationTranslator) : null;
       const reviewCount =
         displayMode === "filenames"
           ? (reviewCountsByFile?.get(parseGitTreePath(item.path)) ?? 0)
           : 0;
-      return reviewDecoration(reviewCount, conflict);
+      return reviewDecoration(reviewCount, conflict, decorationTranslator);
     },
-    [displayMode, fileByPath, reviewCountsByFile],
+    [decorationTranslator, displayMode, fileByPath, reviewCountsByFile],
   );
   const { model } = useCadencrFileTree({
     paths,

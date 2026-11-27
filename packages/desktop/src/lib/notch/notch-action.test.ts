@@ -3,15 +3,16 @@ import { notchActionKind, notchActionLabel, plainPreview, shortenPaths } from ".
 
 describe("notchActionKind", () => {
   it("classifies tools by family across providers", () => {
-    expect(notchActionKind("Bash", '{"command":"ls"}')).toBe("bash");
-    expect(notchActionKind("exec_command", "{}")).toBe("bash");
-    expect(notchActionKind("Edit", "{}")).toBe("edit");
-    expect(notchActionKind("Write", "{}")).toBe("edit");
-    expect(notchActionKind("Grep", "{}")).toBe("search");
-    expect(notchActionKind("WebFetch", "{}")).toBe("web");
-    expect(notchActionKind("Agent", "{}")).toBe("agent");
-    expect(notchActionKind("mcp__cadencr-browser__browser_open_url", "{}")).toBe("mcp");
-    expect(notchActionKind("SomethingNew", "{}")).toBe("tool");
+    expect(notchActionKind("Bash")).toBe("bash");
+    expect(notchActionKind("exec_command")).toBe("bash");
+    expect(notchActionKind("Edit")).toBe("edit");
+    expect(notchActionKind("Write")).toBe("edit");
+    expect(notchActionKind("Grep")).toBe("search");
+    expect(notchActionKind("WebFetch")).toBe("web");
+    expect(notchActionKind("Agent")).toBe("agent");
+    expect(notchActionKind("mcp__cadencr-browser__browser_open_url")).toBe("mcp");
+    expect(notchActionKind("chrome-devtools_list_pages")).toBe("mcp");
+    expect(notchActionKind("SomethingNew")).toBe("tool");
   });
 });
 

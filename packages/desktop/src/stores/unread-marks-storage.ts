@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * localStorage persistence for the unread/failed marks of `unread-store.ts`,
  * and the pull request actions marked done, so a reload or a restart keeps
@@ -72,7 +73,7 @@ function parseUnreadMarks(raw: string | null): RestoredMarks {
   return { marks: EMPTY_MARKS, error: parsed.error };
 }
 
-let pendingRestoreError: string | null = null;
+let pendingRestoreError: "unavailable" | "invalid" | null = null;
 
 /** Read the marks this window left before its last reload. Never throws. */
 export function loadUnreadMarks(): UnreadMarks {
@@ -82,13 +83,13 @@ export function loadUnreadMarks(): UnreadMarks {
     raw = window.localStorage.getItem(UNREAD_MARKS_STORAGE_KEY);
   } catch (error: unknown) {
     console.error("Could not read saved unread marks.", error);
-    pendingRestoreError = "Could not restore unread and failed marks.";
+    pendingRestoreError = "unavailable";
     return EMPTY_MARKS;
   }
   const { marks, error } = parseUnreadMarks(raw);
   if (error) {
     console.error(`Dropped corrupt saved unread marks: ${error}`, raw);
-    pendingRestoreError = "Saved unread and failed marks were unreadable, so they were cleared.";
+    pendingRestoreError = "invalid";
     // Drop the bad value so the next reload doesn't report it again.
     try {
       window.localStorage.removeItem(UNREAD_MARKS_STORAGE_KEY);
@@ -109,7 +110,21 @@ export function reportUnreadRestoreError(): void {
   const message = pendingRestoreError;
   if (!message) return;
   pendingRestoreError = null;
-  window.setTimeout(() => toast.error(message), 0);
+  window.setTimeout(
+    () =>
+      toast.error(
+        message === "invalid"
+          ? translateUi(
+              "sidebar.unread.invalidSavedMarks",
+              "Saved unread and failed marks were unreadable, so they were cleared.",
+            )
+          : translateUi(
+              "sidebar.unread.restoreError",
+              "Could not restore unread and failed marks.",
+            ),
+      ),
+    0,
+  );
 }
 
 function toStored(marks: UnreadMarks): StoredMarks {
@@ -137,6 +152,11 @@ export function saveUnreadMarks(marks: UnreadMarks): void {
     console.error("Could not save unread marks.", error);
     if (reportedSaveError) return;
     reportedSaveError = true;
-    toast.error("Could not save unread and failed marks; they won't survive a reload.");
+    toast.error(
+      translateUi(
+        "sidebar.unread.saveError",
+        "Could not save unread and failed marks; they won't survive a reload.",
+      ),
+    );
   }
 }

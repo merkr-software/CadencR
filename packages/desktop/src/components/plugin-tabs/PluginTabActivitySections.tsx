@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode } from "react";
 import { Loader2Icon, SquareIcon } from "lucide-react";
 
@@ -33,30 +34,38 @@ const OUTCOME_TONE: Record<PluginTabExecRecord["outcome"], string> = {
   failed: "text-[var(--acc-red)]",
 };
 
-function outcomeText(record: PluginTabExecRecord): string {
+function outcomeText(record: PluginTabExecRecord, t: UiTranslator): string {
   switch (record.outcome) {
     case "exited":
-      return record.exit_code == null ? "Ended by a signal" : `Exit ${record.exit_code}`;
+      return record.exit_code == null
+        ? t("customTabs.activity.endedBySignal", "Ended by a signal")
+        : t("customTabs.activity.exitCode", "Exit {{code}}", { code: record.exit_code });
     case "refused":
-      return "Refused";
+      return t("customTabs.activity.refused", "Refused");
     case "timed_out":
-      return "Timed out";
+      return t("customTabs.activity.timedOut", "Timed out");
     case "failed":
-      return "Failed";
+      return t("customTabs.activity.failed", "Failed");
   }
 }
 
 /** Every command the tab asked for here, newest first, refusals included. */
 export function CommandList({ records }: { records: PluginTabExecRecord[] }): ReactElement {
+  const { t } = useUiTranslation();
   if (records.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">No command has run in this conversation yet.</p>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          "customTabs.pluginTabActivitySections.noCommandHasRunInThisConversation",
+          "No command has run in this conversation yet.",
+        )}
+      </p>
     );
   }
   return (
     <ul
       className="divide-y divide-border/60 rounded-md border border-border"
-      aria-label="Commands run"
+      aria-label={t("customTabs.pluginTabActivitySections.commandsRun", "Commands run")}
     >
       {records.map((record, index) => (
         <li key={`${record.started_at}-${index}`} className="space-y-0.5 px-3 py-2">
@@ -65,9 +74,13 @@ export function CommandList({ records }: { records: PluginTabExecRecord[] }): Re
           </p>
           <p className="flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
             <span className={cn("font-medium", OUTCOME_TONE[record.outcome])}>
-              {outcomeText(record)}
+              {outcomeText(record, t)}
             </span>
-            <span>{record.duration_ms} ms</span>
+            <span>
+              {t("customTabs.activity.duration", "{{duration}} ms", {
+                duration: record.duration_ms,
+              })}
+            </span>
             <span>{formatAgo(record.started_at)}</span>
           </p>
           {record.error ? (
@@ -79,21 +92,66 @@ export function CommandList({ records }: { records: PluginTabExecRecord[] }): Re
   );
 }
 
-function backendHeadline(status: PluginTabBackendStatus | null | undefined): string {
-  if (!status) return "Not started yet: it starts on the tab's first request.";
+function backendHeadline(
+  status: PluginTabBackendStatus | null | undefined,
+  t: UiTranslator,
+): string {
+  if (!status)
+    return t(
+      "customTabs.activity.backendNotStarted",
+      "Not started yet: it starts on the tab's first request.",
+    );
   // A refused start spawned nothing: the last run's exit no longer says why it isn't running.
   if (status.state === "stopped" && status.start_error)
-    return `Couldn't start: ${reasonClause(status.start_error)}.`;
+    return t("customTabs.activity.backendStartError", "Couldn't start: {{reason}}.", {
+      reason: reasonClause(status.start_error),
+    });
   const since = formatAgo(status.state === "running" ? status.started_at : status.exited_at);
   switch (status.state) {
     case "starting":
-      return `Starting… waiting for ${status.pid ? `process ${status.pid}` : "it"} to be ready.`;
+      return status.pid
+        ? t(
+            "customTabs.activity.backendStartingPid",
+            "Starting… waiting for process {{pid}} to be ready.",
+            { pid: status.pid },
+          )
+        : t("customTabs.activity.backendStarting", "Starting… waiting for it to be ready.");
     case "running":
-      return `Running${status.pid ? ` as process ${status.pid}` : ""}${since ? `, started ${since}` : ""}.`;
-    case "crashed":
-      return `Crashed${since ? ` ${since}` : ""}: ${status.exit_reason ?? "it exited with an error"}.`;
-    case "stopped":
-      return `Stopped${since ? ` ${since}` : ""}: ${status.exit_reason ?? "not running"}.`;
+      if (status.pid) {
+        return since
+          ? t(
+              "customTabs.activity.backendRunningPidSince",
+              "Running as process {{pid}}, started {{since}}.",
+              { pid: status.pid, since },
+            )
+          : t("customTabs.activity.backendRunningPid", "Running as process {{pid}}.", {
+              pid: status.pid,
+            });
+      }
+      return since
+        ? t("customTabs.activity.backendRunningSince", "Running, started {{since}}.", { since })
+        : t("customTabs.activity.backendRunning", "Running.");
+    case "crashed": {
+      const reason =
+        status.exit_reason ??
+        t("customTabs.activity.backendCrashReason", "it exited with an error");
+      return since
+        ? t("customTabs.activity.backendCrashedSince", "Crashed {{since}}: {{reason}}.", {
+            since,
+            reason,
+          })
+        : t("customTabs.activity.backendCrashed", "Crashed: {{reason}}.", { reason });
+    }
+    case "stopped": {
+      const reason =
+        status.exit_reason ?? t("customTabs.activity.backendStopReason", "not running");
+      return since
+        ? t("customTabs.activity.backendStoppedSince", "Stopped {{since}}: {{reason}}.", {
+            since,
+            reason,
+          })
+        : t("customTabs.activity.backendStopped", "Stopped: {{reason}}.", { reason });
+    }
   }
 }
 
@@ -111,6 +169,7 @@ export function BackendPanel({
   stopping: boolean;
   onStop: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const running = status?.state === "running";
   const crashed = status?.state === "crashed";
   const starting = status?.state === "starting";
@@ -134,15 +193,26 @@ export function BackendPanel({
               className="mr-1.5 inline size-3.5 animate-spin align-[-3px] text-muted-foreground"
             />
           ) : null}
-          {backendHeadline(status)}
+          {backendHeadline(status, t)}
           {held ? (
             <span className="text-muted-foreground">
               {" "}
-              Cadencr won't start it again until you allow a restart.
+              {t(
+                "customTabs.activity.restartHeld",
+                "Cadencr won't start it again until you allow a restart.",
+              )}
             </span>
           ) : null}
           {status && status.starts > 1 ? (
-            <span className="text-muted-foreground"> Started {status.starts} times.</span>
+            <span className="text-muted-foreground">
+              {" "}
+              {t("customTabs.activity.startCount", {
+                count: status.starts,
+                defaultValue_zero: "Started {{count}} times.",
+                defaultValue_one: "Started {{count}} time.",
+                defaultValue_other: "Started {{count}} times.",
+              })}
+            </span>
           ) : null}
         </p>
         {running || failing ? (
@@ -159,13 +229,15 @@ export function BackendPanel({
             ) : (
               <SquareIcon aria-hidden />
             )}
-            {running ? "Stop" : "Allow restart"}
+            {running
+              ? t("customTabs.activity.stop", "Stop")
+              : t("customTabs.activity.allowRestart", "Allow restart")}
           </Button>
         ) : null}
       </div>
       {status && status.stderr_tail.length > 0 ? (
         <pre
-          aria-label="Backend log"
+          aria-label={t("customTabs.pluginTabActivitySections.backendLog", "Backend log")}
           className="max-h-48 overflow-auto rounded-md border border-border bg-[var(--surface-sunken)] px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all text-muted-foreground"
         >
           {status.stderr_tail.join("\n")}

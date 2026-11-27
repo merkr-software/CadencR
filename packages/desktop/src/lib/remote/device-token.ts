@@ -19,6 +19,12 @@ const DEVICE_TOKEN_KEY = "cadencr.remoteDeviceToken";
  * (private mode). `undefined` means "not yet read from storage".
  */
 let memoryToken: string | null | undefined;
+const revocationListeners = new Set<() => void>();
+
+export function subscribeToDeviceRevocation(notify: () => void): () => void {
+  revocationListeners.add(notify);
+  return () => revocationListeners.delete(notify);
+}
 
 /**
  * True when the SPA runs in a remote browser: a real browser served over
@@ -91,6 +97,7 @@ export function trustCurrentDevice(): boolean {
 
 /** Forget the device token from memory and both stores (e.g. after a 401). */
 export function clearDeviceToken(): void {
+  const wasPaired = Boolean(readDeviceToken());
   memoryToken = null;
   if (typeof window === "undefined") return;
   try {
@@ -98,6 +105,9 @@ export function clearDeviceToken(): void {
     sessionStorage.removeItem(DEVICE_TOKEN_KEY);
   } catch {
     // Nothing to clear if storage is unavailable.
+  }
+  if (wasPaired) {
+    for (const notify of revocationListeners) notify();
   }
 }
 

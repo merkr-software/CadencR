@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import { Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ export function SyncFromCliRow({
   wsSessionId,
   isRunning,
 }: SyncFromCliRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const refresh = useRefreshSession({
     mutation: {
       onSuccess: async ({ added, session_db_id, cursor }) => {
@@ -41,12 +43,27 @@ export function SyncFromCliRow({
         }
         toast.success(
           added > 0
-            ? `Synced ${added} ${added === 1 ? "event" : "events"} from the CLI`
-            : "Already up to date",
+            ? translateUi("conversation.stream.syncFromCliRow.syncResult", {
+                count: added,
+                defaultValue_one: "Synced {{count}} event from the CLI",
+                defaultValue_other: "Synced {{count}} events from the CLI",
+              })
+            : translateUi(
+                "conversation.stream.syncFromCliRow.alreadyUpToDate",
+                "Already up to date",
+              ),
         );
       },
       onError: (err) => {
-        toast.error(apiErrorMessage(err, "Failed to sync from the CLI"));
+        toast.error(
+          apiErrorMessage(
+            err,
+            translateUi(
+              "conversation.stream.syncFromCliRow.failedToSyncFromTheCli",
+              "Failed to sync from the CLI",
+            ),
+          ),
+        );
       },
     },
   });
@@ -63,12 +80,20 @@ export function SyncFromCliRow({
         disabled={isRunning || pending}
       >
         {pending ? <Loader2Icon className="animate-spin" /> : <RefreshCwIcon />}
-        {pending ? "Syncing…" : "Sync from CLI"}
+        {pending
+          ? t("conversation.stream.syncFromCliRow.syncing", "Syncing…")
+          : t("conversation.stream.syncFromCliRow.syncFromCli", "Sync from CLI")}
       </Button>
       <p className="text-[11px] text-muted-foreground">
         {isRunning
-          ? "Pause the agent to pull in events from the CLI."
-          : "Pull in events added while you continued this session in the CLI."}
+          ? t(
+              "conversation.stream.syncFromCliRow.pauseTheAgentToPullInEvents",
+              "Pause the agent to pull in events from the CLI.",
+            )
+          : t(
+              "conversation.stream.syncFromCliRow.pullInEventsAddedWhileYouContinued",
+              "Pull in events added while you continued this session in the CLI.",
+            )}
       </p>
     </div>
   );

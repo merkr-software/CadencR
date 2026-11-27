@@ -1,3 +1,5 @@
+import type { UiTranslator } from "./i18n/ui";
+
 /**
  * Single source of truth for "what counts as a huge file in the git diff".
  *
@@ -44,9 +46,15 @@ export function isLargeDiffByLines(additions: number, deletions: number): boolea
   return additions + deletions >= LARGE_DIFF_LINES;
 }
 
-/** Pretty-print a byte count using KB / MB units. */
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+/** Use binary thresholds and preserve the precision shown in Git's size messages. */
+export function formatBytes(bytes: number, t: UiTranslator, maxUnit: "MB" | "GB" = "MB"): string {
+  if (bytes < 1024) return t("format.bytes", "{{size, number}} B", { size: bytes });
+  const formatParams = { size: { minimumFractionDigits: 1, maximumFractionDigits: 1 } };
+  if (bytes < 1024 ** 2) {
+    return t("format.kilobytes", "{{size, number}} KB", { size: bytes / 1024, formatParams });
+  }
+  if (maxUnit === "MB" || bytes < 1024 ** 3) {
+    return t("format.megabytes", "{{size, number}} MB", { size: bytes / 1024 ** 2, formatParams });
+  }
+  return t("format.gigabytes", "{{size, number}} GB", { size: bytes / 1024 ** 3, formatParams });
 }

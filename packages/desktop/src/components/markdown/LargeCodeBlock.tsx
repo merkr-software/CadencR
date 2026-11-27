@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { Virtuoso, type ItemContent } from "react-virtuoso";
 import { CodeBlockShell } from "@/components/CodeBlockShell";
@@ -73,7 +74,14 @@ function hasAppendBoundary(previous: string, next: string): boolean {
 
 function visibleLine(line: string): string {
   if (line.length <= MAX_VISIBLE_LINE_CHARACTERS) return line;
-  return `${line.slice(0, MAX_VISIBLE_LINE_CHARACTERS)}… [${line.length - MAX_VISIBLE_LINE_CHARACTERS} more characters]`;
+  return translateUi(
+    "conversation.stream.largeCodeBlock.moreCharacters",
+    "{{line}}… [{{count}} more characters]",
+    {
+      line: line.slice(0, MAX_VISIBLE_LINE_CHARACTERS),
+      count: line.length - MAX_VISIBLE_LINE_CHARACTERS,
+    },
+  );
 }
 
 const renderLine: ItemContent<unknown, LargeCodeContext> = (index, _data, context) => {
@@ -100,6 +108,7 @@ function LargeCodeBlockImpl({
   icon,
   leadingActions,
 }: LargeCodeBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const lineIndexRef = useRef<CodeLineIndex | null>(null);
   const lineIndex = lineIndexRef.current
     ? updateLineIndex(lineIndexRef.current, code, isStreaming)
@@ -117,8 +126,10 @@ function LargeCodeBlockImpl({
       leadingActions={leadingActions}
     >
       <p className="border-b border-border px-3 py-1 text-[11px] text-muted-foreground">
-        Large code — virtualized for performance. Very long lines are shortened visually; Copy
-        includes all content.
+        {t(
+          "conversation.stream.largeCodeBlock.largeCodeVirtualizedForPerformanceVery",
+          "Large code — virtualized for performance. Very long lines are shortened visually; Copy includes all content.",
+        )}
       </p>
       <Virtuoso
         context={context}
@@ -130,7 +141,11 @@ function LargeCodeBlockImpl({
         style={{ height: LARGE_CODE_HEIGHT }}
         className="overflow-x-auto py-2"
         role="region"
-        aria-label={`${language} code, ${lineIndex.starts.length} lines`}
+        aria-label={t(
+          "conversation.stream.largeCodeBlock.codeLines",
+          "{{language}} code, {{count}} lines",
+          { language, count: lineIndex.starts.length },
+        )}
         tabIndex={0}
       />
     </CodeBlockShell>

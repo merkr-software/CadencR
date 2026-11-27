@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import type { AgentBlockData } from "@/types/agent-block";
@@ -55,14 +56,15 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
   depth = 0,
   compact = false,
 }: TaskAgentBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const { featureId } = useAgentSessionContext();
   const run = useSubagentRun(featureId, block.toolUseId);
   // Lets the composer's agent list leave this agent out while its card shows.
   const cardRef = useSubagentCardRef(block.toolUseId);
   const { toolArgs, toolName, taskComplete } = block;
   const view = useMemo(
-    () => subagentView(run, { toolArgs, toolName, taskComplete }),
-    [run, toolArgs, toolName, taskComplete],
+    () => subagentView(run, { toolArgs, toolName, taskComplete }, t),
+    [run, toolArgs, toolName, taskComplete, t],
   );
   const { childBlocks, id: blockId } = block;
   const children = useMemo(
@@ -89,7 +91,11 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
       data-subagent-id={block.toolUseId}
       data-subagent-depth={depth}
       data-subagent-status={view.status}
-      aria-label={`Sub-agent ${view.title}: ${subagentStatusSentence(view)}`}
+      aria-label={t(
+        "conversation.stream.taskAgentBlock.subAgent",
+        "Sub-agent {{name}}: {{status}}",
+        { name: view.title, status: subagentStatusSentence(view, t) },
+      )}
       className={agentCardClassName(view.status === "failed")}
       style={nestOffset > 0 ? { marginLeft: nestOffset } : undefined}
     >
@@ -136,13 +142,24 @@ const SubagentCardHeader = memo(function SubagentCardHeader({
   canOpen: boolean;
   onToggle: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
       disabled={!canOpen}
       onClick={onToggle}
       aria-expanded={expanded}
-      aria-label={expanded ? "Collapse sub-agent actions" : "Expand sub-agent actions"}
+      aria-label={
+        expanded
+          ? t(
+              "conversation.stream.taskAgentBlock.collapseSubAgentActions",
+              "Collapse sub-agent actions",
+            )
+          : t(
+              "conversation.stream.taskAgentBlock.expandSubAgentActions",
+              "Expand sub-agent actions",
+            )
+      }
       className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-3 text-left text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
     >
       <SubagentIdentity view={view} />
@@ -180,11 +197,16 @@ function SubagentCardBody({
   depth,
   renderNested,
 }: CardContentProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-col gap-3 border-t border-border/60 py-2.5 pr-3 pl-[34px]">
       {view.prompt && <SubagentPrompt prompt={view.prompt} />}
       {actions.length > 0 && (
-        <CardSection label={`Activity · ${actions.length}`}>
+        <CardSection
+          label={t("conversation.stream.taskAgentBlock.activity", "Activity · {{count}}", {
+            count: actions.length,
+          })}
+        >
           <SubagentTimeline
             actions={actions}
             toolResults={toolResults}
@@ -197,7 +219,7 @@ function SubagentCardBody({
         </CardSection>
       )}
       {report && (
-        <CardSection label="Report">
+        <CardSection label={t("conversation.stream.taskAgentBlock.report", "Report")}>
           <SubagentReportBody report={report} />
         </CardSection>
       )}

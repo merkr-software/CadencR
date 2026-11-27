@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import {
   ArrowDownIcon,
@@ -46,6 +47,7 @@ export function CustomActionManagerRow({
   onEdit,
   onDelete,
 }: CustomActionManagerRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const [dropTarget, setDropTarget] = useState(false);
   return (
     <li
@@ -86,7 +88,7 @@ export function CustomActionManagerRow({
           <span className="truncate">{action.name}</span>
           {action.run_in_terminal && (
             <span className="rounded-sm bg-muted px-1.5 py-px text-[11px] text-muted-foreground">
-              Terminal
+              {t("customActions.customActionManagerRow.terminal", "Terminal")}
             </span>
           )}
         </span>
@@ -96,27 +98,31 @@ export function CustomActionManagerRow({
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={`${action.name} options`}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("customActions.options", "{{name}} options", { name: action.name })}
+          >
             <MoreHorizontalIcon />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={onEdit}>
             <PencilIcon />
-            Edit…
+            {t("customActions.customActionManagerRow.edit", "Edit…")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={index === 0} onSelect={() => onMove(index - 1)}>
             <ArrowUpIcon />
-            Move up
+            {t("customActions.customActionManagerRow.moveUp", "Move up")}
           </DropdownMenuItem>
           <DropdownMenuItem disabled={index === count - 1} onSelect={() => onMove(index + 1)}>
             <ArrowDownIcon />
-            Move down
+            {t("customActions.customActionManagerRow.moveDown", "Move down")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={onDelete}>
             <Trash2Icon />
-            Delete…
+            {t("customActions.deleteAction", "Delete…")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

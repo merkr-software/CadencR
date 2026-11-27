@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useMemo, useState, type ReactElement } from "react";
 import {
   CalendarClock,
@@ -49,6 +50,7 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
   onCancel,
   onSendNow,
 }: SessionSchedulesBannerProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? schedules : schedules.slice(0, 1);
 
@@ -57,12 +59,18 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
   return (
     <StackSection
       tone="schedule"
-      label="Scheduled messages"
+      label={t(
+        "conversation.stream.sessionSchedulesBanner.scheduledMessages",
+        "Scheduled messages",
+      )}
       data-composer-schedules
       icon={<CalendarClock />}
-      title="Scheduled"
+      title={t("conversation.stream.sessionSchedulesBanner.scheduled", "Scheduled")}
       count={schedules.length}
-      hint="Sends to this conversation on its own"
+      hint={t(
+        "conversation.stream.sessionSchedulesBanner.sendsToThisConversationOnItsOwn",
+        "Sends to this conversation on its own",
+      )}
       summary={<NextScheduleSummary schedule={schedules[0]} />}
       // Schedules come and go on their own (they fire; an agent sets one), and
       // the section moves above a permission prompt and back.
@@ -72,7 +80,7 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
           {busy && (
             <Loader2
               className="size-3 shrink-0 animate-spin text-muted-foreground"
-              aria-label="Saving"
+              aria-label={t("conversation.stream.sessionSchedulesBanner.saving", "Saving")}
             />
           )}
           {schedules.length > 1 && (
@@ -82,7 +90,11 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
               aria-expanded={expanded}
               className="flex shrink-0 items-center gap-1 rounded px-1 text-muted-foreground transition-colors hover:text-foreground"
             >
-              {expanded ? "Show less" : `${schedules.length - 1} more`}
+              {expanded
+                ? t("conversation.stream.sessionSchedulesBanner.showLess", "Show less")
+                : t("conversation.stream.sessionSchedulesBanner.more", "{{count, number}} more", {
+                    count: schedules.length - 1,
+                  })}
               <ChevronDown
                 className={cn("size-3 transition-transform", expanded && "rotate-180")}
                 aria-hidden
@@ -108,19 +120,44 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
   );
 });
 
+function scheduleAction(
+  t: UiTranslator,
+  schedule: Schedule,
+  nextRun: Date | null,
+  locale: string,
+): string {
+  if (!nextRun)
+    return schedule.condition
+      ? t("conversation.stream.sessionSchedulesBanner.checks", "Checks")
+      : t("conversation.stream.sessionSchedulesBanner.sends", "Sends");
+  const when = formatRelative(nextRun, locale);
+  return schedule.condition
+    ? t("conversation.stream.sessionSchedulesBanner.checksAt", "Checks {{when}}", { when })
+    : t("conversation.stream.sessionSchedulesBanner.sendsAt", "Sends {{when}}", { when });
+}
+
 /** The next schedule in one line; it ticks like its row would. */
 function NextScheduleSummary({ schedule }: { schedule: Schedule }): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const nextRun = useMemo(
     () => (schedule.next_run_at ? new Date(schedule.next_run_at) : null),
     [schedule.next_run_at],
   );
   useCountdownTick(nextRun);
-  const verb = schedule.condition ? "Checks" : "Sends";
   return (
     <>
-      {nextRun ? `${verb} ${formatRelative(nextRun)}` : verb} · {scheduleTitle(schedule)}
+      {scheduleAction(t, schedule, nextRun, i18n.language)} · {scheduleTitle(schedule)}
     </>
   );
+}
+
+function scheduleTiming(schedule: Schedule, nextRun: Date | null, locale: string): string {
+  return [
+    nextRun ? formatAbsolute(nextRun, locale) : null,
+    schedule.recurrence.kind !== "once" ? describeRecurrence(schedule.recurrence, locale) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function ScheduleRow({
@@ -136,6 +173,7 @@ function ScheduleRow({
   onCancel: (schedule: Schedule) => void;
   onSendNow: (schedule: Schedule) => void;
 }): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const nextRun = useMemo(
     () => (schedule.next_run_at ? new Date(schedule.next_run_at) : null),
     [schedule.next_run_at],
@@ -144,13 +182,7 @@ function ScheduleRow({
   const repeats = schedule.recurrence.kind !== "once";
   const condition = schedule.condition;
   const Icon = condition ? SquareTerminal : repeats ? Repeat : CalendarClock;
-  const verb = condition ? "Checks" : "Sends";
-  const when = [
-    nextRun ? formatAbsolute(nextRun) : null,
-    repeats ? describeRecurrence(schedule.recurrence) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const when = scheduleTiming(schedule, nextRun, i18n.language);
 
   return (
     <li className={STACK_ROW_CLASS}>
@@ -158,41 +190,64 @@ function ScheduleRow({
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-baseline gap-1.5 text-xs">
           <span className="shrink-0 font-medium text-foreground">
-            {nextRun ? `${verb} ${formatRelative(nextRun)}` : verb}
+            {scheduleAction(t, schedule, nextRun, i18n.language)}
           </span>
           {when && <span className="truncate text-muted-foreground">· {when}</span>}
         </span>
         <span className="block truncate text-xs text-muted-foreground" title={schedule.prompt}>
           {condition && (
-            <>
-              If{" "}
-              <code className="font-mono text-[11px] text-foreground/80">{condition.command}</code>{" "}
-              fails ·{" "}
-            </>
+            <UiTrans
+              i18nKey="conversation.stream.sessionSchedulesBanner.ifCommandFails"
+              defaults="If <command>{{command}}</command> fails · "
+              values={{ command: condition.command }}
+              components={{
+                command: <code className="font-mono text-[11px] text-foreground/80" />,
+              }}
+            />
           )}
           {scheduleTitle(schedule)}
         </span>
       </span>
       <StackRowActions>
         <StackRowButton
-          label="Send now"
-          ariaLabel="Send this scheduled message now"
+          label={t("conversation.stream.sessionSchedulesBanner.sendNow", "Send now")}
+          ariaLabel={t(
+            "conversation.stream.sessionSchedulesBanner.sendThisScheduledMessageNow",
+            "Send this scheduled message now",
+          )}
           onClick={() => onSendNow(schedule)}
           disabled={busy}
         >
           <Send className="size-3.5" />
         </StackRowButton>
         <StackRowButton
-          label="Edit"
-          ariaLabel="Edit this schedule"
+          label={t("schedules.actions.edit", "Edit")}
+          ariaLabel={t(
+            "conversation.stream.sessionSchedulesBanner.editThisSchedule",
+            "Edit this schedule",
+          )}
           onClick={() => onEdit(schedule)}
           disabled={busy}
         >
           <Pencil className="size-3.5" />
         </StackRowButton>
         <StackRowButton
-          label={repeats ? "Delete schedule" : "Cancel"}
-          ariaLabel="Cancel this schedule"
+          label={
+            repeats
+              ? t("conversation.stream.sessionSchedulesBanner.deleteSchedule", "Delete schedule")
+              : t("conversation.stream.sessionSchedulesBanner.cancel", "Cancel")
+          }
+          ariaLabel={
+            repeats
+              ? t(
+                  "conversation.stream.sessionSchedulesBanner.deleteThisSchedule",
+                  "Delete this schedule",
+                )
+              : t(
+                  "conversation.stream.sessionSchedulesBanner.cancelThisSchedule",
+                  "Cancel this schedule",
+                )
+          }
           onClick={() => onCancel(schedule)}
           disabled={busy}
           className="hover:text-destructive"

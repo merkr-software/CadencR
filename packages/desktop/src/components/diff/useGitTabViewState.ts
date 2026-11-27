@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -73,7 +74,18 @@ export function useGitTabViewState(
         queryClient.invalidateQueries({ queryKey: getGetFeatureSettingsQueryKey(featureId) });
       },
       onError: (error: unknown) => {
-        toast.error(`Could not save Git view setting: ${apiErrorMessage(error, "Unknown error")}`);
+        toast.error(
+          translateUi(
+            "workspace.git.useGitTabViewState.couldNotSaveGitViewSettingError",
+            "Could not save Git view setting: {{error}}",
+            {
+              error: apiErrorMessage(
+                error,
+                translateUi("workspace.git.useGitTabViewState.unknownError", "Unknown error"),
+              ),
+            },
+          ),
+        );
       },
     },
   });

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { CircleAlertIcon, CircleCheckIcon, MessageSquareReplyIcon } from "lucide-react";
 import { memo, useCallback, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -14,21 +15,33 @@ interface SessionReplyBlockProps {
 export const SessionReplyBlock = memo(function SessionReplyBlock({
   reply,
 }: SessionReplyBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const needsFeatureLookup = !reply.responderFeatureTitle || reply.responderProjectId === undefined;
   const featureQuery = useGetFeature(reply.responderFeatureId, {
     query: { enabled: needsFeatureLookup },
   });
   const isFailed = reply.status === "failed";
-  const subject = reply.link === "spawned" ? "Spawned session" : "Session";
+  const subject =
+    reply.link === "spawned"
+      ? t("conversation.stream.sessionReplyBlock.spawnedSession", "Spawned session")
+      : t("conversation.stream.sessionReplyBlock.session", "Session");
   const featureTitle = featureQuery.data?.title ?? reply.responderFeatureTitle;
   const projectId = featureQuery.data?.project_id ?? reply.responderProjectId;
   const responder = featureTitle
     ? `“${featureTitle}”`
     : featureQuery.isLoading
-      ? "Loading conversation…"
-      : `Session ${reply.responderSessionId} (title unavailable)`;
-  const outcome = isFailed ? "failed" : reply.link === "spawned" ? "completed" : "replied";
+      ? t("conversation.stream.sessionReplyBlock.loadingConversation", "Loading conversation…")
+      : t(
+          "conversation.stream.sessionReplyBlock.sessionTitleUnavailable",
+          "Session {{sessionId}} (title unavailable)",
+          { sessionId: reply.responderSessionId },
+        );
+  const outcome = isFailed
+    ? t("conversation.stream.sessionReplyBlock.failed", "failed")
+    : reply.link === "spawned"
+      ? t("conversation.stream.sessionReplyBlock.completed", "completed")
+      : t("conversation.stream.sessionReplyBlock.replied", "replied");
   const StatusIcon = isFailed ? CircleAlertIcon : CircleCheckIcon;
   const openConversation = useCallback((): void => {
     if (projectId === undefined) return;
@@ -37,14 +50,28 @@ export const SessionReplyBlock = memo(function SessionReplyBlock({
 
   return (
     <div className="mx-auto my-2 flex w-full max-w-[85%] flex-col items-center gap-1.5">
-      <div className="flex w-full items-center gap-3" aria-label={`${subject} ${outcome}`}>
+      <div
+        className="flex w-full items-center gap-3"
+        aria-label={t(
+          "conversation.stream.sessionReplyBlock.subjectOutcome",
+          "{{subject}} {{outcome}}",
+          { subject, outcome },
+        )}
+      >
         <span className="h-px flex-1 bg-border/70" aria-hidden="true" />
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <MessageSquareReplyIcon className="size-3" aria-hidden="true" />
           <span>{subject}</span>
           {projectId === undefined ? (
             <span
-              title={featureQuery.isError ? "Conversation title could not be loaded" : undefined}
+              title={
+                featureQuery.isError
+                  ? t(
+                      "conversation.stream.sessionReplyBlock.conversationTitleCouldNotBeLoaded",
+                      "Conversation title could not be loaded",
+                    )
+                  : undefined
+              }
             >
               {responder}
             </span>
@@ -53,7 +80,10 @@ export const SessionReplyBlock = memo(function SessionReplyBlock({
               type="button"
               onClick={openConversation}
               className="rounded-sm text-foreground/75 underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-[var(--acc-cyan)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-              title="Open conversation"
+              title={t(
+                "conversation.stream.sessionReplyBlock.openConversation",
+                "Open conversation",
+              )}
             >
               {responder}
             </button>

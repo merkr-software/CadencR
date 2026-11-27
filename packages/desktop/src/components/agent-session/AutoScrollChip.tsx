@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ChevronsDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,20 +26,27 @@ export const AutoScrollChip = memo(function AutoScrollChip({
   onToggle,
   variant = "chip",
 }: AutoScrollChipProps) {
+  const { t } = useUiTranslation();
   const autoScrollKeys = useShortcutKeys("agent-autoscroll");
   return (
     <ShortcutTooltip
       label={
         enabled
-          ? "Auto-scroll: on — follow new agent output"
-          : "Auto-scroll: off — click to follow new agent output"
+          ? t(
+              "conversation.stream.autoScrollChip.autoScrollOnFollowNewAgentOutput",
+              "Auto-scroll: on — follow new agent output",
+            )
+          : t(
+              "conversation.stream.autoScrollChip.autoScrollOffClickToFollowNew",
+              "Auto-scroll: off — click to follow new agent output",
+            )
       }
       keys={autoScrollKeys}
       alignLeft
     >
       <button
         type="button"
-        aria-label="Auto-scroll"
+        aria-label={t("conversation.stream.autoScrollChip.autoScroll", "Auto-scroll")}
         aria-pressed={enabled}
         data-auto-scroll-chip
         onClick={onToggle}

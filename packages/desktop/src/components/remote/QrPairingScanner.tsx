@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import jsQR from "jsqr";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 
 /**
  * Full-screen camera viewfinder that decodes a pairing QR code. Used by the
@@ -28,11 +29,33 @@ export interface QrPairingScannerProps {
   onCancel: () => void;
 }
 
+type CameraError = "unavailable" | "denied" | "failed";
+
+function cameraErrorMessage(error: CameraError, t: UiTranslator): string {
+  switch (error) {
+    case "unavailable":
+      return t(
+        "remote.pairing.scanner.unavailable",
+        "This browser can't open the camera here. Paste the link instead.",
+      );
+    case "denied":
+      return t(
+        "remote.pairing.scanner.permissionDenied",
+        "Camera permission was denied. Allow it in your browser settings, or paste the link instead.",
+      );
+    case "failed":
+      return t(
+        "remote.pairing.scanner.failed",
+        "Couldn't start the camera. Paste the link instead.",
+      );
+  }
+}
+
 function useQrCamera(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   onDetect: (text: string) => void,
-): string | null {
-  const [error, setError] = useState<string | null>(null);
+): CameraError | null {
+  const [error, setError] = useState<CameraError | null>(null);
   const onDetectRef = useRef(onDetect);
   useEffect(() => {
     onDetectRef.current = onDetect;
@@ -70,7 +93,7 @@ function useQrCamera(
     const start = async (): Promise<void> => {
       const media = navigator.mediaDevices;
       if (!media?.getUserMedia) {
-        setError("This browser can't open the camera here. Paste the link instead.");
+        setError("unavailable");
         return;
       }
       try {
@@ -91,11 +114,7 @@ function useQrCamera(
         const denied =
           err instanceof DOMException &&
           (err.name === "NotAllowedError" || err.name === "SecurityError");
-        setError(
-          denied
-            ? "Camera permission was denied. Allow it in your browser settings, or paste the link instead."
-            : "Couldn't start the camera. Paste the link instead.",
-        );
+        setError(denied ? "denied" : "failed");
       }
     };
 
@@ -113,6 +132,7 @@ function useQrCamera(
 }
 
 export function QrPairingScanner({ onDetect, onCancel }: QrPairingScannerProps): ReactElement {
+  const { t } = useUiTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const error = useQrCamera(videoRef, onDetect);
 
@@ -123,7 +143,7 @@ export function QrPairingScanner({ onDetect, onCancel }: QrPairingScannerProps):
         className="absolute inset-0 size-full object-cover"
         playsInline
         muted
-        aria-label="Camera viewfinder"
+        aria-label={t("remote.pairing.scanner.viewfinder", "Camera viewfinder")}
       />
 
       {/* Viewfinder frame to guide aim. */}
@@ -132,14 +152,16 @@ export function QrPairingScanner({ onDetect, onCancel }: QrPairingScannerProps):
       </div>
 
       <div className="relative z-10 flex items-center justify-between p-4">
-        <p className="text-sm font-medium drop-shadow">Point at the QR code on your computer</p>
+        <p className="text-sm font-medium drop-shadow">
+          {t("remote.pairing.scanner.aim", "Point at the QR code on your computer")}
+        </p>
         <Button
           type="button"
           size="icon"
           variant="ghost"
           onClick={onCancel}
           className="text-white hover:bg-white/15 hover:text-white"
-          aria-label="Cancel scan"
+          aria-label={t("remote.pairing.scanner.cancel", "Cancel scan")}
         >
           <X className="size-5" />
         </Button>
@@ -147,9 +169,11 @@ export function QrPairingScanner({ onDetect, onCancel }: QrPairingScannerProps):
 
       {error && (
         <div className="relative z-10 mx-4 mb-4 mt-auto rounded-lg bg-black/70 p-4 text-center">
-          <p className="text-sm text-red-300">{error}</p>
+          <p role="alert" className="text-sm text-red-300">
+            {cameraErrorMessage(error, t)}
+          </p>
           <Button type="button" variant="secondary" className="mt-3" onClick={onCancel}>
-            Back to paste
+            {t("remote.pairing.scanner.backToPaste", "Back to paste")}
           </Button>
         </div>
       )}

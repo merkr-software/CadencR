@@ -1,3 +1,4 @@
+import type { useUiTranslation } from "@/lib/i18n/ui";
 import { FoldVerticalIcon, ListTree, Minimize2, Rows2, type LucideIcon } from "lucide-react";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 
@@ -27,8 +28,8 @@ export const AGENT_AUTO_COLLAPSE_DELAY_MS = 3000;
 
 export interface AgentVerbosityOption {
   value: AgentVerbosityMode;
-  label: string;
-  description: string;
+  label: (t: ReturnType<typeof useUiTranslation>["t"]) => string;
+  description: (t: ReturnType<typeof useUiTranslation>["t"]) => string;
   icon: LucideIcon;
   iconColorVar: string;
 }
@@ -36,33 +37,45 @@ export interface AgentVerbosityOption {
 export const AGENT_VERBOSITY_OPTIONS: readonly AgentVerbosityOption[] = [
   {
     value: "maximal",
-    label: "Maximal",
-    description:
-      "Show every tool call, thinking step, and command output expanded by default. Best for inspecting agent behavior in detail.",
+    label: (t) => t("settings.agentOutput.maximal.label", "Maximal"),
+    description: (t) =>
+      t(
+        "settings.agentOutput.maximal.description",
+        "Show every tool call, thinking step, and command output expanded by default. Best for inspecting agent behavior in detail.",
+      ),
     icon: ListTree,
     iconColorVar: "var(--acc-blue)",
   },
   {
     value: "auto_collapse",
-    label: "Auto-collapse",
-    description:
-      "Three seconds after each Bash command, Edit, or thinking step finishes running, fold its block so the stream stays scannable. Click any block to re-expand.",
+    label: (t) => t("settings.agentOutput.autoCollapse.label", "Auto-collapse"),
+    description: (t) =>
+      t(
+        "settings.agentOutput.autoCollapse.description",
+        "Three seconds after each Bash command, Edit, or thinking step finishes running, fold its block so the stream stays scannable. Click any block to re-expand.",
+      ),
     icon: Minimize2,
     iconColorVar: "var(--acc-yellow)",
   },
   {
     value: "collapsed",
-    label: "Collapsed",
-    description:
-      "Bash commands, Edits, and thinking steps appear pre-folded so the stream stays compact from the start. Click any block to expand it.",
+    label: (t) => t("settings.agentOutput.collapsed.label", "Collapsed"),
+    description: (t) =>
+      t(
+        "settings.agentOutput.collapsed.description",
+        "Bash commands, Edits, and thinking steps appear pre-folded so the stream stays compact from the start. Click any block to expand it.",
+      ),
     icon: FoldVerticalIcon,
     iconColorVar: "var(--acc-orange)",
   },
   {
     value: "compact",
-    label: "Compact flow",
-    description:
-      "Keep the stream to your prompts and the agent's replies. The tool calls and thinking between them shrink to a single line showing the latest step; click it to list every step, newest first.",
+    label: (t) => t("settings.agentOutput.compact.label", "Compact flow"),
+    description: (t) =>
+      t(
+        "settings.agentOutput.compact.description",
+        "Keep the stream to your prompts and the agent's replies. The tool calls and thinking between them shrink to a single line showing the latest step; click it to list every step, newest first.",
+      ),
     icon: Rows2,
     iconColorVar: "var(--acc-green)",
   },

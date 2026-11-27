@@ -1,4 +1,5 @@
 import { memo, useRef, type ReactElement } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { SidebarPendingGatePopover } from "@/components/SidebarPendingGatePopover";
 import { useAttentionFlash } from "@/hooks/useAttentionFlash";
 import { isStrongAttention, type Attention } from "@/lib/sidebar-attention";
@@ -83,6 +84,7 @@ const DOT_CLASS: Record<QuietState, string> = {
 
 /** Color-only variant for a quieter sidebar; working still pulses so it reads as live. */
 function StatusDot({ state }: { state: QuietState }): ReactElement {
+  useUiTranslation();
   const { label, title } = STATUS_LABELS[state];
   return (
     <span

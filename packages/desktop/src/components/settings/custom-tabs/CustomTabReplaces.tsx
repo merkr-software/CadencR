@@ -1,7 +1,8 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { PluginTabSummary } from "@/api/generated";
 import { useTabReplacementChoices } from "@/components/plugin-tabs/tab-replacement";
 import {
-  BUILTIN_TAB_LABELS,
+  builtinTabLabel,
   declaredReplacements,
   NO_TAB_REPLACEMENTS,
   replacedBy,
@@ -16,14 +17,28 @@ export function CustomTabReplaces({
 }: {
   tab: Pick<PluginTabSummary, "id" | "label" | "replaces">;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
   const current = replacedBy(useTabReplacementChoices() ?? NO_TAB_REPLACEMENTS, tab.id);
-  const offered = declaredReplacements(tab.replaces).map((slot) => BUILTIN_TAB_LABELS[slot]);
+  const offered = declaredReplacements(tab.replaces).map((slot) => builtinTabLabel(slot, t));
   return (
     <p className="text-xs leading-snug text-muted-foreground">
       {current
-        ? `Shown in place of ${BUILTIN_TAB_LABELS[current]} wherever it is on.`
-        : `Can be shown in place of ${offered.join(" or ")}.`}{" "}
-      Choose in Replace built-in tabs, at the top of this page.
+        ? t(
+            "customTabs.replacements.activeReplacement",
+            "Shown in place of {{builtin}} wherever it is on.",
+            { builtin: builtinTabLabel(current, t) },
+          )
+        : t(
+            "customTabs.replacements.offeredReplacements",
+            "Can be shown in place of {{builtins}}.",
+            {
+              builtins: new Intl.ListFormat(i18n.language, { type: "disjunction" }).format(offered),
+            },
+          )}{" "}
+      {t(
+        "customTabs.replacements.chooseHint",
+        "Choose in Replace built-in tabs, at the top of this page.",
+      )}
     </p>
   );
 }

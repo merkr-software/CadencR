@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -19,26 +20,40 @@ export const TerminalPaneToolbar = memo(function TerminalPaneToolbar({
   onClose,
   canClose,
 }: TerminalPaneToolbarProps) {
+  const { t } = useUiTranslation();
   // Labels follow the registry and the pane context menu: `"horizontal"` is
   // `terminal-split-h` ("Split horizontal"), `"vertical"` is `-v`.
   const splitHorizontalKeys = useShortcutKeys("terminal-split-h");
   const splitVerticalKeys = useShortcutKeys("terminal-split-v");
   return (
     <div className="absolute right-2 top-1 z-10 flex items-center gap-0.5">
-      <ShortcutTooltip label="Split horizontal" keys={splitHorizontalKeys}>
+      <ShortcutTooltip
+        label={t("workspace.tools.terminalPaneToolbar.splitHorizontal", "Split horizontal")}
+        keys={splitHorizontalKeys}
+      >
         <button
           type="button"
-          aria-label="Split terminal horizontally"
+          aria-label={t(
+            "workspace.tools.terminalPaneToolbar.splitTerminalHorizontally",
+            "Split terminal horizontally",
+          )}
           onClick={() => onSplit("horizontal")}
           className={ICON_BTN}
         >
           <SplitSquareHorizontal className="size-3.5" />
         </button>
       </ShortcutTooltip>
-      <ShortcutTooltip label="Split vertical" keys={splitVerticalKeys} alignRight>
+      <ShortcutTooltip
+        label={t("workspace.tools.terminalPaneToolbar.splitVertical", "Split vertical")}
+        keys={splitVerticalKeys}
+        alignRight
+      >
         <button
           type="button"
-          aria-label="Split terminal vertically"
+          aria-label={t(
+            "workspace.tools.terminalPaneToolbar.splitTerminalVertically",
+            "Split terminal vertically",
+          )}
           onClick={() => onSplit("vertical")}
           className={ICON_BTN}
         >
@@ -46,10 +61,16 @@ export const TerminalPaneToolbar = memo(function TerminalPaneToolbar({
         </button>
       </ShortcutTooltip>
       {canClose && (
-        <ShortcutTooltip label="Close terminal" alignRight>
+        <ShortcutTooltip
+          label={t("workspace.tools.terminalPaneToolbar.closeTerminal", "Close terminal")}
+          alignRight
+        >
           <button
             type="button"
-            aria-label="Close terminal pane"
+            aria-label={t(
+              "workspace.tools.terminalPaneToolbar.closeTerminalPane",
+              "Close terminal pane",
+            )}
             onClick={onClose}
             className={ICON_BTN}
           >

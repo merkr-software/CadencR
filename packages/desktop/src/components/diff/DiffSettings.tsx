@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, useRef, useEffect } from "react";
 import { Settings } from "lucide-react";
 
@@ -56,6 +57,7 @@ function RadioGroup({ label, value, options, onChange }: RadioGroupProps) {
 }
 
 export function DiffSettingsPopover({ settings, onChange }: DiffSettingsPopoverProps) {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -79,7 +81,7 @@ export function DiffSettingsPopover({ settings, onChange }: DiffSettingsPopoverP
       <button
         className="rounded p-1 text-[#6272a4] hover:bg-[#44475a] hover:text-[#f8f8f2]"
         onClick={() => setOpen((v) => !v)}
-        title="Diff settings"
+        title={t("workspace.git.diffSettings.diffSettings", "Diff settings")}
       >
         <Settings className="h-4 w-4" />
       </button>
@@ -88,57 +90,61 @@ export function DiffSettingsPopover({ settings, onChange }: DiffSettingsPopoverP
         <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border border-[#6272a4] bg-[#282a36] p-3 shadow-lg">
           <div className="space-y-3">
             <RadioGroup
-              label="Font Size"
+              label={t("workspace.git.diffSettings.fontSize", "Font Size")}
               value={settings.fontSize}
               options={[
-                { value: "small", label: "Small" },
-                { value: "medium", label: "Medium" },
-                { value: "large", label: "Large" },
+                { value: "small", label: t("workspace.git.diffSettings.small", "Small") },
+                { value: "medium", label: t("workspace.git.diffSettings.medium", "Medium") },
+                { value: "large", label: t("workspace.git.diffSettings.large", "Large") },
               ]}
               onChange={(v) => update("fontSize", v as DiffSettings["fontSize"])}
             />
             <RadioGroup
-              label="Diff Mode"
+              label={t("workspace.git.diffSettings.diffMode", "Diff Mode")}
               value={settings.diffMode}
               options={[
-                { value: "split", label: "Split" },
-                { value: "unified", label: "Unified" },
+                { value: "split", label: t("workspace.git.diffSettings.split", "Split") },
+                { value: "unified", label: t("workspace.git.diffSettings.unified", "Unified") },
               ]}
               onChange={(v) => update("diffMode", v as DiffSettings["diffMode"])}
             />
             <RadioGroup
-              label="Line Mode"
+              label={t("workspace.git.diffSettings.lineMode", "Line Mode")}
               value={settings.lineMode}
               options={[
-                { value: "wrap", label: "Wrap" },
-                { value: "nowrap", label: "No Wrap" },
+                { value: "wrap", label: t("workspace.git.diffSettings.wrap", "Wrap") },
+                { value: "nowrap", label: t("workspace.git.diffSettings.noWrap", "No Wrap") },
               ]}
               onChange={(v) => update("lineMode", v as DiffSettings["lineMode"])}
             />
             <RadioGroup
-              label="Highlight Mode"
+              label={t("workspace.git.diffSettings.highlightMode", "Highlight Mode")}
               value={settings.highlightMode}
               options={[
-                { value: "enable", label: "Enable" },
-                { value: "disable", label: "Disable" },
+                { value: "enable", label: t("workspace.git.diffSettings.enable", "Enable") },
+                { value: "disable", label: t("workspace.git.diffSettings.disable", "Disable") },
               ]}
               onChange={(v) => update("highlightMode", v as DiffSettings["highlightMode"])}
             />
             <RadioGroup
-              label="Highlight Engine"
+              label={t("workspace.git.diffSettings.highlightEngine", "Highlight Engine")}
               value={settings.highlightEngine}
               options={[
                 { value: "lowlight", label: "lowlight" },
-                { value: "shiki", label: "shiki", note: "(reload req.)" },
+                {
+                  value: "shiki",
+                  label: "shiki",
+                  note: t("workspace.git.diffSettings.reloadReq", "(reload req.)"),
+                },
               ]}
               onChange={(v) => update("highlightEngine", v as DiffSettings["highlightEngine"])}
             />
             <RadioGroup
-              label="AutoLoad FullDiff"
+              label={t("workspace.git.diffSettings.autoLoadFullDiff", "AutoLoad FullDiff")}
               value={settings.autoLoadFullDiff}
               options={[
-                { value: "enable", label: "Enable" },
-                { value: "disable", label: "Disable" },
+                { value: "enable", label: t("workspace.git.diffSettings.enable", "Enable") },
+                { value: "disable", label: t("workspace.git.diffSettings.disable", "Disable") },
               ]}
               onChange={(v) => update("autoLoadFullDiff", v as DiffSettings["autoLoadFullDiff"])}
             />

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -20,6 +21,8 @@ import {
   availableSettingsGroups,
   currentSettingsPlatform,
 } from "@/components/settings/settings-availability";
+import { settingsNavGroups } from "@/components/settings/settings-catalog";
+import { localizedSearchKeywords } from "@/lib/i18n/search-keywords";
 import { isMobileViewport } from "@/hooks/useIsMobile";
 import { PALETTE_SHORTCUT_ICONS } from "@/components/command-palette/palette-shortcut-icons";
 import {
@@ -45,45 +48,70 @@ export interface PaletteCommandContext {
 
 type Navigate = ReturnType<typeof useNavigate>;
 
-function navigationCommands(navigate: Navigate): PaletteCommand[] {
+function navigationCommands(navigate: Navigate, t: UiTranslator): PaletteCommand[] {
   return [
     {
       id: "go-agents",
-      title: "Agents",
+      title: t("palette.commands.go-agents.title", "Agents"),
       group: "Navigate",
       icon: <LayoutGridIcon />,
-      keywords: ["unified", "grid", "all agents", "overview"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-agents.keywords",
+        "unified, grid, all agents, overview",
+      ),
       shortcutId: "open-unified-agents",
-      description: "Every active agent at once, the ones that need you first.",
+      description: t(
+        "palette.commands.go-agents.description",
+        "Every active agent at once, the ones that need you first.",
+      ),
       run: () => navigate({ to: "/agents" }),
     },
     {
       id: "go-schedules",
-      title: "Schedules",
+      title: t("palette.commands.go-schedules.title", "Schedules"),
       group: "Navigate",
       icon: <CalendarClockIcon />,
-      keywords: ["cron", "recurring", "automation", "timer"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-schedules.keywords",
+        "cron, recurring, automation, timer",
+      ),
       shortcutId: "open-schedules",
-      description: "Prompts that run on a schedule.",
+      description: t(
+        "palette.commands.go-schedules.description",
+        "Prompts that run on a schedule.",
+      ),
       run: () => navigate({ to: "/schedules" }),
     },
     {
       id: "go-settings",
-      title: "Settings",
+      title: t("palette.commands.go-settings.title", "Settings"),
       group: "Navigate",
       icon: <SettingsIcon />,
-      keywords: ["preferences", "options", "config"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-settings.keywords",
+        "preferences, options, config",
+      ),
       shortcutId: "open-settings",
-      description: "Global settings.",
+      description: t("palette.commands.go-settings.description", "Global settings."),
       run: () => navigate({ to: "/settings" }),
     },
     {
       id: "go-marketplace",
-      title: "Marketplace",
+      title: t("palette.commands.go-marketplace.title", "Marketplace"),
       group: "Navigate",
       icon: <BlocksIcon />,
-      keywords: ["plugins", "themes", "providers", "extensions"],
-      description: "Themes and provider connectors from the signed catalog.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-marketplace.keywords",
+        "plugins, themes, providers, extensions",
+      ),
+      description: t(
+        "palette.commands.go-marketplace.description",
+        "Themes and provider connectors from the signed catalog.",
+      ),
       run: () => navigate({ to: "/marketplace" }),
     },
   ];
@@ -94,113 +122,186 @@ function navigationCommands(navigate: Navigate): PaletteCommand[] {
  * setting ("Settings: Vim mode"), each opening its page at that setting.
  */
 /** One command per settings page, and one per setting this client renders. */
-export function settingsCommands(navigate: Navigate): PaletteCommand[] {
-  const groups = availableSettingsGroups(currentSettingsPlatform(isMobileViewport()));
+export function settingsCommands(
+  navigate: Navigate,
+  t: UiTranslator = translateUi,
+): PaletteCommand[] {
+  const groups = availableSettingsGroups(
+    currentSettingsPlatform(isMobileViewport()),
+    settingsNavGroups(t),
+  );
   return groups.flatMap((group) =>
     group.pages.flatMap((page) => [
       {
         id: `settings-${page.id}`,
-        title: `Settings: ${page.label}`,
+        title: t("palette.settings.title", "Settings: {{label}}", { label: page.label }),
         group: "Settings" as const,
         icon: page.icon,
-        keywords: [group.label, "settings", "preferences", ...(page.aliases ?? [])],
+        keywords: [
+          group.label,
+          group.englishLabel ?? "",
+          page.englishLabel ?? "",
+          "settings",
+          "preferences",
+          ...(page.aliases ?? []),
+        ],
         description: page.description,
         run: () => navigate({ to: "/settings", search: { section: page.id } }),
       },
       ...page.entries
         // A page-named entry would only repeat the page's own command.
-        .filter((entry) => entry.label !== page.label)
+        .filter(
+          (entry) => (entry.englishLabel ?? entry.label) !== (page.englishLabel ?? page.label),
+        )
         .map((entry) => ({
-          id: `settings-${page.id}-${slugify(entry.label)}`,
-          title: `Settings: ${entry.label}`,
+          id: `settings-${page.id}-${slugify(entry.englishLabel ?? entry.label)}`,
+          title: t("palette.settings.title", "Settings: {{label}}", { label: entry.label }),
           group: "Settings" as const,
           icon: page.icon,
-          keywords: [page.label, "settings", ...(entry.keywords ?? [])],
-          description: `In ${page.label} settings.`,
+          keywords: [
+            page.label,
+            page.englishLabel ?? "",
+            entry.englishLabel ?? "",
+            "settings",
+            ...(entry.keywords ?? []),
+          ],
+          description: t("palette.settings.description", "In {{page}} settings.", {
+            page: page.label,
+          }),
           run: () => navigate({ to: "/settings", search: { section: entry.anchor ?? page.id } }),
         })),
     ]),
   );
 }
 
-function createCommands(context: PaletteCommandContext): PaletteCommand[] {
+function createCommands(context: PaletteCommandContext, t: UiTranslator): PaletteCommand[] {
   const commands: PaletteCommand[] = [];
   const current = context.projects.find((project) => project.id === context.activeProjectId);
   if (current) {
     commands.push({
       id: "new-conversation-here",
-      title: `New conversation in ${current.name}`,
+      title: t("palette.commands.new-conversation-here.title", "New conversation in {{project}}", {
+        project: current.name,
+      }),
       group: "Create",
       icon: <SquarePenIcon />,
-      keywords: ["session", "feature", "chat", "agent", "start"],
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.new-conversation-here.keywords",
+        "session, feature, chat, agent, start",
+      ),
       shortcutId: "new-session",
-      description: "Starts right away with the project's usual worktree setting.",
+      description: t(
+        "palette.commands.new-conversation-here.description",
+        "Starts right away with the project's usual worktree setting.",
+      ),
       run: () => context.createConversation(current.id),
     });
   }
   commands.push({
     id: "new-conversation",
-    title: "New conversation…",
+    title: t("palette.commands.new-conversation.title", "New conversation…"),
     group: "Create",
     icon: <MessageSquarePlusIcon />,
-    keywords: ["session", "feature", "worktree", "branch", "project"],
-    description:
+    keywords: localizedSearchKeywords(
+      t,
+      "palette.commands.new-conversation.keywords",
+      "session, feature, worktree, branch, project",
+    ),
+    description: t(
+      "palette.commands.new-conversation.description",
       "Pick the project, then a new worktree, the project directory or an existing branch.",
+    ),
     step: { kind: "new-conversation" },
   });
   if (isDesktopShell()) {
     commands.push({
       id: "add-project",
-      title: "Add project…",
+      title: t("palette.commands.add-project.title", "Add project…"),
       group: "Create",
       icon: <FolderPlusIcon />,
-      keywords: ["new project", "folder", "repository", "open"],
-      description: "Choose a folder to add as a project.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.add-project.keywords",
+        "new project, folder, repository, open",
+      ),
+      description: t(
+        "palette.commands.add-project.description",
+        "Choose a folder to add as a project.",
+      ),
       run: context.addProject,
     });
     commands.push({
       id: "install-cli",
-      title: "Install the cadencr command",
+      title: t("palette.commands.install-cli.title", "Install the cadencr command"),
       group: "Settings",
       icon: <SquareTerminalIcon />,
-      keywords: ["cli", "shell command", "path", "terminal", "open from terminal"],
-      description: "Run cadencr open, add, update and serve from a terminal.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.install-cli.keywords",
+        "cli, shell command, path, terminal, open from terminal",
+      ),
+      description: t(
+        "palette.commands.install-cli.description",
+        "Run cadencr open, add, update and serve from a terminal.",
+      ),
       run: context.installCli,
     });
   }
   return commands;
 }
 
-function modeCommands(context: PaletteCommandContext): PaletteCommand[] {
+function modeCommands(context: PaletteCommandContext, t: UiTranslator): PaletteCommand[] {
   const commands: PaletteCommand[] = [];
   if (context.activeFeatureId != null) {
     commands.push({
       id: "go-to-file",
-      title: "Go to file…",
+      title: t("palette.commands.go-to-file.title", "Go to file…"),
       group: "Navigate",
       icon: <AtSignIcon />,
-      keywords: ["open", "find file", "fuzzy", "quick open"],
-      description: "Search this conversation's worktree by file name. Type @ anywhere to start.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.go-to-file.keywords",
+        "open, find file, fuzzy, quick open",
+      ),
+      description: t(
+        "palette.commands.go-to-file.description",
+        "Search this conversation's worktree by file name. Type @ anywhere to start.",
+      ),
       mode: "files",
     });
   }
   commands.push(
     {
       id: "search-messages",
-      title: "Search messages…",
+      title: t("palette.commands.search-messages.title", "Search messages…"),
       group: "Navigate",
       icon: <HashIcon />,
-      keywords: ["full text", "history", "find", "said", "transcript"],
-      description: "Find the conversation where something was said. Type # anywhere to start.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.search-messages.keywords",
+        "full text, history, find, said, transcript",
+      ),
+      description: t(
+        "palette.commands.search-messages.description",
+        "Find the conversation where something was said. Type # anywhere to start.",
+      ),
       mode: "messages",
     },
     {
       id: "change-theme",
-      title: "Change theme…",
+      title: t("palette.commands.change-theme.title", "Change theme…"),
       group: "View",
       icon: <PaletteIcon />,
-      keywords: ["appearance", "dark", "light", "colors"],
-      description: "Preview each theme as you move through the list.",
+      keywords: localizedSearchKeywords(
+        t,
+        "palette.commands.change-theme.keywords",
+        "appearance, dark, light, colors",
+      ),
+      description: t(
+        "palette.commands.change-theme.description",
+        "Preview each theme as you move through the list.",
+      ),
       step: { kind: "theme" },
     },
   );
@@ -214,27 +315,32 @@ function modeCommands(context: PaletteCommandContext): PaletteCommand[] {
 function shortcutCommands(
   registered: readonly ShortcutId[],
   inConversation: boolean,
+  t: UiTranslator,
 ): PaletteCommand[] {
   return registered.filter(isPaletteShortcut).flatMap((id) => {
     const meta = PALETTE_SHORTCUT_COMMANDS[id];
     if (meta.group === "Conversation" && !inConversation) return [];
-    return [shortcutCommand(id)];
+    return [shortcutCommand(id, t)];
   });
 }
 
-function shortcutCommand(id: PaletteShortcutId): PaletteCommand {
+function shortcutCommand(id: PaletteShortcutId, t: UiTranslator): PaletteCommand {
   const meta = PALETTE_SHORTCUT_COMMANDS[id];
   return {
     id: `shortcut-${id}`,
-    title: meta.title,
+    title: meta.title(t),
     group: meta.group,
     icon: PALETTE_SHORTCUT_ICONS[id],
-    keywords: "keywords" in meta ? meta.keywords : undefined,
+    keywords: [meta.title((_key, defaultValue) => defaultValue), ...meta.keywords(t)],
     shortcutId: id,
     run: () => {
       // The handler unmounted between opening the palette and picking.
       if (!runShortcutAction(id))
-        toast.error(`${meta.title.replace(/…$/, "")} isn't available here anymore`);
+        toast.error(
+          translateUi("palette.shortcuts.unavailable", "{{command}} isn't available here anymore", {
+            command: meta.title(translateUi).replace(/…$/, ""),
+          }),
+        );
     },
   };
 }
@@ -246,6 +352,7 @@ export interface PaletteCommandSet {
 }
 
 export function usePaletteCommands(context: PaletteCommandContext): PaletteCommandSet {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const ids = useShortcutActionStore(
     useShallow((state) => Object.keys(state.byId) as ShortcutId[]),
@@ -253,12 +360,12 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
   const actionCommands = useCustomActionPaletteStore((state) => state.commands);
   return useMemo(() => {
     const all = [
-      ...createCommands(context),
-      ...modeCommands(context),
-      ...navigationCommands(navigate),
-      ...shortcutCommands(ids, context.activeFeatureId != null),
+      ...createCommands(context, t),
+      ...modeCommands(context, t),
+      ...navigationCommands(navigate, t),
+      ...shortcutCommands(ids, context.activeFeatureId != null, t),
       ...(context.activeFeatureId != null ? actionCommands : []),
-      ...settingsCommands(navigate),
+      ...settingsCommands(navigate, t),
     ];
     const byId = new Map(all.map((command) => [command.id, command]));
     const suggestions = [
@@ -268,5 +375,5 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
       byId.get("go-agents"),
     ].filter((command): command is PaletteCommand => command !== undefined);
     return { all, suggestions };
-  }, [actionCommands, context, ids, navigate]);
+  }, [actionCommands, context, ids, navigate, t]);
 }

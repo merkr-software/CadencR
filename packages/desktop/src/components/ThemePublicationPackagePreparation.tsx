@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import {
   type PreparedPublicationPackage,
@@ -21,8 +22,9 @@ export function ThemePublicationPackagePreparation({
   enabled: boolean;
   pluginKind?: "theme" | "tab";
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const isTab = pluginKind === "tab";
-  const label = isTab ? "custom tab" : "theme";
+  const labels = packageLabels(pluginKind, t);
   const [metadata, setMetadata] = useState("");
   const [reviewed, setReviewed] = useState(false);
   const [prepared, setPrepared] = useState<PreparedPublicationPackage | null>(null);
@@ -34,23 +36,16 @@ export function ThemePublicationPackagePreparation({
     prepare.reset();
   };
   return (
-    <SettingsSection
-      size="sm"
-      title={isTab ? "Prepare a custom tab bundle" : "Prepare a declarative theme bundle"}
-      subtitle={isTab ? "Compiled web interface and manifest" : "Platform-independent data only"}
-    >
+    <SettingsSection size="sm" title={labels.title} subtitle={labels.subtitle}>
       <SettingsCard padded>
         <div className="space-y-4">
           <BundleDescription isTab={isTab} />
-          {readiness.isLoading && <p role="status">Checking {label} project…</p>}
+          {readiness.isLoading && <p role="status">{labels.checking}</p>}
           {readiness.isError && (
-            <PublicationError
-              prefix={`Could not check the ${label} project`}
-              error={readiness.error}
-            />
+            <PublicationError prefix={labels.checkFailed} error={readiness.error} />
           )}
           <label className="block space-y-1.5 text-sm font-medium">
-            {isTab ? "Custom tab" : "Theme"} package metadata JSON
+            {labels.metadata}
             <Textarea
               value={metadata}
               disabled={prepare.isPending}
@@ -62,43 +57,33 @@ export function ThemePublicationPackagePreparation({
               }}
             />
             <span className="block text-xs font-normal text-muted-foreground">
-              Declare identity, version, publisher, repository, compatibility and the single archive
-              URL. No platform target is needed.
+              {t(
+                "marketplace.publication.portablePackage.metadataHelp",
+                "Declare identity, version, publisher, repository, compatibility and the single archive URL. No platform target is needed.",
+              )}
             </span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <Checkbox
               checked={reviewed}
               disabled={prepare.isPending}
-              aria-label={`I reviewed the ${label} data and metadata`}
+              aria-label={labels.reviewed}
               onCheckedChange={(value) => {
                 setReviewed(value === true);
                 invalidate();
               }}
             />
-            I reviewed the {label} data and metadata.
+            {labels.reviewedSentence}
           </label>
           {prepare.isError && (
-            <PublicationError
-              prefix={`Could not prepare the ${label} bundle`}
-              error={prepare.error}
-            />
+            <PublicationError prefix={labels.prepareFailed} error={prepare.error} />
           )}
-          {prepared && (
-            <div role="status" className="space-y-1 rounded border p-3 text-xs">
-              <p>
-                {isTab ? "Custom tab" : "Declarative theme"} bundle prepared; nothing published.
-              </p>
-              <p className="break-all font-mono">{prepared.archive_path}</p>
-              <p className="break-all font-mono">SHA-256: {prepared.sha256}</p>
-              <p>{prepared.size.toLocaleString()} bytes</p>
-            </div>
-          )}
+          {prepared && <PreparedBundleResult prepared={prepared} status={labels.prepared} />}
           <Button
             disabled={!canPrepare || prepare.isPending}
             onClick={() => prepare.mutate({ id: projectId, data: { metadata_json: metadata } })}
           >
-            {prepare.isPending ? `Preparing ${label} bundle…` : `Prepare ${label} bundle`}
+            {prepare.isPending ? labels.preparing : labels.prepare}
           </Button>
           <ProviderPublicationRelease
             key={prepared?.archive_path ?? "theme-release"}
@@ -113,11 +98,137 @@ export function ThemePublicationPackagePreparation({
 }
 
 function BundleDescription({ isTab }: { isTab: boolean }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <p className="text-xs text-muted-foreground">
       {isTab
-        ? "Cadencr snapshots tab.json, the declared icon and the compiled web directory. Build the tab first; sources, node_modules and Git history are excluded. Installed tabs require consent before activation."
-        : "Cadencr snapshots only validated theme.json and its declared raster asset from this author project. Git history, scaffolding and other files are excluded. No executable, command or ACP runtime is included."}
+        ? t(
+            "marketplace.publication.portablePackage.tabDescription",
+            "Cadencr snapshots tab.json, the declared icon and the compiled web directory. Build the tab first; sources, node_modules and Git history are excluded. Installed tabs require consent before activation.",
+          )
+        : t(
+            "marketplace.publication.portablePackage.themeDescription",
+            "Cadencr snapshots only validated theme.json and its declared raster asset from this author project. Git history, scaffolding and other files are excluded. No executable, command or ACP runtime is included.",
+          )}
     </p>
   );
+}
+
+function PreparedBundleResult({
+  prepared,
+  status,
+}: {
+  prepared: PreparedPublicationPackage;
+  status: string;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <div role="status" className="space-y-1 rounded border p-3 text-xs">
+      <p>{status}</p>
+      <p className="break-all font-mono">{prepared.archive_path}</p>
+      <p className="break-all font-mono">
+        {t("marketplace.publication.sha256Value", "SHA-256: {{hash}}", { hash: prepared.sha256 })}
+      </p>
+      <p>
+        {t("marketplace.publication.byteCount", "{{count, number}} bytes", {
+          count: prepared.size,
+          defaultValue_zero: "{{count, number}} bytes",
+          defaultValue_one: "{{count, number}} byte",
+        })}
+      </p>
+    </div>
+  );
+}
+
+function packageLabels(kind: "tab" | "theme", t: UiTranslator) {
+  return kind === "tab"
+    ? {
+        title: t(
+          "marketplace.publication.portablePackage.tab.title",
+          "Prepare a custom tab bundle",
+        ),
+        subtitle: t(
+          "marketplace.publication.portablePackage.tab.subtitle",
+          "Compiled web interface and manifest",
+        ),
+        checking: t(
+          "marketplace.publication.portablePackage.tab.checking",
+          "Checking custom tab project…",
+        ),
+        checkFailed: t(
+          "marketplace.publication.portablePackage.tab.checkFailed",
+          "Could not check the custom tab project",
+        ),
+        metadata: t(
+          "marketplace.publication.portablePackage.tab.metadata",
+          "Custom tab package metadata JSON",
+        ),
+        reviewed: t(
+          "marketplace.publication.portablePackage.tab.reviewed",
+          "I reviewed the custom tab data and metadata",
+        ),
+        reviewedSentence: t(
+          "marketplace.publication.portablePackage.tab.reviewedSentence",
+          "I reviewed the custom tab data and metadata.",
+        ),
+        prepareFailed: t(
+          "marketplace.publication.portablePackage.tab.prepareFailed",
+          "Could not prepare the custom tab bundle",
+        ),
+        prepared: t(
+          "marketplace.publication.portablePackage.tab.prepared",
+          "Custom tab bundle prepared; nothing published.",
+        ),
+        preparing: t(
+          "marketplace.publication.portablePackage.tab.preparing",
+          "Preparing custom tab bundle…",
+        ),
+        prepare: t(
+          "marketplace.publication.portablePackage.tab.prepare",
+          "Prepare custom tab bundle",
+        ),
+      }
+    : {
+        title: t(
+          "marketplace.publication.portablePackage.theme.title",
+          "Prepare a declarative theme bundle",
+        ),
+        subtitle: t(
+          "marketplace.publication.portablePackage.theme.subtitle",
+          "Platform-independent data only",
+        ),
+        checking: t(
+          "marketplace.publication.portablePackage.theme.checking",
+          "Checking theme project…",
+        ),
+        checkFailed: t(
+          "marketplace.publication.portablePackage.theme.checkFailed",
+          "Could not check the theme project",
+        ),
+        metadata: t(
+          "marketplace.publication.portablePackage.theme.metadata",
+          "Theme package metadata JSON",
+        ),
+        reviewed: t(
+          "marketplace.publication.portablePackage.theme.reviewed",
+          "I reviewed the theme data and metadata",
+        ),
+        reviewedSentence: t(
+          "marketplace.publication.portablePackage.theme.reviewedSentence",
+          "I reviewed the theme data and metadata.",
+        ),
+        prepareFailed: t(
+          "marketplace.publication.portablePackage.theme.prepareFailed",
+          "Could not prepare the theme bundle",
+        ),
+        prepared: t(
+          "marketplace.publication.portablePackage.theme.prepared",
+          "Declarative theme bundle prepared; nothing published.",
+        ),
+        preparing: t(
+          "marketplace.publication.portablePackage.theme.preparing",
+          "Preparing theme bundle…",
+        ),
+        prepare: t("marketplace.publication.portablePackage.theme.prepare", "Prepare theme bundle"),
+      };
 }

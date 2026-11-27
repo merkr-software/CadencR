@@ -1,44 +1,74 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, CloudOff, Loader2, PackageOpen, Search } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { Virtuoso } from "react-virtuoso";
-import { BLOCKED_COPY } from "@/components/plugin-tabs/plugin-tab-access";
+import { blockedCopy } from "@/components/plugin-tabs/plugin-tab-access";
 import { Button } from "@/components/ui/button";
 import { downloadableUpdate, type MarketplaceListing } from "@/lib/marketplace-listings";
-import { isStandalone } from "@/lib/marketplace-plugin-listings";
 import { cn } from "@/lib/utils";
 import { marketplaceError } from "@/lib/marketplace";
 import { KINDS } from "./kinds";
 import { useMarketplaceState } from "./MarketplaceContext";
-import { CheckCatalogButton, MarketplaceEmpty } from "./MarketplaceStates";
+import { LibraryEmpty } from "./MarketplaceLibraryEmpty";
 import { formatAgo } from "@/lib/date-utils";
 import { formatDay, KindChips, PluginMark, PluginStateBadge } from "./PluginBits";
-import { usePluginActions } from "./usePluginActions";
+import { memberLabel, pluginRunError, usePluginActions } from "./usePluginActions";
 
 /** What a row says about the installation, in the order a user scans it. */
 function InstalledFacts({ listing }: { listing: MarketplaceListing }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const installed = listing.installed;
   if (!installed) return null;
   const facts: string[] = [];
-  if (listing.partOf) facts.push(`Part of ${listing.partOf.name}`);
+  if (listing.partOf)
+    facts.push(
+      t("marketplace.marketplaceLibrary.partOf", "Part of {{plugin}}", {
+        plugin: listing.partOf.name,
+      }),
+    );
   if (listing.kind === "plugin") {
     const count = listing.members?.length ?? 0;
-    facts.push(`${count} component${count === 1 ? "" : "s"}`);
+    facts.push(
+      t("marketplace.marketplaceLibrary.componentCount", "{{count}} components", {
+        count,
+        defaultValue_zero: "{{count}} components",
+        defaultValue_one: "{{count}} component",
+      }),
+    );
   } else if (listing.kind === "provider")
-    facts.push(installed.enabled ? "Starts with Cadencr" : "Disabled");
+    facts.push(
+      installed.enabled
+        ? t("marketplace.marketplaceLibrary.startsWithCadencr", "Starts with Cadencr")
+        : t("marketplace.marketplaceLibrary.disabled", "Disabled"),
+    );
   else if (listing.kind === "tab")
-    facts.push(installed.enabled ? "Enabled globally" : "Disabled globally");
-  else if (listing.kind === "lsp") facts.push("Available to matching files");
-  else if (installed.selected && !installed.active) facts.push("Saved in a theme slot");
+    facts.push(
+      installed.enabled
+        ? t("marketplace.marketplaceLibrary.enabledGlobally", "Enabled globally")
+        : t("marketplace.marketplaceLibrary.disabledGlobally", "Disabled globally"),
+    );
+  else if (listing.kind === "lsp")
+    facts.push(t("marketplace.marketplaceLibrary.matchingFiles", "Available to matching files"));
+  else if (installed.selected && !installed.active)
+    facts.push(t("marketplace.marketplaceLibrary.savedTheme", "Saved in a theme slot"));
   const installedOn = formatDay(installed.installedAt);
-  if (installedOn) facts.push(`Installed ${installedOn}`);
+  if (installedOn)
+    facts.push(
+      t("marketplace.marketplaceLibrary.installedOn", "Installed {{date}}", { date: installedOn }),
+    );
   if (installed.updatedAt && installed.updatedAt !== installed.installedAt)
-    facts.push(`Updated ${formatAgo(installed.updatedAt)}`);
-  if (!listing.inCatalog) facts.push("No longer in the catalog");
+    facts.push(
+      t("marketplace.marketplaceLibrary.updatedAgo", "Updated {{date}}", {
+        date: formatAgo(installed.updatedAt),
+      }),
+    );
+  if (!listing.inCatalog)
+    facts.push(t("marketplace.marketplaceLibrary.outOfCatalog", "No longer in the catalog"));
   return (
     <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
       <span className="font-mono text-[10.5px]">
-        {installed.version ?? "No revision"}
+        {installed.version ?? t("marketplace.pluginBits.noRevision", "No revision")}
         {listing.update && <span className="text-primary"> → {listing.update}</span>}
       </span>
       {facts.map((fact) => ` · ${fact}`).join("")}
@@ -50,15 +80,24 @@ type Actions = ReturnType<typeof usePluginActions>;
 
 /** A plugin update walking its members from this row: which one is in flight, or stopped it. */
 function PluginRunLine({ listingKey }: { listingKey: string }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { pluginRun } = useMarketplaceState();
   if (pluginRun?.key !== listingKey) return null;
+  const member = memberLabel(pluginRun.member, t);
   return pluginRun.status === "running" ? (
     <p role="status" className="mt-0.5 truncate text-[11px] text-muted-foreground">
-      Installing {pluginRun.member} ({pluginRun.step} of {pluginRun.total})…
+      {t(
+        "marketplace.pluginRun.installingMemberProgress",
+        "Installing {{member}} ({{step}} of {{total}})…",
+        { member, step: pluginRun.step, total: pluginRun.total },
+      )}
     </p>
   ) : (
     <p role="alert" className="mt-0.5 truncate text-[11px] text-destructive">
-      Stopped at {pluginRun.member}: {pluginRun.message}
+      {t("marketplace.pluginRun.stoppedAt", "Stopped at {{member}}: {{message}}", {
+        member,
+        message: pluginRunError(pluginRun.error, t),
+      })}
     </p>
   );
 }
@@ -70,6 +109,7 @@ const LibraryRow = memo(function LibraryRow({
   listing: MarketplaceListing;
   actions: Actions;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const pending = actions.pending(listing);
   const update = downloadableUpdate(listing);
   return (
@@ -94,7 +134,10 @@ const LibraryRow = memo(function LibraryRow({
         <InstalledFacts listing={listing} />
         {listing.installed?.blocked && (
           <p role="alert" className="mt-0.5 truncate text-[11px] text-destructive">
-            {BLOCKED_COPY.title}: {listing.installed.blocked}
+            {t("marketplace.activity.labeledError", "{{label}}: {{message}}", {
+              label: blockedCopy(t).title,
+              message: listing.installed.blocked,
+            })}
           </p>
         )}
         {listing.installed?.error && (
@@ -118,7 +161,11 @@ const LibraryRow = memo(function LibraryRow({
           onClick={() => actions.install(listing, update)}
         >
           {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
-          {pending ? "Updating…" : `Update to ${update}`}
+          {pending
+            ? t("marketplace.marketplaceLibrary.updating", "Updating…")
+            : t("marketplace.pluginInstallPanel.updateVersion", "Update to {{version}}", {
+                version: update,
+              })}
         </Button>
       )}
       {/* Pointer shortcut only: the name link above is the keyboard stop. */}
@@ -182,98 +229,6 @@ export function MarketplaceLibrary({
   );
 }
 
-/** Why the Installed or Updates list is empty — never "up to date" when that is unknown. */
-function LibraryEmpty({
-  view,
-  publishedAt,
-  refreshing,
-  onRefresh,
-  onDiscover,
-}: {
-  view: "installed" | "updates";
-  publishedAt?: string | null;
-  refreshing: boolean;
-  onRefresh: () => void;
-  onDiscover: () => void;
-}): React.JSX.Element {
-  const state = useMarketplaceState();
-  const hasUnfilteredResults = state.listings.some((listing) =>
-    view === "updates" ? !!listing.update && isStandalone(listing) : !!listing.installed,
-  );
-  const inventoryUnavailable =
-    state.providers.inventoryQuery.isError ||
-    state.themes.inventory.isError ||
-    state.tabs.inventory.isError ||
-    state.tabs.summaries.isError ||
-    state.lsps.inventory.isError;
-  const updatesUnknown =
-    inventoryUnavailable ||
-    !state.catalogUsable.provider ||
-    !state.catalogUsable.theme ||
-    !state.catalogUsable.tab ||
-    !state.catalogUsable.lsp ||
-    state.providers.catalogQuery.isError ||
-    state.themes.catalog.isError ||
-    state.tabs.catalog.isError ||
-    state.lsps.catalog.isError;
-  if (hasUnfilteredResults)
-    return (
-      <MarketplaceEmpty
-        icon={Search}
-        title={
-          view === "updates"
-            ? "No updates match your search"
-            : "No installed plugins match your search"
-        }
-        detail="Try another search or clear it to see all results."
-      />
-    );
-  if (view === "updates" && state.catalogMissing && !inventoryUnavailable)
-    return (
-      <MarketplaceEmpty
-        icon={CloudOff}
-        title="Updates aren't available in this build"
-        detail="This build isn't connected to a plugin catalog, so there is nothing to check installed plugins against."
-      />
-    );
-  if (view === "updates" ? updatesUnknown : inventoryUnavailable)
-    return (
-      <MarketplaceEmpty
-        icon={CloudOff}
-        title={
-          view === "updates"
-            ? "Updates could not be determined"
-            : "Installed plugins could not be loaded"
-        }
-        detail="Check the notices above and try again. Installed plugins remain manageable when their inventory is available."
-        action={
-          !inventoryUnavailable && (
-            <CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} label="Try again" />
-          )
-        }
-      />
-    );
-  return view === "updates" ? (
-    <MarketplaceEmpty
-      icon={PackageOpen}
-      title="Everything is up to date"
-      detail={`Updates are never automatic: each one installs the exact version shown.${publishedAt ? ` Catalog published ${formatAgo(publishedAt)}.` : ""}`}
-      action={<CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} />}
-    />
-  ) : (
-    <MarketplaceEmpty
-      icon={PackageOpen}
-      title="Nothing installed from the marketplace yet"
-      detail="Themes, providers, language servers and custom tabs you install show up here, with their version and history."
-      action={
-        <Button size="sm" onClick={onDiscover}>
-          Discover plugins
-        </Button>
-      }
-    />
-  );
-}
-
 function UpdateAllBar({
   listings,
   actions,
@@ -281,14 +236,24 @@ function UpdateAllBar({
   listings: MarketplaceListing[];
   actions: Actions;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { updatingAll, setUpdatingAll } = useMarketplaceState();
-  const [stopped, setStopped] = useState<string | null>(null);
+  const [stopped, setStopped] = useState<{ error: unknown } | null>(null);
   const busy = updatingAll || listings.some((listing) => actions.busy(listing));
   return (
     <div className="flex flex-wrap items-center gap-3">
       <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-        {listings.length} update{listings.length === 1 ? "" : "s"} available. Updates are never
-        automatic: each installs the exact recommended version shown.
+        {t(
+          "marketplace.marketplaceLibrary.updateCount",
+          "{{count}} updates available. Updates are never automatic: each installs the exact recommended version shown.",
+          {
+            count: listings.length,
+            defaultValue_zero:
+              "{{count}} updates available. Updates are never automatic: each installs the exact recommended version shown.",
+            defaultValue_one:
+              "{{count}} update available. Updates are never automatic: each installs the exact recommended version shown.",
+          },
+        )}
       </p>
       {listings.length > 1 && (
         <Button
@@ -300,17 +265,25 @@ function UpdateAllBar({
             setUpdatingAll(true);
             actions
               .updateAll(listings)
-              .catch((error: unknown) => setStopped(marketplaceError(error) ?? "An update failed."))
+              .catch((error: unknown) => setStopped({ error }))
               .finally(() => setUpdatingAll(false));
           }}
         >
           {updatingAll && <Loader2 aria-hidden="true" className="animate-spin" />}
-          {updatingAll ? "Updating…" : `Update all ${listings.length}`}
+          {updatingAll
+            ? t("marketplace.marketplaceLibrary.updating", "Updating…")
+            : t("marketplace.marketplaceLibrary.updateAll", "Update all {{count}}", {
+                count: listings.length,
+              })}
         </Button>
       )}
       {stopped && (
         <p role="alert" className="w-full text-xs text-destructive">
-          Update all stopped: {stopped}
+          {t("marketplace.marketplaceLibrary.updateAllStopped", "Update all stopped: {{message}}", {
+            message:
+              marketplaceError(stopped.error, t) ??
+              t("marketplace.marketplaceLibrary.updateFailed", "An update failed."),
+          })}
         </p>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 interface ShellCommandModeMarkerProps {
   onClear: () => void;
 }
@@ -13,12 +14,19 @@ interface ShellCommandModeMarkerProps {
  * force-shown on touch (see the touch affordance rule in `index.css`).
  */
 export function ShellCommandModeMarker({ onClear }: ShellCommandModeMarkerProps) {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
       onClick={onClear}
-      aria-label="Exit shell command mode"
-      title="Exit shell command mode and keep the command text"
+      aria-label={t(
+        "conversation.composer.shellCommandModeMarker.exitShellCommandMode",
+        "Exit shell command mode",
+      )}
+      title={t(
+        "conversation.composer.shellCommandModeMarker.exitShellCommandModeAndKeepThe",
+        "Exit shell command mode and keep the command text",
+      )}
       className="mr-1.5 shrink-0 rounded-sm px-1 font-mono text-sm leading-[22px] text-primary transition-colors max-[767px]:text-base hover:bg-foreground/10 focus-visible:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       ❯

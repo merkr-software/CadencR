@@ -1,5 +1,6 @@
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatRelativeDistance } from "@/lib/date-utils";
 import { ArrowRight, ArrowUpCircle, Check, Loader2, RefreshCw } from "lucide-react";
 import {
   useCheckProviderUpdates,
@@ -31,6 +32,7 @@ import { ErrorRow, LoadingRow } from "./SettingsStateRows";
  * means; this card only renders the backend's status.
  */
 export function ProviderUpdatesCard(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const remote = isBrowserRemote();
   // The host's WebSocket subscription keeps this cache current; remote
   // clients have none and refetch.
@@ -42,14 +44,21 @@ export function ProviderUpdatesCard(): React.JSX.Element {
   // The result arrives over the WebSocket like every other status change.
   const runCheck = (): void => {
     check.mutate(undefined, {
-      onError: (error) => toastError(error, "Could not check for provider updates"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "settings.providers.providerUpdatesCard.checkError",
+            "Could not check for provider updates",
+          ),
+        ),
     });
   };
 
   return (
     <SettingsGroup
       id={PROVIDER_UPDATES_SETTINGS_ANCHOR}
-      title="Versions & updates"
+      title={t("settings.providers.providerUpdatesCard.versionsUpdates", "Versions & updates")}
       description={<CheckedAt checkedAt={query.data?.checked_at ?? null} />}
       action={
         <Button
@@ -57,18 +66,37 @@ export function ProviderUpdatesCard(): React.JSX.Element {
           variant="raised"
           onClick={runCheck}
           disabled={checking || remote}
-          title={remote ? "Checks run on the host computer" : undefined}
+          title={
+            remote
+              ? t(
+                  "settings.providers.providerUpdatesCard.checksRunOnTheHostComputer",
+                  "Checks run on the host computer",
+                )
+              : undefined
+          }
         >
           <RefreshCw className={checking ? "animate-spin" : undefined} aria-hidden />
-          {checking ? "Checking…" : "Check now"}
+          {checking
+            ? t("settings.providers.providerUpdatesCard.checking", "Checking…")
+            : t("settings.providers.providerUpdatesCard.checkNow", "Check now")}
         </Button>
       }
     >
       <div className={query.data ? undefined : "p-4"}>
         {query.isLoading ? (
-          <LoadingRow label="Loading provider versions…" />
+          <LoadingRow
+            label={t(
+              "settings.providers.providerUpdatesCard.loadingProviderVersions",
+              "Loading provider versions…",
+            )}
+          />
         ) : query.isError || !query.data ? (
-          <ErrorRow label="Could not load provider versions." />
+          <ErrorRow
+            label={t(
+              "settings.providers.providerUpdatesCard.couldNotLoadProviderVersions",
+              "Could not load provider versions.",
+            )}
+          />
         ) : (
           <ul>
             {query.data.providers.map((status) => (
@@ -84,15 +112,31 @@ export function ProviderUpdatesCard(): React.JSX.Element {
 }
 
 function CheckedAt({ checkedAt }: { checkedAt: string | null }): React.JSX.Element {
-  if (!checkedAt) {
-    return <>Cadencr checks for new versions at launch and every 6 hours.</>;
+  const { t, i18n } = useUiTranslation();
+  const checked = checkedAt ? new Date(checkedAt) : null;
+  if (!checked || Number.isNaN(checked.getTime())) {
+    return (
+      <>
+        {t(
+          "settings.providers.providerUpdatesCard.cadencrChecksForNewVersionsAtLaunch",
+          "Cadencr checks for new versions at launch and every 6 hours.",
+        )}
+      </>
+    );
   }
-  const checked = new Date(checkedAt);
   const relative =
     Date.now() - checked.getTime() < 60_000
-      ? "just now"
-      : formatDistanceToNowStrict(checked, { addSuffix: true });
-  return <>Last checked {relative}. Cadencr checks again every 6 hours.</>;
+      ? t("settings.providers.providerUpdatesCard.justNow", "just now")
+      : formatRelativeDistance(checked, i18n.language);
+  return (
+    <>
+      {t(
+        "settings.providers.providerUpdatesCard.lastCheck",
+        "Last checked {{relative}}. Cadencr checks again every 6 hours.",
+        { relative },
+      )}
+    </>
+  );
 }
 
 function ProviderUpdateRow({
@@ -102,6 +146,7 @@ function ProviderUpdateRow({
   status: ProviderUpdateStatus;
   remote: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const failure = status.state === "check_failed" ? status.error : null;
   return (
     <SettingsRow
@@ -118,7 +163,9 @@ function ProviderUpdateRow({
         <span className="flex items-center gap-2">
           <span className="truncate">{status.label}</span>
           {status.origin === "installed_local" ? (
-            <Badge variant="secondary">Connector</Badge>
+            <Badge variant="secondary">
+              {t("settings.providers.providerUpdatesCard.connector", "Connector")}
+            </Badge>
           ) : null}
         </span>
       }
@@ -138,14 +185,24 @@ function ProviderUpdateRow({
 }
 
 function VersionLine({ status }: { status: ProviderUpdateStatus }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const current = status.current_version;
   const latest = status.latest_version;
   return (
     <span className="flex items-center gap-1.5 font-mono tabular-nums">
-      {current ? <span>v{current}</span> : <span className="font-sans">Version unknown</span>}
+      {current ? (
+        <span>v{current}</span>
+      ) : (
+        <span className="font-sans">
+          {t("settings.providers.providerUpdatesCard.versionUnknown", "Version unknown")}
+        </span>
+      )}
       {status.state === "update_available" && latest ? (
         <>
-          <ArrowRight className="size-3" aria-label="latest" />
+          <ArrowRight
+            className="size-3"
+            aria-label={t("settings.providers.providerUpdatesCard.latest", "latest")}
+          />
           <span className="text-foreground">v{latest}</span>
         </>
       ) : null}
@@ -153,14 +210,22 @@ function VersionLine({ status }: { status: ProviderUpdateStatus }): React.JSX.El
   );
 }
 
-const STATE_LABELS: Record<ProviderUpdateStatus["state"], string> = {
-  unchecked: "Not checked yet",
-  up_to_date: "Up to date",
-  update_available: "Update available",
-  not_installed: "Not installed",
-  unsupported: "Updates not managed",
-  check_failed: "Check failed",
-};
+function stateLabel(state: ProviderUpdateStatus["state"], t: UiTranslator): string {
+  switch (state) {
+    case "unchecked":
+      return t("settings.providers.providerUpdatesCard.unchecked", "Not checked yet");
+    case "up_to_date":
+      return t("settings.providers.providerUpdatesCard.upToDate", "Up to date");
+    case "update_available":
+      return t("settings.providers.providerUpdatesCard.updateAvailable", "Update available");
+    case "not_installed":
+      return t("settings.providers.providerUpdatesCard.notInstalled", "Not installed");
+    case "unsupported":
+      return t("settings.providers.providerUpdatesCard.unsupported", "Updates not managed");
+    case "check_failed":
+      return t("settings.providers.providerUpdatesCard.checkFailed", "Check failed");
+  }
+}
 
 function RowAction({
   status,
@@ -169,11 +234,14 @@ function RowAction({
   status: ProviderUpdateStatus;
   remote: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (status.activity) {
     return (
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        {status.activity === "updating" ? "Updating…" : "Checking…"}
+        {status.activity === "updating"
+          ? t("settings.providers.providerUpdatesCard.updating", "Updating…")
+          : t("settings.providers.providerUpdatesCard.checking", "Checking…")}
       </span>
     );
   }
@@ -189,7 +257,7 @@ function RowAction({
       }
     >
       {status.state === "up_to_date" ? <Check className="size-3.5" aria-hidden /> : null}
-      {STATE_LABELS[status.state]}
+      {stateLabel(status.state, t)}
     </span>
   );
 }
@@ -201,6 +269,7 @@ function UpdateControls({
   status: ProviderUpdateStatus;
   remote: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const latest = status.latest_version ?? "";
   const [target, setTarget] = useState(latest);
   const selectable = status.supports_target_version && status.available_versions.length > 1;
@@ -210,7 +279,15 @@ function UpdateControls({
     <div className="flex items-center gap-2">
       {selectable ? (
         <Select value={version} onValueChange={setTarget} disabled={remote}>
-          <SelectTrigger size="sm" aria-label={`${status.label} version`} className="w-32">
+          <SelectTrigger
+            size="sm"
+            aria-label={t(
+              "settings.providers.providerUpdatesCard.versionSelect",
+              "{{provider}} version",
+              { provider: status.label },
+            )}
+            className="w-32"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -227,10 +304,17 @@ function UpdateControls({
         variant="raised"
         onClick={() => void startProviderUpdate(status, selectable ? version : undefined)}
         disabled={remote}
-        title={remote ? "Updates run on the host computer" : undefined}
+        title={
+          remote
+            ? t(
+                "settings.providers.providerUpdatesCard.updatesRunOnTheHostComputer",
+                "Updates run on the host computer",
+              )
+            : undefined
+        }
       >
         <ArrowUpCircle className="text-primary" aria-hidden />
-        Update to {version}
+        {t("settings.providers.providerUpdatesCard.updateTo", "Update to {{version}}", { version })}
       </Button>
     </div>
   );

@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { clipboard, dialog } from "electron";
 import { openExternal } from "./ipc";
 import type { SplashHandle } from "./splash";
@@ -26,7 +27,7 @@ export async function handleStartupRecoveryAction(
     const message = error instanceof Error ? error.message : String(error);
     request.splash?.setError(
       request.recovery.title,
-      `Recovery action failed: ${message}`,
+      t("system.recovery.actionFailure", "Recovery action failed: {{message}}", { message }),
       request.recovery.actions,
     );
   }
@@ -40,8 +41,8 @@ async function performStartupRecoveryAction(request: StartupRecoveryActionReques
     case "copy_diagnostics":
       clipboard.writeText(request.recovery?.diagnostics ?? "");
       request.splash?.setError(
-        request.recovery?.title ?? "Cadencr couldn't start",
-        "Diagnostics copied to clipboard.",
+        request.recovery?.title ?? t("system.recovery.failedTitle", "Cadencr couldn't start"),
+        t("system.recovery.copied", "Diagnostics copied to clipboard."),
         request.recovery?.actions ?? [],
       );
       break;
@@ -58,8 +59,8 @@ async function restoreStartupBackup(request: StartupRecoveryActionRequest): Prom
   const recovery = request.recovery;
   if (!recovery?.backup || !recovery.dbPath) {
     request.splash?.setError(
-      recovery?.title ?? "Cadencr couldn't start",
-      "No pre-migration backup was found.",
+      recovery?.title ?? t("system.recovery.failedTitle", "Cadencr couldn't start"),
+      t("system.recovery.noBackup", "No pre-migration backup was found."),
       recovery?.actions ?? [],
     );
     return;
@@ -67,11 +68,15 @@ async function restoreStartupBackup(request: StartupRecoveryActionRequest): Prom
 
   const restorePrompt = {
     type: "warning" as const,
-    buttons: ["Restore backup", "Cancel"],
+    buttons: [t("system.recovery.confirmRestore", "Restore backup"), t("common.cancel", "Cancel")],
     defaultId: 1,
     cancelId: 1,
-    message: "Restore pre-migration backup?",
-    detail: `This will replace the current database with:\n${recovery.backup.path}\n\nYou should only do this if you need to run this older Cadencr version.`,
+    message: t("system.recovery.restoreQuestion", "Restore pre-migration backup?"),
+    detail: t(
+      "system.recovery.confirmRestoreDetail",
+      "This will replace the current database with:\n{{path}}\n\nYou should only do this if you need to run this older Cadencr version.",
+      { path: recovery.backup.path },
+    ),
   };
   const response = request.splash
     ? await dialog.showMessageBox(request.splash.window, restorePrompt)
@@ -83,8 +88,8 @@ async function restoreStartupBackup(request: StartupRecoveryActionRequest): Prom
     backupPath: recovery.backup.path,
   });
   request.splash?.setError(
-    "Backup restored",
-    "Quit and reopen Cadencr to start from the restored database.",
+    t("system.recovery.restored", "Backup restored"),
+    t("system.recovery.reopen", "Quit and reopen Cadencr to start from the restored database."),
     recovery.actions.filter((candidate) => candidate.id !== "restore_backup"),
   );
 }

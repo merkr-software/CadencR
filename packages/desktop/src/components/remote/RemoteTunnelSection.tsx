@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react";
 import type { RemoteStatus } from "@/api/generated";
 import { RecommendedTag } from "@/components/RecommendedTag";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useRemoteStore } from "@/stores/remote-store";
 import { interpolatePort, TUNNEL_GUIDES, type TunnelGuide } from "@/lib/remote/tunnel-guides";
 import { CopyIconButton } from "./remote-ui";
@@ -14,12 +15,15 @@ import { CopyIconButton } from "./remote-ui";
  * makes the pairing QR/link default to that hostname.
  */
 export function RemoteTunnelSection({ status }: { status: RemoteStatus }): ReactElement {
+  const { t } = useUiTranslation();
   const port = status.port ?? 0;
   return (
     <section className="space-y-2">
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Run a private tunnel, then paste its hostname below so requests through it are allowed and
-        the pairing code points at it.
+        {t(
+          "remote.tunnel.description",
+          "Run a private tunnel, then paste its hostname below so requests through it are allowed and the pairing code points at it.",
+        )}
       </p>
 
       {TUNNEL_GUIDES.map((guide) => (
@@ -32,6 +36,7 @@ export function RemoteTunnelSection({ status }: { status: RemoteStatus }): React
 }
 
 function TunnelGuideCard({ guide, port }: { guide: TunnelGuide; port: number }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="rounded border border-border bg-card px-2.5 py-2">
       <div className="flex items-center justify-between">
@@ -44,10 +49,10 @@ function TunnelGuideCard({ guide, port }: { guide: TunnelGuide; port: number }):
           onClick={() => void desktopBridge.openExternal(guide.docsUrl)}
           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          Docs <ExternalLink className="size-3" aria-hidden />
+          {t("remote.tunnel.docs", "Docs")} <ExternalLink className="size-3" aria-hidden />
         </button>
       </div>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{guide.blurb}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{guide.blurb(t)}</p>
       {guide.commands.map((template) => {
         const command = interpolatePort(template, port);
         return (
@@ -56,7 +61,12 @@ function TunnelGuideCard({ guide, port }: { guide: TunnelGuide; port: number }):
             className="mt-1 flex items-center justify-between gap-2 rounded bg-muted/50 px-2 py-1"
           >
             <code className="truncate font-mono text-[11px]">{command}</code>
-            <CopyIconButton value={command} successLabel="Command copied" />
+            <CopyIconButton
+              value={command}
+              successLabel={
+                <UiTrans i18nKey="remote.tunnel.commandCopied" defaults="Command copied" />
+              }
+            />
           </div>
         );
       })}
@@ -65,6 +75,7 @@ function TunnelGuideCard({ guide, port }: { guide: TunnelGuide; port: number }):
 }
 
 function TunnelHostField({ status }: { status: RemoteStatus }): ReactElement {
+  const { t } = useUiTranslation();
   const setTunnelHost = useRemoteStore((s) => s.setTunnelHost);
   const phase = useRemoteStore((s) => s.phase);
   const [hostInput, setHostInput] = useState(status.tunnel_host ?? "");
@@ -80,7 +91,7 @@ function TunnelHostField({ status }: { status: RemoteStatus }): ReactElement {
   return (
     <div className="space-y-1">
       <label className="text-[11px] font-medium text-muted-foreground" htmlFor="remote-tunnel-host">
-        Tunnel hostname
+        {t("remote.tunnel.hostname", "Tunnel hostname")}
       </label>
       <div className="flex items-center gap-2">
         <input
@@ -97,7 +108,7 @@ function TunnelHostField({ status }: { status: RemoteStatus }): ReactElement {
           onClick={() => void setTunnelHost(hostInput.trim() || null)}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          Save
+          {t("common.save", "Save")}
         </button>
         {status.tunnel_host ? (
           <button
@@ -109,7 +120,7 @@ function TunnelHostField({ status }: { status: RemoteStatus }): ReactElement {
             }}
             className="shrink-0 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
-            Clear
+            {t("remote.tunnel.clear", "Clear")}
           </button>
         ) : null}
       </div>

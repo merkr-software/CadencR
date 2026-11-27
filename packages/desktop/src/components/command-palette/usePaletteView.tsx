@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { GlobeIcon, HashIcon, ListIcon } from "lucide-react";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
@@ -18,7 +19,7 @@ import type {
   PaletteSection,
 } from "@/lib/command-palette/palette-types";
 import { itemActions } from "./palette-item-actions";
-import { MODE_ICON, MODE_LABEL } from "./PaletteInputRow";
+import { MODE_ICON, modeLabel } from "./PaletteInputRow";
 import { usePaletteCommands } from "./usePaletteCommands";
 import {
   usePaletteFiles,
@@ -40,27 +41,35 @@ export interface PaletteSurfaceProps {
 }
 
 /** Rows offered when nothing matched: other places to look. */
-function fallbackCommands(flow: PaletteFlow): PaletteCommand[] {
+function fallbackCommands(flow: PaletteFlow, t: UiTranslator): PaletteCommand[] {
   const text = flow.text.trim();
   const commands: PaletteCommand[] = [];
   if (flow.view.kind !== "search" || text.length === 0) return commands;
   if (flow.mode !== "messages" && text.length >= MESSAGE_SEARCH_MIN_CHARS) {
     commands.push({
       id: "fallback-messages",
-      title: `Search messages for “${text}”`,
+      title: t("palette.fallback.messages.title", "Search messages for “{{query}}”", {
+        query: text,
+      }),
       group: "Navigate",
       icon: <HashIcon />,
-      description: "Look for these words in prompts and replies, archives included.",
+      description: t(
+        "palette.fallback.messages.description",
+        "Look for these words in prompts and replies, archives included.",
+      ),
       stay: () => flow.setMode("messages", text),
     });
   }
   if (flow.scope !== "all") {
     commands.push({
       id: "fallback-scope",
-      title: "Search everything",
+      title: t("palette.fallback.everything.title", "Search everything"),
       group: "Navigate",
       icon: <GlobeIcon />,
-      description: "Every project and archived conversations too.",
+      description: t(
+        "palette.fallback.everything.description",
+        "Every project and archived conversations too.",
+      ),
       stay: () => flow.setScope("all"),
     });
   }
@@ -111,6 +120,7 @@ function useSurfaceData(props: PaletteSurfaceProps) {
 }
 
 export function usePaletteView(props: PaletteSurfaceProps) {
+  const { t } = useUiTranslation();
   const { sources, frecency, ops, flow, commands, messages, files } = useSurfaceData(props);
   const [now] = useState(() => Date.now());
   const rankContext = useMemo<RankContext>(
@@ -163,8 +173,8 @@ export function usePaletteView(props: PaletteSurfaceProps) {
     flow.view.kind === "actions" ? actionView : (stepView?.sections ?? searchSections);
 
   const fallback = useMemo(
-    () => fallbackCommands(flow).map((command) => commandEntry(command)),
-    [flow],
+    () => fallbackCommands(flow, t).map((command) => commandEntry(command)),
+    [flow, t],
   );
   const { selectedKey, selected } = useSelection(sections, fallback, flow.selectedKey);
   useEffect(() => {
@@ -178,10 +188,10 @@ export function usePaletteView(props: PaletteSurfaceProps) {
       : (stepView?.chip ??
         (flow.mode === "all"
           ? null
-          : { icon: MODE_ICON[flow.mode], label: MODE_LABEL[flow.mode] }));
+          : { icon: MODE_ICON[flow.mode], label: modeLabel(flow.mode, t) }));
   const scopeApplies =
     flow.view.kind === "search" && (flow.mode === "all" || flow.mode === "messages");
-  const empty = emptyCopy(flow, props.activeFeatureId != null);
+  const empty = emptyCopy(flow, props.activeFeatureId != null, t);
   return {
     sources,
     flow,
@@ -192,7 +202,7 @@ export function usePaletteView(props: PaletteSurfaceProps) {
     selected,
     onKeyDown,
     chip,
-    placeholder: placeholderFor(flow, stepView?.placeholder),
+    placeholder: placeholderFor(flow, stepView?.placeholder, t),
     scope: scopeApplies ? flow.scope : null,
     empty,
   };
@@ -260,10 +270,12 @@ function useActionView(
   conversations: Parameters<typeof itemActions>[1]["conversations"],
   context: RankContext,
 ): PaletteSection[] {
+  const { t } = useUiTranslation();
   return useMemo(() => {
     if (flow.view.kind !== "actions") return [];
     const { entry, query } = flow.view;
     const actions = itemActions(entry, {
+      t,
       ops,
       activeFeatureId,
       conversations,
@@ -274,8 +286,8 @@ function useActionView(
       tokens.length === 0
         ? actions.map((command) => commandEntry(command))
         : rankCommands(tokens, actions, context, 20).entries;
-    return [{ id: "actions", title: "Actions", entries }];
-  }, [activeFeatureId, context, conversations, flow, ops]);
+    return [{ id: "actions", title: t("palette.actions.title", "Actions"), entries }];
+  }, [activeFeatureId, context, conversations, flow, ops, t]);
 }
 
 function entryLabel(entry: PaletteEntry): string {
@@ -293,30 +305,58 @@ function entryLabel(entry: PaletteEntry): string {
   }
 }
 
-function placeholderFor(flow: PaletteFlow, stepPlaceholder: string | undefined): string {
-  if (flow.view.kind === "actions") return "Filter actions…";
+function placeholderFor(
+  flow: PaletteFlow,
+  stepPlaceholder: string | undefined,
+  t: UiTranslator,
+): string {
+  if (flow.view.kind === "actions") return t("palette.placeholder.actions", "Filter actions…");
   if (stepPlaceholder) return stepPlaceholder;
-  if (flow.mode === "commands") return "Run a command…";
-  if (flow.mode === "files") return "Go to a file in this worktree…";
-  if (flow.mode === "messages") return "Find words said in any conversation…";
-  return "Search conversations, projects, commands…  > @ #";
+  if (flow.mode === "commands") return t("palette.placeholder.commands", "Run a command…");
+  if (flow.mode === "files")
+    return t("palette.placeholder.files", "Go to a file in this worktree…");
+  if (flow.mode === "messages")
+    return t("palette.placeholder.messages", "Find words said in any conversation…");
+  return t("palette.placeholder.all", "Search conversations, projects, commands…  {{prefixes}}", {
+    prefixes: "> @ #",
+  });
 }
 
-function emptyCopy(flow: PaletteFlow, hasConversation: boolean): { title: string; hint: string } {
+function emptyCopy(
+  flow: PaletteFlow,
+  hasConversation: boolean,
+  t: UiTranslator,
+): { title: string; hint: string } {
   const text = flow.text.trim();
   if (flow.mode === "files" && !hasConversation) {
     return {
-      title: "No conversation open",
-      hint: "Files are searched in the open conversation's worktree.",
+      title: t("palette.empty.noConversation.title", "No conversation open"),
+      hint: t(
+        "palette.empty.noConversation.hint",
+        "Files are searched in the open conversation's worktree.",
+      ),
     };
   }
   if (flow.mode === "messages" && text.length < MESSAGES_MODE_MIN_CHARS) {
     return {
-      title: `Type at least ${MESSAGES_MODE_MIN_CHARS} letters`,
-      hint: "Every word must appear; each one matches as a prefix.",
+      title: t("palette.empty.messages.title", {
+        count: MESSAGES_MODE_MIN_CHARS,
+        defaultValue_one: "Type at least {{count}} letter",
+        defaultValue_other: "Type at least {{count}} letters",
+      }),
+      hint: t(
+        "palette.empty.messages.hint",
+        "Every word must appear; each one matches as a prefix.",
+      ),
     };
   }
   if (text.length === 0)
-    return { title: "Nothing here yet", hint: "Start a conversation and it will show up here." };
-  return { title: `Nothing matches “${text}”`, hint: "Try fewer words, or another place to look:" };
+    return {
+      title: t("palette.empty.start.title", "Nothing here yet"),
+      hint: t("palette.empty.start.hint", "Start a conversation and it will show up here."),
+    };
+  return {
+    title: t("palette.empty.noMatch.title", "Nothing matches “{{query}}”", { query: text }),
+    hint: t("palette.empty.noMatch.hint", "Try fewer words, or another place to look:"),
+  };
 }

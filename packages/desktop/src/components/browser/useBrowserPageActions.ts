@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 
 import { desktopBridge, type BrowserTabMetadata } from "@/lib/desktop-bridge";
@@ -76,6 +77,11 @@ function assertExternalFallbackUrl(rawUrl: string): void {
     parsed.password ||
     (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback))
   ) {
-    throw new Error("Only HTTPS or local HTTP pages can be opened in the default browser.");
+    throw new Error(
+      translateUi(
+        "workspace.tools.useBrowserPageActions.onlyHttpsOrLocalHttpPagesCan",
+        "Only HTTPS or local HTTP pages can be opened in the default browser.",
+      ),
+    );
   }
 }

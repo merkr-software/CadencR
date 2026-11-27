@@ -1,3 +1,4 @@
+import { type UiTranslator, translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useState, type ReactElement } from "react";
 import { selectGitStatus, useGitStatusStore } from "@/stores/useGitStatusStore";
 import { selectPrStatus, usePrStatusStore } from "@/stores/usePrStatusStore";
@@ -32,6 +33,7 @@ export const GitBadge = memo(function GitBadge({
   featureId,
   gitBranch,
 }: GitBadgeProps): ReactElement {
+  const { t } = useUiTranslation();
   // Narrow selectors so this badge re-renders only when its own feature's
   // counts change (per frontend-performance.md). Other features streaming
   // status updates won't touch this subscription.
@@ -43,13 +45,16 @@ export const GitBadge = memo(function GitBadge({
   const aheadOfTarget = snapshot?.ahead_of_target ?? 0;
   const targetBranch = snapshot?.target_branch ?? null;
 
-  const indicator = pickIndicator({
-    uncommitted,
-    aheadOfRemote,
-    aheadOfTarget,
-    targetBranch,
-    hasOpenPr: prStatus?.pr != null,
-  });
+  const indicator = pickIndicator(
+    {
+      uncommitted,
+      aheadOfRemote,
+      aheadOfTarget,
+      targetBranch,
+      hasOpenPr: prStatus?.pr != null,
+    },
+    t,
+  );
 
   return (
     <>
@@ -92,13 +97,16 @@ export interface IndicatorState {
  * Exported for unit tests — every transition has at least one case in
  * `GitBadge.test.tsx` so the state machine doesn't silently drift.
  */
-export function pickIndicator(args: {
-  uncommitted: number;
-  aheadOfRemote: number;
-  aheadOfTarget: number;
-  targetBranch: string | null;
-  hasOpenPr?: boolean;
-}): IndicatorState | null {
+export function pickIndicator(
+  args: {
+    uncommitted: number;
+    aheadOfRemote: number;
+    aheadOfTarget: number;
+    targetBranch: string | null;
+    hasOpenPr?: boolean;
+  },
+  t: UiTranslator = translateUi,
+): IndicatorState | null {
   const { uncommitted, aheadOfRemote, aheadOfTarget, targetBranch, hasOpenPr = false } = args;
 
   if (uncommitted > 0) {
@@ -106,7 +114,11 @@ export function pickIndicator(args: {
       glyph: "●",
       count: uncommitted,
       colorClass: "text-amber-500",
-      tooltip: pluralize(uncommitted, "uncommitted file", "uncommitted files"),
+      tooltip: t("workspace.tools.gitBadge.uncommittedFiles", {
+        count: uncommitted,
+        defaultValue_one: "{{count}} uncommitted file",
+        defaultValue_other: "{{count}} uncommitted files",
+      }),
     };
   }
   if (aheadOfRemote > 0) {
@@ -116,7 +128,11 @@ export function pickIndicator(args: {
       // Orange sits between amber (commit) and blue (PR) — same arrow
       // glyph as the PR-ready state, color is what tells the two apart.
       colorClass: "text-orange-400",
-      tooltip: `${pluralize(aheadOfRemote, "commit", "commits")} not pushed yet`,
+      tooltip: t("workspace.tools.gitBadge.unpushedCommits", {
+        count: aheadOfRemote,
+        defaultValue_one: "{{count}} commit not pushed yet",
+        defaultValue_other: "{{count}} commits not pushed yet",
+      }),
     };
   }
   if (aheadOfTarget > 0 && !hasOpenPr) {
@@ -125,15 +141,22 @@ export function pickIndicator(args: {
       count: aheadOfTarget,
       colorClass: "text-blue-400",
       tooltip: targetBranch
-        ? `${pluralize(aheadOfTarget, "commit", "commits")} pushed, ahead of ${targetBranch} — ready to open a pull request`
-        : `${pluralize(aheadOfTarget, "commit", "commits")} pushed, ahead of target`,
+        ? t("workspace.tools.gitBadge.commitsReadyForPr", {
+            count: aheadOfTarget,
+            targetBranch,
+            defaultValue_one:
+              "{{count}} commit pushed, ahead of {{targetBranch}} — ready to open a pull request",
+            defaultValue_other:
+              "{{count}} commits pushed, ahead of {{targetBranch}} — ready to open a pull request",
+          })
+        : t("workspace.tools.gitBadge.commitsAheadOfTarget", {
+            count: aheadOfTarget,
+            defaultValue_one: "{{count}} commit pushed, ahead of target",
+            defaultValue_other: "{{count}} commits pushed, ahead of target",
+          }),
     };
   }
   return null;
-}
-
-function pluralize(n: number, singular: string, plural: string): string {
-  return `${n} ${n === 1 ? singular : plural}`;
 }
 
 interface BadgeWithTooltipProps {

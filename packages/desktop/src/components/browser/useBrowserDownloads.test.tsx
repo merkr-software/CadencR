@@ -1,3 +1,4 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,9 +10,40 @@ import {
 } from "@/lib/desktop-bridge";
 import { useBrowserDownloads } from "./useBrowserDownloads";
 
-afterEach(() => clearDesktopBridgeOverrideForTests());
+afterEach(async () => {
+  clearDesktopBridgeOverrideForTests();
+  await act(async () => {
+    await uiI18n.changeLanguage("en");
+  });
+});
 
 describe("useBrowserDownloads", () => {
+  it("relocalizes a fallback in place without resubscribing, reloading, or replaying actions", async () => {
+    const listBrowserDownloads = vi.fn().mockResolvedValue(snapshot(4, 5));
+    const onBrowserDownloadsChanged = vi.fn(() => () => undefined);
+    const pauseBrowserDownload = vi.fn().mockRejectedValueOnce(null);
+    setDesktopBridgeOverrideForTests({
+      ...desktopBridge,
+      listBrowserDownloads,
+      onBrowserDownloadsChanged,
+      pauseBrowserDownload,
+    });
+    const { result } = renderHook(() => useBrowserDownloads(4));
+    await waitFor(() => expect(result.current.snapshot).not.toBeNull());
+    await act(() => result.current.pause("download-id"));
+    expect(result.current.error).toBe("The download action failed.");
+
+    await act(async () => {
+      await uiI18n.changeLanguage("cimode");
+    });
+    expect(result.current.error).toBe(
+      "workspace.tools.useBrowserDownloads.theDownloadActionFailed",
+    );
+    expect(listBrowserDownloads).toHaveBeenCalledTimes(1);
+    expect(onBrowserDownloadsChanged).toHaveBeenCalledTimes(1);
+    expect(pauseBrowserDownload).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a newer event snapshot when the initial list resolves late", async () => {
     const initial = deferred<BrowserDownloadSnapshot>();
     let listener: ((snapshot: BrowserDownloadSnapshot) => void) | null = null;

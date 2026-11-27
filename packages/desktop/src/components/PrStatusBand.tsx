@@ -1,7 +1,8 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ExternalLinkIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useState, type ReactElement, type WheelEvent } from "react";
 import type { PrStatusSnapshot } from "@/api/generated";
-import { relativeTime } from "@/components/FeaturePrViewParts";
+import { PrRelativeTime } from "@/components/FeaturePrViewParts";
 import { ForgeAvatar } from "@/components/ForgeImage";
 import { PrApprovalsFact } from "@/components/PrApprovalsFact";
 import { PrMergeBar } from "@/components/PrMergeBar";
@@ -122,7 +123,9 @@ function PrIdentity({ status }: { status: PrStatusSnapshot }): ReactElement {
           <ForgeAvatar user={pr.author} className="size-4 text-[8px]" />
           <span className="max-w-40 truncate">{author}</span>
         </span>
-        <span className="shrink-0 tabular-nums">{relativeTime(pr.updated_at)}</span>
+        <span className="shrink-0 tabular-nums">
+          <PrRelativeTime value={pr.updated_at} />
+        </span>
       </div>
       <BranchLine source={pr.source_branch} target={pr.target_branch} />
     </div>
@@ -131,6 +134,7 @@ function PrIdentity({ status }: { status: PrStatusSnapshot }): ReactElement {
 
 /** `source → target`, the same glyph and order as the branch chip's title. */
 function BranchLine({ source, target }: { source: string; target: string }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       className="flex min-w-0 items-center gap-1.5 font-mono @max-[24rem]:hidden"
@@ -140,7 +144,7 @@ function BranchLine({ source, target }: { source: string; target: string }): Rea
       <span aria-hidden className="shrink-0 text-muted-foreground/60">
         →
       </span>
-      <span className="sr-only">into</span>
+      <span className="sr-only">{t("workspace.git.prStatusBand.into", "into")}</span>
       <span className="max-w-[45%] shrink-0 truncate">{target}</span>
     </div>
   );
@@ -153,14 +157,15 @@ function RefreshButton({
   onRefresh: () => void;
   isRefreshing: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       variant="ghost"
       size="icon-sm"
       disabled={isRefreshing}
       onClick={onRefresh}
-      aria-label="Refresh from the forge"
-      title="Refresh from the forge"
+      aria-label={t("workspace.git.prStatusBand.refreshFromTheForge", "Refresh from the forge")}
+      title={t("workspace.git.prStatusBand.refreshFromTheForge", "Refresh from the forge")}
     >
       <RefreshCwIcon className={cn("size-3.5", isRefreshing && "animate-spin")} aria-hidden />
     </Button>
@@ -168,6 +173,7 @@ function RefreshButton({
 }
 
 function OpenProposalButton({ status }: { status: PrStatusSnapshot }): ReactElement {
+  const { t } = useUiTranslation();
   const pr = status.pr!;
   const [opening, setOpening] = useState(false);
   const handleOpen = useCallback(async (): Promise<void> => {
@@ -182,7 +188,7 @@ function OpenProposalButton({ status }: { status: PrStatusSnapshot }): ReactElem
       ) : (
         <ExternalLinkIcon className="size-3.5" aria-hidden />
       )}
-      Open
+      {t("workspace.git.prStatusBand.open", "Open")}
     </Button>
   );
 }

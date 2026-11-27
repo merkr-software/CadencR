@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -50,6 +51,7 @@ export interface BrowserAddressBarProps {
 }
 
 function BrowserAddressBarImpl(props: BrowserAddressBarProps): ReactElement {
+  const { t } = useUiTranslation();
   const { onUrlEditingChange, onUrlChange, onActivateTab, onNavigate, urlInput } = props;
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
@@ -121,10 +123,10 @@ function BrowserAddressBarImpl(props: BrowserAddressBarProps): ReactElement {
     suggestions,
   });
 
-  return renderAddressBar({
+  return renderAddressBar(t, {
     ...props,
     activeOptionId: highlighted >= 0 ? `${listboxId}-option-${highlighted}` : undefined,
-    bookmarkDisabledReason: bookmarkDisabledReason(props.activeTab),
+    bookmarkDisabledReason: bookmarkDisabledReason(t, props.activeTab),
     clearConfirmationOpen,
     closePanel,
     dismissError,
@@ -149,7 +151,12 @@ function BrowserAddressBarImpl(props: BrowserAddressBarProps): ReactElement {
 function resolveSubmission(input: string, engine: BrowserSearchEngine, loading: boolean) {
   const resolution = resolveOmniboxInput(input, engine);
   if (resolution.kind === "search" && loading) {
-    throw new Error("Your search engine preference is still loading. Try again in a moment.");
+    throw new Error(
+      translateUi(
+        "workspace.tools.browserAddressBar.yourSearchEnginePreferenceIsStillLoading",
+        "Your search engine preference is still loading. Try again in a moment.",
+      ),
+    );
   }
   return resolution;
 }
@@ -219,7 +226,7 @@ interface AddressBarViewProps extends BrowserAddressBarProps {
   suggestions: BrowserOmniboxSuggestion[];
 }
 
-function renderAddressBar(view: AddressBarViewProps): ReactElement {
+function renderAddressBar(t: UiTranslator, view: AddressBarViewProps): ReactElement {
   return (
     <>
       <div className="@container relative">
@@ -285,9 +292,9 @@ function renderAddressBar(view: AddressBarViewProps): ReactElement {
       <ConfirmDialog
         open={view.clearConfirmationOpen}
         onOpenChange={view.setClearConfirmationOpen}
-        title="Clear Browser history?"
-        description={historyClearDescription(view.omnibox.historyCount)}
-        confirmText="Clear history"
+        title={t("workspace.tools.browserAddressBar.clearHistoryTitle", "Clear Browser history?")}
+        description={historyClearDescription(t, view.omnibox.historyCount)}
+        confirmText={t("workspace.tools.browserAddressBar.clearHistory", "Clear history")}
         variant="destructive"
         busy={view.omnibox.mutationPending}
         onConfirm={view.omnibox.clearHistory}
@@ -341,26 +348,54 @@ function useSuggestionOverlay(
   useLayoutEffect(() => () => onOpenChange?.(false), [onOpenChange]);
 }
 
-function bookmarkDisabledReason(tab: BrowserTabMetadata | null): string | null {
-  if (!tab) return "Open a web page to add a bookmark.";
+function bookmarkDisabledReason(t: UiTranslator, tab: BrowserTabMetadata | null): string | null {
+  if (!tab)
+    return t(
+      "workspace.tools.browserAddressBar.bookmarkNoPage",
+      "Open a web page to add a bookmark.",
+    );
   if (!isPersistentTab(tab))
-    return "Bookmarks are unavailable in Private tabs so private browsing stays ephemeral.";
+    return t(
+      "workspace.tools.browserAddressBar.bookmarkPrivate",
+      "Bookmarks are unavailable in Private tabs so private browsing stays ephemeral.",
+    );
   if (tab.url.length > MAX_BROWSER_LIBRARY_URL_LENGTH) {
-    return `This address is too long to bookmark (maximum ${MAX_BROWSER_LIBRARY_URL_LENGTH} characters).`;
+    return t(
+      "workspace.tools.browserAddressBar.bookmarkTooLong",
+      "This address is too long to bookmark (maximum {{limit}} characters).",
+      { limit: MAX_BROWSER_LIBRARY_URL_LENGTH },
+    );
   }
-  return isHttpBrowserUrl(tab.url) ? null : "Only web pages can be bookmarked.";
+  return isHttpBrowserUrl(tab.url)
+    ? null
+    : t(
+        "workspace.tools.browserAddressBar.bookmarkOnlyWebPages",
+        "Only web pages can be bookmarked.",
+      );
 }
 
-function historyClearDescription(count: number): string {
-  const entries =
-    count > 0 ? `${count} recent history ${count === 1 ? "entry" : "entries"} and ` : "";
-  return `This removes ${entries}any legacy address suggestions. Bookmarks and site data are kept.`;
+function historyClearDescription(t: UiTranslator, count: number): string {
+  return count === 0
+    ? t(
+        "workspace.tools.browserAddressBar.clearLegacyDescription",
+        "This removes any legacy address suggestions. Bookmarks and site data are kept.",
+      )
+    : t("workspace.tools.browserAddressBar.clearHistoryDescription", {
+        count: count,
+        defaultValue_one:
+          "This removes {{count}} recent history entry and any legacy address suggestions. Bookmarks and site data are kept.",
+        defaultValue_other:
+          "This removes {{count}} recent history entries and any legacy address suggestions. Bookmarks and site data are kept.",
+      });
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
-    : "That address could not be opened.";
+    : translateUi(
+        "workspace.tools.browserAddressBar.thatAddressCouldNotBeOpened",
+        "That address could not be opened.",
+      );
 }
 
 export const BrowserAddressBar = memo(BrowserAddressBarImpl);

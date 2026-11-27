@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Loader2Icon, RefreshCwIcon, Settings2Icon } from "lucide-react";
 import { useId, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -44,17 +45,21 @@ export function CommentsHeader({
   selectedCount = 0,
   onAllSelectedChange,
 }: CommentsHeaderProps): ReactElement {
+  const { t } = useUiTranslation();
   const showFilter = !commentsLoading && !commentsError && totalCount > 0;
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <h3 className={EYEBROW_TEXT_CLASS}>Review threads</h3>
+        <h3 className={EYEBROW_TEXT_CLASS}>
+          {t("workspace.git.prCommentsHeader.reviewThreads", "Review threads")}
+        </h3>
         {commentsLoading && (
           <span
             className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
             role="status"
           >
-            <Loader2Icon className="size-3 animate-spin" aria-hidden /> Loading…
+            <Loader2Icon className="size-3 animate-spin" aria-hidden />{" "}
+            {t("workspace.git.prCommentsHeader.loading", "Loading…")}
           </span>
         )}
         {/*
@@ -90,8 +95,11 @@ export function CommentsHeader({
       {!commentsLoading && !commentsError && commentCount === 0 && (
         <p className="text-[12.5px] text-muted-foreground">
           {totalCount === 0
-            ? "No review threads yet."
-            : "Nothing unresolved — every review thread on this proposal is resolved."}
+            ? t("workspace.git.prCommentsHeader.noReviewThreadsYet", "No review threads yet.")
+            : t(
+                "workspace.git.prCommentsHeader.nothingUnresolvedEveryReviewThreadOn",
+                "Nothing unresolved — every review thread on this proposal is resolved.",
+              )}
         </p>
       )}
     </section>
@@ -111,6 +119,7 @@ function SelectAllThreads({
   selectedCount: number;
   onAllSelectedChange: (selected: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const selectAllId = useId();
   const allSelected = selectedCount === unresolvedCount;
   const checked: boolean | "indeterminate" = allSelected
@@ -125,15 +134,27 @@ function SelectAllThreads({
          dark card measures ~2.9:1 at this size. Same 11px medium as the
          filter beside it, so the row's two controls read as one set. */
       className="-my-1 flex cursor-pointer items-center gap-2 py-1 text-[11px] font-medium text-foreground"
-      title={allSelected ? "Clear every thread" : `Pick all ${unresolvedCount} unresolved threads`}
+      title={
+        allSelected
+          ? t("workspace.git.prCommentsHeader.clearEveryThread", "Clear every thread")
+          : t(
+              "workspace.git.prCommentsHeader.pickAllCountUnresolvedThreads",
+              "Pick all {{count, number}} unresolved threads",
+              { count: unresolvedCount },
+            )
+      }
     >
       <Checkbox
         id={selectAllId}
         checked={checked}
         onCheckedChange={() => onAllSelectedChange(!allSelected)}
-        aria-label={`Pick all ${unresolvedCount} unresolved threads for the agent`}
+        aria-label={t(
+          "workspace.git.prCommentsHeader.pickAllCountUnresolvedThreadsForThe",
+          "Pick all {{count, number}} unresolved threads for the agent",
+          { count: unresolvedCount },
+        )}
       />
-      Pick all
+      {t("workspace.git.prCommentsHeader.pickAll", "Pick all")}
     </label>
   );
 }
@@ -147,6 +168,7 @@ function CommentsError({
   isRefreshing: boolean;
   onRetry: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -159,7 +181,7 @@ function CommentsError({
         ) : (
           <RefreshCwIcon className="size-3" aria-hidden />
         )}
-        Retry
+        {t("workspace.git.prCommentsHeader.retry", "Retry")}
       </Button>
       <Button
         variant="ghost"
@@ -169,7 +191,7 @@ function CommentsError({
         }
       >
         <Settings2Icon className="size-3" aria-hidden />
-        Git settings
+        {t("workspace.git.prCommentsHeader.gitSettings", "Git settings")}
       </Button>
     </div>
   );

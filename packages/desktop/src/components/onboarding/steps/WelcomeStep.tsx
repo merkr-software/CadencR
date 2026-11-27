@@ -1,3 +1,5 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { LanguageSetting } from "@/components/settings/LanguageSetting";
 import { useCallback, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useGetWorkspaceSetting } from "@/api/generated";
@@ -26,6 +28,7 @@ export function WelcomeStep({
   onBack,
   showIntro = true,
 }: OnboardingStepProps & { showIntro?: boolean }) {
+  const { t } = useUiTranslation();
   const introQuery = useGetWorkspaceSetting(ONBOARDING_INTRO_SHOWN_SETTING_KEY, {
     query: { enabled: showIntro },
   });
@@ -48,14 +51,18 @@ export function WelcomeStep({
         className="flex flex-col gap-8"
       >
         <div className="space-y-3">
-          <h1 className="text-3xl font-semibold tracking-tight">Welcome to Cadencr</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {t("onboarding.welcome.title", "Welcome to Cadencr")}
+          </h1>
           <p className="text-base text-muted-foreground leading-relaxed">
-            One workspace for Claude, OpenCode, and Codex. We&apos;ll take a minute to detect your
-            installed agent CLIs, pick a project folder, and choose a default agent — then drop you
-            straight into your first prompt.
+            {t(
+              "onboarding.welcome.description",
+              "One workspace for Claude, OpenCode, and Codex. We'll take a minute to detect your installed agent CLIs, pick a project folder, and choose a default agent — then drop you straight into your first prompt.",
+            )}
           </p>
         </div>
 
+        <LanguageSetting />
         <label
           htmlFor="onboarding-animations-toggle"
           className="flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-border bg-card/40 p-4"
@@ -65,10 +72,14 @@ export function WelcomeStep({
               <Sparkles className="size-4" aria-hidden />
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-medium">Fluid animations</div>
+              <div className="text-sm font-medium">
+                {t("onboarding.welcome.animations", "Fluid animations")}
+              </div>
               <p className="mt-0.5 text-xs text-muted-foreground leading-snug">
-                Smooth fades and slides across menus, dialogs, and panels. You can change this any
-                time in Settings → Appearance.
+                {t(
+                  "onboarding.welcome.animationsDescription",
+                  "Smooth fades and slides across menus, dialogs, and panels. You can change this any time in Settings → Appearance.",
+                )}
               </p>
             </div>
           </div>
@@ -77,12 +88,12 @@ export function WelcomeStep({
             checked={animations.enabled}
             onCheckedChange={animations.setEnabled}
             disabled={animations.isLoading}
-            aria-label="Enable fluid animations"
+            aria-label={t("onboarding.welcome.animationsLabel", "Enable fluid animations")}
           />
         </label>
 
         <OnboardingFooter
-          primaryLabel="Get started"
+          primaryLabel={t("onboarding.welcome.start", "Get started")}
           primaryDisabled={isPersisting}
           onBack={onBack}
         />

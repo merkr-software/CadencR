@@ -12,6 +12,7 @@ export function restorableFromMetadata(
 ): RestorableBrowserTab {
   return {
     title: metadata.title,
+    ...(metadata.defaultTitle ? { defaultTitle: true as const } : {}),
     url: metadata.url,
     sessionProfileId: resolvedProfileId,
     pinned: metadata.pinned,
@@ -28,10 +29,6 @@ export function isPersistentMetadata(metadata: BrowserTabMetadata): boolean {
 
 export function isPersistableLiveTab(tab: ManagedTab): boolean {
   return tab.profile.mode === "persistent" && tab.automationAccess !== "agent" && !tab.temporary;
-}
-
-export function browserTabErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function workspaceMetadata(

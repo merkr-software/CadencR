@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { deleteDiffComment, getListDiffCommentsQueryKey } from "@/api/generated";
 import { toastError } from "@/lib/api-errors";
 import { queryClient } from "@/lib/queryClient";
@@ -17,7 +18,13 @@ export async function settleSentReviewComments(
   try {
     await Promise.all(ids.map((id) => deleteDiffComment(id)));
   } catch (error) {
-    toastError(error, "Sent, but couldn't clear the review comments from the Git pane");
+    toastError(
+      error,
+      translateUi(
+        "conversation.composer.review-comments.clearFailed",
+        "Sent, but couldn't clear the review comments from the Git pane",
+      ),
+    );
   } finally {
     void queryClient.invalidateQueries({ queryKey: getListDiffCommentsQueryKey(featureId) });
   }

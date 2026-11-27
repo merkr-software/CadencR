@@ -1,5 +1,7 @@
 "use client";
 
+import { useUiTranslation } from "@/lib/i18n/ui";
+
 import * as React from "react";
 import { Command as CommandPrimitive, useCommandState } from "cmdk";
 import { SearchIcon } from "lucide-react";
@@ -21,14 +23,18 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 }
 
 interface CommandDialogProps extends React.ComponentProps<typeof Dialog> {
+  title?: string;
   commandProps?: Partial<React.ComponentProps<typeof CommandPrimitive>>;
 }
 
-function CommandDialog({ children, commandProps, ...props }: CommandDialogProps) {
+function CommandDialog({ children, commandProps, title, ...props }: CommandDialogProps) {
+  const { t } = useUiTranslation();
   return (
     <Dialog {...props}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-2xl top-[33%]" showCloseButton={false}>
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogTitle className="sr-only">
+          {title ?? t("palette.title", "Command palette")}
+        </DialogTitle>
         <Command
           className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:size-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3 [&_[cmdk-item]_svg]:size-5"
           {...commandProps}
@@ -65,11 +71,13 @@ CommandInput.displayName = CommandPrimitive.Input.displayName;
 const CommandList = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.List>
->(function CommandList({ className, ...props }, ref) {
+>(function CommandList({ className, label, ...props }, ref) {
+  const { t } = useUiTranslation();
   return (
     <CommandPrimitive.List
       ref={ref}
       data-slot="command-list"
+      label={label ?? t("common.command.suggestions", "Suggestions")}
       className={cn("max-h-[300px] overflow-x-hidden overflow-y-auto", className)}
       {...props}
     />

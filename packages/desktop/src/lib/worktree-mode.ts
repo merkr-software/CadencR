@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Explicit pre-first-prompt branch/worktree behavior.
  *
@@ -14,8 +15,8 @@
  *   | from_branch_worktree   | new (from base)   | worktree        | new             |
  *
  * `branch_worktree` maps to the backend `reuse` mode either way: when the
- * branch already has a worktree we attach to it ("Reuse worktree"), otherwise
- * the backend creates a fresh worktree on the same branch ("New worktree").
+ * branch already has a worktree we attach to it (t("conversation.worktree.mode.reuseWorktree", "Reuse worktree")), otherwise
+ * the backend creates a fresh worktree on the same branch (t("conversation.worktree.mode.newWorktree", "New worktree")).
  * The label adapts; the backend action is identical.
  */
 import type { BranchInfo } from "@/api/generated";
@@ -131,34 +132,58 @@ export interface WorktreeModeDescriptor {
 export function describeWorktreeMode(
   mode: WorktreeMode,
   state: BranchWorktreeState,
+  t: UiTranslator = translateUi,
 ): WorktreeModeDescriptor {
-  const branch = state.effectiveBranch ?? "the current branch";
+  const branch =
+    state.effectiveBranch ?? t("conversation.worktree.mode.currentBranch", "the current branch");
   switch (mode) {
     case "on_branch":
       return {
         mode,
-        label: "On branch",
-        description: `Work directly on ${branch} in the project folder.`,
+        label: t("conversation.worktree.mode.onBranch", "On branch"),
+        description: t(
+          "conversation.worktree.mode.onBranchDescription",
+          "Work directly on {{branch}} in the project folder.",
+          { branch },
+        ),
       };
     case "branch_worktree":
       return {
         mode,
-        label: state.hasWorktree ? "Reuse worktree" : "New worktree",
+        label: state.hasWorktree
+          ? t("conversation.worktree.mode.reuseWorktree", "Reuse worktree")
+          : t("conversation.worktree.mode.newWorktree", "New worktree"),
         description: state.hasWorktree
-          ? `Reuse the worktree already attached to ${branch}.`
-          : `Create a dedicated worktree for ${branch}.`,
+          ? t(
+              "conversation.worktree.mode.reuseWorktreeDescription",
+              "Reuse the worktree already attached to {{branch}}.",
+              { branch },
+            )
+          : t(
+              "conversation.worktree.mode.newWorktreeDescription",
+              "Create a dedicated worktree for {{branch}}.",
+              { branch },
+            ),
       };
     case "from_branch":
       return {
         mode,
-        label: "From branch",
-        description: `Create a new branch from ${branch}, in the project folder.`,
+        label: t("conversation.worktree.mode.fromBranch", "From branch"),
+        description: t(
+          "conversation.worktree.mode.fromBranchDescription",
+          "Create a new branch from {{branch}}, in the project folder.",
+          { branch },
+        ),
       };
     case "from_branch_worktree":
       return {
         mode,
-        label: "From branch with worktree",
-        description: `Create a new branch from ${branch} in a new worktree.`,
+        label: t("conversation.worktree.mode.fromBranchWorktree", "From branch with worktree"),
+        description: t(
+          "conversation.worktree.mode.fromBranchWorktreeDescription",
+          "Create a new branch from {{branch}} in a new worktree.",
+          { branch },
+        ),
       };
   }
 }
@@ -170,27 +195,46 @@ export function describeWorktreeMode(
  * message is sent (see `WebSocketSessionFeatureBlockTabs`' send handler). This
  * hint spells that out so the chip never implies the branch already switched.
  *
- * Returns `null` for "On branch" on the current branch, where nothing is
+ * Returns `null` for t("conversation.worktree.mode.onBranch", "On branch") on the current branch, where nothing is
  * deferred and there's nothing to announce.
  */
-export function firstPromptBranchEffect(args: {
-  mode: WorktreeMode;
-  selectedBranch: string | null;
-  defaultBranch: string | undefined;
-}): string | null {
+export function firstPromptBranchEffect(
+  args: { mode: WorktreeMode; selectedBranch: string | null; defaultBranch: string | undefined },
+  t: UiTranslator = translateUi,
+): string | null {
   const { mode, selectedBranch, defaultBranch } = args;
-  const branch = selectedBranch ?? defaultBranch ?? "the current branch";
+  const branch =
+    selectedBranch ??
+    defaultBranch ??
+    t("conversation.worktree.mode.currentBranch", "the current branch");
   const switching = selectedBranch != null && selectedBranch !== defaultBranch;
-  const suffix = "when you send your first message";
   switch (mode) {
     case "on_branch":
-      return switching ? `Switches the project to ${branch} ${suffix}.` : null;
+      return switching
+        ? t(
+            "conversation.worktree.mode.switchEffect",
+            "Switches the project to {{branch}} when you send your first message.",
+            { branch },
+          )
+        : null;
     case "from_branch":
-      return `Creates a new branch from ${branch} ${suffix}.`;
+      return t(
+        "conversation.worktree.mode.newBranchEffect",
+        "Creates a new branch from {{branch}} when you send your first message.",
+        { branch },
+      );
     case "branch_worktree":
-      return `Sets up a worktree on ${branch} ${suffix}.`;
+      return t(
+        "conversation.worktree.mode.worktreeEffect",
+        "Sets up a worktree on {{branch}} when you send your first message.",
+        { branch },
+      );
     case "from_branch_worktree":
-      return `Creates a new branch from ${branch} in a worktree ${suffix}.`;
+      return t(
+        "conversation.worktree.mode.newWorktreeEffect",
+        "Creates a new branch from {{branch}} in a worktree when you send your first message.",
+        { branch },
+      );
   }
 }
 

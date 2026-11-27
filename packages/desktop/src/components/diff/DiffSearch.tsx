@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { formatCompactCombo } from "@/lib/shortcuts/format";
@@ -140,6 +141,7 @@ function useDiffSearchController(containerRef: DiffSearchProps["containerRef"]) 
  * Supports navigation between matches with up/down arrows and keyboard shortcuts.
  */
 export function DiffSearch({ containerRef }: DiffSearchProps) {
+  const { t } = useUiTranslation();
   const controller = useDiffSearchController(containerRef);
 
   const handleKeyDown = useCallback(
@@ -167,7 +169,7 @@ export function DiffSearch({ containerRef }: DiffSearchProps) {
         value={controller.query}
         onChange={(e) => controller.setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search in diff"
+        placeholder={t("workspace.git.diffSearch.searchInDiff", "Search in diff")}
         className="w-36 bg-transparent text-xs text-[#f8f8f2] placeholder-[#6272a4] outline-none"
       />
       {controller.query && (
@@ -180,21 +182,25 @@ export function DiffSearch({ containerRef }: DiffSearchProps) {
           <button
             onClick={controller.goPrev}
             className="rounded p-0.5 text-[#6272a4] hover:text-[#f8f8f2]"
-            title={`Previous match (${PREVIOUS_MATCH_COMBO})`}
+            title={t(
+              "workspace.git.diffSearch.previousMatchShortcut",
+              "Previous match ({{shortcut}})",
+              { shortcut: PREVIOUS_MATCH_COMBO },
+            )}
           >
             <ChevronUp className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={controller.goNext}
             className="rounded p-0.5 text-[#6272a4] hover:text-[#f8f8f2]"
-            title="Next match (Enter)"
+            title={t("workspace.git.diffSearch.nextMatchEnter", "Next match (Enter)")}
           >
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={controller.handleClear}
             className="rounded p-0.5 text-[#6272a4] hover:text-[#f8f8f2]"
-            title="Clear search (Escape)"
+            title={t("workspace.git.diffSearch.clearSearchEscape", "Clear search (Escape)")}
           >
             <X className="h-3.5 w-3.5" />
           </button>

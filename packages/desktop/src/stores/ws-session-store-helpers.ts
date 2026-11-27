@@ -1,3 +1,4 @@
+import { CLIENT_TRANSCRIPT_ERRORS } from "@/lib/client-transcript-errors";
 import type { SessionEntry } from "./ws-session-types";
 import type { PromptDispatchOptions, WsEnvelope } from "@/lib/ws-envelope";
 import { createAccessModeSet, createModeSet, createPromptSend } from "@/lib/ws-envelope";
@@ -40,6 +41,13 @@ export function appendErrorBlockPatch(
 ): Pick<SessionEntry, "blocks" | "rootBlocks" | "toolResultMap"> {
   const errorBlock = makeErrorBlock(session, content, options);
   return blocksPatchWithDerived(session.streamingState, [...session.blocks, errorBlock]);
+}
+
+export function appendClientTranscriptErrorPatch(
+  session: SessionEntry,
+  code: keyof typeof CLIENT_TRANSCRIPT_ERRORS,
+): Pick<SessionEntry, "blocks" | "rootBlocks" | "toolResultMap"> {
+  return appendErrorBlockPatch(session, CLIENT_TRANSCRIPT_ERRORS[code].message, { code });
 }
 
 export function buildQueuedPromptPatch(

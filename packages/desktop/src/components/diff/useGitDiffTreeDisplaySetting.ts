@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useGetWorkspaceSetting } from "@/api/generated";
@@ -24,10 +25,23 @@ export function useGitDiffTreeDisplaySetting(): GitDiffTreeDisplaySetting {
   const setting = useGetWorkspaceSetting(GIT_DIFF_TREE_DISPLAY_MODE_KEY);
   const { setValue, isSaving } = useSettingWriter(GIT_DIFF_TREE_DISPLAY_MODE_KEY);
   const errorMessage = setting.error
-    ? apiErrorMessage(setting.error, "Unknown settings error")
+    ? apiErrorMessage(
+        setting.error,
+        translateUi(
+          "workspace.git.useGitDiffTreeDisplaySetting.unknownSettingsError",
+          "Unknown settings error",
+        ),
+      )
     : null;
   useEffect(() => {
-    if (errorMessage) toast.error(`Could not load Git file-list setting: ${errorMessage}`);
+    if (errorMessage)
+      toast.error(
+        translateUi(
+          "workspace.git.useGitDiffTreeDisplaySetting.couldNotLoadGitFileListSettingError",
+          "Could not load Git file-list setting: {{error}}",
+          { error: errorMessage },
+        ),
+      );
   }, [errorMessage]);
   const setDisplayMode = useCallback(
     (displayMode: GitDiffTreeDisplayMode): void => void setValue(displayMode),

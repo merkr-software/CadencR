@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@/test-utils";
 import React from "react";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { SETTINGS_PAGES } from "@/components/settings/settings-catalog";
 import {
@@ -68,7 +69,11 @@ function SettingsPage() {
   const Component = (Route as unknown as { options: { component: React.ComponentType } }).options
     ?.component;
   if (!Component) return null;
-  return <Component />;
+  return (
+    <LanguageProvider>
+      <Component />
+    </LanguageProvider>
+  );
 }
 
 describe("SettingsPage route", () => {

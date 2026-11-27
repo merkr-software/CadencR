@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { StoreApi } from "zustand";
 import { toast } from "sonner";
 import { createEnvelope, parseEnvelope } from "@/lib/ws-envelope";
@@ -105,10 +106,13 @@ function handleAppWsMessage(connection: AppWsConnection, data: string): void {
     connection.dispatchEnvelope(envelope.domain, envelope.action, payload);
   } catch (error) {
     console.error("[session-status] dispatchEnvelope error:", error);
-    toast.error("Background update failed", {
-      id: "app-socket-dispatch-error",
-      description: error instanceof Error ? error.message : String(error),
-    });
+    toast.error(
+      translateUi("appSocket.errors.backgroundUpdateFailed", "Background update failed"),
+      {
+        id: "app-socket-dispatch-error",
+        description: error instanceof Error ? error.message : String(error),
+      },
+    );
   }
 }
 
@@ -146,7 +150,7 @@ export function createAppWsConnection(
       key: APP_WS_SOURCE,
       url: getWsUrl(),
       protocols: getWsProtocols(),
-      statusLabel: "App WebSocket",
+      statusChannel: "app",
       isCurrent: (ws) => current?.ws === ws,
       onConnected: withCurrent(markAppWsConnected),
       replay: withCurrent(replayAppSubscriptions),

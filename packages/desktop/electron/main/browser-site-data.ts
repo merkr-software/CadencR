@@ -1,4 +1,5 @@
 import type { Cookies, Session } from "electron";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 
 /**
  * Clear storage/cache for one origin in one concrete Electron Session.
@@ -40,7 +41,10 @@ async function clearCookiesForHost(cookies: Cookies, site: URL): Promise<void> {
     result.status === "rejected" ? [result.reason] : [],
   );
   if (failures.length > 0) {
-    throw new AggregateError(failures, "Could not clear all cookies for this site.");
+    throw new AggregateError(
+      failures,
+      t("workspace.browser.site.clearCookiesFailed", "Could not clear all cookies for this site."),
+    );
   }
 }
 

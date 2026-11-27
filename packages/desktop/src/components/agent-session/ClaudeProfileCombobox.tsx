@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, useRef, useState, type ReactElement } from "react";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import type { ClaudeCodeProfile } from "@/api/agentRuntime";
@@ -44,6 +45,7 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
   label,
   activeProfile,
 }: ClaudeProfileComboboxProps): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const options = useProfileOptions(profiles);
@@ -53,13 +55,20 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
   if (isLoading) {
     return (
       <span className={loadingClassName(variant)} aria-busy="true">
-        Loading profiles…
+        {t("conversation.stream.claudeProfileCombobox.loadingProfiles", "Loading profiles…")}
       </span>
     );
   }
 
   if (isError) {
-    return <span className="text-[11px] text-destructive">Failed to load profiles</span>;
+    return (
+      <span className="text-[11px] text-destructive">
+        {t(
+          "conversation.stream.claudeProfileCombobox.failedToLoadProfiles",
+          "Failed to load profiles",
+        )}
+      </span>
+    );
   }
 
   return (
@@ -68,9 +77,13 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
         <button
           type="button"
           role="combobox"
-          aria-label="Profile"
+          aria-label={t("conversation.stream.claudeProfileCombobox.profile", "Profile")}
           aria-expanded={open}
-          title={`Profile: ${selectedLabel}`}
+          title={t(
+            "conversation.stream.claudeProfileCombobox.selectedProfile",
+            "Profile: {{selectedLabel}}",
+            { selectedLabel },
+          )}
           className={cn(triggerBaseClassName(variant), triggerClassName)}
         >
           <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
@@ -89,46 +102,102 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
           window.setTimeout(() => inputRef.current?.focus(), 0);
         }}
       >
-        <Command shouldFilter label="Search profiles">
+        <Command
+          shouldFilter
+          label={t("conversation.stream.claudeProfileCombobox.searchProfiles", "Search profiles")}
+        >
           <CommandInput
             ref={inputRef}
-            aria-label="Search profiles"
-            placeholder="Search profiles…"
+            aria-label={t(
+              "conversation.stream.claudeProfileCombobox.searchProfiles",
+              "Search profiles",
+            )}
+            placeholder={t(
+              "conversation.stream.claudeProfileCombobox.searchPlaceholder",
+              "Search profiles…",
+            )}
             className="h-9 text-xs"
           />
-          <CommandList className="max-h-48">
-            <CommandEmpty className="py-3 text-center text-xs">No matching profiles.</CommandEmpty>
-            <CommandGroup heading="Profiles">
-              {options.map((profile) => {
-                const selected = profile.value === value;
-                return (
-                  <CommandItem
-                    key={profile.value}
-                    value={profile.value}
-                    keywords={[profile.label]}
-                    className={cn("text-xs", selected && "font-medium text-foreground")}
-                    onSelect={() => {
-                      onChange(profile.value);
-                      setOpen(false);
-                    }}
-                  >
-                    <span className="flex-1 truncate">{profile.label}</span>
-                    {profile.value === activeProfile && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                        Active
-                      </Badge>
-                    )}
-                    {selected && <CheckIcon className="size-3.5 shrink-0 text-primary" />}
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
+          <ProfileList
+            options={options}
+            value={value}
+            activeProfile={activeProfile}
+            onSelect={(next) => {
+              onChange(next);
+              setOpen(false);
+            }}
+          />
         </Command>
       </PopoverContent>
     </Popover>
   );
 });
+
+function ProfileList({
+  options,
+  value,
+  activeProfile,
+  onSelect,
+}: {
+  options: readonly ProfileOption[];
+  value: string;
+  activeProfile?: string;
+  onSelect: (value: string) => void;
+}) {
+  const { t } = useUiTranslation();
+  return (
+    <CommandList className="max-h-48">
+      <CommandEmpty className="py-3 text-center text-xs">
+        {t("conversation.stream.claudeProfileCombobox.noMatchingProfiles", "No matching profiles.")}
+      </CommandEmpty>
+      <CommandGroup heading={t("conversation.stream.claudeProfileCombobox.profiles", "Profiles")}>
+        {options.map((profile) => {
+          return (
+            <ProfileItem
+              key={profile.value}
+              profile={profile}
+              value={value}
+              activeProfile={activeProfile}
+              onSelect={onSelect}
+            />
+          );
+        })}
+      </CommandGroup>
+    </CommandList>
+  );
+}
+
+function ProfileItem({
+  profile,
+  value,
+  activeProfile,
+  onSelect,
+}: {
+  profile: ProfileOption;
+  value: string;
+  activeProfile?: string;
+  onSelect: (value: string) => void;
+}) {
+  const { t } = useUiTranslation();
+  const selected = profile.value === value;
+  return (
+    <CommandItem
+      key={profile.value}
+      value={profile.value}
+      keywords={[profile.label]}
+      className={cn("text-xs", selected && "font-medium text-foreground")}
+      onSelect={() => onSelect(profile.value)}
+    >
+      <span className="flex-1 truncate">{profile.label}</span>
+      {profile.value === activeProfile && (
+        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+          {t("conversation.stream.claudeProfileCombobox.active", "Active")}
+        </Badge>
+      )}
+      {selected && <CheckIcon className="size-3.5 shrink-0 text-primary" />}
+    </CommandItem>
+  );
+}
 
 function triggerBaseClassName(variant: "default" | "instrument"): string {
   if (variant === "instrument") {

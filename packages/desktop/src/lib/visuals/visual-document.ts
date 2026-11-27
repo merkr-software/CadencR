@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { isSafeTokenValue } from "@/lib/themes/inject";
 
 import type { VisualTheme } from "./live-theme";
@@ -34,7 +35,11 @@ function libraryScript(name: string, libraries: Partial<Record<VisualLibrary, st
   const lower = name.toLowerCase();
   const source = isVisualLibrary(lower) ? libraries[lower] : undefined;
   if (source === undefined) {
-    const message = `Unknown Cadencr library "${name}". Available: ${VISUAL_LIBRARIES.join(", ")}.`;
+    const message = translateUi(
+      "conversation.stream.visualDocument.unknownCadencrLibraryAvailable",
+      'Unknown Cadencr library "{{name}}". Available: {{available}}.',
+      { name, available: VISUAL_LIBRARIES.join(", ") },
+    );
     return inlineScript(`throw new Error(${JSON.stringify(message)});`);
   }
   return inlineScript(lower === "chart.js" ? source + CHART_JS_THEME_SCRIPT : source);

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -77,9 +78,21 @@ function useSelectorMutations(queryClient: QueryClient, featureId: number | unde
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: getGetWorkspaceModelSettingsQueryKey() });
         invalidateSelection();
-        toast.success("Settings saved");
+        toast.success(
+          translateUi(
+            "conversation.composer.useModelSelectorState.settingsSaved",
+            "Settings saved",
+          ),
+        );
       },
-      onError: (error) => toastError(error, "Failed to save the model setting"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "conversation.composer.useModelSelectorState.saveModelFailed",
+            "Failed to save the model setting",
+          ),
+        ),
     },
   });
   const featureMutation = useSetFeatureModelSetting({
@@ -89,24 +102,52 @@ function useSelectorMutations(queryClient: QueryClient, featureId: number | unde
           queryKey: getGetFeatureModelSettingsQueryKey(featureId ?? 0),
         });
         invalidateSelection();
-        toast.success("Settings saved");
+        toast.success(
+          translateUi(
+            "conversation.composer.useModelSelectorState.settingsSaved",
+            "Settings saved",
+          ),
+        );
       },
-      onError: (error) => toastError(error, "Failed to save the model setting"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "conversation.composer.useModelSelectorState.saveModelFailed",
+            "Failed to save the model setting",
+          ),
+        ),
     },
   });
   const globalProviderMutation = useSetWorkspaceProviderSetting({
     onSuccess: () => {
       invalidateSelection();
-      toast.success("Settings saved");
+      toast.success(
+        translateUi("conversation.composer.useModelSelectorState.settingsSaved", "Settings saved"),
+      );
     },
-    onError: () => toast.error("Failed to save provider setting"),
+    onError: () =>
+      toast.error(
+        translateUi(
+          "conversation.composer.useModelSelectorState.saveProviderFailed",
+          "Failed to save provider setting",
+        ),
+      ),
   });
   const featureProviderMutation = useSetFeatureProviderSetting({
     onSuccess: () => {
       invalidateSelection();
-      toast.success("Settings saved");
+      toast.success(
+        translateUi("conversation.composer.useModelSelectorState.settingsSaved", "Settings saved"),
+      );
     },
-    onError: () => toast.error("Failed to save provider setting"),
+    onError: () =>
+      toast.error(
+        translateUi(
+          "conversation.composer.useModelSelectorState.saveProviderFailed",
+          "Failed to save provider setting",
+        ),
+      ),
   });
 
   return {
@@ -259,7 +300,13 @@ export function useModelSelectorState(
 
   useEffect(() => {
     if (selectionQuery.error) {
-      toastError(selectionQuery.error, "Failed to load the model selection");
+      toastError(
+        selectionQuery.error,
+        translateUi(
+          "conversation.composer.useModelSelectorState.loadFailed",
+          "Failed to load the model selection",
+        ),
+      );
     }
   }, [selectionQuery.error]);
 

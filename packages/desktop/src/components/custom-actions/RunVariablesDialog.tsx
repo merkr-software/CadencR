@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useId, useState, type ReactElement } from "react";
 import { toast } from "sonner";
 import { Loader2Icon, PlayIcon } from "lucide-react";
@@ -47,6 +48,7 @@ function VariablesForm({
   prompt: PendingVariablesPrompt;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { action } = prompt.target;
   const formId = useId();
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -64,7 +66,14 @@ function VariablesForm({
       onClose();
     } catch (error) {
       toast.error(
-        `Could not save values for ${action.name}: ${apiErrorMessage(error, "unknown error")}`,
+        translateUi(
+          "customActions.variables.saveError",
+          "Could not save values for {{name}}: {{error}}",
+          {
+            name: action.name,
+            error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
+          },
+        ),
       );
     } finally {
       setPending(false);
@@ -82,7 +91,9 @@ function VariablesForm({
         className="space-y-4"
       >
         <DialogHeader>
-          <DialogTitle>Run {action.name}</DialogTitle>
+          <DialogTitle>
+            {t("customActions.variables.title", "Run {{name}}", { name: action.name })}
+          </DialogTitle>
           <DialogDescription className="font-mono text-xs break-all">
             {action.command}
           </DialogDescription>
@@ -105,17 +116,22 @@ function VariablesForm({
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            Remembered for this conversation.{" "}
-            {missing.length > 0 && `Still needed: ${missing.join(", ")}.`}
+            {missing.length
+              ? t(
+                  "customActions.variables.stillNeeded",
+                  "Remembered for this conversation. Still needed: {{names}}.",
+                  { names: missing.join(", ") },
+                )
+              : t("customActions.variables.remembered", "Remembered for this conversation.")}
           </p>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button type="submit" disabled={missing.length > 0 || pending}>
             {pending ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-            {pending ? "Starting…" : "Run"}
+            {pending ? t("customActions.starting", "Starting…") : t("customActions.run", "Run")}
           </Button>
         </DialogFooter>
       </form>

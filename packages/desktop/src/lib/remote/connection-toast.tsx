@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { UiTrans } from "@/lib/i18n/ui";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
 
 /**
@@ -10,10 +11,15 @@ import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
  * `session-status-store`), so a remote browser never receives this event.
  */
 export function showRemoteConnectedToast(): void {
-  toast("Device connected", {
-    description: "A remote device connected to this computer.",
+  toast(<UiTrans i18nKey="remote.activity.deviceConnected" defaults="Device connected" />, {
+    description: (
+      <UiTrans
+        i18nKey="remote.connection.deviceConnectedDetail"
+        defaults="A remote device connected to this computer."
+      />
+    ),
     action: {
-      label: "View devices",
+      label: <UiTrans i18nKey="remote.connection.viewDevices" defaults="View devices" />,
       onClick: () => useRemoteDialogStore.getState().openDialog({ focusDevices: true }),
     },
   });

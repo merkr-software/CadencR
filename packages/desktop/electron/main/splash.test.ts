@@ -1,5 +1,9 @@
+import { uiI18n } from "../../src/shared/ui-i18n";
+import { buildStartupRecovery } from "./startup-recovery";
+import { splashProgressDetail } from "./splash-progress";
 import { describe, expect, it } from "vitest";
-import { renderSplashHtml, splashCopyForPhase } from "./splash";
+import { renderSplashHtml } from "./splash";
+import { splashCopyForPhase } from "./splash-copy";
 
 describe("splashCopyForPhase", () => {
   it("preserves the original neutral copy while waiting for the development service", () => {
@@ -7,7 +11,7 @@ describe("splashCopyForPhase", () => {
       title: "Starting Cadencr",
       detail: "Preparing the workspace…",
     });
-    expect(splashCopyForPhase("waiting_for_service")).toBe(splashCopyForPhase("starting"));
+    expect(splashCopyForPhase("waiting_for_service")).toEqual(splashCopyForPhase("starting"));
   });
 
   it("explains the exact lossless storage operation when the service reports it", () => {
@@ -58,5 +62,38 @@ describe("renderSplashHtml", () => {
     expect(html).toContain("overflow-y: auto");
     expect(html).toContain("max-height:");
     expect(html).not.toContain("-webkit-line-clamp");
+  });
+});
+
+describe("startup progress language", () => {
+  it("localizes a structured heartbeat and preserves the diagnostic for recovery", async () => {
+    const progress =
+      '@progress {"operation":{"step":"create_backup","bytes":1610612736},"elapsed":125}';
+    expect(splashProgressDetail(progress)).toBe(
+      "Creating a 1.5 GB safety copy before applying database updates. Elapsed: 2m 05s.",
+    );
+    const language = uiI18n.language;
+    try {
+      await uiI18n.changeLanguage("cimode");
+      expect(splashProgressDetail(progress)).toBe("system.startup.elapsed");
+      expect(renderSplashHtml("0.16")).toContain('<html lang="cimode">');
+      expect(renderSplashHtml("0.16")).toContain("system.startup.starting.title");
+      const failure = "Erreur SQL /tmp/échantillon: disk I/O error";
+      expect(splashProgressDetail(failure)).toBe(failure);
+      expect(splashProgressDetail("@progress invalid")).toBe("@progress invalid");
+      const diagnostic = "This database was updated by a newer version of Cadencr";
+      const recovery = buildStartupRecovery({
+        appVersion: "0.16",
+        getDbPath: () => "",
+        message: diagnostic,
+        now: new Date(0),
+        platform: "darwin",
+      });
+      expect(recovery.title).toBe("system.recovery.newerTitle");
+      expect(recovery.actions.map((action) => action.id)).toContain("download_latest");
+      expect(recovery.diagnostics).toContain(diagnostic);
+    } finally {
+      await uiI18n.changeLanguage(language);
+    }
   });
 });

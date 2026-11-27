@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { childProcessEnv } from "./child-env";
@@ -41,7 +42,11 @@ async function stopExitedWork(binary: string, database: string, epoch: string): 
     });
   } catch (error: unknown) {
     throw new Error(
-      `Cadencr could not verify that the crashed service's agents stopped. Try quitting again.\n\n${cleanupFailureDetail(error)}`,
+      t(
+        "system.shutdown.crashedServiceUnconfirmed",
+        "Cadencr could not verify that the crashed service's agents stopped. Try quitting again.\n\n{{detail}}",
+        { detail: cleanupFailureDetail(error) },
+      ),
       {
         cause: error,
       },
@@ -57,7 +62,7 @@ function cleanupFailureDetail(error: unknown): string {
     "signal" in error &&
     error.signal === "SIGKILL"
   ) {
-    return "The cleanup did not finish in time.";
+    return t("system.shutdown.cleanupTimeout", "The cleanup did not finish in time.");
   }
   return (
     ("stderr" in error && typeof error.stderr === "string" && error.stderr.trim()) || error.message

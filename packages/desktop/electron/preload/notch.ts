@@ -26,6 +26,7 @@ const bridge: NotchBridge = {
   onHover: (cb) => onIpc("notch:hover", cb),
   onGeometry: (cb) => onIpc("notch:geometry", cb),
   onPrefs: (cb) => onIpc("notch:prefs", cb),
+  onLocale: (cb) => onIpc("notch:locale", cb),
   onSnooze: (cb) => onIpc("notch:snoozed", cb),
 };
 

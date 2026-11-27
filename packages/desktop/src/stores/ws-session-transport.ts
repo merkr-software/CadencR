@@ -3,7 +3,7 @@ import type { WsEnvelope } from "@/lib/ws-envelope";
 import type { SessionCommandSpec } from "./ws-session-commands";
 import {
   createPromptDeliveryTracker,
-  SESSION_CLOSED_BEFORE_DELIVERY,
+  sessionClosedBeforeDelivery,
 } from "./ws-session-prompt-delivery";
 
 /** How long a correlated reply may take before a request gives up on it. */
@@ -105,7 +105,7 @@ export class SessionTransportRegistry {
     transport.outboundQueue.splice(0);
     for (const command of transport.pendingCommands.values()) clearTimeout(command.timer);
     transport.pendingCommands.clear();
-    transport.delivery.fail(SESSION_CLOSED_BEFORE_DELIVERY);
+    transport.delivery.fail(sessionClosedBeforeDelivery());
     // Remove ownership before closing: synchronous or late callbacks are stale.
     this.sessions.delete(sessionId);
     transport.conn?.close();

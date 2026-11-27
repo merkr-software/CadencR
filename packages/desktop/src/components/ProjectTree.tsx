@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,8 +17,7 @@ import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
-import { apiErrorMessage } from "@/lib/api-errors";
-import { toast } from "sonner";
+import { toastError } from "@/lib/api-errors";
 import { SidebarProjectsHeader } from "./SidebarProjectsHeader";
 import { ProjectFeatures } from "./ProjectFeatures";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
@@ -137,7 +137,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       const project = await addProjectAtPath(folder);
       maybeOnboard({ id: project.id, name: project.name });
     } catch (error) {
-      toast.error(apiErrorMessage(error, "Couldn't add the project"));
+      toastError(error, translateUi("project.tree.addFailed", "Couldn't add the project"));
     } finally {
       setIsAddingProject(false);
     }
@@ -243,6 +243,7 @@ function ProjectTreeRows({
   controller: ProjectTreeController;
   filterQuery: string;
 }) {
+  const { t } = useUiTranslation();
   return (
     <>
       {filterQuery ? (
@@ -270,7 +271,9 @@ function ProjectTreeRows({
         ))
       )}
       {controller.ordered.projects.length === 0 && (
-        <p className="px-2 py-4 text-center text-xs text-muted-foreground">No projects yet</p>
+        <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+          {t("project.tree.noProjectsYet", "No projects yet")}
+        </p>
       )}
     </>
   );

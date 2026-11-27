@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import {
@@ -20,6 +21,7 @@ export function FilteredProjectList<P extends FilterableProject>({
   query: string;
   renderProject: (project: P, match: ProjectFilterMatch) => ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { matches, isLoading } = useSidebarFilterMatches(projects, query);
   return (
     <>
@@ -30,11 +32,13 @@ export function FilteredProjectList<P extends FilterableProject>({
       {isLoading ? (
         <p className="flex items-center justify-center gap-1.5 px-2 py-3 text-xs text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
-          Searching projects…
+          {t("project.filteredProjectList.searchingProjects", "Searching projects…")}
         </p>
       ) : matches.size === 0 ? (
         <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-          No conversation matches “{query}”
+          {t("project.filteredProjectList.noMatch", "No conversation matches “{{query}}”", {
+            query,
+          })}
         </p>
       ) : null}
     </>

@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { desktopBridge } from "@/lib/desktop-bridge";
+import { uiI18n } from "@/lib/i18n/ui";
+import { describeCliConflict } from "@/shared/cli-install-copy";
 import { cliPathHint, describeCliInstall } from "./cli-install";
+
+afterEach(async () => {
+  await uiI18n.changeLanguage("en");
+  uiI18n.removeResourceBundle("fr", "ui");
+});
 
 describe("describeCliInstall", () => {
   it("describes every state", () => {
@@ -30,6 +38,44 @@ describe("describeCliInstall", () => {
         onPath: true,
       }),
     ).toMatch(/already exists: a link to \/x/);
+  });
+
+  it("formats an already-loaded browser bridge status in the active language", async () => {
+    const status = await desktopBridge.cliInstallStatus();
+    expect(status).toMatchObject({ state: "unavailable", code: "desktop-required" });
+    expect(describeCliInstall(status)).toBe(
+      "The cadencr command is installed from the desktop app.",
+    );
+    uiI18n.addResource(
+      "fr",
+      "ui",
+      "settings.general.cli.desktopRequired",
+      "Installation depuis l’application",
+    );
+    await uiI18n.changeLanguage("fr");
+    expect(describeCliInstall(status)).toBe("Installation depuis l’application");
+  });
+});
+
+describe("describeCliConflict", () => {
+  const status = {
+    state: "conflict",
+    target: "/usr/local/bin/cadencr",
+    existing: "legacy description",
+    onPath: true,
+  } as const;
+
+  it("uses structured details and preserves the foreign path", () => {
+    expect(
+      describeCliConflict({ ...status, conflict: { kind: "link", path: "/other command" } }),
+    ).toBe("a link to /other command");
+    expect(describeCliConflict({ ...status, conflict: { kind: "unmanaged-program" } })).toBe(
+      "a program not installed by Cadencr",
+    );
+    expect(describeCliConflict({ ...status, conflict: { kind: "replaced-program" } })).toBe(
+      "a program that replaced Cadencr's",
+    );
+    expect(describeCliConflict(status)).toBe("legacy description");
   });
 });
 

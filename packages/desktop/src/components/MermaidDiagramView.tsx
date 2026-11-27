@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type KeyboardEvent, type ReactNode } from "react";
 import { Maximize2Icon, RotateCcwIcon, XIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,15 +44,28 @@ function ZoomControls({
   zoomOut,
   reset,
 }: Pick<PanZoom, "zoomIn" | "zoomOut" | "reset"> & { size: ControlSize }) {
+  const { t } = useUiTranslation();
   return (
     <>
-      <ControlButton size={size} label="Zoom out (−)" onClick={zoomOut}>
+      <ControlButton
+        size={size}
+        label={t("conversation.stream.mermaidDiagramView.zoomOut", "Zoom out (−)")}
+        onClick={zoomOut}
+      >
         <ZoomOutIcon />
       </ControlButton>
-      <ControlButton size={size} label="Reset zoom (0)" onClick={reset}>
+      <ControlButton
+        size={size}
+        label={t("conversation.stream.mermaidDiagramView.resetZoom0", "Reset zoom (0)")}
+        onClick={reset}
+      >
         <RotateCcwIcon />
       </ControlButton>
-      <ControlButton size={size} label="Zoom in (+)" onClick={zoomIn}>
+      <ControlButton
+        size={size}
+        label={t("conversation.stream.mermaidDiagramView.zoomIn", "Zoom in (+)")}
+        onClick={zoomIn}
+      >
         <ZoomInIcon />
       </ControlButton>
     </>
@@ -75,6 +89,7 @@ type MermaidDiagramViewProps = { svg: string } & (
  * passes through the same local sanitizer before entering the app document.
  */
 export const MermaidDiagramView = memo(function MermaidDiagramView(props: MermaidDiagramViewProps) {
+  const { t } = useUiTranslation();
   const fullscreen = props.variant === "fullscreen";
   const svg = useMemo(() => sanitizeDiagramSvg(props.svg), [props.svg]);
   const panZoom = usePanZoom(svg, fullscreen ? "contain" : "width");
@@ -95,10 +110,19 @@ export const MermaidDiagramView = memo(function MermaidDiagramView(props: Mermai
     >
       {props.variant === "fullscreen" ? (
         <div className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-border px-3">
-          <span className="mr-2 text-xs text-muted-foreground">Esc to close</span>
+          <span className="mr-2 text-xs text-muted-foreground">
+            {t("conversation.stream.mermaidDiagramView.escToClose", "Esc to close")}
+          </span>
           <ZoomControls size="icon-sm" {...zoom} />
           <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-4" />
-          <ControlButton size="icon-sm" label="Exit full screen (Esc)" onClick={props.onClose}>
+          <ControlButton
+            size="icon-sm"
+            label={t(
+              "conversation.stream.mermaidDiagramView.exitFullScreenEsc",
+              "Exit full screen (Esc)",
+            )}
+            onClick={props.onClose}
+          >
             <XIcon />
           </ControlButton>
         </div>
@@ -106,7 +130,11 @@ export const MermaidDiagramView = memo(function MermaidDiagramView(props: Mermai
         <div className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background/80 p-0.5 opacity-0 backdrop-blur-sm transition-opacity group-hover/codeblock:opacity-100 focus-within:opacity-100">
           <ZoomControls size="icon-xs" {...zoom} />
           {props.onExpand && (
-            <ControlButton size="icon-xs" label="Full screen" onClick={props.onExpand}>
+            <ControlButton
+              size="icon-xs"
+              label={t("conversation.stream.mermaidDiagramView.fullScreen", "Full screen")}
+              onClick={props.onExpand}
+            >
               <Maximize2Icon />
             </ControlButton>
           )}
@@ -122,7 +150,11 @@ export const MermaidDiagramView = memo(function MermaidDiagramView(props: Mermai
           fullscreen ? "min-h-0 flex-1" : "max-h-[32rem]",
           panZoom.isPanning ? "cursor-grabbing select-none" : "cursor-default",
         )}
-        title={`Scroll to pan · pinch to zoom · ${PAN_MODIFIER}-drag to pan`}
+        title={t(
+          "conversation.stream.mermaidDiagramView.scrollToPanPinchToZoom",
+          "Scroll to pan · pinch to zoom · {{PAN_MODIFIER}}-drag to pan",
+          { PAN_MODIFIER },
+        )}
       >
         <div
           ref={panZoom.contentRef}

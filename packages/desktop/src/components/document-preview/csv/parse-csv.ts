@@ -16,13 +16,6 @@ export interface CsvSheet extends Sheet {
   delimiter: Delimiter;
 }
 
-export const DELIMITER_LABELS: Readonly<Record<Delimiter, string>> = {
-  ",": "comma-separated",
-  ";": "semicolon-separated",
-  "\t": "tab-separated",
-  "|": "pipe-separated",
-};
-
 const CANDIDATES: readonly Delimiter[] = [",", ";", "\t", "|"];
 const CANDIDATE_INDEX: ReadonlyMap<string, number> = new Map(
   CANDIDATES.map((candidate, index) => [candidate, index]),

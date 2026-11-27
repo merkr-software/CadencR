@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import type { SidecarPhase } from "./sidecar";
 
 const HEALTH_INTERVAL_MS = 500;
@@ -78,10 +79,14 @@ export function startupHealthIntervalMs(phase: SidecarPhase): number {
 
 export function startupWatchdogFailure(watchdog: StartupWatchdog, now = Date.now()): string | null {
   if (now - watchdog.phaseStartedAt >= startupAbsoluteTimeoutMs(watchdog.phase)) {
-    return `Startup deadline exceeded during ${watchdog.phase}`;
+    return t("system.service.deadline", "Startup deadline exceeded during {{phase}}", {
+      phase: watchdog.phase,
+    });
   }
   if (now - watchdog.lastProgressAt >= startupStallTimeoutMs(watchdog.phase)) {
-    return `Health check stalled during ${watchdog.phase}`;
+    return t("system.service.stalled", "Health check stalled during {{phase}}", {
+      phase: watchdog.phase,
+    });
   }
   return null;
 }
@@ -96,15 +101,26 @@ export async function waitForHealthy(
   let retry = 0;
   while (true) {
     const failure = startupWatchdogFailure(watchdog);
-    if (failure) throw new Error(`${failure} at ${baseUrl}`);
+    if (failure)
+      throw new Error(
+        t("system.service.healthFailureAt", "{{failure}} at {{url}}", { failure, url: baseUrl }),
+      );
     if (hasExited()) {
-      throw new Error(`cadencr-service exited before passing health check at ${baseUrl}`);
+      throw new Error(
+        t(
+          "system.service.exitedBeforeHealthy",
+          "cadencr-service exited before passing health check at {{url}}",
+          { url: baseUrl },
+        ),
+      );
     }
     if (await probeHealth(url, authToken, retry)) return;
     retry += 1;
     await new Promise((resolve) => setTimeout(resolve, startupHealthIntervalMs(watchdog.phase)));
   }
 }
+
+class UnexpectedHealthResponder extends Error {}
 
 async function probeHealth(url: string, authToken: string, retry: number): Promise<boolean> {
   try {
@@ -115,12 +131,18 @@ async function probeHealth(url: string, authToken: string, retry: number): Promi
     if (!response.ok) return false;
     const body = (await response.json()) as HealthBody;
     if (body.service !== "cadencr") {
-      throw new Error(`Health responder identified itself as '${body.service ?? ""}'`);
+      throw new UnexpectedHealthResponder(
+        t(
+          "system.service.unexpectedResponder",
+          "Health responder identified itself as '{{service}}'",
+          { service: body.service ?? "" },
+        ),
+      );
     }
     console.info(`Health check passed after ${retry} retries`);
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Health responder")) throw error;
+    if (error instanceof UnexpectedHealthResponder) throw error;
     return false;
   }
 }

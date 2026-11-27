@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useState, type ReactElement } from "react";
 import { ChevronDownIcon, CircleDashedIcon, Loader2Icon, XIcon } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -37,6 +38,7 @@ export function VirtualSkillAgentControls({
   onChange,
   shortcutsActive,
 }: VirtualSkillAgentControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const catalog = useAgentCatalog();
   const providers = useMemo(
     () => availableCatalogProviders(catalog.data?.providers),
@@ -56,7 +58,13 @@ export function VirtualSkillAgentControls({
   if (catalog.isError) {
     return (
       <p data-composer-group className="px-1 text-[11px] text-destructive" role="alert">
-        {apiErrorMessage(catalog.error, "Could not load the installed agents.")}
+        {apiErrorMessage(
+          catalog.error,
+          t(
+            "conversation.composer.virtualSkillAgentControls.loadAgentsFailed",
+            "Could not load the installed agents.",
+          ),
+        )}
       </p>
     );
   }
@@ -65,7 +73,7 @@ export function VirtualSkillAgentControls({
       <span data-composer-group className="flex items-center" role="status">
         <span className="composer-instrument gap-1.5 text-muted-foreground">
           <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
-          Loading agents…
+          {t("conversation.composer.virtualSkillAgentControls.loadingAgents", "Loading agents…")}
         </span>
       </span>
     );
@@ -97,10 +105,18 @@ export function VirtualSkillAgentControls({
             <button
               type="button"
               className="composer-instrument min-w-0 gap-1.5 text-muted-foreground hover:text-foreground"
-              aria-label="Model: the agent picks. Choose a model"
+              aria-label={t(
+                "conversation.composer.virtualSkillAgentControls.modelTheAgentPicksChooseAModel",
+                "Model: the agent picks. Choose a model",
+              )}
             >
               <AgentIcon className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">Agent picks the model</span>
+              <span className="truncate">
+                {t(
+                  "conversation.composer.virtualSkillAgentControls.agentPicksTheModel",
+                  "Agent picks the model",
+                )}
+              </span>
               <ChevronDownIcon className="size-3 shrink-0 opacity-50" aria-hidden />
             </button>
           }
@@ -144,6 +160,7 @@ function PinnedAgentControls({
   onPick,
   onChange,
 }: PinnedAgentControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const provider = providers.find((entry) => entry.id === target.providerId);
   const models = provider?.models ?? [];
   const resolvedModelId = resolveProviderModelAlias(target.providerId, target.modelId, models);
@@ -192,8 +209,14 @@ function PinnedAgentControls({
               permissionMode: undefined,
             })
           }
-          aria-label="Let the agent pick the model"
-          title="Let the agent pick the model"
+          aria-label={t(
+            "conversation.composer.virtualSkillAgentControls.letTheAgentPickTheModel",
+            "Let the agent pick the model",
+          )}
+          title={t(
+            "conversation.composer.virtualSkillAgentControls.letTheAgentPickTheModel",
+            "Let the agent pick the model",
+          )}
         >
           <XIcon className="size-3.5" aria-hidden />
         </button>
@@ -219,6 +242,7 @@ function SkillModeControl({
   onChange: (mode: VirtualSkillConfig["permissionMode"]) => void;
   shortcutsActive: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const enabledOptInModes = useEnabledOptInModes(providerId);
   const modes = getVisibleModes(providerId, enabledOptInModes, provider?.modes);
   const modeKeys = useShortcutLabel("agent-permission-mode");
@@ -246,11 +270,23 @@ function SkillModeControl({
           type="button"
           className="composer-instrument min-w-0 gap-1.5 text-muted-foreground hover:text-foreground"
           onClick={cycle}
-          aria-label="Mode: the agent picks. Choose a mode"
-          title={`The agent picks the mode. Click or ${modeKeys} to choose one`}
+          aria-label={t(
+            "conversation.composer.virtualSkillAgentControls.modeTheAgentPicksChooseAMode",
+            "Mode: the agent picks. Choose a mode",
+          )}
+          title={t(
+            "conversation.composer.virtualSkillAgentControls.pickModeHint",
+            "The agent picks the mode. Click or {{shortcut}} to choose one",
+            { shortcut: modeKeys },
+          )}
         >
           <CircleDashedIcon className="size-3.5 shrink-0" aria-hidden />
-          <span className="truncate">Agent picks the mode</span>
+          <span className="truncate">
+            {t(
+              "conversation.composer.virtualSkillAgentControls.agentPicksTheMode",
+              "Agent picks the mode",
+            )}
+          </span>
         </button>
       )}
     </span>

@@ -1,4 +1,7 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { z } from "zod";
+import { MarketplaceOperationError } from "./marketplace";
 import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
 import type { ThemeMarketplacePackage } from "./marketplace-theme-package";
 import type { ManagedThemeCatalogResponse } from "@/api/generated";
@@ -160,15 +163,55 @@ export const managedThemeEntrySchema = z
       context.addIssue({
         code: "custom",
         path: ["sha256"],
+        params: { kind: "missingDigest" },
         message: "Validated theme requires its revision digest",
       });
     if (!entry.theme && !entry.error)
       context.addIssue({
         code: "custom",
         path: ["error"],
+        params: { kind: "missingDiagnostic" },
         message: "Unavailable theme requires a visible diagnostic",
       });
   });
+
+function managedThemeIssueText(issue: z.ZodIssue, t: UiTranslator): string {
+  if (issue.code === "custom" && issue.params?.kind === "missingDigest")
+    return t(
+      "appearance.library.managedDigestRequired",
+      "Validated theme requires its revision digest",
+    );
+  if (issue.code === "custom" && issue.params?.kind === "missingDiagnostic")
+    return t(
+      "appearance.library.managedDiagnosticRequired",
+      "Unavailable theme requires a visible diagnostic",
+    );
+  return issue.message;
+}
+
+/** Keeps validation diagnostics intact while translating the two host-authored checks. */
+export function parseManagedThemeResponse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (result.success) return result.data;
+  const { issues } = result.error;
+  throw new MarketplaceOperationError((t) =>
+    JSON.stringify(
+      issues.map((issue) => ({ ...issue, message: managedThemeIssueText(issue, t) })),
+      null,
+      2,
+    ),
+  );
+}
+
+export function managedThemeInventoryError(error: unknown, t: UiTranslator): string {
+  return error instanceof MarketplaceOperationError
+    ? error.text(t)
+    : apiErrorMessage(
+        error,
+        t("appearance.library.loadManagedFailed", "Could not load installed marketplace themes"),
+      );
+}
+
 export const themeCatalogSchema = z
   .object({
     verified: z.boolean(),
@@ -206,7 +249,10 @@ export function usableThemeCatalog(catalog?: ManagedThemeCatalogResponse): boole
   );
 }
 export function managedThemeDefinition(entry: z.infer<typeof managedThemeEntrySchema>) {
-  if (!entry.theme?.theme) throw new Error("Managed theme document is missing");
+  if (!entry.theme?.theme)
+    throw new MarketplaceOperationError((t) =>
+      t("appearance.library.managedDocumentMissing", "Managed theme document is missing"),
+    );
   return {
     ...toThemeDefinition(entry.id, entry.theme.theme, entry.theme.assets),
     id: `managed:${entry.id}` as const,

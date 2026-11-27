@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,16 @@ export function FeatureSettingsPopover({
   open,
   onOpenChange,
 }: FeatureSettingsPopoverProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-7" title="Feature settings">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          title={t("conversation.featureSettingsPopover.featureSettings", "Feature settings")}
+        >
           <SettingsIcon className="size-4" />
         </Button>
       </PopoverTrigger>

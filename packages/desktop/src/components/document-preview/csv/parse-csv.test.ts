@@ -1,3 +1,5 @@
+import { uiI18n } from "@/lib/i18n/ui";
+import { sheetSummary } from "./sheet";
 import { describe, expect, it } from "vitest";
 import { MAX_COLS, MAX_ROWS } from "./sheet";
 import {
@@ -110,4 +112,16 @@ describe("decodeText", () => {
     expect(decodeText(bytes(0xff, 0xfe, 0x61, 0x00, 0x09, 0x00, 0x62, 0x00))).toBe("a\tb");
     expect(decodeText(bytes(0xfe, 0xff, 0x00, 0x61))).toBe("a");
   });
+});
+
+it("keeps English zero-count fallbacks in a French preview and prefers a real localized plural", () => {
+  const empty = parseDelimited("", ",");
+  const t = uiI18n.getFixedT("fr", "ui");
+  expect(sheetSummary(empty, t)).toBe("0 rows × 0 columns");
+  try {
+    uiI18n.addResource("fr", "ui", "workspace.editor.sheet.rowCount_one", "{{count}} ligne");
+    expect(sheetSummary(empty, t)).toBe("0 ligne × 0 columns");
+  } finally {
+    uiI18n.removeResourceBundle("fr", "ui");
+  }
 });

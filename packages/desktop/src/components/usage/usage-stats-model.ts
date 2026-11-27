@@ -15,14 +15,6 @@ export type UsageGrouping = "provider" | "model";
  */
 export type UsageScale = "absolute" | "share";
 
-/** What each metric counts, as a phrase for labels: "1,234 tokens exchanged". */
-export const USAGE_METRIC_UNIT: Record<UsageMetric, string> = {
-  total: "tokens exchanged",
-  input: "input tokens",
-  output: "output tokens",
-  messages: "messages sent",
-};
-
 /**
  * Number of distinct colors the chart can assign — see `SERIES_COLORS` for why
  * it is four. Anything past the fourth-largest series folds into a single muted

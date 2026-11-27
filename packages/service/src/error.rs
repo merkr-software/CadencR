@@ -13,6 +13,8 @@ pub use origin::{Detail, Origin};
 pub struct ErrorResponse {
     pub error: String,
     pub code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// `Clone` so a [`crate::shared::singleflight::Singleflight`] can hand every
@@ -42,6 +44,11 @@ pub enum AppError {
         status: StatusCode,
         code: &'static str,
         message: String,
+    },
+    /// Additional public data without changing an existing error's status, code or message.
+    WithPublicDetails {
+        error: Box<Self>,
+        details: serde_json::Value,
     },
     /// 503 — a downstream resource is temporarily unhealthy. Used by the
     /// LSP host's crash-backoff to signal "retry later", matching the
@@ -77,6 +84,7 @@ impl std::fmt::Display for AppError {
             AppError::Internal(msg) => write!(f, "Internal error: {msg}"),
             AppError::Conflict(msg) => write!(f, "Conflict: {msg}"),
             AppError::Coded { message, .. } => f.write_str(message),
+            AppError::WithPublicDetails { error, .. } => error.fmt(f),
             AppError::ServiceUnavailable(msg) => write!(f, "Service unavailable: {msg}"),
             AppError::NeovimSpawnError { detail } => write!(f, "Neovim spawn error: {detail}"),
             AppError::NeovimHandshakeTimeout => write!(f, "Neovim handshake timeout"),
@@ -97,11 +105,16 @@ impl std::error::Error for AppError {}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code) = self.status_and_code();
-        self.report(status, code);
+        let (error, details) = match self {
+            Self::WithPublicDetails { error, details } => (*error, Some(details)),
+            error => (error, None),
+        };
+        let (status, code) = error.status_and_code();
+        error.report(status, code);
         let body = ErrorResponse {
-            error: self.public_message(status),
+            error: error.public_message(status),
             code: code.to_string(),
+            details: details.filter(|_| status != StatusCode::INTERNAL_SERVER_ERROR),
         };
         (status, axum::Json(body)).into_response()
     }
@@ -160,8 +173,17 @@ impl AppError {
     pub(crate) fn coded_error_or(&self, fallback: &'static str) -> &'static str {
         match self {
             Self::Coded { code, .. } => code,
+            Self::WithPublicDetails { error, .. } => error.coded_error_or(fallback),
             _ => fallback,
         }
+    }
+
+    pub(crate) fn with_public_details(self, details: serde_json::Value) -> Self {
+        let error = match self {
+            Self::WithPublicDetails { error, .. } => error,
+            error => Box::new(error),
+        };
+        Self::WithPublicDetails { error, details }
     }
 
     /// Git exited non-zero: classify its (already sanitized) message.
@@ -184,6 +206,7 @@ impl AppError {
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "CONFLICT"),
             AppError::Coded { status, code, .. } => (*status, *code),
+            AppError::WithPublicDetails { error, .. } => error.status_and_code(),
             AppError::ServiceUnavailable(_) => {
                 (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE")
             }

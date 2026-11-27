@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 import {
   ArchiveIcon,
@@ -28,7 +29,7 @@ import {
 import { useArchiveCleanupReviewStore } from "@/stores/archive-cleanup-review-store";
 import { closeFeatureActivityNoun } from "@/lib/feature-activity-close";
 import { copyToClipboard } from "@/lib/clipboard";
-import { openPullRequestActionLabel, openPullRequestExternally } from "@/lib/open-pull-request";
+import { openPullRequestExternally, prNoun } from "@/lib/open-pull-request";
 import { archiveActionLabel, pinActionLabel } from "@/components/ProjectFeatureRowParts";
 import { useIsFeatureMarked, useUnreadStore } from "@/stores/unread-store";
 import { useSidebarRenameStore } from "@/stores/sidebar-rename-store";
@@ -76,13 +77,14 @@ export function ProjectFeatureContextMenu({
   onUnarchive,
   onArchiveOrDelete,
 }: ProjectFeatureContextMenuProps): ReactNode {
+  const { t } = useUiTranslation();
   const featureTitle = liveTitle ?? feature.title;
   const branch = worktree?.worktree_branch ?? "";
   const worktreePath = worktree?.worktree_path ?? "";
   return (
     <>
       <ContextMenuActionItem icon={ArrowRightIcon} onSelect={() => onNavigate(feature)}>
-        Open
+        {t("common.open", "Open")}
       </ContextMenuActionItem>
       {!isArchived && (
         <ContextMenuActionItem
@@ -96,55 +98,30 @@ export function ProjectFeatureContextMenu({
         icon={PencilIcon}
         onSelect={() => useSidebarRenameStore.getState().open(feature.id)}
       >
-        Rename
+        {t("project.featureContextMenu.rename", "Rename")}
       </ContextMenuActionItem>
       <MarkReadItem featureId={feature.id} />
       <ContextMenuActionItem icon={TagIcon} onSelect={onStartLabelEditAfterMenuClose}>
-        Set label
+        {t("sidebar.projectFeatureRowParts.setLabel", "Set label")}
       </ContextMenuActionItem>
       {hasActivity && (
         <ContextMenuActionItem
           icon={XIcon}
           onSelect={() => onCloseActivity(feature.id, shellCount, browserCount, downloadCount)}
         >
-          {`Close ${closeFeatureActivityNoun(shellCount, browserCount, downloadCount)}`}
+          {t("project.featureContextMenu.closeActivity", "Close {{activity}}", {
+            activity: closeFeatureActivityNoun(shellCount, browserCount, downloadCount),
+          })}
         </ContextMenuActionItem>
       )}
       <ContextMenuSeparator />
-      {pullRequest && (
-        <ContextMenuActionItem
-          icon={GitPullRequestIcon}
-          onSelect={() => void openPullRequestExternally(pullRequest)}
-        >
-          {`${openPullRequestActionLabel(pullRequest)} #${pullRequest.number}`}
-        </ContextMenuActionItem>
-      )}
-      <ContextMenuActionItem
-        icon={GitBranchIcon}
-        disabled={!branch}
-        onSelect={() => void copyToClipboard(branch, "Branch copied")}
-      >
-        Copy branch
-      </ContextMenuActionItem>
-      <ContextMenuActionItem
-        icon={FolderGit2Icon}
-        disabled={!worktreePath}
-        onSelect={() => void copyToClipboard(worktreePath, "Worktree path copied")}
-      >
-        Copy worktree path
-      </ContextMenuActionItem>
-      <ContextMenuActionItem
-        icon={TypeIcon}
-        disabled={!featureTitle}
-        onSelect={() => void copyToClipboard(featureTitle, "Feature title copied")}
-      >
-        Copy feature title
-      </ContextMenuActionItem>
+      {pullRequest && <PullRequestItem pullRequest={pullRequest} />}
+      <CopyFeatureItems featureTitle={featureTitle} branch={branch} worktreePath={worktreePath} />
       <ContextMenuSeparator />
       {isArchived && <ReviewCleanupItem featureId={feature.id} />}
       {isArchived && (
         <ContextMenuActionItem icon={ArchiveRestoreIcon} onSelect={() => onUnarchive(feature.id)}>
-          Unarchive
+          {t("project.featureContextMenu.unarchive", "Unarchive")}
         </ContextMenuActionItem>
       )}
       <ContextMenuActionItem
@@ -158,8 +135,87 @@ export function ProjectFeatureContextMenu({
   );
 }
 
+function PullRequestItem({ pullRequest }: { pullRequest: PrSummary }): ReactNode {
+  const { t } = useUiTranslation();
+  const request = prNoun(pullRequest);
+  const number = pullRequest.number;
+  const label =
+    request === "pull request"
+      ? t("project.featureContextMenu.openPullRequest", "Open pull request #{{number}}", { number })
+      : request === "merge request"
+        ? t("project.featureContextMenu.openMergeRequest", "Open merge request #{{number}}", {
+            number,
+          })
+        : t("project.featureContextMenu.openRequest", "Open {{request}} #{{number}}", {
+            request,
+            number,
+          });
+
+  return (
+    <ContextMenuActionItem
+      icon={GitPullRequestIcon}
+      onSelect={() => void openPullRequestExternally(pullRequest)}
+    >
+      {label}
+    </ContextMenuActionItem>
+  );
+}
+
+function CopyFeatureItems({
+  featureTitle,
+  branch,
+  worktreePath,
+}: {
+  featureTitle: string;
+  branch: string;
+  worktreePath: string;
+}): ReactNode {
+  const { t } = useUiTranslation();
+  return (
+    <>
+      <ContextMenuActionItem
+        icon={GitBranchIcon}
+        disabled={!branch}
+        onSelect={() =>
+          void copyToClipboard(
+            branch,
+            translateUi("project.featureContextMenu.branchCopied", "Branch copied"),
+          )
+        }
+      >
+        {t("project.featureContextMenu.copyBranch", "Copy branch")}
+      </ContextMenuActionItem>
+      <ContextMenuActionItem
+        icon={FolderGit2Icon}
+        disabled={!worktreePath}
+        onSelect={() =>
+          void copyToClipboard(
+            worktreePath,
+            translateUi("project.featureContextMenu.worktreePathCopied", "Worktree path copied"),
+          )
+        }
+      >
+        {t("project.featureContextMenu.copyWorktreePath", "Copy worktree path")}
+      </ContextMenuActionItem>
+      <ContextMenuActionItem
+        icon={TypeIcon}
+        disabled={!featureTitle}
+        onSelect={() =>
+          void copyToClipboard(
+            featureTitle,
+            translateUi("project.featureContextMenu.featureTitleCopied", "Feature title copied"),
+          )
+        }
+      >
+        {t("project.featureContextMenu.copyFeatureTitle", "Copy feature title")}
+      </ContextMenuActionItem>
+    </>
+  );
+}
+
 /** An archived conversation whose cleanup has steps left (see `ArchiveCleanupNotices`). */
 function ReviewCleanupItem({ featureId }: { featureId: number }): ReactNode {
+  const { t } = useUiTranslation();
   const { data: unsettled = false } = useListArchiveCleanups({
     query: {
       retry: false,
@@ -172,7 +228,7 @@ function ReviewCleanupItem({ featureId }: { featureId: number }): ReactNode {
       icon={BrushCleaningIcon}
       onSelect={() => useArchiveCleanupReviewStore.getState().open(featureId)}
     >
-      Review archive cleanup…
+      {t("project.featureContextMenu.reviewArchiveCleanup", "Review archive cleanup…")}
     </ContextMenuActionItem>
   );
 }
@@ -182,20 +238,21 @@ function ReviewCleanupItem({ featureId }: { featureId: number }): ReactNode {
  * opening it again reads it.
  */
 function MarkReadItem({ featureId }: { featureId: number }): ReactNode {
+  const { t } = useUiTranslation();
   const isMarked = useIsFeatureMarked(featureId);
   return isMarked ? (
     <ContextMenuActionItem
       icon={MailCheckIcon}
       onSelect={() => useUnreadStore.getState().toggleMarked(featureId)}
     >
-      Mark as read
+      {t("project.featureContextMenu.markAsRead", "Mark as read")}
     </ContextMenuActionItem>
   ) : (
     <ContextMenuActionItem
       icon={MailIcon}
       onSelect={() => useUnreadStore.getState().toggleMarked(featureId)}
     >
-      Mark as unread
+      {t("project.featureContextMenu.markAsUnread", "Mark as unread")}
     </ContextMenuActionItem>
   );
 }

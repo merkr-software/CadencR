@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   AlertCircleIcon,
   AlertTriangleIcon,
@@ -53,6 +54,7 @@ export function PrMergeBar({
   error,
   onRefetch,
 }: PrMergeBarProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const [dialogAction, setDialogAction] = useState<MergeAction | null>(null);
 
   if (!status) {
@@ -63,7 +65,9 @@ export function PrMergeBar({
             className="size-3.5 shrink-0 animate-spin text-muted-foreground"
             aria-hidden
           />
-          <span className="text-[12px] text-muted-foreground">Checking merge status…</span>
+          <span className="text-[12px] text-muted-foreground">
+            {t("workspace.git.prMergeBar.checkingMergeStatus", "Checking merge status…")}
+          </span>
         </Row>
       );
     }
@@ -81,7 +85,7 @@ export function PrMergeBar({
 
   const tone = readinessTone(status);
   const primary = status.actions[0];
-  const permission = noActionExplanation(status);
+  const permission = noActionExplanation(status, t);
   const detail = [...status.reasons, ...(permission ? [permission] : [])].join(" · ");
   return (
     <Row>
@@ -90,7 +94,7 @@ export function PrMergeBar({
       </span>
       <div className="flex min-w-0 flex-1 items-baseline gap-2">
         <span className={cn("shrink-0 text-[12px] font-medium", headlineClass(tone))}>
-          {mergeHeadline(status)}
+          {mergeHeadline(status, t)}
         </span>
         {detail && (
           <span className="min-w-0 truncate text-[11.5px] text-muted-foreground" title={detail}>
@@ -103,7 +107,11 @@ export function PrMergeBar({
         <span className="inline-flex shrink-0 items-center gap-0.5 text-destructive" title={error}>
           <AlertCircleIcon
             className="size-3.5"
-            aria-label={`Merge status may be out of date: ${error}`}
+            aria-label={t(
+              "workspace.git.prMergeBar.mergeStatusMayBeOutOfDate",
+              "Merge status may be out of date: {{error}}",
+              { error: error },
+            )}
           />
           <RetryButton onRetry={onRefetch} />
         </span>
@@ -114,7 +122,7 @@ export function PrMergeBar({
       {primary && (
         <Button size="xs" className="shrink-0" onClick={() => setDialogAction(primary)}>
           <GitMergeIcon aria-hidden />
-          {mergeActionLabel(primary, status)}
+          {mergeActionLabel(primary, status, t)}
         </Button>
       )}
       {dialogAction && (
@@ -143,13 +151,14 @@ function Row({ children }: { children: React.ReactNode }): ReactElement {
 }
 
 function RetryButton({ onRetry }: { onRetry: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       onClick={onRetry}
-      aria-label="Retry merge status"
-      title="Retry merge status"
+      aria-label={t("workspace.git.prMergeBar.retryMergeStatus", "Retry merge status")}
+      title={t("workspace.git.prMergeBar.retryMergeStatus", "Retry merge status")}
     >
       <RefreshCwIcon aria-hidden />
     </Button>
@@ -189,19 +198,37 @@ function CancelButton({
   status: PrMergeStatus;
   onDone: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const cancel = useDeletePrMerge();
-  const label = cancelLabel(status);
+  const label = cancelLabel(status, t);
   const handle = async (): Promise<void> => {
     try {
       await cancel.mutateAsync({
         params: { feature_id: featureId, pr_number: status.pr_number },
       });
       toast.success(
-        status.queue_entry ? `#${status.pr_number} left the queue` : "Auto-merge cancelled",
+        status.queue_entry
+          ? translateUi("workspace.git.prMergeBar.leftQueue", "#{{number}} left the queue", {
+              number: status.pr_number,
+            })
+          : translateUi("workspace.git.prMergeBar.autoMergeCancelled", "Auto-merge cancelled"),
       );
       onDone();
     } catch (err) {
-      toast.error(apiErrorMessage(err, `Could not ${label.toLowerCase()}`));
+      toast.error(
+        apiErrorMessage(
+          err,
+          status.queue_entry
+            ? translateUi(
+                "workspace.git.prMergeBar.couldNotLeaveQueue",
+                "Could not remove the proposal from the queue",
+              )
+            : translateUi(
+                "workspace.git.prMergeBar.couldNotCancelAutoMerge",
+                "Could not cancel auto-merge",
+              ),
+        ),
+      );
     }
   };
   return (

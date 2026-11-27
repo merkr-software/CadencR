@@ -19,6 +19,7 @@ function bridge(): CadencrDesktopBridge {
   return {
     isElectron: true,
     runtimeConfig: vi.fn(),
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(),
     onFileDrop: mockOnFileDrop,
     revealInFinder: vi.fn(),

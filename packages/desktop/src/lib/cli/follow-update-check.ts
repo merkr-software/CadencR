@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { updateStatusMessage } from "@/lib/update-status-message";
@@ -13,13 +14,7 @@ const FOLLOW_TIMEOUT_MS = 30_000;
 
 /** Shows how a check ended; `false` while it is still running. */
 function settle(state: UpdateStoreState, toastId: string | number): boolean {
-  const detail = {
-    progress: state.progress,
-    version: state.version,
-    error: state.error,
-    unsupportedMessage: state.unsupportedMessage,
-  };
-  const message = updateStatusMessage(state.status, detail);
+  const message = updateStatusMessage(state.status, state);
   switch (state.status) {
     case "idle":
     case "checking":
@@ -27,9 +22,12 @@ function settle(state: UpdateStoreState, toastId: string | number): boolean {
     case "available":
     case "downloading":
       // The download runs on; its banner offers the restart when it is ready.
-      toast.success(updateStatusMessage("available", detail), {
+      toast.success(updateStatusMessage("available", state), {
         id: toastId,
-        description: "Downloading it now. Cadencr offers to restart once it is ready.",
+        description: translateUi(
+          "cli.update.downloading",
+          "Downloading it now. Cadencr offers to restart once it is ready.",
+        ),
       });
       return true;
     case "up-to-date":
@@ -52,7 +50,7 @@ function settle(state: UpdateStoreState, toastId: string | number): boolean {
  * so the next `cadencr` request does not wait on the outcome.
  */
 export async function followUpdateCheck(): Promise<void> {
-  const toastId = toast.loading("Checking for updates…");
+  const toastId = toast.loading(translateUi("updates.checking", "Checking for updates…"));
   let done = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let unsubscribe: () => void = () => {};
@@ -68,7 +66,10 @@ export async function followUpdateCheck(): Promise<void> {
   } catch (err) {
     done = true;
     unsubscribe();
-    toast.error(apiErrorMessage(err, "Could not check for updates."), { id: toastId });
+    toast.error(
+      apiErrorMessage(err, translateUi("cli.update.error", "Could not check for updates.")),
+      { id: toastId },
+    );
     return;
   }
   // The store may have settled before the subscription fired.
@@ -77,8 +78,14 @@ export async function followUpdateCheck(): Promise<void> {
   timer = setTimeout(() => {
     done = true;
     unsubscribe();
-    toast.info("Still checking for updates. Settings → About shows the result.", {
-      id: toastId,
-    });
+    toast.info(
+      translateUi(
+        "cli.update.pending",
+        "Still checking for updates. Settings → About shows the result.",
+      ),
+      {
+        id: toastId,
+      },
+    );
   }, FOLLOW_TIMEOUT_MS);
 }

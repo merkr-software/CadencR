@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useRef,
@@ -31,7 +32,7 @@ import FileTree from "./FileTree";
 import FileSearchDialog from "./FileSearchDialog";
 import { saveAll } from "./editorSaveRegistry";
 import { toast } from "sonner";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { editorErrorMessage } from "./editor-error-message";
 import { useFileWatcher } from "@/hooks/useFileWatcher";
 import {
   ConfirmedConflictPathsProvider,
@@ -145,7 +146,12 @@ function useEditorLeaveGuard(
       pendingProceed?.();
       setPendingProceed(null);
     } catch (error) {
-      toast.error(apiErrorMessage(error, "Failed to save files"));
+      toast.error(
+        editorErrorMessage(
+          error,
+          translateUi("workspace.editor.sidebar.saveFailed", "Failed to save files"),
+        ),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -359,15 +365,19 @@ function SidebarHeader({
   onToggle: () => void;
   onOpenFileSearch: () => void;
 }) {
+  const { t } = useUiTranslation();
   const fuzzyKeys = useShortcutKeys("editor-fuzzy");
   const toggleSidebarKeys = useShortcutKeys("editor-toggle-sidebar");
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border shrink-0">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {isWorktree && (
-          <ShortcutTooltip label="On a worktree branch" alignLeft>
+          <ShortcutTooltip
+            label={t("workspace.editor.sidebar.worktree", "On a worktree branch")}
+            alignLeft
+          >
             <GitBranch
-              aria-label="On a worktree branch"
+              aria-label={t("workspace.editor.sidebar.worktree", "On a worktree branch")}
               className="h-3.5 w-3.5 shrink-0 text-primary"
             />
           </ShortcutTooltip>
@@ -378,14 +388,20 @@ function SidebarHeader({
           className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-border/60 bg-background/40 px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
         >
           <Search className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Search files…</span>
+          <span className="min-w-0 flex-1 truncate">
+            {t("workspace.editor.sidebar.searchFiles", "Search files…")}
+          </span>
           <KbdShortcut keys={fuzzyKeys} size="sm" />
         </button>
       </div>
-      <ShortcutTooltip label="Collapse sidebar" keys={toggleSidebarKeys} alignRight>
+      <ShortcutTooltip
+        label={t("workspace.editor.sidebar.collapseSidebar", "Collapse sidebar")}
+        keys={toggleSidebarKeys}
+        alignRight
+      >
         <button
           type="button"
-          aria-label="Collapse file tree sidebar"
+          aria-label={t("workspace.editor.sidebar.closeTree", "Collapse file tree sidebar")}
           className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           onClick={onToggle}
         >

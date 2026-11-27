@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { documentErrorMessage } from "./DocumentChrome";
 
 export type Loadable<T> =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; error: unknown }
   | { status: "ready"; value: T };
 
 /**
@@ -11,7 +10,7 @@ export type Loadable<T> =
  * result. Parsing a sheet is synchronous main-thread work, so
  * a frame is yielded first: the loading state paints before it starts.
  */
-export function useLoadable<T>(load: () => Promise<T>, failure: string): Loadable<T> {
+export function useLoadable<T>(load: () => Promise<T>): Loadable<T> {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   useEffect(() => {
     let cancelled = false;
@@ -22,14 +21,13 @@ export function useLoadable<T>(load: () => Promise<T>, failure: string): Loadabl
           if (!cancelled) setState({ status: "ready", value });
         })
         .catch((error: unknown) => {
-          if (!cancelled)
-            setState({ status: "error", message: documentErrorMessage(error, failure) });
+          if (!cancelled) setState({ status: "error", error });
         });
     });
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [failure, load]);
+  }, [load]);
   return state;
 }

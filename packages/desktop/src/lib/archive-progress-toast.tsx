@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { Circle, CircleAlert, CircleCheck, CircleMinus, LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
@@ -5,11 +6,11 @@ import type { CleanupReport, StepOutcome } from "@/api/generated";
 import { scopedToastDescription } from "@/components/ToastScope";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  CLEANUP_STEP_LABELS,
+  cleanupStepLabel,
   doneSummary,
   isSettledReport,
   reportedSteps,
-  STATUS_LABELS,
+  cleanupStatusLabel,
   stepsNeedingAttention,
   type ReportedStep,
 } from "@/lib/archive-cleanup-report";
@@ -34,11 +35,14 @@ function progressToastId(featureId: number): string {
 export function startArchiveProgress(featureId: number): void {
   const scope = scopedToastDescription({ featureId });
   inProgress.set(featureId, scope);
-  toast.loading("Archiving session…", {
-    ...RESET_TOAST_STAGE,
-    id: progressToastId(featureId),
-    description: scope,
-  });
+  toast.loading(
+    translateUi("conversation.archiveProgressToast.archivingSession", "Archiving session…"),
+    {
+      ...RESET_TOAST_STAGE,
+      id: progressToastId(featureId),
+      description: scope,
+    },
+  );
 }
 
 /** A step moved: shown only while this window's request is still open. */
@@ -46,11 +50,14 @@ export function updateArchiveProgress(featureId: number, report: CleanupReport):
   if (!inProgress.has(featureId)) return;
   const steps = reportedSteps(report);
   if (steps.length === 0) return;
-  toast.loading("Archiving session…", {
-    ...RESET_TOAST_STAGE,
-    id: progressToastId(featureId),
-    description: withScope(inProgress.get(featureId), <CleanupStepList steps={steps} />),
-  });
+  toast.loading(
+    translateUi("conversation.archiveProgressToast.archivingSession", "Archiving session…"),
+    {
+      ...RESET_TOAST_STAGE,
+      id: progressToastId(featureId),
+      description: withScope(inProgress.get(featureId), <CleanupStepList steps={steps} />),
+    },
+  );
 }
 
 /**
@@ -66,11 +73,14 @@ export function finishArchiveProgress(featureId: number, report: CleanupReport):
   }
   const steps = reportedSteps(report);
   const summary = isSettledReport(report) ? doneSummary(report) : <CleanupStepList steps={steps} />;
-  toast.success("Session archived", {
-    ...RESET_TOAST_STAGE,
-    id: progressToastId(featureId),
-    description: withScope(scope, steps.length > 0 ? summary : undefined),
-  });
+  toast.success(
+    translateUi("conversation.archiveProgressToast.sessionArchived", "Session archived"),
+    {
+      ...RESET_TOAST_STAGE,
+      id: progressToastId(featureId),
+      description: withScope(scope, steps.length > 0 ? summary : undefined),
+    },
+  );
 }
 
 /**
@@ -81,21 +91,42 @@ export function finishArchiveProgress(featureId: number, report: CleanupReport):
 export function failArchiveProgress(featureId: number, error: unknown, reportLost: boolean): void {
   const scope = takeScope(featureId);
   if (reportLost) {
-    toast.warning("Session archived, but its cleanup did not report back", {
+    toast.warning(
+      translateUi(
+        "conversation.archiveProgressToast.sessionArchivedButItsCleanupDidNotReportBack",
+        "Session archived, but its cleanup did not report back",
+      ),
+      {
+        ...RESET_TOAST_STAGE,
+        id: progressToastId(featureId),
+        description: withScope(
+          scope,
+          translateUi(
+            "conversation.archive-progress-toast.cleanupReportMissing",
+            "The service did not answer before the cleanup finished. Any step left unfinished will be listed for review.",
+          ),
+        ),
+      },
+    );
+    return;
+  }
+  toast.error(
+    translateUi(
+      "conversation.archiveProgressToast.couldNotArchiveSession",
+      "Could not archive session",
+    ),
+    {
       ...RESET_TOAST_STAGE,
       id: progressToastId(featureId),
       description: withScope(
         scope,
-        "The service did not answer before the cleanup finished. Any step left unfinished will be listed for review.",
+        apiErrorMessage(
+          error,
+          translateUi("conversation.archiveProgressToast.archiveFailed", "Archive failed"),
+        ),
       ),
-    });
-    return;
-  }
-  toast.error("Could not archive session", {
-    ...RESET_TOAST_STAGE,
-    id: progressToastId(featureId),
-    description: withScope(scope, apiErrorMessage(error, "Archive failed")),
-  });
+    },
+  );
 }
 
 function takeScope(featureId: number): ReactNode {
@@ -116,13 +147,14 @@ function withScope(scope: ReactNode, body: ReactNode): ReactNode {
 }
 
 function CleanupStepList({ steps }: { steps: readonly ReportedStep[] }): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <ul className="archive-progress-steps">
       {steps.map(({ name, step }) => (
         <li key={name} data-status={step.status}>
           <StepIcon status={step.status} />
-          <span>{CLEANUP_STEP_LABELS[name]}</span>
-          <span className="archive-progress-step-status">{STATUS_LABELS[step.status]}</span>
+          <span>{cleanupStepLabel(name, t)}</span>
+          <span className="archive-progress-step-status">{cleanupStatusLabel(step.status, t)}</span>
         </li>
       ))}
     </ul>

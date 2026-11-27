@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ArchiveIcon, Loader2Icon, MessageSquareIcon } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -30,6 +31,7 @@ const ConversationReferenceRow = memo(function ConversationReferenceRow({
   selected: boolean;
   onSelect: (featureId: number) => void;
 }) {
+  const { t } = useUiTranslation();
   return (
     <ComposerPopoverOption
       listId={listId}
@@ -44,7 +46,10 @@ const ConversationReferenceRow = memo(function ConversationReferenceRow({
         <span className="min-w-0 truncate">{item.project_name}</span>
       </span>
       {item.feature_status === FeatureStatus.archived && (
-        <ArchiveIcon className="size-3 shrink-0 text-muted-foreground" aria-label="Archived" />
+        <ArchiveIcon
+          className="size-3 shrink-0 text-muted-foreground"
+          aria-label={t("conversation.conversationReferencePopover.archived", "Archived")}
+        />
       )}
     </ComposerPopoverOption>
   );
@@ -60,21 +65,44 @@ export function ConversationReferencePopover({
   onSelect,
   maxHeight,
 }: ConversationReferencePopoverProps) {
+  const { t } = useUiTranslation();
   let status: React.ReactNode = null;
   if (isLoading)
     status = (
       <>
         <Loader2Icon className="size-3 animate-spin" />
-        Loading conversations…
+        {t(
+          "conversation.conversationReferencePopover.loadingConversations",
+          "Loading conversations…",
+        )}
       </>
     );
   else if (disabled)
-    status = "Enable the workspace MCP in Settings → MCP to reference conversations.";
-  else if (error) status = apiErrorMessage(error, "Could not load conversations");
-  else if (items.length === 0) status = "No matching conversations";
+    status = t(
+      "conversation.conversationReferencePopover.enableTheWorkspaceMcpInSettingsMcpToReferenceConversations",
+      "Enable the workspace MCP in Settings → MCP to reference conversations.",
+    );
+  else if (error)
+    status = apiErrorMessage(
+      error,
+      t(
+        "conversation.conversationReferencePopover.couldNotLoadConversations",
+        "Could not load conversations",
+      ),
+    );
+  else if (items.length === 0)
+    status = t(
+      "conversation.conversationReferencePopover.noMatchingConversations",
+      "No matching conversations",
+    );
 
   return (
-    <ComposerPopover listId={listId} label="Conversations" status={status} maxHeight={maxHeight}>
+    <ComposerPopover
+      listId={listId}
+      label={t("conversation.conversationReferencePopover.conversations", "Conversations")}
+      status={status}
+      maxHeight={maxHeight}
+    >
       {items.map((item, index) => (
         <ConversationReferenceRow
           key={item.feature_id}

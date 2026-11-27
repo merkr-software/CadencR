@@ -13,6 +13,7 @@ use sqlx::SqlitePool;
 
 use super::state;
 use crate::shared::db::QuickCheckError;
+use crate::shared::startup_progress::{run_phase, StartupStep};
 use crate::shared::{db, disk_space};
 
 #[cfg(not(test))]
@@ -83,12 +84,7 @@ pub async fn run_if_requested(
         return Ok(0);
     }
 
-    crate::shared::startup_progress::run_phase(
-        "compacting_database",
-        "Checking database integrity before reclaiming unused space.",
-        ensure_healthy(pool),
-    )
-    .await?;
+    run_phase(StartupStep::CheckIntegrity, ensure_healthy(pool)).await?;
     let page_size = pragma_u64(pool, "PRAGMA page_size").await?;
     let page_count = pragma_u64(pool, "PRAGMA page_count").await?;
     let free_pages = pragma_u64(pool, "PRAGMA freelist_count").await?;
@@ -127,23 +123,13 @@ pub async fn run_if_requested(
         reclaimable_bytes = reclaimable,
         "compacting SQLite freelist at startup"
     );
-    let detail = format!(
-        "Rewriting the database to reclaim {} of unused space. Conversations are preserved.",
-        disk_space::human_bytes(reclaimable)
-    );
-    crate::shared::startup_progress::run_phase(
-        "compacting_database",
-        &detail,
+    run_phase(
+        StartupStep::ReclaimSpace { bytes: reclaimable },
         sqlx::query("VACUUM").execute(pool),
     )
     .await
     .context("SQLite VACUUM failed; the original database remains usable")?;
-    crate::shared::startup_progress::run_phase(
-        "compacting_database",
-        "Verifying database integrity after reclaiming space.",
-        ensure_healthy(pool),
-    )
-    .await?;
+    run_phase(StartupStep::VerifyIntegrity, ensure_healthy(pool)).await?;
 
     state::set(pool, state::DATABASE_COMPACTION_REQUESTED, "0").await;
     let after = std::fs::metadata(db_path)

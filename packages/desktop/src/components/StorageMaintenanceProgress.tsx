@@ -1,3 +1,6 @@
+import { formatExactNumber, formatPercent } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -6,112 +9,238 @@ import {
   type StorageMaintenanceStatus,
 } from "@/stores/storage-maintenance-store";
 
-function statusLabel(status: StorageMaintenanceStatus): string {
-  if (status.task === "unknown") return "Storage status unavailable";
+function statusLabel(t: UiTranslator, status: StorageMaintenanceStatus): string {
+  if (status.task === "unknown")
+    return t(
+      "system.storageMaintenanceProgress.storageStatusUnavailable",
+      "Storage status unavailable",
+    );
   if (status.task === "cleanup") {
-    if (status.phase === "completed") return "Conversation cleanup complete";
-    if (status.phase === "cancelled") return "Conversation cleanup paused";
-    if (status.phase === "failed") return "Conversation cleanup will retry";
-    return "Cleaning archived conversations";
+    if (status.phase === "completed")
+      return t(
+        "system.storageMaintenanceProgress.cleanupComplete",
+        "Conversation cleanup complete",
+      );
+    if (status.phase === "cancelled")
+      return t("system.storageMaintenanceProgress.cleanupPaused", "Conversation cleanup paused");
+    if (status.phase === "failed")
+      return t("system.storageMaintenanceProgress.cleanupRetry", "Conversation cleanup will retry");
+    return t("system.storageMaintenanceProgress.cleanupActive", "Cleaning archived conversations");
   }
-  if (status.phase === "completed") return "Storage optimization complete";
-  if (status.phase === "cancelled") return "Storage optimization paused";
-  if (status.phase === "failed") return "Storage optimization will retry";
-  return "Optimizing storage";
+  if (status.phase === "completed")
+    return t(
+      "system.storageMaintenanceProgress.optimizationComplete",
+      "Storage optimization complete",
+    );
+  if (status.phase === "cancelled")
+    return t("system.storageMaintenanceProgress.optimizationPaused", "Storage optimization paused");
+  if (status.phase === "failed")
+    return t(
+      "system.storageMaintenanceProgress.optimizationRetry",
+      "Storage optimization will retry",
+    );
+  return t("system.storageMaintenanceProgress.optimizationActive", "Optimizing storage");
 }
 
-function progressDescription(status: StorageMaintenanceStatus): string {
-  const percentage = status.total > 0 ? Math.round((status.completed / status.total) * 100) : 0;
-  if (status.task !== "cleanup") return `Progress: ${percentage}%.`;
+function formatProgress(status: StorageMaintenanceStatus, locale: string): string {
+  const ratio = status.total > 0 ? status.completed / status.total : 0;
+  return formatPercent(ratio, locale);
+}
 
-  const conversations = status.total === 1 ? "conversation" : "conversations";
+function progressDescription(
+  t: UiTranslator,
+  status: StorageMaintenanceStatus,
+  percent: string,
+  locale: string,
+): string {
+  if (status.task !== "cleanup")
+    return t("system.storage.progress", "Progress: {{percent}}.", { percent });
+
+  const values = {
+    count: status.total,
+    formattedCount: formatExactNumber(status.total, locale),
+    completed: formatExactNumber(status.completed, locale),
+  };
   switch (status.phase) {
     case "completed":
-      return `Completed ${status.completed} of ${status.total} archived ${conversations}.`;
+      return t(
+        "system.storage.progressCompleted",
+        "Completed {{completed}} of {{formattedCount}} archived conversations.",
+        {
+          ...values,
+          defaultValue_zero:
+            "Completed {{completed}} of {{formattedCount}} archived conversations.",
+          defaultValue_one: "Completed {{completed}} of {{formattedCount}} archived conversation.",
+          defaultValue_other:
+            "Completed {{completed}} of {{formattedCount}} archived conversations.",
+        },
+      );
     case "cancelled":
-      return `Paused safely after ${status.completed} of ${status.total} archived ${conversations}.`;
+      return t(
+        "system.storage.progressPaused",
+        "Paused safely after {{completed}} of {{formattedCount}} archived conversations.",
+        {
+          ...values,
+          defaultValue_zero:
+            "Paused safely after {{completed}} of {{formattedCount}} archived conversations.",
+          defaultValue_one:
+            "Paused safely after {{completed}} of {{formattedCount}} archived conversation.",
+          defaultValue_other:
+            "Paused safely after {{completed}} of {{formattedCount}} archived conversations.",
+        },
+      );
     case "failed":
-      return `Stopped safely after ${status.completed} of ${status.total} archived ${conversations}. It will retry automatically, or you can run it from Settings.`;
+      return t(
+        "system.storage.progressStopped",
+        "Stopped safely after {{completed}} of {{formattedCount}} archived conversations. It will retry automatically, or you can run it from Settings.",
+        {
+          ...values,
+          defaultValue_zero:
+            "Stopped safely after {{completed}} of {{formattedCount}} archived conversations. It will retry automatically, or you can run it from Settings.",
+          defaultValue_one:
+            "Stopped safely after {{completed}} of {{formattedCount}} archived conversation. It will retry automatically, or you can run it from Settings.",
+          defaultValue_other:
+            "Stopped safely after {{completed}} of {{formattedCount}} archived conversations. It will retry automatically, or you can run it from Settings.",
+        },
+      );
     default:
-      return `Processed ${status.completed} of ${status.total} archived ${conversations}.`;
+      return t(
+        "system.storage.progressProcessed",
+        "Processed {{completed}} of {{formattedCount}} archived conversations.",
+        {
+          ...values,
+          defaultValue_zero:
+            "Processed {{completed}} of {{formattedCount}} archived conversations.",
+          defaultValue_one: "Processed {{completed}} of {{formattedCount}} archived conversation.",
+          defaultValue_other:
+            "Processed {{completed}} of {{formattedCount}} archived conversations.",
+        },
+      );
   }
 }
 
 function MaintenanceExplanation({
   status,
+  percent,
 }: {
   status: StorageMaintenanceStatus;
+  percent: string;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   if (status.task === "cleanup") {
     return (
       <>
-        <p className="font-semibold text-popover-foreground">Archived conversation cleanup</p>
-        <p>{progressDescription(status)}</p>
+        <p className="font-semibold text-popover-foreground">
+          {t(
+            "system.storageMaintenanceProgress.archivedConversationCleanup",
+            "Archived conversation cleanup",
+          )}
+        </p>
+        <p>{progressDescription(t, status, percent, locale)}</p>
         <p>
           <strong className="font-semibold text-popover-foreground">
-            You can keep using Cadencr normally while cleanup runs.
+            {t(
+              "system.storageMaintenanceProgress.youCanKeepUsingCadencrNormallyWhile",
+              "You can keep using Cadencr normally while cleanup runs.",
+            )}
           </strong>
         </p>
         <p>
-          Only old archived conversations are processed. Cadencr shortens long command output to
-          save space.
+          {t(
+            "system.storageMaintenanceProgress.onlyOldArchivedConversationsAreProcessedCadencr",
+            "Only old archived conversations are processed. Cadencr shortens long command output to save space.",
+          )}
         </p>
         <p>
           <strong className="font-semibold text-popover-foreground">
-            No conversations or messages are deleted.
+            {t(
+              "system.storageMaintenanceProgress.noConversationsOrMessagesAreDeleted",
+              "No conversations or messages are deleted.",
+            )}
           </strong>{" "}
-          Your messages and agent replies stay available.
+          {t("system.storage.messagesRetained", "Your messages and agent replies stay available.")}
         </p>
         <p>
-          Cleanup is safe and resumable. It pauses if a conversation becomes active or your cleanup
-          settings change. Saved space is reclaimed safely on a later startup.
+          {t(
+            "system.storageMaintenanceProgress.cleanupIsSafeAndResumableItPauses",
+            "Cleanup is safe and resumable. It pauses if a conversation becomes active or your cleanup settings change. Saved space is reclaimed safely on a later startup.",
+          )}
         </p>
       </>
     );
   }
 
   if (status.task === "optimization") {
-    return (
-      <>
-        <p className="font-semibold text-popover-foreground">Storage optimization</p>
-        <p>{progressDescription(status)}</p>
-        <p>
-          <strong className="font-semibold text-popover-foreground">
-            You can keep using Cadencr normally while optimization runs.
-          </strong>
-        </p>
-        <p>
-          Cadencr removes verified duplicate command output and moves pasted images to separate
-          storage.
-        </p>
-        <p>
-          <strong className="font-semibold text-popover-foreground">
-            No conversation information is lost.
-          </strong>{" "}
-          The retained output and images remain available.
-        </p>
-        <p>The work resumes automatically if interrupted. Saved space is reclaimed safely.</p>
-      </>
-    );
+    return <OptimizationExplanation progress={progressDescription(t, status, percent, locale)} />;
   }
 
   return (
     <>
-      <p className="font-semibold text-popover-foreground">Storage status unavailable</p>
+      <p className="font-semibold text-popover-foreground">
+        {t(
+          "system.storageMaintenanceProgress.storageStatusUnavailable",
+          "Storage status unavailable",
+        )}
+      </p>
       <p>
-        Cadencr could not read the storage maintenance update, so the exact operation cannot be
-        shown. Check the service logs for details.
+        {t(
+          "system.storageMaintenanceProgress.cadencrCouldNotReadTheStorageMaintenance",
+          "Cadencr could not read the storage maintenance update, so the exact operation cannot be shown. Check the service logs for details.",
+        )}
+      </p>
+    </>
+  );
+}
+
+function OptimizationExplanation({ progress }: { progress: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <>
+      <p className="font-semibold text-popover-foreground">
+        {t("system.storageMaintenanceProgress.storageOptimization", "Storage optimization")}
+      </p>
+      <p>{progress}</p>
+      <p>
+        <strong className="font-semibold text-popover-foreground">
+          {t(
+            "system.storageMaintenanceProgress.youCanKeepUsingCadencrNormallyWhileOptimizationRuns",
+            "You can keep using Cadencr normally while optimization runs.",
+          )}
+        </strong>
+      </p>
+      <p>
+        {t(
+          "system.storageMaintenanceProgress.cadencrRemovesVerifiedDuplicateCommandOutputAnd",
+          "Cadencr removes verified duplicate command output and moves pasted images to separate storage.",
+        )}
+      </p>
+      <p>
+        <strong className="font-semibold text-popover-foreground">
+          {t(
+            "system.storageMaintenanceProgress.noConversationInformationIsLost",
+            "No conversation information is lost.",
+          )}
+        </strong>{" "}
+        {t("system.storage.outputsRetained", "The retained output and images remain available.")}
+      </p>
+      <p>
+        {t(
+          "system.storageMaintenanceProgress.theWorkResumesAutomaticallyIfInterruptedSaved",
+          "The work resumes automatically if interrupted. Saved space is reclaimed safely.",
+        )}
       </p>
     </>
   );
 }
 
 export function StorageMaintenanceProgress(): React.JSX.Element | null {
+  const { t, i18n } = useUiTranslation();
   const status = useStorageMaintenanceStore((state) => state.status);
   if (!status) return null;
 
-  const label = statusLabel(status);
-  const percentage = status.total > 0 ? Math.round((status.completed / status.total) * 100) : null;
+  const label = statusLabel(t, status);
+  const percent = formatProgress(status, formattingLocale(i18n.language));
   const indicatorClassName =
     status.phase === "completed"
       ? "bg-[var(--status-ip)]"
@@ -136,7 +265,7 @@ export function StorageMaintenanceProgress(): React.JSX.Element | null {
           >
             <div className="mb-1 flex items-center justify-between gap-2">
               <span className="min-w-0 truncate">{label}</span>
-              {percentage !== null && <span className="shrink-0 tabular-nums">{percentage}%</span>}
+              {status.total > 0 && <span className="shrink-0 tabular-nums">{percent}</span>}
             </div>
             <ProgressBar
               completed={status.completed}
@@ -152,7 +281,7 @@ export function StorageMaintenanceProgress(): React.JSX.Element | null {
           align="start"
           className="w-80 space-y-2 px-3 py-2.5 leading-relaxed"
         >
-          <MaintenanceExplanation status={status} />
+          <MaintenanceExplanation status={status} percent={percent} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

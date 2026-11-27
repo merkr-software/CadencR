@@ -1,11 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
+import { CLIENT_TRANSCRIPT_ERRORS } from "@/lib/client-transcript-errors";
+import { uiI18n } from "@/lib/i18n/ui";
 import { ErrorBlock } from "./ErrorBlock";
 
 describe("ErrorBlock", () => {
   it("shows a hidden tool's failure as is", () => {
     render(<ErrorBlock content="Runtime coordination failed" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Runtime coordination failed");
+  });
+
+  it("retranslates a mounted client error while preserving provider details", async () => {
+    const { key, message } = CLIENT_TRANSCRIPT_ERRORS.MALFORMED_MESSAGE;
+    const providerMessage = "Unexpected chunk from provider";
+    const { user } = render(
+      <>
+        <ErrorBlock blockId="ws-err-1" code="MALFORMED_MESSAGE" content={message} />
+        <ErrorBlock blockId="provider-1" code="MALFORMED_MESSAGE" content={providerMessage} />
+      </>,
+    );
+    for (const button of screen.getAllByRole("button", { name: /Details/ })) {
+      await user.click(button);
+    }
+    expect(screen.getByText(message)).toBeVisible();
+
+    uiI18n.addResourceBundle("fr", "ui", { [key]: "Mise à jour illisible." });
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(screen.getByText("Mise à jour illisible.")).toBeVisible();
+      expect(screen.queryByText(message)).toBeNull();
+      expect(screen.getByText(providerMessage)).toBeVisible();
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("leads a turn-ending error with plain words and keeps the raw text one click away", async () => {

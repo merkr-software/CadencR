@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useRef, useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { CopyIcon, PencilIcon, WandSparklesIcon } from "lucide-react";
@@ -21,7 +22,7 @@ import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useFeatureSettingsShortcuts } from "./useFeatureSettingsShortcuts";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
-import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
+import { autoNameErrorMessage } from "@/lib/auto-name-errors";
 import { copyToClipboard } from "@/lib/clipboard";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
@@ -153,13 +154,7 @@ function StandardFeatureTopBar({
   const title = wsTitle ?? feature?.title ?? titleOverride;
   const autoNameMutation = useAutoNameFeature({
     mutation: {
-      onError: (error) => {
-        const message =
-          apiErrorCode(error) === "DATABASE_ERROR"
-            ? "A database error prevented auto-renaming this conversation. Try again."
-            : apiErrorMessage(error, "Auto-rename failed");
-        toast.error(message);
-      },
+      onError: (error) => toast.error(autoNameErrorMessage(error)),
     },
   });
 
@@ -326,6 +321,7 @@ function FeatureTitleMenu({
   isAutoRenamePending,
   onAutoRename,
 }: FeatureTitleMenuProps): ReactElement {
+  const { t } = useUiTranslation();
   const [renameOpen, setRenameOpen] = useState(false);
   // Opening the popover synchronously from `onSelect` races with the menu's
   // own dismissal (focus + pointer events dispatched during teardown dismiss
@@ -334,7 +330,10 @@ function FeatureTitleMenu({
   const openRenameOnMenuCloseRef = useRef(false);
 
   const handleCopy = (): void => {
-    void copyToClipboard(title, "Copied feature name");
+    void copyToClipboard(
+      title,
+      translateUi("conversation.featureTopBar.copiedFeatureName", "Copied feature name"),
+    );
   };
 
   const handleMenuCloseAutoFocus = (event: Event): void => {
@@ -360,7 +359,7 @@ function FeatureTitleMenu({
         </ContextMenuTrigger>
         <ContextMenuContent onCloseAutoFocus={handleMenuCloseAutoFocus}>
           <ContextMenuActionItem icon={CopyIcon} onSelect={handleCopy}>
-            Copy
+            {t("conversation.featureTopBar.copy", "Copy")}
           </ContextMenuActionItem>
           <ContextMenuActionItem
             icon={PencilIcon}
@@ -368,7 +367,7 @@ function FeatureTitleMenu({
               openRenameOnMenuCloseRef.current = true;
             }}
           >
-            Rename…
+            {t("conversation.featureTopBar.rename", "Rename…")}
           </ContextMenuActionItem>
           {canAutoRename && (
             <ContextMenuActionItem
@@ -376,7 +375,7 @@ function FeatureTitleMenu({
               disabled={isAutoRenamePending}
               onSelect={onAutoRename}
             >
-              Auto-rename
+              {t("conversation.featureTopBar.autoRename", "Auto-rename")}
             </ContextMenuActionItem>
           )}
         </ContextMenuContent>

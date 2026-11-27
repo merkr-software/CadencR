@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Dispatch surface for the in-editor "Preview" toggle. Given the
  * current buffer content + the file's `PreviewKind`, renders the
@@ -35,6 +36,7 @@ export const EditorPreviewSurface = memo(function EditorPreviewSurface({
   projectId,
   featureId,
 }: EditorPreviewSurfaceProps) {
+  const { t } = useUiTranslation();
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const htmlDocument = useMemo(() => buildHtmlPreviewDocument(content), [content]);
   const svgDocument = useMemo(() => buildSvgPreviewDocument(content), [content]);
@@ -80,7 +82,7 @@ export const EditorPreviewSurface = memo(function EditorPreviewSurface({
           {/* `allow-scripts` lets inline JS run, still isolates from same-origin. */}
           <iframe
             ref={previewFrameRef}
-            title="HTML preview"
+            title={t("workspace.editor.editorPreviewSurface.htmlPreview", "HTML preview")}
             srcDoc={htmlDocument}
             sandbox="allow-scripts"
             referrerPolicy="no-referrer"
@@ -95,7 +97,7 @@ export const EditorPreviewSurface = memo(function EditorPreviewSurface({
             {/* Match HTML preview isolation while keeping the checkerboard visible behind transparent SVGs. */}
             <iframe
               ref={previewFrameRef}
-              title="SVG preview"
+              title={t("workspace.editor.editorPreviewSurface.svgPreview", "SVG preview")}
               srcDoc={svgDocument}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"

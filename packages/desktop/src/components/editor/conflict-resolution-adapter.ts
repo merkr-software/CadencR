@@ -12,7 +12,7 @@ export interface ConflictHunk {
 export interface MappedConflictHunk extends ConflictHunk {
   from: number | null;
   to: number | null;
-  disabledReason: string | null;
+  disabledReason: "edited" | "ambiguous" | null;
 }
 
 /**
@@ -30,14 +30,14 @@ export function buildConflictHunks(result: string): ConflictHunk[] {
 export function mapConflictHunk(documentText: string, hunk: ConflictHunk): MappedConflictHunk {
   const from = documentText.indexOf(hunk.markerText);
   if (from < 0) {
-    return { ...hunk, from: null, to: null, disabledReason: "This hunk was edited manually." };
+    return { ...hunk, from: null, to: null, disabledReason: "edited" };
   }
   if (documentText.indexOf(hunk.markerText, from + 1) >= 0) {
     return {
       ...hunk,
       from: null,
       to: null,
-      disabledReason: "This marker block is ambiguous after overlapping edits.",
+      disabledReason: "ambiguous",
     };
   }
   return { ...hunk, from, to: from + hunk.markerText.length, disabledReason: null };

@@ -1,6 +1,7 @@
 {
   "name": "Cadencr",
   "short_name": "Cadencr",
+  "lang": "en",
   "description": "Unified workspace for AI coding agents.",
   "start_url": "/",
   "scope": "/",

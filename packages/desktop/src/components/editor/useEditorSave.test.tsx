@@ -1,3 +1,4 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
@@ -23,7 +24,8 @@ vi.mock("@/stores/editor-store", () => ({
 }));
 vi.mock("@/lib/api-errors", () => ({
   toastError,
-  apiErrorMessage: (error: Error) => error.message,
+  apiErrorMessage: (error: unknown, fallback: string) =>
+    error instanceof Error && error.message ? error.message : fallback,
 }));
 const views: EditorView[] = [];
 beforeEach(() => {
@@ -293,4 +295,50 @@ describe("save and reload ordering", () => {
     const key = ["/api/editor/read", { project_id: 1, feature_id: 2, file_path: "test.ts" }];
     expect(h.client.getQueryData(key)).toEqual({ content, line_count: lineCount, large: false });
   });
+});
+
+describe("editor save error localization", () => {
+  afterEach(async () => {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  });
+
+  it.each(["upstream", "fallback", "conflict"] as const)(
+    "updates persistent %s errors without re-emitting the toast",
+    async (source) => {
+      const h = setup();
+      h.edit("keep these edits");
+      if (source === "conflict") h.rerender({ content: "outside" });
+      else mutate.mockRejectedValue(source === "upstream" ? new Error("Disk unavailable") : null);
+      await act(async () => {
+        await h.result.current.save();
+      });
+      const english = h.result.current.errorMessage;
+      expect(english).toEqual(source === "upstream" ? "Disk unavailable" : expect.any(String));
+      expect(toastError).toHaveBeenCalledTimes(1);
+
+      uiI18n.addResourceBundle("fr", "ui", {
+        workspace: {
+          editor: {
+            save: { syncFailed: "Échec de la synchronisation" },
+            useEditorWrite: { diskChanged: "Le fichier a changé sur le disque" },
+          },
+        },
+      });
+      await act(async () => {
+        await uiI18n.changeLanguage("fr");
+      });
+      expect(h.result.current.errorMessage).toBe(
+        {
+          upstream: "Disk unavailable",
+          fallback: "Échec de la synchronisation",
+          conflict: "Le fichier a changé sur le disque",
+        }[source],
+      );
+      expect(toastError).toHaveBeenCalledTimes(1);
+      expect(h.view.state.doc.toString()).toBe("keep these edits");
+    },
+  );
 });

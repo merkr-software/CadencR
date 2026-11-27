@@ -2,7 +2,7 @@ import type { Input, Result, WebContents, WebContentsView } from "electron";
 import { httpBrowserOrigin } from "../../src/shared/browser-url";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
 import {
-  formatBlockedNavigationError,
+  blockedSelfRedirect,
   formatBrowserCrashError,
   formatBrowserLoadError,
   isIgnoredLoadErrorCode,
@@ -131,15 +131,7 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
     if (event.isMainFrame === false) return;
     if (tab.automationAccess !== "user" && isCadencrBrowserUrl(event.url)) {
       event.preventDefault();
-      if (
-        host.setTabError(
-          formatBlockedNavigationError(
-            "Navigation blocked",
-            "Shared browser tabs cannot redirect to Cadencr's own interface.",
-            event.url,
-          ),
-        )
-      ) {
+      if (host.setTabError(blockedSelfRedirect(event.url))) {
         host.emitState();
       }
       return;
@@ -303,7 +295,7 @@ function refreshTabMetadata(tab: ManagedTab, host: TabEventHost): void {
   const wc = tab.webContents;
   updateTabMetadata(
     tab,
-    { title: wc.getTitle() || wc.getURL(), url: wc.getURL() || DEFAULT_URL },
+    { title: wc.getTitle() || wc.getURL(), defaultTitle: false, url: wc.getURL() || DEFAULT_URL },
     host,
   );
 }

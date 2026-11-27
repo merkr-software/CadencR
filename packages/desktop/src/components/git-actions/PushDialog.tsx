@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Push dialog: picks a force mode, then streams `git push` through a
  * backend PTY and surfaces a passphrase / yes-no input whenever ssh
@@ -59,11 +60,22 @@ import type { PushSubmissionController } from "./usePushSubmission";
 const ESC_KEYS: string[] = ["esc"];
 const SUBMIT_KEYS: string[] = ["cmd", "enter"];
 
-const SUBMIT_LABEL: Record<PushForceMode, string> = {
-  [PushForceMode.none]: "Push",
-  [PushForceMode["force-with-lease"]]: "Force push (with lease)",
-  [PushForceMode.force]: "Force push",
-};
+function pushSubmitLabel(force: PushForceMode, failed: boolean, t: UiTranslator): string {
+  switch (force) {
+    case PushForceMode.none:
+      return failed
+        ? t("workspace.git.pushDialog.retryPush", "Retry — push")
+        : t("workspace.git.pushDialog.push", "Push");
+    case PushForceMode["force-with-lease"]:
+      return failed
+        ? t("workspace.git.pushDialog.retryForcepushwithlease", "Retry — force push (with lease)")
+        : t("workspace.git.pushDialog.forcePushWithLease", "Force push (with lease)");
+    case PushForceMode.force:
+      return failed
+        ? t("workspace.git.pushDialog.retryForcepush", "Retry — force push")
+        : t("workspace.git.pushDialog.forcePush", "Force push");
+  }
+}
 
 interface PushDialogProps {
   featureId: number;
@@ -72,6 +84,7 @@ interface PushDialogProps {
 }
 
 export default function PushDialog({ featureId, open, submission }: PushDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const {
     outcome,
     submitting,
@@ -117,16 +130,26 @@ export default function PushDialog({ featureId, open, submission }: PushDialogPr
       >
         <DialogHeader>
           <DialogTitle>
-            {submitting ? "Pushing to remote" : failed ? "Push failed" : "Push to remote"}
+            {submitting
+              ? t("workspace.git.pushDialog.pushingToRemote", "Pushing to remote")
+              : failed
+                ? t("workspace.git.pushDialog.pushFailed", "Push failed")
+                : t("workspace.git.pushDialog.pushToRemote", "Push to remote")}
           </DialogTitle>
           {submitting && (
             <DialogDescription>
-              You can keep this open or continue in the background.
+              {t(
+                "workspace.git.pushDialog.youCanKeepThisOpenOrContinue",
+                "You can keep this open or continue in the background.",
+              )}
             </DialogDescription>
           )}
           {failed && (
             <DialogDescription>
-              Review the output, then retry — possibly with a different push mode.
+              {t(
+                "workspace.git.pushDialog.reviewTheOutputThenRetryPossibly",
+                "Review the output, then retry — possibly with a different push mode.",
+              )}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -184,6 +207,7 @@ const PushPromptSection = memo(function PushPromptSection({
   answeredOffset,
   onAnswered,
 }: PushPromptSectionProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const buffer = usePushOutputStore(selectPushOutput(featureId));
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -208,7 +232,10 @@ const PushPromptSection = memo(function PushPromptSection({
       // may yet succeed. A toast explains the partial failure without
       // polluting the terminal pane, and the prompt stays visible with
       // the typed value preserved for retry.
-      toastError(err, "Failed to send input.");
+      toastError(
+        err,
+        translateUi("workspace.git.pushDialog.failedToSendInput", "Failed to send input."),
+      );
     }
   }
 
@@ -233,7 +260,7 @@ const PushPromptSection = memo(function PushPromptSection({
         />
         <Button type="submit" disabled={sendInput.isPending}>
           {sendInput.isPending && <Loader2 className="mr-2 size-3.5 animate-spin" />}
-          Send
+          {t("workspace.git.pushDialog.send", "Send")}
         </Button>
       </div>
     </form>
@@ -255,29 +282,30 @@ function PushFooter({
   onSubmit,
   onClose,
 }: PushFooterProps): ReactElement {
+  const { t } = useUiTranslation();
   if (submitting) {
     return (
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
           <Minimize2 className="mr-2 size-4" />
-          Run in background
+          {t("workspace.git.pushDialog.runInBackground", "Run in background")}
           <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
         </Button>
       </DialogFooter>
     );
   }
-  const label = SUBMIT_LABEL[force];
+
   return (
     <DialogFooter>
       <Button variant="outline" onClick={onClose}>
-        Close
+        {t("workspace.git.pushDialog.close", "Close")}
         <KbdShortcut keys={ESC_KEYS} variant="hint" />
       </Button>
       <Button
         variant={force === PushForceMode.force ? "destructive" : "default"}
         onClick={onSubmit}
       >
-        {failed ? `Retry — ${label.toLowerCase()}` : label}
+        {pushSubmitLabel(force, failed, t)}
         <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
       </Button>
     </DialogFooter>

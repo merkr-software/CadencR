@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@/test-utils";
 import type { ThemeDefinition } from "@/lib/themes";
 import { CADENCR_THEME_LOGOS } from "@/lib/themes/logos";
 import { CreateThemeDialog } from "./CreateThemeDialog";
@@ -31,6 +32,11 @@ function renderDialog(overrides: { isCreating?: boolean; userThemes?: ThemeDefin
 const createButton = (): HTMLElement => screen.getByRole("button", { name: "Create theme" });
 const nameField = (): HTMLElement => screen.getByLabelText("Name");
 const card = (name: RegExp): HTMLElement => screen.getByRole("radio", { name });
+
+afterEach(async () => {
+  await act(() => uiI18n.changeLanguage("en"));
+  uiI18n.removeResourceBundle("fr", "ui");
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -119,4 +125,40 @@ describe("CreateThemeDialog", () => {
     expect(card(/dracula/i)).toBeDisabled();
     expect(screen.getByRole("button", { name: /creating/i })).toBeDisabled();
   });
+});
+
+it("updates built-in copy without replacing the draft, selected base or authored names", async () => {
+  const personalTheme: ThemeDefinition = { ...MINE, label: "CadencR Dark" };
+  const { user } = renderDialog({ userThemes: [personalTheme] });
+  const personalCard = screen.getAllByRole("radio", { name: /CadencR Dark/i }).at(-1);
+  const darkCard = card(/Dracula/i);
+  await user.click(darkCard);
+  const draft = nameField();
+  await user.type(draft, "Crépuscule");
+  expect(draft).toHaveFocus();
+
+  uiI18n.addResourceBundle("fr", "ui", {
+    appearance: {
+      library: { name: "Nom du thème", create: "Créer le thème", startingFrom: "Base : {{theme}}" },
+      theme: { dark: "sombre" },
+      themes: { cadencrDark: "CadencR Sombre", dracula: "Dracula français" },
+    },
+  });
+  await act(() => uiI18n.changeLanguage("fr"));
+
+  expect(screen.getByLabelText("Nom du thème")).toBe(draft);
+  expect(draft).toHaveFocus();
+  expect(draft).toHaveValue("Crépuscule");
+  expect(card(/Dracula français/)).toBe(darkCard);
+  expect(darkCard).toBeChecked();
+  expect(darkCard).toHaveAttribute("data-theme-card", "dracula");
+  expect(screen.getByText("Base : Dracula français")).toBeVisible();
+  expect(card(/CadencR Sombre/)).toBeVisible();
+  expect(card(/CadencR Dark/)).toBe(personalCard);
+
+  await user.click(screen.getByRole("button", { name: "Créer le thème" }));
+  expect(onCreate).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "dracula", label: "Dracula", appearance: "dark" }),
+    "Crépuscule",
+  );
 });

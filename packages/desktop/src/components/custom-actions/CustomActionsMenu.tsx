@@ -1,6 +1,8 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { KeyboardEvent, ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  type LucideIcon,
   CalendarClockIcon,
   ChevronRightIcon,
   ListVideoIcon,
@@ -59,6 +61,7 @@ function useDigitShortcut(): (index: number) => string[] | null {
  * its output instead of starting it twice.
  */
 export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
+  const { t, i18n } = useUiTranslation();
   const { actions, featureId, projectId, onDone, onShowDetails } = props;
   const digitKeys = useDigitShortcut();
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -76,11 +79,17 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
   };
   return (
     <Command loop onKeyDown={onKeyDown}>
-      <CommandInput autoFocus placeholder="Run an action…" aria-label="Filter actions" />
+      <CommandInput
+        autoFocus
+        placeholder={t("customActions.customActionsMenu.runAnAction", "Run an action…")}
+        aria-label={t("customActions.customActionsMenu.filterActions", "Filter actions")}
+      />
       <CommandList className="max-h-[min(30rem,70vh)]">
-        <CommandEmpty>No action matches.</CommandEmpty>
+        <CommandEmpty>
+          {t("customActions.customActionsMenu.noActionMatches", "No action matches.")}
+        </CommandEmpty>
         {actions.length > 0 && (
-          <CommandGroup heading="Run">
+          <CommandGroup heading={t("customActions.customActionsMenu.run", "Run")}>
             {actions.map((action, index) => {
               const keys = digitKeys(index);
               return (
@@ -100,7 +109,9 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
                   <span className="min-w-0 flex-1 truncate">{action.name}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <RunStateDot run={action.run_in_terminal ? null : action.last_run} />
-                    {action.run_in_terminal ? "Terminal" : runStateText(action.last_run)}
+                    {action.run_in_terminal
+                      ? t("customActions.customActionManagerRow.terminal", "Terminal")
+                      : runStateText(action.last_run)}
                   </span>
                   {keys && <KbdShortcut keys={keys} variant="inline-sm" />}
                   {/* A pointer shortcut only: an option holds no control of its
@@ -108,7 +119,10 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
                   <span
                     aria-hidden
                     data-testid={`details-${action.id}`}
-                    title="Output, runs and settings (→)"
+                    title={t(
+                      "customActions.customActionsMenu.outputRunsAndSettings",
+                      "Output, runs and settings (→)",
+                    )}
                     className="-my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-background/60 hover:text-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -123,7 +137,8 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
           </CommandGroup>
         )}
         <CommandSeparator />
-        <MenuCommands {...props} />
+        {/* cmdk indexes group search terms at registration. Keep the input mounted while refreshing these commands. */}
+        <MenuCommands key={i18n.language} {...props} />
       </CommandList>
     </Command>
   );
@@ -138,6 +153,7 @@ function MenuCommands({
   onDone,
   onShowDetails,
 }: CustomActionsMenuProps): ReactElement {
+  const { t } = useUiTranslation();
   const navigate = useNavigate();
   const openScheduleEditor = useOpenScheduleEditorForAction();
   const then = (fn: () => void) => (): void => {
@@ -151,17 +167,20 @@ function MenuCommands({
   return (
     <CommandGroup>
       {actions.length > 0 && (
-        <CommandItem
-          value="output runs details"
+        <LauncherCommand
+          alias="output runs details"
+          label={t("customActions.menu.outputOf", "Output and runs of {{name}}", {
+            name: (selected ?? actions[0]).name,
+          })}
+          icon={ListVideoIcon}
           onSelect={() => onShowDetails(selected?.id ?? actions[0].id)}
-        >
-          <ListVideoIcon />
-          Output and runs of {(selected ?? actions[0]).name}
-        </CommandItem>
+        />
       )}
       {selected && selected.variable_names.length > 0 && (
-        <CommandItem
-          value={`run ${selected.name} with values`}
+        <LauncherCommand
+          alias={`run ${selected.name} with values`}
+          label={t("customActions.menu.runWith", "Run {{name}} with…", { name: selected.name })}
+          icon={TextCursorInputIcon}
           onSelect={then(
             () =>
               void launchCustomAction(
@@ -169,37 +188,55 @@ function MenuCommands({
                 { promptVariables: true },
               ),
           )}
-        >
-          <TextCursorInputIcon />
-          Run {selected.name} with…
-        </CommandItem>
+        />
       )}
       {selected && (
-        <CommandItem value={`edit ${selected.name}`} onSelect={then(() => openEditor(selected))}>
-          <PencilIcon />
-          Edit {selected.name}…
-        </CommandItem>
+        <LauncherCommand
+          alias={`edit ${selected.name}`}
+          label={t("customActions.menu.edit", "Edit {{name}}…", { name: selected.name })}
+          icon={PencilIcon}
+          onSelect={then(() => openEditor(selected))}
+        />
       )}
       {selected && !selected.run_in_terminal && (
-        <CommandItem
-          value={`schedule ${selected.name}`}
+        <LauncherCommand
+          alias={`schedule ${selected.name}`}
+          label={t("customActions.menu.schedule", "Schedule {{name}}…", { name: selected.name })}
+          icon={CalendarClockIcon}
           onSelect={then(() => openScheduleEditor({ projectId, featureId, actionId: selected.id }))}
-        >
-          <CalendarClockIcon />
-          Schedule {selected.name}…
-        </CommandItem>
+        />
       )}
-      <CommandItem value="new action" onSelect={then(() => openEditor())}>
-        <PlusIcon />
-        New action…
-      </CommandItem>
-      <CommandItem
-        value="manage actions"
+      <LauncherCommand
+        alias="new action"
+        label={t("customActions.customActionsMenu.newAction", "New action…")}
+        icon={PlusIcon}
+        onSelect={then(() => openEditor())}
+      />
+      <LauncherCommand
+        alias="manage actions"
+        label={t("customActions.customActionsMenu.manageActions", "Manage actions…")}
+        icon={Settings2Icon}
         onSelect={then(() => void navigate({ to: "/settings", search: { section: "actions" } }))}
-      >
-        <Settings2Icon />
-        Manage actions…
-      </CommandItem>
+      />
     </CommandGroup>
+  );
+}
+
+function LauncherCommand({
+  alias,
+  label,
+  icon: Icon,
+  onSelect,
+}: {
+  alias: string;
+  label: string;
+  icon: LucideIcon;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <CommandItem value={alias} keywords={[label]} onSelect={onSelect}>
+      <Icon />
+      {label}
+    </CommandItem>
   );
 }

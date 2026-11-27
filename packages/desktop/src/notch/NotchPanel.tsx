@@ -1,3 +1,6 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { Fragment, useRef } from "react";
 import type { NotchAgent, NotchSnoozeMinutes } from "@/shared/notch";
 import { IndexDotsOrb, type OrbStatus } from "./IndexDotsOrb";
@@ -21,20 +24,65 @@ function band(agent: NotchAgent): string {
 }
 
 /** Header facts in attention order; a tone marks the ones that want you. */
-const BAND_FACTS: readonly { band: string; label: string; tone?: string }[] = [
-  { band: "question", label: "waiting", tone: "tone-permission" },
-  { band: "unread", label: "unread", tone: "tone-done" },
-  { band: "running", label: "working" },
-  { band: "read", label: "done" },
-];
+const BAND_FACTS = [
+  { band: "question", tone: "tone-permission" },
+  { band: "unread", tone: "tone-done" },
+  { band: "running", tone: undefined },
+  { band: "read", tone: undefined },
+] as const;
+
+function renderFact(fact: (typeof BAND_FACTS)[number]["band"], formattedCount: string) {
+  const values = { formattedCount };
+  const components = { total: <b /> };
+  switch (fact) {
+    case "question":
+      return (
+        <UiTrans
+          i18nKey="notch.panel.waiting"
+          defaults="<total>{{formattedCount}}</total> waiting"
+          values={values}
+          components={components}
+        />
+      );
+    case "unread":
+      return (
+        <UiTrans
+          i18nKey="notch.panel.unread"
+          defaults="<total>{{formattedCount}}</total> unread"
+          values={values}
+          components={components}
+        />
+      );
+    case "running":
+      return (
+        <UiTrans
+          i18nKey="notch.panel.working"
+          defaults="<total>{{formattedCount}}</total> working"
+          values={values}
+          components={components}
+        />
+      );
+    case "read":
+      return (
+        <UiTrans
+          i18nKey="notch.panel.done"
+          defaults="<total>{{formattedCount}}</total> done"
+          values={values}
+          components={components}
+        />
+      );
+  }
+}
 
 export function PanelEars({ agents }: { agents: readonly NotchAgent[] }): React.JSX.Element {
-  const parts = BAND_FACTS.flatMap(({ band: key, label, tone }) => {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
+  const parts = BAND_FACTS.flatMap(({ band: key, tone }) => {
     const count = agents.filter((agent) => band(agent) === key).length;
     if (count === 0) return [];
     return [
       <span key={key} className={tone}>
-        <b className={tone}>{count}</b> {label}
+        {renderFact(key, formatExactNumber(count, locale))}
       </span>,
     ];
   });
@@ -48,7 +96,7 @@ export function PanelEars({ agents }: { agents: readonly NotchAgent[] }): React.
       </span>
       <span className="ear ear-meta">
         {shown.length === 0
-          ? "All quiet"
+          ? t("notch.panel.allQuiet", "All quiet")
           : shown.map((part, i) => (
               <Fragment key={part.key}>
                 {i > 0 ? " · " : null}
@@ -84,6 +132,8 @@ export function NotchPanel({
   snoozedUntil: number | null;
   onSnooze: (minutes: NotchSnoozeMinutes | null) => void;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   const ref = useRef<HTMLDivElement>(null);
   const now = useNow(active && agents.some((agent) => agent.status !== "done"));
   const ageNow = useNow(active, 30_000);
@@ -97,8 +147,13 @@ export function NotchPanel({
         <div className="panel-empty">
           <IndexDotsOrb state="idle" size={30} />
           <div>
-            <strong>No agents at work</strong>
-            <span>Start a conversation in Cadencr and it will live here while it runs.</span>
+            <strong>{t("notch.panel.emptyTitle", "No agents at work")}</strong>
+            <span>
+              {t(
+                "notch.panel.emptyDescription",
+                "Start a conversation in Cadencr and it will live here while it runs.",
+              )}
+            </span>
           </div>
         </div>
       ) : (
@@ -111,6 +166,8 @@ export function NotchPanel({
               ) : null}
               <NotchAgentRow
                 agent={agent}
+                t={t}
+                locale={locale}
                 index={index}
                 now={agent.status === "done" ? ageNow : now}
                 onOpen={onOpen}

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, type ReactElement, type RefObject } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ExternalLinkIcon, GitCommitVerticalIcon, Loader2Icon } from "lucide-react";
@@ -153,11 +154,12 @@ function OpenedCommitDiff({
   onOpenOnline: (sha: string) => Promise<void>;
   registerNavigationAdapter: GitNavigationAdapterRegistrar;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <GitRevisionDiffView
       featureId={featureId}
       revision={sha}
-      backLabel="Commits"
+      backLabel={t("workspace.git.gitGraphView.commits", "Commits")}
       label={commit?.shortSha ?? sha.slice(0, 7)}
       message={commit?.message}
       onBack={onBack}
@@ -174,12 +176,13 @@ function CommitOnlineButton({
   sha: string;
   onOpen: (sha: string) => Promise<void>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
       onClick={() => void onOpen(sha)}
-      title="Open commit online"
-      aria-label="Open commit online"
+      title={t("workspace.git.gitGraphView.openCommitOnline", "Open commit online")}
+      aria-label={t("workspace.git.gitGraphView.openCommitOnline", "Open commit online")}
       className="inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       <ExternalLinkIcon className="size-3.5" />
@@ -210,18 +213,30 @@ const GraphBody = memo(function GraphBody({
   viewportRef,
   virtuosoRef,
 }: GraphBodyProps): ReactElement {
+  const { t } = useUiTranslation();
   if (isLoading && commits.length === 0) {
-    return <GraphMessage variant="loading">Loading commits…</GraphMessage>;
+    return (
+      <GraphMessage variant="loading">
+        {t("workspace.git.gitGraphView.loadingCommits", "Loading commits…")}
+      </GraphMessage>
+    );
   }
   if (isError) {
     return (
       <GraphMessage variant="error">
-        {apiErrorMessage(error, "Could not load commits")}
+        {apiErrorMessage(
+          error,
+          translateUi("workspace.git.gitGraphView.couldNotLoadCommits", "Could not load commits"),
+        )}
       </GraphMessage>
     );
   }
   if (commits.length === 0) {
-    return <GraphMessage variant="empty">No commits on this branch yet.</GraphMessage>;
+    return (
+      <GraphMessage variant="empty">
+        {t("workspace.git.gitGraphView.noCommitsOnThisBranchYet", "No commits on this branch yet.")}
+      </GraphMessage>
+    );
   }
   return (
     <div ref={viewportRef} className="h-full">
@@ -264,10 +279,11 @@ function GraphMessage({
 }
 
 function GraphFooter(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
       <Loader2Icon className="size-3 animate-spin" />
-      Loading more…
+      {t("workspace.git.gitGraphView.loadingMore", "Loading more…")}
     </div>
   );
 }

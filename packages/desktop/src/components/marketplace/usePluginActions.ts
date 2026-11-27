@@ -1,5 +1,6 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import { useMemo } from "react";
-import { marketplaceError } from "@/lib/marketplace";
+import { MarketplaceOperationError, marketplaceError } from "@/lib/marketplace";
 import {
   downloadableUpdate,
   type MarketplaceListing,
@@ -14,11 +15,22 @@ import {
 import { KINDS } from "./kinds";
 import { useMarketplaceState } from "./MarketplaceContext";
 
-const NO_CATALOG = "A current signed catalog is required to install.";
-
 /** How a plugin member is named when a sequence stops on it. */
-export function memberLabel(member: MarketplaceListing): string {
-  return `${member.name} (${KINDS[member.kind].label.toLowerCase()})`;
+export function memberLabel(
+  member: Pick<MarketplaceListing, "name" | "kind">,
+  t: UiTranslator,
+): string {
+  return t("marketplace.pluginRun.memberLabel", "{{name}} ({{kind}})", {
+    name: member.name,
+    kind: KINDS[member.kind].label(t).toLowerCase(),
+  });
+}
+
+export function pluginRunError(error: unknown, t: UiTranslator): string {
+  return (
+    marketplaceError(error, t) ??
+    t("marketplace.pluginRun.unconfirmed", "The change was not confirmed.")
+  );
 }
 
 type State = ReturnType<typeof useMarketplaceState>;
@@ -56,7 +68,12 @@ function kindDispatch(
       return tabs.mutation[mode]({ kind, id: listing.id, version });
     if (listing.kind === "lsp" && lsps.catalog.data?.index)
       return lsps.mutation[mode]({ kind, id: listing.id, version });
-    throw new Error(NO_CATALOG);
+    throw new MarketplaceOperationError((t) =>
+      t(
+        "marketplace.pluginRun.signedCatalogRequired",
+        "A current signed catalog is required to install.",
+      ),
+    );
   };
   /** Resolves once the backend confirmed and the kind's state was reloaded. */
   const sendAsync = async (listing: MarketplaceListing, version: string) => {
@@ -72,7 +89,10 @@ function kindDispatch(
       await themes.mutation.mutateAsync({ kind: "remove", id: listing.id, confirmFallback: true });
     else if (listing.kind === "lsp")
       await lsps.mutation.mutateAsync({ kind: "remove", id: listing.id });
-    else throw new Error("A plugin is removed member by member.");
+    else
+      throw new MarketplaceOperationError((t) =>
+        t("marketplace.pluginRun.removeEachMember", "A plugin is removed member by member."),
+      );
   };
   return {
     send: (listing: MarketplaceListing, version: string) => void run(listing, version, "mutate"),
@@ -89,27 +109,44 @@ function pluginInstaller(
   /**
    * Every member `version` still needs, one at a time in catalog order. Stops
    * at the first failure, kept (by member) in the run state the page shows;
-   * resolves with that failure's sentence, or null once every member is in.
+   * resolves with that failure, or null once every member is in.
    */
-  return async (plugin: MarketplaceListing, version: string): Promise<string | null> => {
+  return async (
+    plugin: MarketplaceListing,
+    version: string,
+  ): Promise<MarketplaceOperationError | null> => {
     const steps = pluginSteps(pluginMembers(plugin, version, listingsByKey), version);
     for (const [index, step] of steps.entries()) {
       const member = step.listing;
-      const name = member ? memberLabel(member) : step.ref.id;
+      const namedMember = member ?? { name: step.ref.id, kind: step.ref.kind };
       setPluginRun({
         key: plugin.key,
         status: "running",
-        member: name,
+        member: namedMember,
         step: index + 1,
         total: steps.length,
       });
       try {
-        if (!member) throw new Error(`${step.ref.id} is not in the loaded catalog.`);
+        if (!member)
+          throw new MarketplaceOperationError((t) =>
+            t("marketplace.pluginRun.memberMissing", "{{id}} is not in the loaded catalog.", {
+              id: step.ref.id,
+            }),
+          );
         await sendAsync(member, version);
       } catch (error) {
-        const message = marketplaceError(error) ?? "The change was not confirmed.";
-        setPluginRun({ key: plugin.key, status: "failed", member: name, message });
-        return `${plugin.name} stopped at ${name}: ${message}`;
+        setPluginRun({ key: plugin.key, status: "failed", member: namedMember, error });
+        return new MarketplaceOperationError((t) =>
+          t(
+            "marketplace.pluginRun.updateStopped",
+            "{{plugin}} stopped at {{member}}: {{message}}",
+            {
+              plugin: plugin.name,
+              member: memberLabel(namedMember, t),
+              message: pluginRunError(error, t),
+            },
+          ),
+        );
       }
     }
     setPluginRun(null);
@@ -190,7 +227,14 @@ export function usePluginActions() {
           try {
             await removeAsync(member);
           } catch (error) {
-            throw new Error(`${memberLabel(member)}: ${marketplaceError(error) ?? "not removed"}`);
+            throw new MarketplaceOperationError((t) =>
+              t("marketplace.pluginRun.removeStopped", "{{member}}: {{message}}", {
+                member: memberLabel(member, t),
+                message:
+                  marketplaceError(error, t) ??
+                  t("marketplace.pluginRun.notRemoved", "not removed"),
+              }),
+            );
           }
         }
       },
@@ -207,7 +251,7 @@ export function usePluginActions() {
           else if (!releaseInstallable(listing, version)) continue;
           else {
             const failure = await installPlugin(listing, version);
-            if (failure) throw new Error(failure);
+            if (failure) throw failure;
           }
         }
       },

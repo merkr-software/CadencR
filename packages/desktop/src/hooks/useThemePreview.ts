@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { previewManagedThemePackage, type SignedMixedCatalog } from "@/api/generated";
+import { MarketplaceOperationError } from "@/lib/marketplace";
 import type { MarketplaceListing } from "@/lib/marketplace-listings";
 import {
   managedThemeDataSchema,
@@ -61,7 +62,13 @@ function themePreviewQuery(
     // not park it without a spinner or an error.
     networkMode: "always",
     queryFn: async ({ signal }) => {
-      if (!index) throw new Error("A current signed catalog is required to preview a theme.");
+      if (!index)
+        throw new MarketplaceOperationError((t) =>
+          t(
+            "appearance.library.previewCatalogRequired",
+            "A current signed catalog is required to preview a theme.",
+          ),
+        );
       const response = await withPreviewSlot(signal, () =>
         previewManagedThemePackage({ theme_id: id, version }, signal),
       );

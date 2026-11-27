@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { Files, Loader2Icon } from "lucide-react";
 import { useMemo, type ReactElement, type RefObject } from "react";
 
@@ -75,6 +76,7 @@ function IncludeUntrackedOption({
 }: {
   submission: StashDialogViewModel;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-3 shadow-xs transition-colors hover:bg-accent/30">
       <Checkbox
@@ -91,10 +93,16 @@ function IncludeUntrackedOption({
             htmlFor="stash-include-untracked"
             className="cursor-pointer text-sm font-medium text-foreground"
           >
-            Include untracked files
+            {t(
+              "workspace.git.stashChangesDialogBody.includeUntrackedFiles",
+              "Include untracked files",
+            )}
           </label>
           <span id="stash-include-untracked-description" className="text-xs text-muted-foreground">
-            Add new files that Git is not tracking yet.
+            {t(
+              "workspace.git.stashChangesDialogBody.addNewFilesThatGitIsNot",
+              "Add new files that Git is not tracking yet.",
+            )}
           </span>
         </span>
         <span aria-hidden="true" className="shrink-0 text-muted-foreground">
@@ -112,6 +120,7 @@ function StashNameField({
   submission: StashDialogViewModel;
   nameInputRef: RefObject<HTMLInputElement | null>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const describedBy = submission.error
     ? "stash-changes-name-help stash-changes-error"
     : "stash-changes-name-help";
@@ -119,7 +128,10 @@ function StashNameField({
     <div className="grid gap-2">
       <div className="flex items-center justify-between gap-3">
         <label htmlFor={STASH_NAME_INPUT_ID} className="text-sm font-medium">
-          Name <span className="font-normal text-muted-foreground">(optional)</span>
+          {t("workspace.git.stashChangesDialogBody.name", "Name")}{" "}
+          <span className="font-normal text-muted-foreground">
+            {t("workspace.git.stashChangesDialogBody.optional", "(optional)")}
+          </span>
         </label>
         <span aria-hidden="true" className="text-muted-foreground">
           <KbdShortcut keys={["n"]} variant="hint" />
@@ -130,14 +142,20 @@ function StashNameField({
         id={STASH_NAME_INPUT_ID}
         value={submission.name}
         onChange={(event) => submission.handleNameChange(event.target.value)}
-        placeholder="Use Git’s default description"
+        placeholder={t(
+          "workspace.git.stashChangesDialogBody.useGitSDefaultDescription",
+          "Use Git’s default description",
+        )}
         disabled={submission.pending}
         className="bg-card"
         aria-invalid={submission.error ? true : undefined}
         aria-describedby={describedBy}
       />
       <p id="stash-changes-name-help" className="text-xs text-muted-foreground">
-        Leave blank to let Git describe the stash automatically.
+        {t(
+          "workspace.git.stashChangesDialogBody.leaveBlankToLetGitDescribeThe",
+          "Leave blank to let Git describe the stash automatically.",
+        )}
       </p>
     </div>
   );
@@ -156,17 +174,22 @@ function StashFiles({
   loading: boolean;
   error: unknown;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const summary = loading
-    ? "Loading…"
+    ? t("workspace.git.stashChangesDialogBody.loading", "Loading…")
     : error
-      ? "Unavailable"
-      : `${includedFileCount} of ${files.length} included`;
+      ? t("workspace.git.stashChangesDialogBody.unavailable", "Unavailable")
+      : t(
+          "workspace.git.stashChangesDialogBody.includedCount",
+          "{{includedFileCount}} of {{totalFileCount}} included",
+          { includedFileCount, totalFileCount: files.length },
+        );
   return (
     <section className="min-h-0 overflow-hidden rounded-lg border border-border bg-card shadow-xs">
       <header className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-3 py-2.5">
         <span className="flex items-center gap-2 text-sm font-medium text-foreground">
           <Files aria-hidden="true" className="size-3.5 text-muted-foreground" />
-          Changes to stash
+          {t("workspace.git.stashChangesDialogBody.changesToStash", "Changes to stash")}
         </span>
         <span className="text-xs tabular-nums text-muted-foreground">{summary}</span>
       </header>
@@ -174,11 +197,17 @@ function StashFiles({
         {loading ? (
           <div role="status" className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <Loader2Icon className="size-4 animate-spin" />
-            Loading changes…
+            {t("workspace.git.stashChangesDialogBody.loadingChanges", "Loading changes…")}
           </div>
         ) : error ? (
           <p role="alert" className="text-sm text-destructive">
-            {apiErrorMessage(error, "Failed to load uncommitted files.")}
+            {apiErrorMessage(
+              error,
+              translateUi(
+                "workspace.git.stashChangesDialogBody.failedToLoadUncommittedFiles",
+                "Failed to load uncommitted files.",
+              ),
+            )}
           </p>
         ) : (
           <StashFileList files={files} includeUntracked={includeUntracked} />
@@ -222,6 +251,7 @@ function StashChangesDialogFooter({
   submission: StashDialogViewModel;
   onOpenChange: (open: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <DialogFooter className="border-t border-border/70 bg-muted/20 px-6 py-4">
       <Button
@@ -230,14 +260,16 @@ function StashChangesDialogFooter({
         onClick={() => onOpenChange(false)}
         disabled={submission.pending}
       >
-        Cancel
+        {t("workspace.git.stashChangesDialogBody.cancel", "Cancel")}
         <span aria-hidden="true">
           <KbdShortcut keys={ESC_KEYS} variant="hint" />
         </span>
       </Button>
       <Button type="submit" disabled={!submission.canSubmit}>
         {submission.pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
-        {submission.pending ? "Stashing…" : "Stash changes"}
+        {submission.pending
+          ? t("workspace.git.stashChangesDialogBody.stashing", "Stashing…")
+          : t("workspace.git.stashChangesDialogBody.stashChanges", "Stash changes")}
         {!submission.pending ? (
           <span aria-hidden="true">
             <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />

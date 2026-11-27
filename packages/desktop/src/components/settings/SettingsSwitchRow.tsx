@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useId, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -12,6 +13,8 @@ import { IconTile, type IconTileTint } from "./IconTile";
 export function SettingsSwitchRow({
   id,
   label,
+  ariaLabel,
+  align = "start",
   description,
   checked,
   onCheckedChange,
@@ -24,6 +27,8 @@ export function SettingsSwitchRow({
 }: {
   id?: string;
   label: ReactNode;
+  ariaLabel?: string;
+  align?: "start" | "center";
   description?: ReactNode;
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
@@ -35,6 +40,7 @@ export function SettingsSwitchRow({
   divided?: boolean;
   className?: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const fallbackId = useId();
   const switchId = id ?? fallbackId;
 
@@ -45,16 +51,22 @@ export function SettingsSwitchRow({
       label={label}
       description={description}
       divided={divided}
-      align="start"
+      align={align}
       className={className}
       control={
         <span className="inline-flex items-center gap-2">
-          {saving && <LoaderCircle aria-label="Saving" className="size-3.5 animate-spin" />}
+          {saving && (
+            <LoaderCircle
+              aria-label={t("common.savingStatus", "Saving")}
+              className="size-3.5 animate-spin"
+            />
+          )}
           <Switch
             id={switchId}
             checked={checked}
             onCheckedChange={onCheckedChange}
             disabled={disabled || saving}
+            aria-label={ariaLabel}
             aria-busy={saving}
           />
         </span>

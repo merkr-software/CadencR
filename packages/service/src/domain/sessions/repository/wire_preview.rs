@@ -4,7 +4,7 @@ use serde_json::Value;
 
 pub(super) const CONTENT_PREVIEW_MAX_BYTES: usize = 64 * 1024;
 const METADATA_STRING_MAX_BYTES: usize = 4 * 1024;
-const TRUNCATION_MARKER: &str = "… [preview truncated; expand to load full content]";
+const TRUNCATION_MARKER: &str = "[…]";
 
 pub(super) fn content_preview(content: &str) -> (String, bool) {
     if content.len() <= CONTENT_PREVIEW_MAX_BYTES {
@@ -180,7 +180,7 @@ fn json_string_bytes(content: &str) -> usize {
 }
 
 fn fallback_preview() -> String {
-    r#"{"_cadencrPreview":"structure too large; expand to load full content"}"#.to_string()
+    format!(r#"{{"_cadencrPreview":"{TRUNCATION_MARKER}"}}"#)
 }
 
 fn prefix_with_marker(content: &str, max_bytes: usize) -> String {
@@ -207,16 +207,23 @@ mod tests {
 
     #[test]
     fn structured_preview_is_valid_and_keeps_short_metadata() {
+        let old_marker = "… [preview truncated; expand to load full content]";
+        let literal = format!("literal {old_marker}");
         let content = serde_json::json!({
-            "status": "completed", "file_path": "src/main.rs",
-            "result": "x".repeat(CONTENT_PREVIEW_MAX_BYTES * 140),
+            "status": "completed", "file_path": "src/main.rs", "label": literal,
+            "aggregatedOutput": format!("{literal}\n{}", "x".repeat(CONTENT_PREVIEW_MAX_BYTES * 140)),
         })
         .to_string();
-        let (preview, truncated) = content_preview(&content);
+        let (preview, truncated) = tool_content_preview(&content);
         let parsed: Value = serde_json::from_str(&preview).expect("valid preview json");
         assert!(truncated && preview.len() <= CONTENT_PREVIEW_MAX_BYTES);
         assert_eq!(parsed["status"], "completed");
         assert_eq!(parsed["file_path"], "src/main.rs");
+        assert_eq!(parsed["label"], literal);
+        let output = parsed["aggregatedOutput"].as_str().unwrap();
+        assert!(output.starts_with(&literal));
+        assert!(output.ends_with(TRUNCATION_MARKER));
+        assert_eq!(preview.matches(old_marker).count(), 2);
     }
 
     #[test]

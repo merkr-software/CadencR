@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   memo,
   useId,
@@ -42,6 +43,7 @@ export const VirtualSkillWizard = memo(function VirtualSkillWizard({
   editorRef: RefObject<PromptEditorHandle | null>;
   shortcutsEnabled: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (state.status === "none") return null;
   if (state.status === "loading") {
     return (
@@ -51,14 +53,23 @@ export const VirtualSkillWizard = memo(function VirtualSkillWizard({
         role="status"
       >
         <Loader2 className="size-3 animate-spin" aria-hidden />
-        Loading /{state.command}…
+        {t("conversation.composer.virtualSkillWizard.loadingOptions", "Loading /{{command}}…", {
+          command: state.command,
+        })}
       </div>
     );
   }
   if (state.status === "error") {
     return (
       <p data-stack-tone="neutral" className="px-3 py-2 text-[11px] text-destructive" role="alert">
-        {apiErrorMessage(state.error, `Could not load the options of /${state.command}.`)}
+        {apiErrorMessage(
+          state.error,
+          t(
+            "conversation.composer.virtualSkillWizard.loadOptionsFailed",
+            "Could not load the options of /{{command}}.",
+            { command: state.command },
+          ),
+        )}
       </p>
     );
   }
@@ -73,6 +84,37 @@ export const VirtualSkillWizard = memo(function VirtualSkillWizard({
   );
 });
 
+function WizardHeader({
+  skill,
+  active,
+}: {
+  skill: VirtualSkillPayload;
+  active: boolean;
+}): ReactElement {
+  const { t } = useUiTranslation();
+  return (
+    <header className="flex min-w-0 items-center gap-2">
+      <CadencrLogo className="size-4 shrink-0" />
+      <span className="shrink-0 font-mono text-[12.5px] font-semibold text-foreground">
+        /{skill.command}
+      </span>
+      {skill.argument_hint ? (
+        <span
+          className="min-w-0 truncate rounded border border-dashed border-border px-1.5 py-px text-[11.5px] text-muted-foreground"
+          title={t(
+            "conversation.composer.virtualSkillWizard.whatToTypeAfterTheCommand",
+            "What to type after the command",
+          )}
+        >
+          {skill.argument_hint}
+        </span>
+      ) : null}
+      <span className="flex-1" />
+      <KeysOwner active={active} />
+    </header>
+  );
+}
+
 function ReadyWizard({
   skill,
   config,
@@ -86,6 +128,7 @@ function ReadyWizard({
   editorRef: RefObject<PromptEditorHandle | null>;
   shortcutsEnabled: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const focus = useSkillWizardFocus({ editorRef, shortcutsEnabled });
   // The composer's shortcuts set the spawned session only while it has focus.
   const keysHere = shortcutsEnabled && focus.active;
@@ -97,7 +140,11 @@ function ReadyWizard({
         {...focus.sectionProps}
         data-virtual-skill-wizard
         data-keys-active={focus.active || undefined}
-        aria-label={`Configure /${skill.command}`}
+        aria-label={t(
+          "conversation.composer.virtualSkillWizard.configureCommand",
+          "Configure /{{command}}",
+          { command: skill.command },
+        )}
         data-stack-tone="neutral"
         // Holding the keys, it hands the whole stack the focused-card border
         // (`composer.css`): one of wizard and card owns them at a time.
@@ -107,34 +154,22 @@ function ReadyWizard({
         )}
       >
         {/* 1 · How it reads when typed: the command, then the slot to fill. */}
-        <header className="flex min-w-0 items-center gap-2">
-          <CadencrLogo className="size-4 shrink-0" />
-          <span className="shrink-0 font-mono text-[12.5px] font-semibold text-foreground">
-            /{skill.command}
-          </span>
-          {skill.argument_hint ? (
-            <span
-              className="min-w-0 truncate rounded border border-dashed border-border px-1.5 py-px text-[11.5px] text-muted-foreground"
-              title="What to type after the command"
-            >
-              {skill.argument_hint}
-            </span>
-          ) : null}
-          <span className="flex-1" />
-          <KeysOwner active={focus.active} />
-        </header>
+        <WizardHeader skill={skill} active={focus.active} />
         {/* 2 · What it does: its gist leading, the rest folded to two lines. */}
         <SkillDescription gist={skill.description} details={skill.details} />
         {/* 3 · How it runs: the instruments, on their own surface, against the card. */}
         <div
           role="group"
-          aria-label="Spawned session"
+          aria-label={t(
+            "conversation.composer.virtualSkillWizard.spawnedSession",
+            "Spawned session",
+          )}
           // A composer zone: its groups get the composer's hairlines between them.
           data-composer-zone
           className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-md border border-border/60 bg-background/70 py-0.5 pr-1 pl-2.5"
         >
           <span className="mr-1 text-[11px] font-medium text-muted-foreground">
-            Spawned session
+            {t("conversation.composer.virtualSkillWizard.spawnedSession", "Spawned session")}
           </span>
           {skill.parameters.agent && (
             <VirtualSkillAgentControls
@@ -157,9 +192,17 @@ function ReadyWizard({
             // What Send writes after the command, counted; the exact flags on hover.
             <span
               className="ml-auto shrink-0 pr-1.5 font-mono text-[11px] text-muted-foreground"
-              title={`Added after the command: ${flags.join(" ")}`}
+              title={t(
+                "conversation.composer.virtualSkillWizard.flagsHint",
+                "Added after the command: {{flags}}",
+                { flags: flags.join(" ") },
+              )}
             >
-              +{flags.length} {flags.length === 1 ? "flag" : "flags"}
+              {t("conversation.composer.virtualSkillWizard.flagCount", {
+                count: flags.length,
+                defaultValue_one: "+{{count}} flag",
+                defaultValue_other: "+{{count}} flags",
+              })}
               <span className="sr-only">: {flags.join(" ")}</span>
             </span>
           )}
@@ -175,12 +218,15 @@ function ReadyWizard({
  * how to get back.
  */
 function KeysOwner({ active }: { active: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   if (!active) {
     return (
       // A key hint means nothing on a touch screen.
       <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden">
         <ResolvedShortcutHint shortcutId="agent-skill-wizard" />
-        <span className="@max-[30rem]:hidden">Configure</span>
+        <span className="@max-[30rem]:hidden">
+          {t("conversation.composer.virtualSkillWizard.configure", "Configure")}
+        </span>
       </span>
     );
   }
@@ -190,10 +236,13 @@ function KeysOwner({ active }: { active: boolean }): ReactElement {
       role="status"
     >
       <span className="text-foreground/85 @max-[30rem]:hidden">
-        Shortcuts set the spawned session
+        {t(
+          "conversation.composer.virtualSkillWizard.shortcutsSetTheSpawnedSession",
+          "Shortcuts set the spawned session",
+        )}
       </span>
       <KbdShortcut keys={["Esc"]} variant="hint" />
-      <span>Prompt</span>
+      <span>{t("conversation.composer.virtualSkillWizard.prompt", "Prompt")}</span>
     </span>
   );
 }
@@ -203,6 +252,7 @@ function KeysOwner({ active }: { active: boolean }): ReactElement {
  * lines. The fold only offers itself when the text actually overflows.
  */
 function SkillDescription({ gist, details }: { gist: string; details: string }): ReactElement {
+  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const ref = useRef<HTMLParagraphElement>(null);
@@ -236,7 +286,12 @@ function SkillDescription({ gist, details }: { gist: string; details: string }):
           aria-controls={id}
           onClick={() => setExpanded((open) => !open)}
         >
-          {expanded ? "Show less" : "Show full description"}
+          {expanded
+            ? t("conversation.composer.virtualSkillWizard.showLess", "Show less")
+            : t(
+                "conversation.composer.virtualSkillWizard.showFullDescription",
+                "Show full description",
+              )}
         </button>
       )}
     </div>
@@ -251,21 +306,37 @@ function asSentence(text: string): string {
 
 const WORKTREE_OPTIONS: Record<
   SkillWorktree,
-  { label: string; description: string; icon: typeof GitBranchIcon }
+  {
+    label: (t: UiTranslator) => string;
+    description: (t: UiTranslator) => string;
+    icon: typeof GitBranchIcon;
+  }
 > = {
   same: {
-    label: "Same worktree",
-    description: "Works in this conversation's worktree and sees its uncommitted changes.",
+    label: (t) => t("conversation.composer.virtualSkillWizard.sameWorktree", "Same worktree"),
+    description: (t) =>
+      t(
+        "conversation.composer.virtualSkillWizard.sameWorktreeDescription",
+        "Works in this conversation's worktree and sees its uncommitted changes.",
+      ),
     icon: GitBranchIcon,
   },
   new: {
-    label: "New worktree",
-    description: "A fresh worktree on a new branch from the current one.",
+    label: (t) => t("conversation.composer.virtualSkillWizard.newWorktree", "New worktree"),
+    description: (t) =>
+      t(
+        "conversation.composer.virtualSkillWizard.newWorktreeDescription",
+        "A fresh worktree on a new branch from the current one.",
+      ),
     icon: GitForkIcon,
   },
   project: {
-    label: "Project folder",
-    description: "The project's main checkout, without a worktree.",
+    label: (t) => t("conversation.composer.virtualSkillWizard.projectFolder", "Project folder"),
+    description: (t) =>
+      t(
+        "conversation.composer.virtualSkillWizard.projectFolderDescription",
+        "The project's main checkout, without a worktree.",
+      ),
     icon: FolderIcon,
   },
 };
@@ -281,6 +352,7 @@ function SkillWorktreeControl({
   onChange: (worktree: SkillWorktree) => void;
   shortcutsActive: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const active = WORKTREE_OPTIONS[value];
   // The composer's worktree chord, cycling in place like the session's picker.
   useWizardShortcut(
@@ -294,16 +366,20 @@ function SkillWorktreeControl({
         <button
           type="button"
           className="composer-instrument min-w-0 gap-1.5 text-foreground"
-          aria-label={`Where it works: ${active.label}`}
+          aria-label={t(
+            "conversation.composer.virtualSkillWizard.worktreeLocation",
+            "Where it works: {{location}}",
+            { location: active.label(t) },
+          )}
         >
           <active.icon className="size-3.5 shrink-0 text-[var(--chip-worktree-fg)]" aria-hidden />
-          <span className="truncate">{active.label}</span>
+          <span className="truncate">{active.label(t)}</span>
           <ChevronDown className="size-3 shrink-0 opacity-50" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-72 p-1">
         <DropdownMenuLabel className="text-[11px] font-medium text-muted-foreground">
-          Where it works
+          {t("conversation.composer.virtualSkillWizard.whereItWorks", "Where it works")}
         </DropdownMenuLabel>
         {options.map((option, index) => {
           const entry = WORKTREE_OPTIONS[option];
@@ -319,14 +395,14 @@ function SkillWorktreeControl({
               />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[13px] font-medium">
-                  {entry.label}
+                  {entry.label(t)}
                   {index === 0 && (
                     <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                      Default
+                      {t("conversation.composer.virtualSkillWizard.default", "Default")}
                     </span>
                   )}
                 </span>
-                <span className="text-xs text-muted-foreground">{entry.description}</span>
+                <span className="text-xs text-muted-foreground">{entry.description(t)}</span>
               </span>
               {option === value && <Check className="mt-0.5 size-3.5 shrink-0" />}
             </DropdownMenuItem>

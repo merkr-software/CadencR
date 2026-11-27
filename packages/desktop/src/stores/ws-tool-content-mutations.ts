@@ -1,4 +1,5 @@
-import type { AgentBlockData } from "@/types/agent-block";
+import { bashPreviewMayOmitMetadata, type AgentBlockData } from "@/types/agent-block";
+import type { ClampedText } from "@/lib/block-content-budget";
 import type { BlockMutation, StreamingState } from "./ws-message-processing";
 import { blockMessageDbId, messageDbId } from "./ws-message-identity";
 import type { DatabaseIdentityOwners } from "./ws-block-reconciliation";
@@ -57,7 +58,7 @@ function applyToolContentMutation(
   if (mutation.action === "replace") {
     state.structuredToolStreams.delete(block.id);
     const merged = mergeToolContent(block, mutation.block.content, "replace");
-    applyPublishedContent(state, block, merged.text, merged.truncated);
+    applyPublishedContent(state, block, merged);
     return publishedFieldsChanged(previous, block);
   }
   if (mutation.action === "finalize") {
@@ -102,19 +103,26 @@ function publishSnapshot(state: StreamingState, block: AgentBlockData, snapshot:
   block.content = merged.text;
   block.toolArgs = merged.text;
   if (merged.truncated) block.truncatedContent = true;
+  if (block.toolName === "Bash" && merged.truncated && !merged.bashOutputOnly) {
+    block[bashPreviewMayOmitMetadata] = true;
+  }
   syncCanonicalToolBlock(state, block);
 }
 
 function applyPublishedContent(
   state: StreamingState,
   block: AgentBlockData,
-  content: string,
-  truncated: boolean,
+  { text, truncated, bashOutputOnly }: ClampedText,
 ): void {
-  block.content = content;
+  block.content = text;
   if (truncated) block.truncatedContent = true;
-  const latest = latestValidJsonSnapshot(content);
-  if (latest) block.toolArgs = latest;
+  const latest = latestValidJsonSnapshot(text, truncated);
+  if (latest) {
+    block.toolArgs = latest;
+    if (block.toolName === "Bash") {
+      block[bashPreviewMayOmitMetadata] = truncated && !bashOutputOnly ? true : undefined;
+    }
+  }
   syncCanonicalToolBlock(state, block);
 }
 
@@ -126,20 +134,27 @@ function syncCanonicalToolBlock(state: StreamingState, block: AgentBlockData): v
     canonical.content = block.content;
     canonical.truncatedContent = block.truncatedContent;
     canonical.fullContentBytes = block.fullContentBytes;
+    canonical[bashPreviewMayOmitMetadata] = block[bashPreviewMayOmitMetadata];
   }
 }
 
-function publishedFields(block: AgentBlockData): [string, string | undefined, boolean | undefined] {
-  return [block.content, block.toolArgs, block.truncatedContent];
+function publishedFields(block: AgentBlockData) {
+  return [
+    block.content,
+    block.toolArgs,
+    block.truncatedContent,
+    block[bashPreviewMayOmitMetadata],
+  ] as const;
 }
 
 function publishedFieldsChanged(
-  previous: [string, string | undefined, boolean | undefined],
+  previous: ReturnType<typeof publishedFields>,
   block: AgentBlockData,
 ): boolean {
   return (
     previous[0] !== block.content ||
     previous[1] !== block.toolArgs ||
-    previous[2] !== block.truncatedContent
+    previous[2] !== block.truncatedContent ||
+    previous[3] !== block[bashPreviewMayOmitMetadata]
   );
 }

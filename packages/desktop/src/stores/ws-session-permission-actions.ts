@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { StoreApi } from "zustand";
 import { toast } from "sonner";
 import { createPermissionRespond } from "@/lib/ws-envelope";
@@ -32,12 +33,17 @@ function handlePermissionResponse(
   }
   const error = parseErrorPayload(payload);
   if (error?.message || payload === null) {
-    const message = error?.message ?? "Permission response timed out.";
+    const message =
+      error?.message ??
+      translateUi("conversation.permission.timeout", "Permission response timed out.");
     const isDeadSessionError = isGateClosingErrorCode(error?.code);
     if (!isDeadSessionError) {
       // The gate is still open and the agent still waits on it: the response
       // failed, not the turn. Its message id stays for an idempotent retry.
-      toast.error("Couldn't send your response", { description: message });
+      toast.error(
+        translateUi("conversation.permission.responseFailed", "Couldn't send your response"),
+        { description: message },
+      );
       set(updateSession(get(), sessionId, { submittingPermissionRequestId: null }));
       return;
     }

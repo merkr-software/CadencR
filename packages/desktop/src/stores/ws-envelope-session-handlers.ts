@@ -27,7 +27,7 @@ import type { SessionEntry } from "./ws-session-types";
 import { createSessionConfigState, createStreamHealth, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
-import { appendErrorBlockPatch } from "./ws-session-store-helpers";
+import { appendClientTranscriptErrorPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
 
@@ -49,11 +49,7 @@ export function handleTranscriptBlock(
       updateSession(
         ctx.get(),
         sessionId,
-        appendErrorBlockPatch(
-          session,
-          "A transcript line could not be displayed because its live event was malformed. Reconnect to reload the conversation.",
-          { code: "MALFORMED_TRANSCRIPT_BLOCK" },
-        ),
+        appendClientTranscriptErrorPatch(session, "MALFORMED_TRANSCRIPT_BLOCK"),
       ),
     );
     return;
@@ -315,11 +311,7 @@ export function handleCanonicalUserMessage(
       updateSession(
         ctx.get(),
         sessionId,
-        appendErrorBlockPatch(
-          session,
-          "A persisted user message could not be displayed because its live event was malformed. Reconnect to reload the canonical transcript.",
-          { code: "MALFORMED_USER_MESSAGE" },
-        ),
+        appendClientTranscriptErrorPatch(session, "MALFORMED_USER_MESSAGE"),
       ),
     );
     return;

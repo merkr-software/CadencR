@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import type { RemoteStatus } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { CopyIconButton, SectionHeading } from "./remote-ui";
 import { RemotePairingCode } from "./RemotePairingCode";
 
@@ -33,18 +34,25 @@ function pairingTargets(status: RemoteStatus): PairTarget[] {
 
 /** Never create or display a LAN pairing secret before the browser certificate is compared. */
 export function RemotePairSection({ status }: { status: RemoteStatus }): ReactElement {
+  const { t } = useUiTranslation();
   const targets = pairingTargets(status);
   const [selected, setSelected] = useState("");
   const target = targets.find((entry) => entry.origin === selected) ?? targets[0];
   return (
     <section className="space-y-3">
-      <SectionHeading>Pair a new device</SectionHeading>
+      <SectionHeading>{t("remote.pairing.title", "Pair a new device")}</SectionHeading>
       <p className="text-xs text-muted-foreground">
-        Recommended: use a private Tailscale connection with a browser-trusted certificate. For a
-        LAN connection, compare its certificate before sharing a pairing code.
+        {t(
+          "remote.pairing.connectionHint",
+          "Recommended: use a private Tailscale connection with a browser-trusted certificate. For a LAN connection, compare its certificate before sharing a pairing code.",
+        )}
       </p>
       {targets.length > 1 ? (
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Connection address">
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label={t("remote.pairing.connectionAddress", "Connection address")}
+        >
           {targets.map((entry) => (
             <Button
               key={entry.origin}
@@ -54,8 +62,13 @@ export function RemotePairSection({ status }: { status: RemoteStatus }): ReactEl
               aria-pressed={entry === target}
               onClick={() => setSelected(entry.origin)}
             >
-              {new URL(entry.origin).host}
-              {entry.tunnel ? " · Private tunnel" : " · LAN"}
+              {entry.tunnel
+                ? t("remote.pairing.privateTunnelTarget", "{{host}} · Private tunnel", {
+                    host: new URL(entry.origin).host,
+                  })
+                : t("remote.pairing.lanTarget", "{{host}} · LAN", {
+                    host: new URL(entry.origin).host,
+                  })}
             </Button>
           ))}
         </div>
@@ -68,7 +81,10 @@ export function RemotePairSection({ status }: { status: RemoteStatus }): ReactEl
         />
       ) : (
         <p className="text-xs text-muted-foreground">
-          Connect to a network or configure a private tunnel to pair a device.
+          {t(
+            "remote.pairing.noTarget",
+            "Connect to a network or configure a private tunnel to pair a device.",
+          )}
         </p>
       )}
     </section>
@@ -109,15 +125,14 @@ function CertificateComparison({
   fingerprint: string | null;
   onVerified: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [input, setInput] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [mismatch, setMismatch] = useState(false);
   const expected = normalizeFingerprint(fingerprint ?? "");
   const compare = (event: FormEvent): void => {
     event.preventDefault();
     if (!/^[A-F0-9]{64}$/.test(expected) || normalizeFingerprint(input) !== expected) {
-      setError(
-        "The SHA-256 fingerprint does not match. Do not pair; check the certificate and host again.",
-      );
+      setMismatch(true);
       return;
     }
     onVerified();
@@ -125,45 +140,68 @@ function CertificateComparison({
   return (
     <form onSubmit={compare} className="space-y-3 rounded-lg border border-border bg-card p-3">
       <p className="text-xs text-muted-foreground">
-        On the other device, open this address without a pairing code. In the browser's certificate
-        viewer, find the certificate's SHA-256 fingerprint. Compare it with this host before
-        accepting the certificate warning. Cadencr cannot inspect that browser's certificate.
+        {t(
+          "remote.pairing.certificate.instructions",
+          "On the other device, open this address without a pairing code. In the browser's certificate viewer, find the certificate's SHA-256 fingerprint. Compare it with this host before accepting the certificate warning. Cadencr cannot inspect that browser's certificate.",
+        )}
       </p>
       <div className="flex items-center justify-between gap-2">
         <code className="break-all text-xs">{origin}/</code>
-        <CopyIconButton value={`${origin}/`} successLabel="Certificate check URL copied" />
+        <CopyIconButton
+          value={`${origin}/`}
+          successLabel={
+            <UiTrans
+              i18nKey="remote.pairing.certificate.urlCopied"
+              defaults="Certificate check URL copied"
+            />
+          }
+        />
       </div>
       {fingerprint ? (
         <div className="space-y-1">
-          <p className="text-xs font-medium">Expected host SHA-256 fingerprint</p>
+          <p className="text-xs font-medium">
+            {t("remote.pairing.certificate.expected", "Expected host SHA-256 fingerprint")}
+          </p>
           <code className="block break-all font-mono text-[11px]">{fingerprint}</code>
         </div>
       ) : (
         <p role="alert" className="text-xs text-destructive">
-          The host fingerprint is unavailable. Pairing is blocked.
+          {t(
+            "remote.pairing.certificate.unavailable",
+            "The host fingerprint is unavailable. Pairing is blocked.",
+          )}
         </p>
       )}
       <label htmlFor="remote-browser-fingerprint" className="block text-xs font-medium">
-        SHA-256 fingerprint from the other device's browser
+        {t(
+          "remote.pairing.certificate.browserFingerprint",
+          "SHA-256 fingerprint from the other device's browser",
+        )}
       </label>
       <Input
         id="remote-browser-fingerprint"
         value={input}
         onChange={(event) => {
           setInput(event.target.value);
-          setError(null);
+          setMismatch(false);
         }}
         autoComplete="off"
         spellCheck={false}
-        placeholder="Paste the complete SHA-256 fingerprint"
+        placeholder={t(
+          "remote.pairing.certificate.placeholder",
+          "Paste the complete SHA-256 fingerprint",
+        )}
       />
-      {error ? (
+      {mismatch ? (
         <p role="alert" className="text-xs text-destructive">
-          {error}
+          {t(
+            "remote.pairing.certificate.mismatch",
+            "The SHA-256 fingerprint does not match. Do not pair; check the certificate and host again.",
+          )}
         </p>
       ) : null}
       <Button type="submit" size="sm" disabled={!fingerprint || !input.trim()}>
-        Compare and show pairing code
+        {t("remote.pairing.certificate.compare", "Compare and show pairing code")}
       </Button>
     </form>
   );

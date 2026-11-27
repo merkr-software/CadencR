@@ -1,3 +1,5 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
+import { LanguageSetting } from "@/components/settings/LanguageSetting";
 import { Button } from "@/components/ui/button";
 import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import { useZoom } from "@/hooks/useZoom";
@@ -14,26 +16,43 @@ import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 /** Settings → General: the app-wide basics that belong to no single tool. */
 export function GeneralPage(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsPageSection pageId="general">
-      <SettingsGroup id={SETTINGS_ANCHORS.interface} title="Interface">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.interface}
+        title={t("settings.general.interface.title", "Interface")}
+      >
+        <LanguageSetting />
         <ZoomRow />
       </SettingsGroup>
-      <SettingsGroup id={SETTINGS_ANCHORS.keyboard} title="Keyboard">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.keyboard}
+        title={t("settings.general.keyboard.title", "Keyboard")}
+      >
         <ShortcutsRow />
       </SettingsGroup>
-      <SettingsGroup id={SETTINGS_ANCHORS.restarts} title="Restarts">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.restarts}
+        title={t("settings.general.restarts.title", "Restarts")}
+      >
         <RestartResumeToggle />
       </SettingsGroup>
       {isDesktopShell() ? (
-        <SettingsGroup id={SETTINGS_ANCHORS.commandLine} title="Command line">
+        <SettingsGroup
+          id={SETTINGS_ANCHORS.commandLine}
+          title={t("settings.general.commandLine.title", "Command line")}
+        >
           <CommandLineRow />
         </SettingsGroup>
       ) : null}
       <SettingsGroup
         id={SETTINGS_ANCHORS.settingsFile}
-        title="Advanced"
-        description="Every setting on these pages is saved in one JSON file. Edit it directly for bulk changes, or to copy a setup to another machine."
+        title={t("settings.general.advanced.title", "Advanced")}
+        description={t(
+          "settings.general.advanced.description",
+          "Every setting on these pages is saved in one JSON file. Edit it directly for bulk changes, or to copy a setup to another machine.",
+        )}
       >
         <SettingsSubsection>
           <WorkspaceJsonSettings />
@@ -44,24 +63,36 @@ export function GeneralPage(): React.JSX.Element {
 }
 
 function ZoomRow(): React.JSX.Element {
+  const { t } = useUiTranslation();
   // Desktop and mobile keep independent zoom levels, so this control only ever
   // shows (and edits) the option for the device type it's running on.
   const { device, zoomLevel, step } = useZoom();
   return (
     <SettingsRow
       align="start"
-      label="UI zoom"
+      label={t("settings.general.zoom.label", "UI zoom")}
       description={
         device === "mobile" ? (
-          "Scales the interface on this device only. This is separate from the desktop app's zoom."
+          t(
+            "settings.general.zoom.mobileDescription",
+            "Scales the interface on this device only. This is separate from the desktop app's zoom.",
+          )
         ) : (
           <>
-            Scales the sidebar, editor, terminal and chrome together.
+            {t(
+              "settings.general.zoom.desktopDescription",
+              "Scales the sidebar, editor, terminal and chrome together.",
+            )}
             <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <ResolvedKbdChord shortcutId="zoom-in" />
-              <ResolvedKbdChord shortcutId="zoom-out" />
-              <ResolvedKbdChord shortcutId="zoom-reset" />
-              work everywhere.
+              <UiTrans
+                i18nKey="settings.general.zoom.shortcutHint"
+                defaults="<zoomIn/> <zoomOut/> <zoomReset/> work everywhere."
+                components={{
+                  zoomIn: <ResolvedKbdChord shortcutId="zoom-in" />,
+                  zoomOut: <ResolvedKbdChord shortcutId="zoom-out" />,
+                  zoomReset: <ResolvedKbdChord shortcutId="zoom-reset" />,
+                }}
+              />
             </span>
           </>
         )
@@ -73,19 +104,19 @@ function ZoomRow(): React.JSX.Element {
             size="sm"
             className="size-7 p-0"
             onClick={() => step("out")}
-            aria-label="Zoom out"
+            aria-label={t("settings.general.zoom.out", "Zoom out")}
           >
             −
           </Button>
           <output aria-live="polite" className="w-12 text-center text-sm tabular-nums">
-            {zoomLevel}%
+            {t("settings.general.zoom.level", "{{value}}%", { value: zoomLevel })}
           </output>
           <Button
             variant="outline"
             size="sm"
             className="size-7 p-0"
             onClick={() => step("in")}
-            aria-label="Zoom in"
+            aria-label={t("settings.general.zoom.in", "Zoom in")}
           >
             +
           </Button>
@@ -95,7 +126,7 @@ function ZoomRow(): React.JSX.Element {
             onClick={() => step("reset")}
             disabled={zoomLevel === 100}
           >
-            Reset
+            {t("settings.general.zoom.reset", "Reset")}
           </Button>
         </div>
       }
@@ -104,22 +135,25 @@ function ZoomRow(): React.JSX.Element {
 }
 
 function ShortcutsRow(): React.JSX.Element {
+  const { t } = useUiTranslation();
   // Action only — selecting the setter (never the open flag) keeps this row
   // from re-rendering when the modal toggles.
   const openShortcutsHelp = useShortcutsHelpStore((s) => s.setOpen);
   return (
     <SettingsRow
-      label="Keyboard shortcuts"
+      label={t("settings.general.keyboard.shortcuts", "Keyboard shortcuts")}
       description={
         <span className="flex flex-wrap items-center gap-1.5">
-          Browse every shortcut, or press
-          <ResolvedKbdChord shortcutId="shortcuts-help" />
-          anywhere.
+          <UiTrans
+            i18nKey="settings.general.keyboard.description"
+            defaults="Browse every shortcut, or press <shortcut/> anywhere."
+            components={{ shortcut: <ResolvedKbdChord shortcutId="shortcuts-help" /> }}
+          />
         </span>
       }
       control={
         <Button variant="outline" size="sm" onClick={() => openShortcutsHelp(true)}>
-          View shortcuts
+          {t("settings.general.keyboard.view", "View shortcuts")}
         </Button>
       }
     />

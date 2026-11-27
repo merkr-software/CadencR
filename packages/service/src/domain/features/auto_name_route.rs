@@ -113,6 +113,7 @@ mod tests {
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(body["code"], "SETTINGS_INVALID");
+            assert_eq!(body["details"]["auto_name_reason"], "settings_selection");
             let message = body["error"].as_str().unwrap();
             assert!(message.contains("auto-naming provider"));
             assert!(!message.contains("synthetic-private-value"));

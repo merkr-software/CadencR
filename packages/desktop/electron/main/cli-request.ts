@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 
 /** The one argument the `cadencr` CLI adds when it starts or reaches the app. */
 export const CLI_REQUEST_FLAG = "--cadencr-request";
@@ -47,7 +48,16 @@ function parseCliRequest(raw: string): ParsedCliRequest {
     json = JSON.parse(raw);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return { ok: false, message: `The cadencr command sent an unreadable request: ${detail}` };
+    return {
+      ok: false,
+      message: t(
+        "cli.request.unreadable",
+        "The cadencr command sent an unreadable request: {{detail}}",
+        {
+          detail,
+        },
+      ),
+    };
   }
   const parsed = cliRequestSchema.safeParse(json);
   if (!parsed.success) {
@@ -56,7 +66,11 @@ function parseCliRequest(raw: string): ParsedCliRequest {
       .join("; ");
     return {
       ok: false,
-      message: `This version of Cadencr does not understand the cadencr command's request (${detail}). Update the command or the app so they match.`,
+      message: t(
+        "cli.request.incompatible",
+        "This version of Cadencr does not understand the cadencr command's request ({{detail}}). Update the command or the app so they match.",
+        { detail },
+      ),
     };
   }
   return { ok: true, request: parsed.data };

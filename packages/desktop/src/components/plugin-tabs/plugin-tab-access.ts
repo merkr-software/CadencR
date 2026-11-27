@@ -1,3 +1,4 @@
+import { translateUi, uiI18n, type UiTranslator } from "@/lib/i18n/ui";
 import type { PluginTabSummary, TabAccessLevel, TabBackend } from "@/api/generated";
 
 /**
@@ -15,25 +16,42 @@ export interface AccessLevelCopy {
   reach: string | null;
 }
 
-export const ACCESS_LEVEL_COPY: Record<TabAccessLevel, AccessLevelCopy> = {
-  ui: {
-    label: "Read-only",
-    summary: "Shows a page that reads Cadencr data only through its permissions.",
+const accessLevelCopyByLevel: Record<TabAccessLevel, (t: UiTranslator) => AccessLevelCopy> = {
+  ui: (t) => ({
+    label: t("customTabs.access.readOnly", "Read-only"),
+    summary: t(
+      "customTabs.access.readOnlySummary",
+      "Shows a page that reads Cadencr data only through its permissions.",
+    ),
     reach: null,
-  },
-  commands: {
-    label: "Runs commands",
-    summary:
+  }),
+  commands: (t) => ({
+    label: t("customTabs.access.runsCommands", "Runs commands"),
+    summary: t(
+      "customTabs.access.commandsSummary",
       "Asks Cadencr to run the programs it lists, with arguments it picks, in this conversation's folder.",
-    reach: "The programs it runs can run any code on your computer with your user rights.",
-  },
-  backend: {
-    label: "Native code",
-    summary:
+    ),
+    reach: t(
+      "customTabs.access.commandsReach",
+      "The programs it runs can run any code on your computer with your user rights.",
+    ),
+  }),
+  backend: (t) => ({
+    label: t("customTabs.access.nativeCode", "Native code"),
+    summary: t(
+      "customTabs.access.nativeSummary",
       "Runs its own program on your computer with your user rights. Cadencr does not sandbox it.",
-    reach: "Its program runs on your computer with your user rights.",
-  },
+    ),
+    reach: t(
+      "customTabs.access.nativeReach",
+      "Its program runs on your computer with your user rights.",
+    ),
+  }),
 };
+
+export function accessLevelCopy(level: TabAccessLevel, t: UiTranslator): AccessLevelCopy {
+  return accessLevelCopyByLevel[level](t);
+}
 
 // Literal class strings: Tailwind only emits arbitrary values it finds verbatim.
 // Read-only informs (muted); commands need attention (amber, the needs-action
@@ -55,22 +73,32 @@ export function backendBinaries(backend: TabBackend): string {
 }
 
 /** The platforms a backend can ship for (docs/TAB_BACKEND_PROTOCOL.md), in the user's words. */
-const PLATFORM_LABEL: Record<string, string> = {
-  "darwin-aarch64": "macOS (Apple silicon)",
-  "darwin-x86_64": "macOS (Intel)",
-  "linux-x86_64": "Linux (x86-64)",
+const platformLabel: Partial<Record<string, (t: UiTranslator) => string>> = {
+  "darwin-aarch64": (t) => t("customTabs.access.platform.appleSilicon", "macOS (Apple silicon)"),
+  "darwin-x86_64": (t) => t("customTabs.access.platform.macIntel", "macOS (Intel)"),
+  "linux-x86_64": (t) => t("customTabs.access.platform.linuxX64", "Linux (x86-64)"),
 };
 
+const platformListFormats = new Map<string, Intl.ListFormat>();
+
 /** `macOS (Intel) and Linux (x86-64)`: platform keys in the user's words. */
-export function platformList(platforms: readonly string[]): string {
-  const labels = platforms.map((key) => PLATFORM_LABEL[key] ?? key);
-  if (labels.length <= 1) return labels[0] ?? "no platform";
-  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+export function platformList(platforms: readonly string[], t: UiTranslator): string {
+  const labels = platforms.map((key) =>
+    Object.hasOwn(platformLabel, key) ? (platformLabel[key]?.(t) ?? key) : key,
+  );
+  if (labels.length <= 1) return labels[0] ?? t("customTabs.access.platform.none", "no platform");
+  const language = uiI18n.language.startsWith("en") ? "en-GB" : uiI18n.language;
+  let formatter = platformListFormats.get(language);
+  if (!formatter) {
+    formatter = new Intl.ListFormat(language);
+    platformListFormats.set(language, formatter);
+  }
+  return formatter.format(labels);
 }
 
 /** Where the backend can run. */
-export function backendPlatforms(backend: TabBackend): string {
-  return platformList(Object.keys(backend.binary));
+export function backendPlatforms(backend: TabBackend, t: UiTranslator = translateUi): string {
+  return platformList(Object.keys(backend.binary), t);
 }
 
 /**
@@ -83,21 +111,34 @@ export function backendUnavailableHere<
   return !!tab.backend && tab.backend_availability === "unavailable_on_platform";
 }
 
-/** "Unavailable on this platform", said one way wherever a tab can't run here. */
-export const UNAVAILABLE_HERE = "Unavailable on this platform";
+/** The label shared by surfaces that show a tab cannot run on this platform. */
+export function unavailableHere(t: UiTranslator): string {
+  return t("customTabs.access.unavailableHere", "Unavailable on this platform");
+}
 
 /** Why a tab can't run on this computer: the platforms (`backendPlatforms`) it does ship for. */
-export function unavailableReason(platforms: string): string {
-  return `Its native backend ships for ${platforms} only, so the tab can't run on this computer.`;
+export function unavailableReason(platforms: string, t: UiTranslator = translateUi): string {
+  return t(
+    "customTabs.access.unavailableReason",
+    "Its native backend ships for {{platforms}} only, so the tab can't run on this computer.",
+    { platforms },
+  );
 }
 
 /** A tab version on Cadencr's signed revocation list, said one way on every surface. */
-export const BLOCKED_COPY = {
-  title: "Blocked by Cadencr",
-  effect:
-    "This version is on Cadencr's revocation list, so it can't be turned on, opened or run its backend.",
-  remedy: "Remove it from the Marketplace, or update it to a version that isn't blocked.",
-} as const;
+export function blockedCopy(t: UiTranslator) {
+  return {
+    title: t("customTabs.access.blockedTitle", "Blocked by Cadencr"),
+    effect: t(
+      "customTabs.access.blockedEffect",
+      "This version is on Cadencr's revocation list, so it can't be turned on, opened or run its backend.",
+    ),
+    remedy: t(
+      "customTabs.access.blockedRemedy",
+      "Remove it from the Marketplace, or update it to a version that isn't blocked.",
+    ),
+  };
+}
 
 /** A blocklist reason as a sentence of its own, whatever punctuation it came with. */
 export function reasonSentence(reason: string): string {

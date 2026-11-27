@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useSettingWriter } from "@/hooks/useSetting";
@@ -171,6 +172,14 @@ export function useThemeSync(): void {
       return;
     }
     didToastSystemThemeErrorRef.current = true;
-    toast.error(`Could not detect system theme: ${theme.systemAppearanceError.message}`);
+    toast.error(
+      translateUi(
+        "appearance.theme.detectSystemFailed",
+        "Could not detect system theme: {{error}}",
+        {
+          error: theme.systemAppearanceError.message,
+        },
+      ),
+    );
   }, [theme.followSystemTheme, theme.systemAppearanceError]);
 }

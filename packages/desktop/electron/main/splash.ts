@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { readFileSync } from "node:fs";
 import {
   EMERALD,
@@ -11,7 +11,10 @@ import {
   STANDARD_CUT,
 } from "@cadencr/brand";
 import { type StartupRecoveryAction, type StartupRecoveryActionId } from "./startup-recovery";
-import type { SidecarPhase } from "./sidecar";
+import { splashProgressDetail } from "./splash-progress";
+import { matchSystemLocale } from "../../src/lib/i18n/languages";
+import { changeUiLanguage, uiI18n } from "../../src/shared/ui-i18n";
+import { splashCopyForPhase, type SplashPhase } from "./splash-copy";
 import { windowIconOption } from "./app-icon";
 import { secureSplashWebContents } from "./splash-security";
 
@@ -38,18 +41,6 @@ const SPLASH_HEIGHT = 400;
 const ERROR_SPLASH_WIDTH = 640;
 const ERROR_SPLASH_HEIGHT = 500;
 
-export type SplashPhase = "starting" | SidecarPhase;
-
-interface PhaseCopy {
-  title: string;
-  detail: string;
-}
-
-const STARTING_COPY: PhaseCopy = {
-  title: "Starting Cadencr",
-  detail: "Preparing the workspace…",
-};
-
 type SplashUpdateKind = "phase" | "error";
 
 interface PendingSplashUpdate {
@@ -63,45 +54,6 @@ export interface SplashErrorState {
   title: string;
   detail: string;
   actions?: StartupRecoveryAction[];
-}
-
-const PHASE_COPY: Record<SplashPhase, PhaseCopy> = {
-  starting: STARTING_COPY,
-  starting_service: { title: "Starting Cadencr", detail: "Bringing up the backend service…" },
-  // Dev Electron cannot see the independently-started service's stdout, so it
-  // must keep the original neutral splash copy until a concrete phase is known.
-  waiting_for_service: STARTING_COPY,
-  backing_up: {
-    title: "Backing up your database",
-    detail: "Saving a snapshot before applying updates.",
-  },
-  backup_failed: {
-    title: "Couldn't back up your database",
-    detail:
-      "Updates were not applied, so your data is unchanged. This is usually low disk space — free some up and reopen Cadencr.",
-  },
-  migrating: {
-    title: "Updating your database",
-    detail: "Applying schema changes. This may take a moment.",
-  },
-  optimizing_storage: {
-    title: "Optimizing conversation storage",
-    detail:
-      "Removing verified duplicate terminal output and moving pasted images out of the database. Conversations are preserved.",
-  },
-  compacting_database: {
-    title: "Reclaiming database space",
-    detail: "Safely compacting unused pages. Your conversations are preserved.",
-  },
-  importing_usage: {
-    title: "Importing usage history",
-    detail: "Reading the last 30 days of provider token usage. This only happens once.",
-  },
-  loading_app: { title: "Almost there", detail: "Loading your workspace…" },
-};
-
-export function splashCopyForPhase(phase: SplashPhase): PhaseCopy {
-  return PHASE_COPY[phase];
 }
 
 export interface SplashHandle {
@@ -141,6 +93,15 @@ function createSplashBrowserWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+}
+
+/** Before the service and its saved preference are available, use the OS preference. */
+export async function initializeStartupLanguage(): Promise<void> {
+  try {
+    await changeUiLanguage(matchSystemLocale(app.getPreferredSystemLanguages()));
+  } catch (error) {
+    dialog.showErrorBox(app.getName(), error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function createSplashWindow(version: string): SplashHandle {
@@ -193,7 +154,7 @@ export function createSplashWindow(version: string): SplashHandle {
     window: win,
     setPhase(phase, detail) {
       const copy = splashCopyForPhase(phase);
-      update("phase", copy.title, detail ?? copy.detail, []);
+      update("phase", copy.title, splashProgressDetail(detail) ?? copy.detail, []);
     },
     setError(title, detail, actions) {
       update("error", title, detail, actions);
@@ -349,8 +310,9 @@ function renderLogoSvg(): string {
 }
 
 export function renderSplashHtml(version: string, initialError?: SplashErrorState): string {
+  const copy = initialError ?? splashCopyForPhase("starting");
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(uiI18n.resolvedLanguage ?? uiI18n.language)}">
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; base-uri 'none'; form-action 'none'" />
@@ -363,8 +325,8 @@ ${renderSplashStyles()}
   ${renderLogoSvg()}
   <div class="name">Cadencr</div>
   <div class="version">v${escapeHtml(version)}</div>
-  <div class="title" id="title">${escapeHtml(initialError?.title ?? "Starting Cadencr")}</div>
-  <div class="detail" id="detail" role="status" aria-live="polite">${escapeHtml(initialError?.detail ?? "Preparing the workspace…")}</div>
+  <div class="title" id="title">${escapeHtml(copy.title)}</div>
+  <div class="detail" id="detail" role="status" aria-live="polite">${escapeHtml(copy.detail)}</div>
   <div class="actions" id="actions">${renderActionHtml(initialError?.actions ?? [])}</div>
 </body>
 </html>`;

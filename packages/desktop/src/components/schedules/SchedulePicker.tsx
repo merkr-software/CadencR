@@ -27,6 +27,7 @@ export interface PickerOption {
 export interface SchedulePickerProps {
   /** Names the trigger for assistive tech; also the visible field label. */
   ariaLabel: string;
+  searchLabel: string;
   options: PickerOption[];
   value?: number | null;
   /** Shown when `value` isn't in `options` — e.g. an archived conversation. */
@@ -49,6 +50,7 @@ export interface SchedulePickerProps {
  */
 export function SchedulePicker({
   ariaLabel,
+  searchLabel,
   options,
   value,
   fallbackLabel,
@@ -99,6 +101,7 @@ export function SchedulePicker({
       >
         <PickerBody
           ariaLabel={ariaLabel}
+          searchLabel={searchLabel}
           options={options}
           value={value}
           searchPlaceholder={searchPlaceholder}
@@ -128,6 +131,7 @@ const getOptionLabel = (option: PickerOption): string => option.label;
  */
 function PickerBody({
   ariaLabel,
+  searchLabel,
   options,
   value,
   searchPlaceholder,
@@ -136,6 +140,7 @@ function PickerBody({
   inputRef,
 }: {
   ariaLabel: string;
+  searchLabel: string;
   options: PickerOption[];
   value?: number | null;
   searchPlaceholder: string;
@@ -178,7 +183,7 @@ function PickerBody({
           ref={inputRef}
           variant="ghost"
           role="combobox"
-          aria-label={`Search ${ariaLabel.toLowerCase()}`}
+          aria-label={searchLabel}
           aria-expanded
           aria-controls={listId}
           aria-activedescendant={filteredCount > 0 ? rowId(activeIndex) : undefined}

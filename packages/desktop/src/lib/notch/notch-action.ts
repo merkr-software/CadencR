@@ -1,4 +1,5 @@
-import { parseMcpTool } from "@/lib/mcp-tool-parser";
+import type { UiTranslator } from "@/lib/i18n/ui";
+import { mcpToolKey } from "@/lib/mcp-tool-parser";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
 import { getToolActivityLabel } from "@/lib/tool-call-parser";
 import type { NotchActionKind } from "@/shared/notch";
@@ -31,9 +32,9 @@ const MAX_LABEL_CHARS = 160;
 /** Absolute paths eat the whole line; keep the last two segments. */
 const LONG_PATH = /(?:\/[^\s/:'"`]+){3,}\/?/g;
 
-export function notchActionKind(toolName: string, toolArgs?: string): NotchActionKind {
+export function notchActionKind(toolName: string): NotchActionKind {
   const canonical = normalizeToolName(toolName);
-  if (parseMcpTool(canonical, toolArgs)) return "mcp";
+  if (mcpToolKey(canonical)) return "mcp";
   if (isFileChangeTool(canonical)) return "edit";
   return KIND_BY_TOOL[canonical] ?? "tool";
 }
@@ -45,8 +46,8 @@ export function shortenPaths(text: string): string {
   });
 }
 
-export function notchActionLabel(toolName: string, toolArgs?: string): string {
-  const oneLine = getToolActivityLabel(toolName, toolArgs).replace(/\s+/g, " ").trim();
+export function notchActionLabel(toolName: string, toolArgs?: string, t?: UiTranslator): string {
+  const oneLine = getToolActivityLabel(toolName, toolArgs, t).replace(/\s+/g, " ").trim();
   const short = shortenPaths(oneLine);
   return short.length > MAX_LABEL_CHARS ? `${short.slice(0, MAX_LABEL_CHARS - 1)}…` : short;
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { SessionConfigPopover, shouldShowSessionConfig } from "./SessionConfigPopover";
 import type { SessionConfigControls } from "./types";
 import { useMemo } from "react";
@@ -44,6 +45,7 @@ export function useMetaBarDerivedState(
   props: MetaBarDerivedStateInput,
   displayProviderId: string | undefined,
 ) {
+  const { t } = useUiTranslation();
   const {
     providers = [],
     models,
@@ -86,7 +88,7 @@ export function useMetaBarDerivedState(
     return findProviderMode(displayProviderId, permissionMode, providerModes) ?? visibleModes[0];
   }, [displayProviderId, enabledOptInModes, onPermissionModeToggle, permissionMode, providerModes]);
 
-  const displayMode = getDisplayMode(activeMode, displayProviderId, permissionMode);
+  const displayMode = getDisplayMode(activeMode, displayProviderId, permissionMode, t);
   const isStandalone = variant === "standalone";
   const shouldShowModel = !!onModelChange || showReadOnlyModel;
   const hasAccessMode = !!accessMode && !!onAccessModeChange && providerAccessModes.length > 0;
@@ -218,6 +220,7 @@ interface LeadingChipsProps {
 }
 
 export function MetaBarLeadingChips(props: LeadingChipsProps) {
+  const { t } = useUiTranslation();
   const { section } = props;
   const cycleKeys = useShortcutKeys("agent-permission-mode");
   const cycleLabel = useShortcutLabel("agent-permission-mode");
@@ -240,11 +243,20 @@ export function MetaBarLeadingChips(props: LeadingChipsProps) {
 
       {/* Mode chip — labels/colors driven by the per-provider catalog. */}
       {section === "all" && props.displayMode && (
-        <ShortcutTooltip label={`${props.displayMode.label} mode`} keys={cycleKeys}>
+        <ShortcutTooltip
+          label={t("conversation.stream.metaBarSections.mode", "{{mode}} mode", {
+            mode: props.displayMode.label,
+          })}
+          keys={cycleKeys}
+        >
           <button
             type="button"
             onClick={props.onPermissionModeToggle}
-            title={`${props.displayMode.description} (${cycleLabel} to cycle)`}
+            title={t(
+              "conversation.stream.metaBarSections.toCycle",
+              "{{description}} ({{cycleLabel}} to cycle)",
+              { description: props.displayMode.description, cycleLabel },
+            )}
             aria-label={props.displayMode.ariaLabel}
             className={cn(META_BAR_CHIP, props.displayMode.chipClass, "min-w-0")}
           >

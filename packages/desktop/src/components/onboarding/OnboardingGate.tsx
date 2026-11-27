@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { SettingsUnreadableDialog } from "./SettingsUnreadableDialog";
 interface OnboardingGateProps {
   children: ReactNode;
   openSettings: () => Promise<void>;
+  languageSuggestion?: ReactNode;
 }
 
 const SETTINGS_RECHECK_MS = 2_000;
@@ -30,7 +32,12 @@ export function OnboardingGate(props: OnboardingGateProps): React.JSX.Element {
   return isBrowserRemote() ? <>{props.children}</> : <LocalOnboardingGate {...props} />;
 }
 
-function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): React.JSX.Element {
+function LocalOnboardingGate({
+  children,
+  openSettings,
+  languageSuggestion,
+}: OnboardingGateProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const onboarding = useOnboardingStatus();
   const telemetry = useQuery({
     queryKey: TELEMETRY_QUERY_KEY,
@@ -83,7 +90,10 @@ function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): R
           setRepair({ error: visibleRepairError, opened: true });
           void openSettings().catch((error: unknown) => {
             setRepair((current) => current && { ...current, opened: false });
-            toastError(error, "Could not open Settings.");
+            toastError(
+              error,
+              translateUi("onboarding.unreadable.openSettingsFailed", "Could not open Settings."),
+            );
           });
         }}
       />
@@ -107,6 +117,7 @@ function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): R
     <>
       {workspaceReady || repairOpened ? children : null}
       {content}
+      {workspaceReady && !needsRepair && !preferencesError && languageSuggestion}
       {workspaceReady && !needsRepair && preferencesError ? (
         <PrivacyRefreshNotice error={preferencesError} busy={telemetry.isFetching} retry={retry} />
       ) : null}
@@ -115,7 +126,9 @@ function LocalOnboardingGate({ children, openSettings }: OnboardingGateProps): R
           role="status"
           className="fixed bottom-4 left-4 z-50 max-w-md rounded-md border border-border bg-background p-3 text-xs text-muted-foreground"
         >
-          Monthly audience counter: {activityError}
+          {t("telemetry.gate.audienceError", "Monthly audience counter: {{error}}", {
+            error: activityError,
+          })}
         </p>
       ) : null}
     </>
@@ -131,17 +144,21 @@ function PrivacyRefreshNotice({
   busy: boolean;
   retry: () => void;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="fixed bottom-4 left-4 z-50 max-w-md rounded-md border border-border bg-background p-3 text-xs text-muted-foreground"
     >
       <p>
-        {apiErrorMessage(error, "Could not refresh privacy preferences.")} Your saved privacy
-        choices remain in effect.
+        {apiErrorMessage(
+          error,
+          t("telemetry.gate.refreshError", "Could not refresh privacy preferences."),
+        )}{" "}
+        {t("telemetry.gate.savedChoices", "Your saved privacy choices remain in effect.")}
       </p>
       <Button variant="outline" size="sm" disabled={busy} onClick={retry}>
-        Retry
+        {t("common.retry", "Retry")}
       </Button>
     </div>
   );
@@ -205,13 +222,14 @@ function useSettingsRecheck({
 }
 
 function SettingsRecheckStatus(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="fixed inset-0 flex items-center justify-center gap-2 text-muted-foreground"
     >
       <Loader2 className="size-4 animate-spin" aria-hidden />
-      Checking settings…
+      {t("onboarding.unreadable.checking", "Checking settings…")}
     </div>
   );
 }

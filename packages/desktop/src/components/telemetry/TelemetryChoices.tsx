@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bug, ChartNoAxesCombined, Loader2, ShieldCheck } from "lucide-react";
@@ -20,6 +21,7 @@ export function TelemetryChoices({
   onSaved?: () => void;
   disabled?: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const client = useQueryClient();
   const [customizing, setCustomizing] = useState(false);
   const [choices, setChoices] = useState<
@@ -43,10 +45,10 @@ export function TelemetryChoices({
       <TelemetryExplanation state={state} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button className="sm:col-span-2" disabled={busy} onClick={() => chooseDetailed(true)}>
-          Enable diagnostics &amp; usage
+          {t("telemetry.consent.enable", "Enable diagnostics & usage")}
         </Button>
         <Button variant="outline" disabled={busy} onClick={() => chooseDetailed(false)}>
-          Decline detailed telemetry
+          {t("telemetry.consent.decline", "Decline detailed telemetry")}
         </Button>
         <Button
           variant="ghost"
@@ -55,7 +57,7 @@ export function TelemetryChoices({
           aria-controls="detailed-telemetry-options"
           onClick={() => setCustomizing(true)}
         >
-          Customize
+          {t("telemetry.consent.customize", "Customize")}
         </Button>
       </div>
       {customizing ? (
@@ -65,8 +67,11 @@ export function TelemetryChoices({
         >
           <Choice
             id="consent-diagnostics"
-            label="Technical diagnostics"
-            description="Sentry receives curated error categories and app stack locations to help fix crashes."
+            label={t("telemetry.consent.technicalDiagnostics", "Technical diagnostics")}
+            description={t(
+              "telemetry.consent.diagnosticsExplanation",
+              "Sentry receives curated error categories and app stack locations to help fix crashes.",
+            )}
             checked={choices.diagnostics_enabled}
             disabled={busy}
             onChange={(value) =>
@@ -75,27 +80,33 @@ export function TelemetryChoices({
           />
           <Choice
             id="consent-usage"
-            label="Usage analytics"
-            description="PostHog receives basic app sessions and feature outcomes to show which features help."
+            label={t("telemetry.consent.usageAnalytics", "Usage analytics")}
+            description={t(
+              "telemetry.consent.usageExplanation",
+              "PostHog receives basic app sessions and feature outcomes to show which features help.",
+            )}
             checked={choices.usage_enabled}
             disabled={busy}
             onChange={(value) => setChoices((current) => ({ ...current, usage_enabled: value }))}
           />
           <Button variant="outline" disabled={busy} onClick={() => save.mutate(choices)}>
-            Save my choices
+            {t("telemetry.consent.save", "Save my choices")}
           </Button>
         </div>
       ) : null}
       {save.isPending ? (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
-          Saving your choices…
+          {t("telemetry.consent.saving", "Saving your choices…")}
         </p>
       ) : null}
       {save.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {apiErrorMessage(save.error, "Could not save your privacy choices.")} Your choice has not
-          been saved. Please try again.
+          {apiErrorMessage(
+            save.error,
+            t("telemetry.consent.saveError", "Could not save your privacy choices."),
+          )}{" "}
+          {t("telemetry.consent.saveRetry", "Your choice has not been saved. Please try again.")}
         </p>
       ) : null}
     </div>
@@ -135,69 +146,94 @@ function Choice({
 }
 
 function TelemetryExplanation({ state }: { state: TelemetryState }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-4 text-xs leading-relaxed text-muted-foreground">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
           <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Bug className="size-4 text-muted-foreground" aria-hidden />
-            Fix bugs faster
+            {t("telemetry.consent.diagnosticsTitle", "Fix bugs faster")}
           </h3>
-          <p>Send technical error reports to Sentry.</p>
-          {!state.diagnostics_configured ? <p>Not configured in this build.</p> : null}
+          <p>
+            {t("telemetry.consent.diagnosticsSummary", "Send technical error reports to Sentry.")}
+          </p>
+          {!state.diagnostics_configured ? (
+            <p>{t("telemetry.consent.unconfigured", "Not configured in this build.")}</p>
+          ) : null}
         </div>
         <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
           <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
             <ChartNoAxesCombined className="size-4 text-muted-foreground" aria-hidden />
-            Improve useful features
+            {t("telemetry.consent.usageTitle", "Improve useful features")}
           </h3>
-          <p>Share basic usage statistics with PostHog.</p>
-          {!state.usage_configured ? <p>Not configured in this build.</p> : null}
+          <p>{t("telemetry.consent.usageSummary", "Share basic usage statistics with PostHog.")}</p>
+          {!state.usage_configured ? (
+            <p>{t("telemetry.consent.unconfigured", "Not configured in this build.")}</p>
+          ) : null}
         </div>
       </div>
       <div className="flex items-start gap-2">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <p>Your code, prompts, agent replies and terminal output are never included.</p>
+        <p>
+          {t(
+            "telemetry.consent.excludedData",
+            "Your code, prompts, agent replies and terminal output are never included.",
+          )}
+        </p>
       </div>
-      <p>Both are off until enabled. Change your choices any time in Settings.</p>
+      <p>
+        {t(
+          "telemetry.consent.defaults",
+          "Both are off until enabled. Change your choices any time in Settings.",
+        )}
+      </p>
       <details>
-        <summary className="cursor-pointer font-medium text-foreground">What is shared?</summary>
+        <summary className="cursor-pointer font-medium text-foreground">
+          {t("telemetry.consent.detailsTitle", "What is shared?")}
+        </summary>
         <div className="mt-2 space-y-2">
           <p>
-            Technical diagnostics send curated error categories and app stack positions to Sentry.
-            Raw error messages and stack source text stay local. Usage analytics send basic app
-            sessions and feature outcomes to PostHog.
+            {t(
+              "telemetry.consent.detailsContent",
+              "Technical diagnostics send curated error categories and app stack positions to Sentry. Raw error messages and stack source text stay local. Usage analytics send basic app sessions and feature outcomes to PostHog.",
+            )}
           </p>
           <p>
-            Both include app version, platform and a random installation ID, which links reports
-            from this installation. Workspace file paths, repository names, log files and session
-            replay are never sent.
+            {t(
+              "telemetry.consent.detailsIdentifiers",
+              "Both include app version, platform and a random installation ID, which links reports from this installation. Workspace file paths, repository names, log files and session replay are never sent.",
+            )}
           </p>
           <p>
-            PostHog receives the connection IP when an event is delivered, even though the payload
-            suppresses IP storage and geolocation.
+            {t(
+              "telemetry.consent.detailsIp",
+              "PostHog receives the connection IP when an event is delivered, even though the payload suppresses IP storage and geolocation.",
+            )}
           </p>
         </div>
       </details>
       <section
-        aria-label="Monthly audience counter"
+        aria-label={t("telemetry.audience.title", "Monthly audience counter")}
         className="space-y-2 border-t border-border pt-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-medium text-foreground">Monthly audience counter</h3>
+          <h3 className="font-medium text-foreground">
+            {t("telemetry.audience.title", "Monthly audience counter")}
+          </h3>
           <span>
             {!state.audience_enabled
-              ? "Off — your setting is kept"
+              ? t("telemetry.audience.off", "Off — your setting is kept")
               : !state.audience_configured
-                ? "Not configured — nothing sent"
-                : "On by default"}
+                ? t("telemetry.audience.unconfigured", "Not configured — nothing sent")
+                : t("telemetry.audience.defaultOn", "On by default")}
           </span>
         </div>
         <p>
-          One minimal monthly PostHog event estimates active installations. Fresh ID; no linking
-          across months or to detailed reports. When on and configured, it runs independently, even
-          before this choice. These buttons do not change it. Turn off in Settings → About → Privacy
-          and telemetry.
+          {t(
+            "telemetry.audience.description",
+            "One minimal monthly PostHog event estimates active installations. Fresh ID; no linking across months or to detailed reports. When on and configured, it runs independently, even before this choice. These buttons do not change it. Turn off in Settings → About → Privacy and telemetry.",
+          )}
         </p>
       </section>
     </div>

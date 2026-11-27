@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Bridge between Electron's `powerMonitor` (suspend / resume) and the
  * renderer-side WebSocket sessions + cache.
@@ -72,9 +73,14 @@ function handleResume(): void {
   // doesn't churn the cache.
   void queryClient.invalidateQueries({ queryKey: ["agent-catalog"] });
   toast.success(
-    resumedCount === 1
-      ? "Reconnecting agent after sleep…"
-      : `Reconnecting ${resumedCount} agents after sleep…`,
+    translateUi(
+      "conversation.background.reconnectingAfterSleep",
+      "Reconnecting {{count, number}} agents after sleep…",
+      {
+        count: resumedCount,
+        defaultValue_one: "Reconnecting agent after sleep…",
+      },
+    ),
     { id: RESUME_TOAST_ID, duration: 4_000 },
   );
 }

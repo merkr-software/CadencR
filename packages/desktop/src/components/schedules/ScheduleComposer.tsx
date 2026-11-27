@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * The schedule editor's prompt field: the real composer, not a textarea.
  *
@@ -41,6 +42,7 @@ export function ScheduleComposer({
   onTargetChange,
   projectPath,
 }: ScheduleComposerProps): ReactElement {
+  const { t } = useUiTranslation();
   const editorRef = useRef<PromptEditorHandle>(null);
   const handleSurfaceClick = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     if (!shouldFocusPromptFromSurfaceClick(event.target)) return;
@@ -75,7 +77,10 @@ export function ScheduleComposer({
           ref={editorRef}
           initialText={initialPrompt}
           onChange={onPromptChange}
-          placeholder="Describe the task — @ for files, / for commands"
+          placeholder={t(
+            "conversation.composer.agentPromptBar.describeWithSyntax",
+            "Describe the task — @ for files, / for commands",
+          )}
           className="min-h-16 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm leading-[22px] shadow-none focus:border-0 focus:ring-0"
           mentionProjectId={target.project_id ?? undefined}
           mentionFeatureId={target.feature_id ?? undefined}

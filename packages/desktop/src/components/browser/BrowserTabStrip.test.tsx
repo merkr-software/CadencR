@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { BrowserTabMetadata } from "@/lib/desktop-bridge";
-import { fireEvent, render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
+import { act, fireEvent, render, screen } from "@/test-utils";
 import { BrowserTabStrip } from "./BrowserTabStrip";
 import type { BrowserWorkspaceModel } from "./useBrowserWorkspaceModel";
 
@@ -58,6 +59,25 @@ function model(activeIndex: number): BrowserWorkspaceModel {
 }
 
 describe("BrowserTabStrip", () => {
+  it("relabels an untitled failed tab while preserving a matching title supplied by a site", async () => {
+    const workspace = model(1);
+    Object.assign(workspace.state.tabs[0]!, { title: "New tab", defaultTitle: true });
+    Object.assign(workspace.state.tabs[1]!, { title: "New tab", defaultTitle: false });
+    render(<BrowserTabStrip model={workspace} />);
+    expect(screen.getAllByText("New tab")).toHaveLength(2);
+    try {
+      await act(async () => {
+        await uiI18n.changeLanguage("cimode");
+      });
+      expect(screen.getByText("workspace.browser.newTab")).toBeVisible();
+      expect(screen.getByText("New tab")).toBeVisible();
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage("en");
+      });
+    }
+  });
+
   it("keeps the tab context-menu trigger wired through the drag surface", () => {
     render(<BrowserTabStrip model={model(1)} />);
     const tabPill = screen.getByText("Tab 1").closest<HTMLElement>("[draggable='true']");

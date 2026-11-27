@@ -1,3 +1,4 @@
+import { UiTrans } from "@/lib/i18n/ui";
 import type { EditorView } from "@codemirror/view";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useEditorStore, isUntitledPath } from "@/stores/editor-store";
@@ -357,8 +358,14 @@ function EditorEmptyState() {
   return (
     <div className="flex items-center justify-center h-full px-4 text-muted-foreground text-sm text-center text-balance">
       <p className="leading-7">
-        Open a file from the sidebar, press <KbdShortcut keys={newBufferKeys} variant="hint" /> for
-        a new buffer, or use <KbdShortcut keys={fuzzyKeys} variant="hint" />
+        <UiTrans
+          i18nKey="workspace.editor.editorPane.emptyPane"
+          defaults="Open a file from the sidebar, press <newBuffer /> for a new buffer, or use <fuzzy />"
+          components={{
+            newBuffer: <KbdShortcut keys={newBufferKeys} variant="hint" />,
+            fuzzy: <KbdShortcut keys={fuzzyKeys} variant="hint" />,
+          }}
+        />
       </p>
     </div>
   );

@@ -1,3 +1,4 @@
+import { UiTrans } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
@@ -20,9 +21,11 @@ export const StopArmHint = memo(function StopArmHint(): ReactElement | null {
       role="status"
       className="composer-stop-arm inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs text-destructive"
     >
-      Press
-      <KbdShortcut keys={stopKeys} variant="hint" />
-      again to stop
+      <UiTrans
+        i18nKey="conversation.composer.stopArmHint.pressAgain"
+        defaults="Press <shortcut /> again to stop"
+        components={{ shortcut: <KbdShortcut keys={stopKeys} variant="hint" /> }}
+      />
     </span>
   );
 });

@@ -1,4 +1,6 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactNode } from "react";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useSetting } from "@/hooks/useSetting";
@@ -30,6 +32,7 @@ export default function FileSearchDialog({
   open,
   onOpenChange,
 }: FileSearchDialogProps) {
+  const { t } = useUiTranslation();
   const { activePaneId, openFile } = useEditorState(featureId);
   // Defined only when the editor pane is actually showing Neovim, which owns
   // its own buffers — opening a tab in the store would be invisible there.
@@ -41,7 +44,7 @@ export default function FileSearchDialog({
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedQuery = useDebouncedValue(searchQuery, DEBOUNCE_MS);
 
-  const { data, isLoading } = useFileSearch(
+  const { data, error, isLoading } = useFileSearch(
     { project_id: projectId, feature_id: featureId, query: debouncedQuery || undefined },
     { query: { enabled: open, placeholderData: keepPreviousData } },
   );
@@ -71,19 +74,29 @@ export default function FileSearchDialog({
   return (
     <CommandDialog
       open={open}
+      title={t("search.files.title", "Search files")}
       onOpenChange={onOpenChange}
       commandProps={{ shouldFilter: false, value: selectedValue, onValueChange: setSelectedValue }}
     >
       <CommandInput
-        placeholder="Search files..."
+        placeholder={t("search.files.placeholder", "Search files...")}
         value={searchQuery}
         onValueChange={setSearchQuery}
       />
       <CommandList>
         {isLoading && files.length === 0 && (
-          <div className="py-6 text-center text-sm text-muted-foreground">Loading…</div>
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            {t("search.files.loading", "Loading…")}
+          </div>
         )}
-        {!isLoading && files.length === 0 && <CommandEmpty>No files found.</CommandEmpty>}
+        {error && (
+          <div role="alert" className="py-6 text-center text-sm text-destructive">
+            {apiErrorMessage(error, t("palette.errors.files", "File search failed"))}
+          </div>
+        )}
+        {!error && !isLoading && files.length === 0 && (
+          <CommandEmpty>{t("search.files.empty", "No files found.")}</CommandEmpty>
+        )}
         {files.map((file) => (
           <FileResultItem key={file.path} file={file} onSelect={handleSelect} />
         ))}

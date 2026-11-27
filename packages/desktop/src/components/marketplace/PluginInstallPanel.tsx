@@ -1,5 +1,6 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { Ban, Check, Loader2, Power, type LucideIcon } from "lucide-react";
-import { BLOCKED_COPY } from "@/components/plugin-tabs/plugin-tab-access";
+import { blockedCopy } from "@/components/plugin-tabs/plugin-tab-access";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -27,42 +28,99 @@ export interface Offer {
 /** Not an offer: a disabled button that says where the chosen version stands. */
 export interface Settled {
   state: "settled";
-  label: string;
+  label: (t: UiTranslator) => string;
   icon: LucideIcon | null;
 }
 
-export const LABELS = { install: "Install", update: "Update to", change: "Change to" } as const;
+export const OFFER_LABELS: Record<Offer["state"], (t: UiTranslator, version: string) => string> = {
+  install: (t, version) =>
+    t("marketplace.pluginInstallPanel.installVersion", "Install {{version}}", { version }),
+  update: (t, version) =>
+    t("marketplace.pluginInstallPanel.updateVersion", "Update to {{version}}", { version }),
+  change: (t, version) =>
+    t("marketplace.pluginInstallPanel.changeVersion", "Change to {{version}}", { version }),
+};
 
 export const SETTLED = {
-  operating_system: { state: "settled", label: "Needs a newer macOS version", icon: Ban },
-  runtime: { state: "settled", label: "Needs Node.js on this machine", icon: Ban },
-  policy: { state: "settled", label: "Installation policy unavailable", icon: Ban },
-  compatibility: { state: "settled", label: "Incompatible with this Cadencr", icon: Ban },
-  installed: { state: "settled", label: "Installed", icon: Check },
-  unavailable: { state: "settled", label: "Not available on this platform", icon: Ban },
-  outdated: { state: "settled", label: "Needs a newer Cadencr", icon: Ban },
-  blocked: { state: "settled", label: BLOCKED_COPY.title, icon: Ban },
-  choose: { state: "settled", label: "Choose a version", icon: null },
-  incomplete: { state: "settled", label: "Catalog incomplete", icon: Ban },
+  operating_system: {
+    state: "settled",
+    label: (t) =>
+      t("marketplace.pluginInstallPanel.settled.operatingSystem", "Needs a newer macOS version"),
+    icon: Ban,
+  },
+  runtime: {
+    state: "settled",
+    label: (t) =>
+      t("marketplace.pluginInstallPanel.settled.runtime", "Needs Node.js on this machine"),
+    icon: Ban,
+  },
+  policy: {
+    state: "settled",
+    label: (t) =>
+      t("marketplace.pluginInstallPanel.settled.policy", "Installation policy unavailable"),
+    icon: Ban,
+  },
+  compatibility: {
+    state: "settled",
+    label: (t) =>
+      t("marketplace.pluginInstallPanel.settled.compatibility", "Incompatible with this Cadencr"),
+    icon: Ban,
+  },
+  installed: {
+    state: "settled",
+    label: (t) => t("marketplace.pluginInstallPanel.settled.installed", "Installed"),
+    icon: Check,
+  },
+  unavailable: {
+    state: "settled",
+    label: (t) =>
+      t("marketplace.pluginInstallPanel.settled.unavailable", "Not available on this platform"),
+    icon: Ban,
+  },
+  outdated: {
+    state: "settled",
+    label: (t) => t("marketplace.pluginInstallPanel.settled.outdated", "Needs a newer Cadencr"),
+    icon: Ban,
+  },
+  blocked: { state: "settled", label: (t: UiTranslator) => blockedCopy(t).title, icon: Ban },
+  choose: {
+    state: "settled",
+    label: (t) => t("marketplace.pluginInstallPanel.chooseAVersion", "Choose a version"),
+    icon: null,
+  },
+  incomplete: {
+    state: "settled",
+    label: (t) => t("marketplace.pluginInstallPanel.settled.incomplete", "Catalog incomplete"),
+    icon: Ban,
+  },
 } as const satisfies Record<string, Settled>;
 
-const PROBLEM_NOTES: Record<VersionProblem, string> = {
-  operating_system: " · needs a newer macOS version",
-  runtime: " · needs Node.js",
-  policy: " · installation policy unavailable",
-  compatibility: " · incompatible Cadencr version",
-  outdated: " · needs a newer Cadencr",
-  unavailable: " · not for this platform",
-  blocked: " · blocked",
-  incomplete: " · catalog incomplete",
+const PROBLEM_NOTES: Record<VersionProblem, (t: UiTranslator) => string> = {
+  operating_system: (t) =>
+    t("marketplace.pluginInstallPanel.note.operatingSystem", "needs a newer macOS version"),
+  runtime: (t) => t("marketplace.pluginInstallPanel.note.runtime", "needs Node.js"),
+  policy: (t) => t("marketplace.pluginInstallPanel.note.policy", "installation policy unavailable"),
+  compatibility: (t) =>
+    t("marketplace.pluginInstallPanel.note.compatibility", "incompatible Cadencr version"),
+  outdated: (t) => t("marketplace.pluginInstallPanel.note.outdated", "needs a newer Cadencr"),
+  unavailable: (t) => t("marketplace.pluginInstallPanel.note.unavailable", "not for this platform"),
+  blocked: (t) => t("marketplace.pluginInstallPanel.note.blocked", "blocked"),
+  incomplete: (t) => t("marketplace.pluginInstallPanel.note.incomplete", "catalog incomplete"),
 };
 
 /** The version picker's suffix for the same problems. */
-function versionNote(entry: ListingVersion): string {
+function versionNote(entry: ListingVersion, t: UiTranslator): string {
   const problem = versionProblem(entry);
   if (problem === "operating_system" && entry.macosMinVersion)
-    return ` · requires macOS ${entry.macosMinVersion} or newer`;
-  return problem ? PROBLEM_NOTES[problem] : "";
+    return (
+      " · " +
+      t(
+        "marketplace.pluginInstallPanel.note.requiresMacOs",
+        "requires macOS {{version}} or newer",
+        { version: entry.macosMinVersion },
+      )
+    );
+  return problem ? " · " + PROBLEM_NOTES[problem](t) : "";
 }
 
 /** What the primary button offers for the chosen exact version. */
@@ -84,13 +142,21 @@ function primaryAction(listing: MarketplaceListing, version: string): Offer | Se
   if (problem === "operating_system" && entry.macosMinVersion)
     return {
       ...SETTLED.operating_system,
-      label: `Requires macOS ${entry.macosMinVersion} or newer`,
+      label: (t) =>
+        t("marketplace.pluginInstallPanel.requiresMacOs", "Requires macOS {{version}} or newer", {
+          version: entry.macosMinVersion,
+        }),
     };
   if (problem) return SETTLED[problem];
   if (!listing.availableHere) return SETTLED.unavailable;
   // Already downloaded and verified: what is left is the user's review.
   if (version === listing.pendingVersion)
-    return { state: "settled", label: `Update ${version} staged`, icon: null };
+    return {
+      state: "settled",
+      label: (t) =>
+        t("marketplace.pluginInstallPanel.stagedUpdate", "Update {{version}} staged", { version }),
+      icon: null,
+    };
   if (!installed) return { state: "install", version };
   const newer = (compareVersions(version, installed) ?? 0) > 0;
   return { state: newer ? "update" : "change", version };
@@ -105,6 +171,7 @@ export function PluginInstallPanel({
   version: string;
   onVersionChange: (version: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const actions = usePluginActions();
   const action = primaryAction(listing, version);
   const pending = actions.pending(listing);
@@ -121,8 +188,14 @@ export function PluginInstallPanel({
           >
             {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
             {pending
-              ? "Applying…"
-              : `${listing.kind === "lsp" && listing.installed && !listing.installed.managed ? "Install managed version" : LABELS[action.state]} ${action.version}`}
+              ? t("marketplace.pluginInstallPanel.applying", "Applying…")
+              : listing.kind === "lsp" && listing.installed && !listing.installed.managed
+                ? t(
+                    "marketplace.pluginInstallPanel.installManaged",
+                    "Install managed version {{version}}",
+                    { version: action.version },
+                  )
+                : OFFER_LABELS[action.state](t, action.version)}
           </Button>
         )}
         <KindAction listing={listing} />
@@ -131,13 +204,29 @@ export function PluginInstallPanel({
       <TabInstallNote listing={listing} version={version} />
       <p className="text-xs text-muted-foreground">
         {listing.recommended
-          ? `Recommended for this machine: ${listing.recommended}.`
+          ? t(
+              "marketplace.pluginInstallPanel.recommended",
+              "Recommended for this machine: {{version}}.",
+              { version: listing.recommended },
+            )
           : listing.availableHere
-            ? "No compatible version is recommended for this machine — choose one explicitly."
+            ? t(
+                "marketplace.pluginInstallPanel.noRecommendation",
+                "No compatible version is recommended for this machine — choose one explicitly.",
+              )
             : ""}{" "}
-        {listing.installed ? "Nothing changes until you choose another version." : ""}
+        {listing.installed
+          ? t(
+              "marketplace.pluginInstallPanel.chooseToChange",
+              "Nothing changes until you choose another version.",
+            )
+          : ""}
         {!actions.canInstall(listing) && listing.inCatalog
-          ? " Installing needs a current verified catalog and a loaded inventory."
+          ? " " +
+            t(
+              "marketplace.pluginInstallPanel.verifiedCatalogRequired",
+              "Installing needs a current verified catalog and a loaded inventory.",
+            )
           : ""}
       </p>
     </div>
@@ -154,30 +243,43 @@ export function VersionSelect({
   version: string;
   onVersionChange: (version: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const installedVersion = listing.installed?.version;
   const orphan =
     !!installedVersion && !listing.versions.some((v) => v.version === installedVersion);
   return (
     <Select value={version} onValueChange={onVersionChange}>
       <SelectTrigger
-        aria-label="Exact version"
+        aria-label={t("marketplace.pluginInstallPanel.exactVersion", "Exact version")}
         className="order-last w-full text-xs sm:order-none sm:w-auto sm:min-w-40"
       >
-        <SelectValue placeholder="Choose a version" />
+        <SelectValue
+          placeholder={t("marketplace.pluginInstallPanel.chooseAVersion", "Choose a version")}
+        />
       </SelectTrigger>
       <SelectContent>
         {orphan && (
           <SelectItem value={installedVersion} className="text-xs">
-            <span className="font-mono">{installedVersion}</span> · installed, not in catalog
+            <span className="font-mono">{installedVersion}</span> ·{" "}
+            {t(
+              "marketplace.pluginInstallPanel.installedOutsideCatalog",
+              "installed, not in catalog",
+            )}
           </SelectItem>
         )}
         {listing.versions.map((entry) => (
           <SelectItem key={entry.version} value={entry.version} className="text-xs">
             <span className="font-mono">{entry.version}</span>
-            {entry.version === listing.recommended ? " · recommended" : ""}
-            {entry.version === installedVersion ? " · installed" : ""}
-            {entry.version === listing.pendingVersion ? " · awaiting review" : ""}
-            {versionNote(entry)}
+            {entry.version === listing.recommended
+              ? " · " + t("marketplace.pluginInstallPanel.selectRecommended", "recommended")
+              : ""}
+            {entry.version === installedVersion
+              ? " · " + t("marketplace.pluginInstallPanel.selectInstalled", "installed")
+              : ""}
+            {entry.version === listing.pendingVersion
+              ? " · " + t("marketplace.pluginInstallPanel.selectAwaitingReview", "awaiting review")
+              : ""}
+            {versionNote(entry, t)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -187,11 +289,12 @@ export function VersionSelect({
 
 /** A settled state is not an offer: never a filled primary. */
 export function SettledAction({ action }: { action: Settled }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const Icon = action.icon;
   return (
     <Button variant="secondary" disabled className="min-w-36 rounded-lg">
       {Icon && <Icon aria-hidden="true" />}
-      {action.label}
+      {action.label(t)}
     </Button>
   );
 }
@@ -201,6 +304,7 @@ export function SettledAction({ action }: { action: Settled }): React.JSX.Elemen
  * whether it starts with Cadencr. Tab: enable it (asking consent first).
  */
 export function KindAction({ listing }: { listing: MarketplaceListing }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { providers, themes, themeLoading } = useMarketplaceState();
   const installed = listing.installed;
   if (!installed || listing.kind === "plugin" || listing.kind === "lsp") return null;
@@ -215,7 +319,9 @@ export function KindAction({ listing }: { listing: MarketplaceListing }): React.
         }
         onClick={() => themes.mutation.mutate({ kind: "apply", id: listing.id })}
       >
-        {installed.active ? "In use" : "Use this theme"}
+        {installed.active
+          ? t("marketplace.pluginInstallPanel.inUse", "In use")
+          : t("marketplace.pluginInstallPanel.useTheme", "Use this theme")}
       </Button>
     );
   return (
@@ -228,7 +334,9 @@ export function KindAction({ listing }: { listing: MarketplaceListing }): React.
       }
     >
       <Power aria-hidden="true" />
-      {installed.enabled ? "Disable" : "Enable"}
+      {installed.enabled
+        ? t("marketplace.tabActivation.disable", "Disable")
+        : t("marketplace.tabActivation.enable", "Enable")}
     </Button>
   );
 }

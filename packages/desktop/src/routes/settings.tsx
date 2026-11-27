@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft } from "lucide-react";
 import { useShortcut } from "@/hooks/useShortcut";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
@@ -13,6 +14,7 @@ import {
   DEFAULT_SETTINGS_PAGE,
   resolveSettingsTarget,
   settingsPageMeta,
+  settingsNavGroups,
 } from "@/components/settings/settings-catalog";
 import { showSettingsTarget } from "@/components/settings/reveal-settings-anchor";
 import {
@@ -39,6 +41,7 @@ export const Route = createFileRoute("/settings")({
  * the list of pages.
  */
 function SettingsPage() {
+  const { t } = useUiTranslation();
   const search = Route.useSearch();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -56,8 +59,8 @@ function SettingsPage() {
   const railShownRef = useRef(railShown);
   railShownRef.current = railShown;
   const groups = useMemo(
-    () => availableSettingsGroups(currentSettingsPlatform(isMobile)),
-    [isMobile],
+    () => availableSettingsGroups(currentSettingsPlatform(isMobile), settingsNavGroups(t)),
+    [isMobile, t],
   );
   const wide = settingsPageMeta(pageId).wide === true;
 
@@ -132,7 +135,7 @@ function SettingsPage() {
                   onClick={() => void navigate({ to: "/settings", search: {} })}
                 >
                   <ChevronLeft aria-hidden className="size-4" />
-                  All settings
+                  {t("settings.nav.all", "All settings")}
                 </Button>
               ) : null}
               <SettingsPageContent pageId={pageId} />
@@ -145,21 +148,24 @@ function SettingsPage() {
 }
 
 function SettingsPageHeader({ onBack }: { onBack: () => void }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <header className="titlebar-drag flex min-h-11 shrink-0 items-center gap-3 border-b border-border px-4 md:px-6">
       <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
-      <h1 className="min-w-0 flex-1 text-sm font-semibold">Settings</h1>
+      <h1 className="min-w-0 flex-1 text-sm font-semibold">
+        {t("settings.nav.title", "Settings")}
+      </h1>
       <Button
         variant="ghost"
         size="sm"
         onClick={onBack}
-        title="Back to workspace (Esc)"
-        aria-label="Back to workspace"
+        title={t("settings.nav.back.shortcut", "Back to workspace (Esc)")}
+        aria-label={t("settings.nav.back.workspace", "Back to workspace")}
         className="h-7 shrink-0 gap-1.5 px-2"
       >
         <ArrowLeft aria-hidden="true" className="size-3.5" />
-        <span className="hidden sm:inline">Back</span>
+        <span className="hidden sm:inline">{t("settings.nav.back.label", "Back")}</span>
       </Button>
     </header>
   );

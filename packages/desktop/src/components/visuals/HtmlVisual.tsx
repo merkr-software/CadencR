@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback } from "react";
 import { LayoutDashboardIcon } from "lucide-react";
 import { VisualChrome } from "@/components/visuals/VisualChrome";
@@ -17,6 +18,7 @@ const HtmlVisual = memo(function HtmlVisual({
   variant = "inline",
   onEscape,
 }: HtmlVisualProps) {
+  const { t } = useUiTranslation();
   const theme = useVisualTheme();
   const expand = useCallback(() => openVisualFullscreen({ kind: "cadencr-html", code }), [code]);
   // The sandbox shell takes one document per load, so a new theme (canvas
@@ -35,7 +37,7 @@ const HtmlVisual = memo(function HtmlVisual({
 
   return (
     <VisualChrome
-      label="Visual"
+      label={t("conversation.stream.visual.visual", "Visual")}
       icon={<LayoutDashboardIcon className="size-3" />}
       code={code}
       sourceLanguage="html"

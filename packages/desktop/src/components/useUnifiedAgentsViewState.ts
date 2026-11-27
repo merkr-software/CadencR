@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { useListProjects, type UnifiedAgentEntry } from "@/api/generated";
 import type { UnifiedAgentsFilterInputHandle } from "@/components/UnifiedAgentsDynamicFilter";
@@ -131,9 +132,12 @@ function useHideAgentWithUndo(
   return useCallback(
     (title: string): void => {
       excludeAgent(title);
-      toast(`Hidden “${title}”`, {
+      toast(translateUi("agents.overview.hide.hidden", "Hidden “{{title}}”", { title }), {
         id: `unified-agents-hide-${title.toLowerCase()}`,
-        action: { label: "Undo", onClick: () => includeRef.current(title) },
+        action: {
+          label: translateUi("agents.overview.hide.undo", "Undo"),
+          onClick: () => includeRef.current(title),
+        },
       });
     },
     [excludeAgent],

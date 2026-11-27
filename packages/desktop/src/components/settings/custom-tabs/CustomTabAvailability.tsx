@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useId, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import type { PluginTabSummary, Project } from "@/api/generated";
@@ -21,11 +22,13 @@ const MAX_LIST_HEIGHT_PX = 256;
 /** A two-line row with its segmented control, until Virtuoso measures them. */
 const ESTIMATED_ROW_HEIGHT_PX = 49;
 
-const TRI_STATE_OPTIONS: readonly SegmentedOption<TriState>[] = [
-  { value: "inherit", label: "Inherit" },
-  { value: "on", label: "On" },
-  { value: "off", label: "Off" },
-];
+function triStateOptions(t: UiTranslator): readonly SegmentedOption<TriState>[] {
+  return [
+    { value: "inherit", label: t("customTabs.enablement.inherit", "Inherit") },
+    { value: "on", label: t("customTabs.enablement.on", "On") },
+    { value: "off", label: t("customTabs.enablement.off", "Off") },
+  ];
+}
 
 /**
  * Where the tab shows: one global switch, and a per-project choice that either
@@ -43,6 +46,7 @@ export function CustomTabAvailability({
   overrides: ReadonlyMap<number, ProjectOverride>;
   enablement: Pick<CustomTabEnablement, "change" | "pendingKey">;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const switchId = useId();
   const global = tab.enablement.global === true;
   const invalid = !canTurnOn(tab);
@@ -52,9 +56,14 @@ export function CustomTabAvailability({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-6">
         <label htmlFor={switchId} className="min-w-0 cursor-pointer">
-          <span className="block text-sm font-medium leading-tight">Enable in all projects</span>
+          <span className="block text-sm font-medium leading-tight">
+            {t("customTabs.customTabAvailability.enableInAllProjects", "Enable in all projects")}
+          </span>
           <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            Projects set to Inherit below follow this switch.
+            {t(
+              "customTabs.customTabAvailability.projectsSetToInheritBelowFollowThis",
+              "Projects set to Inherit below follow this switch.",
+            )}
           </span>
         </label>
         <Switch
@@ -65,7 +74,9 @@ export function CustomTabAvailability({
         />
       </div>
       {projects.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No projects yet.</p>
+        <p className="text-xs text-muted-foreground">
+          {t("customTabs.customTabAvailability.noProjectsYet", "No projects yet.")}
+        </p>
       ) : (
         <ProjectList
           projects={projects}
@@ -97,11 +108,15 @@ function ProjectList({
   projects: Project[];
   renderRow: (project: Project) => React.ReactNode;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [listHeight, setListHeight] = useState(projects.length * ESTIMATED_ROW_HEIGHT_PX);
   return (
     <Virtuoso
       role="list"
-      aria-label="Per-project availability"
+      aria-label={t(
+        "customTabs.customTabAvailability.perProjectAvailability",
+        "Per-project availability",
+      )}
       className="rounded-lg border border-border/60 bg-card"
       style={{ height: Math.min(listHeight, MAX_LIST_HEIGHT_PX) + 2 }}
       data={projects}
@@ -133,21 +148,33 @@ function ProjectRow({
   pending: boolean;
   onChange: (state: TriState) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const state = triStateOf(override);
   return (
     <div className="flex items-center gap-3 px-3 py-2">
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{project.name}</p>
         <p className="truncate text-[11px] text-muted-foreground">
-          {isAuthoring ? "Where this tab is built · " : null}
-          {state === "inherit" ? `Follows all projects: ${global ? "on" : "off"}` : "Own choice"}
+          {isAuthoring ? (
+            <>
+              {t("customTabs.customTabAvailability.authoringProject", "Where this tab is built")}{" "}
+              ·{" "}
+            </>
+          ) : null}
+          {state === "inherit"
+            ? global
+              ? t("customTabs.customTabAvailability.inheritedOn", "Follows all projects: on")
+              : t("customTabs.customTabAvailability.inheritedOff", "Follows all projects: off")
+            : t("customTabs.customTabAvailability.ownChoice", "Own choice")}
         </p>
       </div>
       <UsageSegmentedControl
-        ariaLabel={`${project.name} availability`}
+        ariaLabel={t("customTabs.customTabAvailability.projectLabel", "{{name}} availability", {
+          name: project.name,
+        })}
         value={state}
         // An invalid tab can be turned off, never (back) on.
-        options={TRI_STATE_OPTIONS.map((option) => ({
+        options={triStateOptions(t).map((option) => ({
           ...option,
           disabled: invalid && state !== "on" && option.value === "on",
         }))}

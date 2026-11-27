@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { SlashCommand } from "./slash-command";
 
 /**
@@ -30,8 +31,18 @@ export function parseSideQuestion(text: string): string | null {
 export function withSideQuestionSkill(
   commands: SlashCommand[] | undefined,
   sessionId: number | undefined,
+  t: UiTranslator = translateUi,
 ): SlashCommand[] | undefined {
   if (sessionId == null || !commands) return commands;
   if (commands.some((command) => command.name === SIDE_QUESTION_SKILL.name)) return commands;
-  return [...commands, SIDE_QUESTION_SKILL];
+  return [
+    ...commands,
+    {
+      ...SIDE_QUESTION_SKILL,
+      description: t(
+        "conversation.side-question-skill.description",
+        "Ask in a separate conversation — this agent is not interrupted",
+      ),
+    },
+  ];
 }

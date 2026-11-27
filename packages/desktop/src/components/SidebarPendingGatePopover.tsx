@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useContext,
@@ -17,7 +18,7 @@ import {
 import {
   effectiveGateKind,
   PENDING_KIND_TEXT_CLASS,
-  PLAN_READY_LABEL,
+  planReadyLabel,
   triggerPendingKind,
 } from "@/components/sidebar-pending-gate";
 import { useFeaturePendingGate } from "@/hooks/useFeaturePendingGate";
@@ -98,15 +99,16 @@ function KindIcon({ kind }: { kind: PendingKind }): ReactElement {
 
 /** The icon without a quick reply behind it: clicks fall through to the row. */
 function PlainStatusIcon({ kind, isPlan }: { kind: PendingKind; isPlan: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <span
       role="img"
       aria-label={
         isPlan
-          ? PLAN_READY_LABEL
+          ? planReadyLabel()
           : kind === "permission"
-            ? "Pending permission"
-            : "Pending question"
+            ? t("sidebar.pendingGatePopover.pendingPermission", "Pending permission")
+            : t("sidebar.pendingGatePopover.pendingQuestion", "Pending question")
       }
       className={cn(ICON_CLASS, PENDING_KIND_TEXT_CLASS[kind])}
     >
@@ -237,11 +239,16 @@ function GateTrigger({
   onToggle: () => void;
   hoverHandlers: ReturnType<typeof usePendingGatePopoverOpen>["hoverHandlers"];
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       ref={ref}
       type="button"
-      aria-label={kind === "permission" ? "Pending permission" : "Pending question"}
+      aria-label={
+        kind === "permission"
+          ? t("sidebar.pendingGatePopover.pendingPermission", "Pending permission")
+          : t("sidebar.pendingGatePopover.pendingQuestion", "Pending question")
+      }
       aria-haspopup="dialog"
       aria-expanded={expanded}
       {...{

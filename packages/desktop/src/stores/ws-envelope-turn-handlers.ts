@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   parseEndedPayload,
   parseStreamStatusPayload,
@@ -85,7 +86,10 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
   if (!ended) {
     console.warn("[ws-session] dropped malformed session.ended envelope", payload);
     toast.error(
-      "The agent sent an invalid turn-complete update. The conversation was not changed.",
+      translateUi(
+        "conversation.stream.invalidTurn",
+        "The agent sent an invalid turn-complete update. The conversation was not changed.",
+      ),
     );
     return;
   }

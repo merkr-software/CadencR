@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -47,7 +48,11 @@ const defaultGrantDeps: GrantDeps = {
   },
   reportRevokeFailure: (error) =>
     toast.error(
-      `A closed custom tab's access could not be revoked (it expires on its own): ${apiErrorMessage(error, "unknown error")}`,
+      translateUi(
+        "customTabs.grant.revokeError",
+        "A closed custom tab's access could not be revoked (it expires on its own): {{error}}",
+        { error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")) },
+      ),
     ),
   now: () => Date.now(),
 };

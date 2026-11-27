@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState, useCallback, type ReactNode } from "react";
 import { CodeIcon, CopyIcon, CheckIcon, TerminalIcon } from "lucide-react";
 
@@ -20,6 +21,7 @@ export function CodeBlockHeader({
   onSendToTerminal,
   leadingActions,
 }: CodeBlockHeaderProps) {
+  const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -44,27 +46,29 @@ export function CodeBlockHeader({
             type="button"
             onClick={handleSendToTerminal}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
-            title="Run in terminal"
+            title={t("conversation.stream.codeBlockHeader.runInTerminal", "Run in terminal")}
           >
             <TerminalIcon className="size-3" />
-            <span>Run</span>
+            <span>{t("conversation.stream.codeBlockHeader.run", "Run")}</span>
           </button>
         )}
         <button
           type="button"
           onClick={handleCopy}
           className="flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
-          title="Copy to clipboard"
+          title={t("conversation.stream.codeBlockHeader.copyToClipboard", "Copy to clipboard")}
         >
           {copied ? (
             <>
               <CheckIcon className="size-3 text-green-400" />
-              <span className="text-green-400">Copied</span>
+              <span className="text-green-400">
+                {t("conversation.stream.codeBlockHeader.copied", "Copied")}
+              </span>
             </>
           ) : (
             <>
               <CopyIcon className="size-3" />
-              <span>Copy</span>
+              <span>{t("conversation.stream.codeBlockHeader.copy", "Copy")}</span>
             </>
           )}
         </button>

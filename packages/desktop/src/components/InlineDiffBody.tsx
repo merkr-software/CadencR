@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { FileWarningIcon } from "lucide-react";
 import { PatchDiffView } from "@/components/diff/PatchDiffView";
@@ -27,14 +28,18 @@ const DIFF_CHROME_HEIGHT_PX = 24;
 // Unlike the Git diff's opt-in progressive renderer, this path deliberately
 // avoids mounting Pierre at all after the user expands a crash-risk inline diff.
 function LargeInlineDiff({ patch, patchLines }: Pick<InlineDiffBodyProps, "patch" | "patchLines">) {
+  const { t } = useUiTranslation();
   const patchBytes = useMemo(() => utf8ByteLength(patch), [patch]);
   return (
     <div className="max-h-[500px] overflow-auto bg-[var(--editor-bg)]">
       <div className="sticky top-0 flex items-center gap-2 border-b border-[var(--editor-border)] bg-[var(--editor-bg)] px-3 py-2 text-xs text-[var(--editor-comment)]">
         <FileWarningIcon className="size-3.5 shrink-0" />
         <span>
-          Large diff shown without syntax highlighting (about {formatBytes(patchBytes)},{" "}
-          {patchLines.toLocaleString()} changed lines)
+          {t(
+            "conversation.stream.inlineDiffBody.largeDiff",
+            "Large diff shown without syntax highlighting (about {{bytes}}, {{lines, number}} changed lines)",
+            { bytes: formatBytes(patchBytes, t), lines: patchLines },
+          )}
         </span>
       </div>
       <pre className="m-0 min-w-max p-3 font-mono text-xs leading-5 text-[var(--editor-fg)]">

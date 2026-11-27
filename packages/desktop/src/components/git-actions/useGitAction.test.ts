@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { deriveGitAction, resolveGitUpdateSource } from "./useGitAction";
 import type { GitStatusSnapshot, PrSummary } from "@/api/generated";
+import { uiI18n } from "@/lib/i18n/ui";
 
 function snapshot(overrides: Partial<GitStatusSnapshot> = {}): GitStatusSnapshot {
   return {
@@ -295,6 +296,34 @@ describe("deriveGitAction", () => {
     expect(state.compareLabel).toBe("View pull request #42");
     expect(state.disabled.pr).toBeNull();
   });
+
+  it.each([
+    ["Open pull request", "Ouvrir la pull request"],
+    ["Open merge request", "Ouvrir la requête de fusion"],
+    ["Open compare", "Ouvrir la comparaison"],
+    ["Open a Custom Review", "Open a Custom Review"],
+  ])("localizes the compare action %s and preserves custom labels", async (label, expected) => {
+    await uiI18n.loadLanguages("fr-FR");
+    const t = uiI18n.getFixedT("fr-FR", "ui");
+    const state = deriveGitAction(snapshot({ action_label: label, ahead_of_target: 1 }), {}, t);
+    expect(state.label).toBe(expected);
+    expect(state.compareLabel).toBe(expected);
+  });
+
+  it.each([
+    ["Pull request", "Afficher la pull request #42"],
+    ["Merge request", "Afficher la requête de fusion #42"],
+    ["Custom Review", "Afficher Custom Review #42"],
+  ])(
+    "localizes the action for an existing %s and preserves custom nouns",
+    async (pr_label, expected) => {
+      await uiI18n.loadLanguages("fr-FR");
+      const t = uiI18n.getFixedT("fr-FR", "ui");
+      const state = deriveGitAction(snapshot(), { existingPr: { ...pullRequest(), pr_label } }, t);
+      expect(state.label).toBe(expected);
+      expect(state.compareLabel).toBe(expected);
+    },
+  );
 
   it("keeps existing proposals and update recovery accessible after a scan fails", () => {
     const state = deriveGitAction(snapshot({ operation: "rebase", conflict_count: 0 }), {

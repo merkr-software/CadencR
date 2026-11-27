@@ -23,12 +23,12 @@ describe("parseFormulaRecalc", () => {
 
   it("reports an unreadable summary instead of guessing", () => {
     expect(parseFormulaRecalc("computed=lots&unresolved=0")).toEqual({
-      status: "failed",
-      reason: "Unreadable recalculation summary: computed=lots&unresolved=0",
+      status: "unreadable",
+      header: "computed=lots&unresolved=0",
     });
     expect(parseFormulaRecalc("computed=3")).toEqual({
-      status: "failed",
-      reason: "Unreadable recalculation summary: computed=3",
+      status: "unreadable",
+      header: "computed=3",
     });
   });
 });

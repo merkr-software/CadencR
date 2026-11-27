@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Editor view for a never-saved "untitled" scratch buffer. Renders a
  * blank CodeMirror, skips read/blame/LSP entirely (none of them have a
@@ -56,7 +57,7 @@ export default function UntitledCodeMirrorEditor({
     } catch (err) {
       // useSaveAsDialog already surfaces toasts for known errors, but a
       // bubbling unexpected error still deserves user-visible feedback.
-      toastError(err, "Failed to save buffer");
+      toastError(err, translateUi("workspace.editor.untitled.saveFailed", "Failed to save buffer"));
     }
   }, [saveAs, filePath, suggestedName]);
 

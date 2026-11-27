@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
@@ -58,6 +59,7 @@ export function SidebarConversationBlock({
   activeFeatureId,
   onSelectFeature,
 }: SidebarConversationBlockProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const filtering = useSidebarFilterQuery() !== "";
   const hideEmpty = useSidebarOption("hideEmptyBlocks");
   const fold = useSidebarSectionFold(surface);
@@ -88,7 +90,10 @@ export function SidebarConversationBlock({
           {error}
         </p>
       ) : features.length === 0 ? (
-        <Skeleton aria-label={`Loading ${label}`} className="mx-2 my-1 h-5" />
+        <Skeleton
+          aria-label={t("sidebar.conversationBlock.loading", "Loading {{label}}", { label })}
+          className="mx-2 my-1 h-5"
+        />
       ) : (
         <SidebarSurfaceContext.Provider value={surface}>
           {features.map((feature) => (

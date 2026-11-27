@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Cadencr go-to-definition.
  *
@@ -84,7 +85,9 @@ async function jumpWhenReady(view: EditorView, client: LSPClient): Promise<void>
   deferredJumps.add(view);
   let toastId: string | number | undefined;
   const slowTimer = setTimeout(() => {
-    toastId = toast.loading("Starting language server…");
+    toastId = toast.loading(
+      translateUi("workspace.editor.definition.starting", "Starting language server…"),
+    );
   }, SLOW_TOAST_DELAY_MS);
   try {
     const ready = await initialized(client);
@@ -94,7 +97,12 @@ async function jumpWhenReady(view: EditorView, client: LSPClient): Promise<void>
     const plugin = LSPPlugin.get(view);
     if (!plugin) return;
     if (!ready) {
-      toast.error("Go to definition: language server didn't finish starting.");
+      toast.error(
+        translateUi(
+          "workspace.editor.definition.startTimedOut",
+          "Go to definition: language server didn't finish starting.",
+        ),
+      );
       return;
     }
     if (!plugin.client.serverCapabilities?.definitionProvider) return;
@@ -149,7 +157,11 @@ function executeJump(view: EditorView, plugin: LSPPlugin): void {
       });
     } catch (err) {
       const msg = apiErrorMessage(err, String(err));
-      toast.error(`Go to definition failed: ${msg}`);
+      toast.error(
+        translateUi("workspace.editor.definition.failed", "Go to definition failed: {{error}}", {
+          error: msg,
+        }),
+      );
     }
   });
 }

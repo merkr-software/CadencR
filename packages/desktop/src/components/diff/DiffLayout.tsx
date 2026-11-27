@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { ResizableSidebarLayout } from "@/components/ResizableSidebarLayout";
 
@@ -22,6 +23,7 @@ function DiffLayoutImpl({
   content,
   onCollapsedChange,
 }: DiffLayoutProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <ResizableSidebarLayout
       collapsed={collapsed}
@@ -33,9 +35,9 @@ function DiffLayoutImpl({
       minWidth={MIN_WIDTH}
       maxWidth={MAX_WIDTH}
       showCollapsedRail={!controlled}
-      expandButtonLabel="Expand Git file list"
+      expandButtonLabel={t("workspace.git.diffLayout.expandGitFileList", "Expand Git file list")}
       expandButtonTitle="Expand file list"
-      separatorLabel="Resize Git file list"
+      separatorLabel={t("workspace.git.diffLayout.resizeGitFileList", "Resize Git file list")}
       className="min-h-0 flex-1"
     />
   );

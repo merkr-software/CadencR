@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
   fold,
   dragHandle,
 }: SidebarProjectsHeaderProps) {
+  const { t } = useUiTranslation();
   return (
     <div
       {...dragHandle}
@@ -49,8 +51,8 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
             size="icon-xs"
             onClick={onRefresh}
             disabled={isRefreshing}
-            title="Re-sort projects"
-            aria-label="Re-sort projects"
+            title={t("sidebar.projectsHeader.reSortProjects", "Re-sort projects")}
+            aria-label={t("sidebar.projectsHeader.reSortProjects", "Re-sort projects")}
             className={HOVER_REVEAL_CLASS}
           >
             <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
@@ -62,8 +64,8 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
             size="icon-xs"
             onClick={onAddProject}
             disabled={isAddingProject}
-            title="Add project"
-            aria-label="Add project"
+            title={t("sidebar.projectsHeader.addProject", "Add project")}
+            aria-label={t("sidebar.projectsHeader.addProject", "Add project")}
             className={HOVER_REVEAL_CLASS}
           >
             <Plus />
@@ -75,8 +77,16 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
           data-nav-item
           onClick={fold.toggle}
           aria-expanded={fold.expanded}
-          title={fold.expanded ? "Collapse projects" : "Expand projects"}
-          aria-label={fold.expanded ? "Collapse projects" : "Expand projects"}
+          title={
+            fold.expanded
+              ? t("sidebar.projectsHeader.collapseProjects", "Collapse projects")
+              : t("sidebar.projectsHeader.expandProjects", "Expand projects")
+          }
+          aria-label={
+            fold.expanded
+              ? t("sidebar.projectsHeader.collapseProjects", "Collapse projects")
+              : t("sidebar.projectsHeader.expandProjects", "Expand projects")
+          }
           className="text-foreground/65 hover:text-foreground"
         >
           {fold.expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}

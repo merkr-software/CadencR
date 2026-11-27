@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 interface ProgressBarProps {
   completed: number;
@@ -14,9 +15,10 @@ export function ProgressBar({
   total,
   className,
   indicatorClassName,
-  "aria-label": ariaLabel = "Progress",
+  "aria-label": ariaLabel,
   showCount = true,
 }: ProgressBarProps) {
+  const { t } = useUiTranslation();
   if (total <= 0) return null;
   const safeCompleted = Math.min(Math.max(completed, 0), total);
 
@@ -24,7 +26,7 @@ export function ProgressBar({
     <div className={cn("flex items-center gap-2", className)}>
       <div
         role="progressbar"
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? t("common.progress", "Progress")}
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={safeCompleted}

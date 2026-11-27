@@ -9,6 +9,7 @@
 
 import { subscribe, unsubscribe, vapidKey } from "@/api/generated";
 import { detectStandalone } from "@/hooks/useFullscreen";
+import { translateUi } from "@/lib/i18n/ui";
 import { isIos } from "@/lib/is-ios";
 import { isPushSupported } from "@/lib/remote/push-register";
 
@@ -52,15 +53,30 @@ async function getActiveSubscription(): Promise<PushSubscription | null> {
  */
 export async function enablePush(): Promise<void> {
   if (!isPushSupported()) {
-    throw new Error("Push notifications aren't supported in this browser.");
+    throw new Error(
+      translateUi(
+        "notifications.push.unsupported",
+        "Push notifications aren't supported in this browser.",
+      ),
+    );
   }
   if (iosNeedsInstall()) {
-    throw new Error("On iOS, add Cadencr to your Home Screen first, then enable push.");
+    throw new Error(
+      translateUi(
+        "notifications.push.iosInstall",
+        "On iOS, add Cadencr to your Home Screen first, then enable push.",
+      ),
+    );
   }
 
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
-    throw new Error("Notification permission was not granted.");
+    throw new Error(
+      translateUi(
+        "notifications.push.permissionDenied",
+        "Notification permission was not granted.",
+      ),
+    );
   }
 
   const reg = await navigator.serviceWorker.ready;
@@ -82,7 +98,12 @@ export async function enablePush(): Promise<void> {
 
   const json = sub.toJSON();
   if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-    throw new Error("The browser returned an incomplete push subscription.");
+    throw new Error(
+      translateUi(
+        "notifications.push.incomplete",
+        "The browser returned an incomplete push subscription.",
+      ),
+    );
   }
   await subscribe({
     endpoint: json.endpoint,

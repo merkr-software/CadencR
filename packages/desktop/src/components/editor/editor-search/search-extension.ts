@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   StateEffect,
   StateField,
@@ -113,7 +114,10 @@ function scanRegexMatches(state: EditorState, q: BufferSearchQuery): ScanResult 
     return {
       matches: [],
       truncated: false,
-      error: apiErrorMessage(err, "Invalid regex"),
+      error: apiErrorMessage(
+        err,
+        translateUi("workspace.editor.search-extension.invalidRegex", "Invalid regex"),
+      ),
     };
   }
 }

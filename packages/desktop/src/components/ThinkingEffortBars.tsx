@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactNode } from "react";
 import { thinkingEffortLabel, type ThinkingEffortLevel } from "@/shared/thinking-effort";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ export const ThinkingEffortBars = memo(function ThinkingEffortBars({
   compact = false,
   tone = "violet",
 }: ThinkingEffortBarsProps): ReactNode {
+  const { t } = useUiTranslation();
   if (levels.length === 0) return null;
 
   const selectedIndex = value ? levels.indexOf(value) : -1;
@@ -28,7 +30,7 @@ export const ThinkingEffortBars = memo(function ThinkingEffortBars({
     <div
       className={cn(compact ? "flex items-center gap-0.5" : "flex items-center gap-1", className)}
       role="radiogroup"
-      aria-label="Thinking effort"
+      aria-label={t("conversation.composer.thinkingEffortBars.thinkingEffort", "Thinking effort")}
     >
       {levels.map((level, index) => {
         const label = thinkingEffortLabel(level);

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { BrowserTabMetadata } from "@/lib/desktop-bridge";
 import type {
   BrowserBookmark,
@@ -40,7 +41,13 @@ export function resolveOmniboxInput(
   searchEngine: BrowserSearchEngine = DEFAULT_BROWSER_SEARCH_ENGINE,
 ): OmniboxResolution {
   const input = rawInput.trim();
-  if (!input) throw new OmniboxInputError("Enter an address or search terms.");
+  if (!input)
+    throw new OmniboxInputError(
+      translateUi(
+        "workspace.tools.browserOmnibox.enterAnAddressOrSearchTerms",
+        "Enter an address or search terms.",
+      ),
+    );
   if (isAbsoluteLocalPath(input)) return { kind: "url", url: input };
   if (input.startsWith("//")) return resolveSchemelessHost(input.slice(2), searchEngine);
 
@@ -66,7 +73,7 @@ export function buildOmniboxSuggestions(
     suggestions.push({
       id: `search:${resolution.url}`,
       source: "search",
-      title: `Search for “${resolution.query}”`,
+      title: resolution.query,
       url: resolution.url,
     });
     seen.add(dedupeUrl(resolution.url));
@@ -101,7 +108,12 @@ function resolveExplicitUrl(input: string, scheme: string): OmniboxResolution {
     }
     return { kind: "url", url: parsed.toString() };
   } catch {
-    throw new OmniboxInputError("That address is not valid.");
+    throw new OmniboxInputError(
+      translateUi(
+        "workspace.tools.browserOmnibox.thatAddressIsNotValid",
+        "That address is not valid.",
+      ),
+    );
   }
 }
 
@@ -249,7 +261,7 @@ function dedupeUrl(value: string): string {
 }
 
 function displayTitle(title: string, url: string): string {
-  return title && title !== "New tab" ? title : url;
+  return title || url;
 }
 
 function withoutIpv6Brackets(hostname: string): string {
@@ -272,5 +284,11 @@ function isAbsoluteLocalPath(input: string): boolean {
 }
 
 function blockedScheme(scheme: string): OmniboxInputError {
-  return new OmniboxInputError(`Navigation to ${scheme}: addresses is blocked.`);
+  return new OmniboxInputError(
+    translateUi(
+      "workspace.tools.browserOmnibox.blockedScheme",
+      "Navigation to {{scheme}}: addresses is blocked.",
+      { scheme },
+    ),
+  );
 }

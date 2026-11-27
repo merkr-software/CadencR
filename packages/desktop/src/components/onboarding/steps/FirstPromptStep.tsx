@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { ArrowRight, CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { AgentIcon } from "@/components/AgentIcon";
@@ -12,6 +13,7 @@ import type { OnboardingStepProps } from "../OnboardingOverlay";
  * overlay so the user lands straight in the workspace.
  */
 export function FirstPromptStep({ isPersisting, onAdvance, onBack }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   return (
     <form
       onSubmit={(e) => {
@@ -25,25 +27,47 @@ export function FirstPromptStep({ isPersisting, onAdvance, onBack }: OnboardingS
 
         <div className="space-y-3">
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--acc-purple)]">
-            You&apos;re all set
+            {t("onboarding.finish.ready", "You're all set")}
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">
-            Welcome to{" "}
-            <span className="font-brand font-extrabold uppercase tracking-widest">Cadencr</span>
+            <UiTrans
+              i18nKey="onboarding.finish.title"
+              defaults="Welcome to <brand>Cadencr</brand>"
+              components={{
+                brand: <span className="font-brand font-extrabold uppercase tracking-widest" />,
+              }}
+            />
           </h1>
           <p className="mx-auto max-w-md text-base leading-relaxed text-muted-foreground">
-            Your workspace is configured and ready. Open a feature, type a prompt, and let your
-            agent get to work — everything you just set up can be tuned later in Settings.
+            {t(
+              "onboarding.finish.description",
+              "Your workspace is configured and ready. Open a feature, type a prompt, and let your agent get to work — everything you just set up can be tuned later in Settings.",
+            )}
           </p>
         </div>
       </div>
 
       <div className="grid w-full max-w-xl grid-cols-5 gap-3">
-        <QuickTip icon={<AgentIcon className="size-4" />} label="Agent" />
-        <QuickTip icon={<TerminalIcon className="size-4" />} label="Terminal" />
-        <QuickTip icon={<GitCompareArrowsIcon className="size-4" />} label="Git" />
-        <QuickTip icon={<CodeIcon className="size-4" />} label="Editor" />
-        <QuickTip icon={<GlobeIcon className="size-4" />} label="Browser" />
+        <QuickTip
+          icon={<AgentIcon className="size-4" />}
+          label={t("onboarding.finish.agent", "Agent")}
+        />
+        <QuickTip
+          icon={<TerminalIcon className="size-4" />}
+          label={t("onboarding.finish.terminal", "Terminal")}
+        />
+        <QuickTip
+          icon={<GitCompareArrowsIcon className="size-4" />}
+          label={t("onboarding.finish.git", "Git")}
+        />
+        <QuickTip
+          icon={<CodeIcon className="size-4" />}
+          label={t("onboarding.finish.editor", "Editor")}
+        />
+        <QuickTip
+          icon={<GlobeIcon className="size-4" />}
+          label={t("onboarding.finish.browser", "Browser")}
+        />
       </div>
 
       <div className="flex w-full max-w-md flex-col items-center gap-3 pt-1">
@@ -53,7 +77,7 @@ export function FirstPromptStep({ isPersisting, onAdvance, onBack }: OnboardingS
           disabled={isPersisting}
           className="h-11 w-full text-base"
         >
-          Start using Cadencr
+          {t("onboarding.finish.start", "Start using Cadencr")}
           <ArrowRight className="size-4" />
         </Button>
         {onBack ? (
@@ -62,7 +86,7 @@ export function FirstPromptStep({ isPersisting, onAdvance, onBack }: OnboardingS
             onClick={onBack}
             className="text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            Back
+            {t("onboarding.actions.back", "Back")}
           </button>
         ) : null}
       </div>

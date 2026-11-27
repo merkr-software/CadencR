@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { TerminalOutputOptions, TerminalTransport } from "celeritty";
 
 export interface ByteTerminalSocket {
@@ -43,7 +44,10 @@ export function createTerminalTransportBridge(socket: ByteTerminalSocket) {
       // if initialization stalls; a later reconnect can replay bounded scrollback.
       if (pendingBytes + bytes.byteLength > 1024 * 1024 || pending.length >= 4096) {
         deliverClose(
-          "Terminal output buffer full while renderer was unavailable. Reopen the terminal to reconnect.",
+          translateUi(
+            "workspace.tools.terminalTransportBridge.terminalOutputBufferFullWhileRendererWas",
+            "Terminal output buffer full while renderer was unavailable. Reopen the terminal to reconnect.",
+          ),
         );
         return;
       }

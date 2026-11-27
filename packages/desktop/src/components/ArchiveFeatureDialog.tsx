@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { KeyboardEvent, ReactElement } from "react";
 import type { Feature } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -151,12 +152,17 @@ function ArchiveOptionsList(props: {
 }
 
 function ArchiveDialogHeader(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <DialogHeader>
-      <DialogTitle>Archive session?</DialogTitle>
+      <DialogTitle>
+        {t("conversation.archiveFeatureDialog.archiveSession", "Archive session?")}
+      </DialogTitle>
       <DialogDescription>
-        Archive now, optionally cleaning up its terminals, worktree or branch. An interrupted
-        cleanup can be resumed later.
+        {t(
+          "conversation.archiveFeatureDialog.archiveNowOptionallyCleaningUpItsTerminals",
+          "Archive now, optionally cleaning up its terminals, worktree or branch. An interrupted cleanup can be resumed later.",
+        )}
       </DialogDescription>
     </DialogHeader>
   );
@@ -192,17 +198,22 @@ interface ArchiveDialogFooterProps {
 }
 
 function ArchiveDialogFooter(props: ArchiveDialogFooterProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <DialogFooter>
       <Button variant="outline" onClick={props.onCancel}>
-        Cancel
+        {t("conversation.archiveFeatureDialog.cancel", "Cancel")}
       </Button>
       <Button
         variant={props.forceDelete ? "destructive" : "default"}
         disabled={props.disabled}
         onClick={props.onConfirm}
       >
-        <span>{props.forceDelete ? "Archive & force delete" : "Archive"}</span>
+        <span>
+          {props.forceDelete
+            ? t("conversation.archiveFeatureDialog.archiveForceDelete", "Archive & force delete")
+            : t("conversation.archiveFeatureDialog.archive", "Archive")}
+        </span>
         <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
       </Button>
     </DialogFooter>

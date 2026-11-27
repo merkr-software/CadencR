@@ -1,3 +1,4 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import type { AgentCatalog, RuntimeModelOption } from "@/api/agentRuntime";
 import type { AgentTypeSetting } from "@/shared/models";
 import type { ModelSelectorRowProvider } from "@/components/ModelSelectorRow";
@@ -8,10 +9,14 @@ export const INHERIT_VALUE = "__inherit__";
 
 export const WORKSPACE_ONLY_AGENT_TYPES: readonly AgentTypeSetting[] = ["auto_name"] as const;
 
-export const MODEL_SELECTOR_AGENT_LABELS: Record<AgentTypeSetting, string> = {
-  session: "Session",
-  auto_name: "Auto-naming",
-};
+export function modelSelectorAgentLabel(type: AgentTypeSetting, t: UiTranslator): string {
+  switch (type) {
+    case "session":
+      return t("settings.agents.modelSelector.session", "Session");
+    case "auto_name":
+      return t("settings.agents.modelSelector.autoName", "Auto-naming");
+  }
+}
 
 export interface ModelSelectorRowState {
   agentType: AgentTypeSetting;

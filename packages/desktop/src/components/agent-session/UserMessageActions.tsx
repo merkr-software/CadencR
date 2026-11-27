@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -35,6 +36,7 @@ interface UserMessageActionsProps {
  * `group/usermsg` hover group owned by `UserMessageBlock`.
  */
 function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
+  const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
   const { canBranch, rewind, fork } = useMessageBranchActions(block);
   const { wsSessionId } = useAgentSessionContext();
@@ -66,56 +68,104 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
       {needsAttachment && (
         <p id={retryHelpId} className="mt-1 text-xs text-muted-foreground">
           {block.promptDeliveryState === "delivery_unknown"
-            ? "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer."
-            : "Reattach the file and resend the message from the composer."}
+            ? t(
+                "conversation.stream.userMessageActions.retryAfterReconnect",
+                "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
+              )
+            : t(
+                "conversation.stream.userMessageActions.reattachAndResend",
+                "Reattach the file and resend the message from the composer.",
+              )}
         </p>
       )}
       <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
-        <ActionButton onClick={handleCopy} title="Copy as Markdown">
+        <ActionButton
+          onClick={handleCopy}
+          title={t("conversation.stream.userMessageActions.copyAsMarkdown", "Copy as Markdown")}
+        >
           {copied ? (
             <>
               <CheckIcon className="size-3 text-green-400" />
-              <span className="text-green-400">Copied</span>
+              <span className="text-green-400">
+                {t("conversation.stream.userMessageActions.copied", "Copied")}
+              </span>
             </>
           ) : (
             <>
               <CopyIcon className="size-3" />
-              <span>Copy</span>
+              <span>{t("conversation.stream.userMessageActions.copy", "Copy")}</span>
             </>
           )}
         </ActionButton>
         <CopyAsMenu content={parsedContent.text} sourceRef={bubbleRef} />
         {retry.visible && (
-          <ActionButton
-            disabled={!retry.available || retry.retrying}
+          <UserMessageRetryButton
+            retry={retry}
             descriptionId={needsAttachment ? retryHelpId : undefined}
-            onClick={retry.send}
-            title={
-              retry.retrying
-                ? "Retrying delivery with the same message identity"
-                : retry.available
-                  ? "Retry delivery with the same message identity"
-                  : "Retry unavailable"
-            }
-          >
-            <RefreshCwIcon className={cn("size-3", retry.retrying && "animate-spin")} />
-            <span>{retry.retrying ? "Retrying" : "Retry"}</span>
-          </ActionButton>
+          />
         )}
         {canBranch && (
           <>
-            <ActionButton onClick={fork} title="Fork a new session from this message">
+            <ActionButton
+              onClick={fork}
+              title={t(
+                "conversation.stream.userMessageActions.forkANewSessionFromThisMessage",
+                "Fork a new session from this message",
+              )}
+            >
               <GitBranchIcon className="size-3" />
-              <span>Fork</span>
+              <span>{t("conversation.stream.userMessageActions.fork", "Fork")}</span>
             </ActionButton>
-            <ActionButton onClick={rewind} title="Rewind the session to this message">
+            <ActionButton
+              onClick={rewind}
+              title={t(
+                "conversation.stream.userMessageActions.rewindTheSessionToThisMessage",
+                "Rewind the session to this message",
+              )}
+            >
               <RotateCcwIcon className="size-3" />
-              <span>Rewind</span>
+              <span>{t("conversation.stream.userMessageActions.rewind", "Rewind")}</span>
             </ActionButton>
           </>
         )}
       </div>
     </>
+  );
+}
+
+function UserMessageRetryButton({
+  retry: { available, retrying, send },
+  descriptionId,
+}: {
+  retry: ReturnType<typeof useUserMessageRetry>;
+  descriptionId?: string;
+}) {
+  const { t } = useUiTranslation();
+  const title = retrying
+    ? t(
+        "conversation.stream.userMessageActions.retryingDeliveryWithTheSameMessageIdentity",
+        "Retrying delivery with the same message identity",
+      )
+    : available
+      ? t(
+          "conversation.stream.userMessageActions.retryDeliveryWithTheSameMessageIdentity",
+          "Retry delivery with the same message identity",
+        )
+      : t("conversation.stream.userMessageActions.retryUnavailable", "Retry unavailable");
+  return (
+    <ActionButton
+      disabled={!available || retrying}
+      descriptionId={descriptionId}
+      onClick={send}
+      title={title}
+    >
+      <RefreshCwIcon className={cn("size-3", retrying && "animate-spin")} />
+      <span>
+        {retrying
+          ? t("conversation.stream.userMessageActions.retrying", "Retrying")
+          : t("common.retry", "Retry")}
+      </span>
+    </ActionButton>
   );
 }
 
@@ -175,9 +225,21 @@ function useUserMessageRetry(
         if (retryTimer.current) clearTimeout(retryTimer.current);
         setRetryingMessageUuid(null);
         if (error instanceof RetryAttachmentUnavailable) setMissingPayload(content);
-        toast.error("Couldn't resend this message", {
-          description: apiErrorMessage(error, "An attachment could not be rebuilt"),
-        });
+        toast.error(
+          translateUi(
+            "conversation.stream.userMessageActions.couldnTResendThisMessage",
+            "Couldn't resend this message",
+          ),
+          {
+            description: apiErrorMessage(
+              error,
+              translateUi(
+                "conversation.stream.userMessageActions.attachmentRebuild",
+                "An attachment could not be rebuilt",
+              ),
+            ),
+          },
+        );
       },
     );
   }, [available, block.messageUuid, content, retrying, sendPrompt, wsSessionId]);
@@ -207,21 +269,52 @@ async function payloadBase64(
       if (base64.length > 0) return base64;
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 404) {
-        throw new RetryAttachmentUnavailable(`${label} is no longer in storage`, { cause: error });
+        throw new RetryAttachmentUnavailable(
+          translateUi(
+            "conversation.stream.userMessageActions.noLongerInStorage",
+            "{{label}} is no longer in storage",
+            { label },
+          ),
+          { cause: error },
+        );
       }
-      throw new Error(`${label} could not be read from storage`, { cause: error });
+      throw new Error(
+        translateUi(
+          "conversation.stream.userMessageActions.couldNotBeReadFromStorage",
+          "{{label}} could not be read from storage",
+          { label },
+        ),
+        { cause: error },
+      );
     }
-    throw new RetryAttachmentUnavailable(`${label} has no saved bytes`);
+    throw new RetryAttachmentUnavailable(
+      translateUi(
+        "conversation.stream.userMessageActions.hasNoSavedBytes",
+        "{{label}} has no saved bytes",
+        { label },
+      ),
+    );
   }
   const restored = source.ref ? await readPromptBlobBase64(source.ref) : undefined;
   if (restored === undefined)
-    throw new RetryAttachmentUnavailable(`${label} is no longer held in memory`);
+    throw new RetryAttachmentUnavailable(
+      translateUi(
+        "conversation.stream.userMessageActions.isNoLongerHeldInMemory",
+        "{{label}} is no longer held in memory",
+        { label },
+      ),
+    );
   return restored;
 }
 
 async function buildRetryAttachments(content: ParsedMessage): Promise<PromptAttachmentPayload[]> {
   const images = content.images.map(async (image, index) => ({
-    base64: await payloadBase64(image, `Image ${index + 1}`),
+    base64: await payloadBase64(
+      image,
+      translateUi("conversation.stream.userMessageActions.image", "Image {{position}}", {
+        position: index + 1,
+      }),
+    ),
     fileName: "image",
     kind: "image" as const,
     mimeType: image.mediaType,

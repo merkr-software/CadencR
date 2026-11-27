@@ -190,11 +190,14 @@ typography:
       stack: '"Figtree Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
       role: Brand wordmark — the "CADENCR" logotype, rendered at weight 800 (see --font-brand)
     ui:
-      stack: '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+      stack: '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP Variable", sans-serif'
       role: All UI text — sidebar, tabs, prompts, agent prose
     mono:
-      stack: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+      stack: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace, "Noto Sans JP Variable"'
       role: Code blocks, terminal, diff gutters, file paths, tool-call bodies, +/- counters
+    japanese_fallback:
+      family: Noto Sans JP Variable
+      role: Japanese glyphs missing from the selected UI or monospace face. Font subsets load locally on demand.
 
   scale:
     h_section_user:
@@ -708,7 +711,7 @@ The dot's color is the meaning. Do not introduce a fourth color without register
 
 ## Don'ts
 
-1. **No fonts other than Inter, JetBrains Mono, and Figtree (brand wordmark only).** Do not import Roboto, system-ui first, Fraunces, or Arial. The font stacks in `themes.css` are the only legal stacks. Figtree is the one registered third face — it is reserved for the `CADENCR` wordmark (`--font-brand`, weight 800) and must not be used for UI or body text. If a further face is needed, add it here with a clear role.
+1. **Use the registered font families for their designated roles.** Use Inter for UI text, JetBrains Mono for code, and Figtree for the `CADENCR` wordmark (`--font-brand`, weight 800). Noto Sans JP supplies missing Japanese glyphs. Register any additional face here with a clear role.
 2. **No hardcoded hex in JSX.** Every color in a component file goes through a `var(--...)` lookup. Inline `style={{ color: "#..." }}` is forbidden except for placeholder squares in fixtures (and even those should be CSS classes).
 3. **No purple gradients on white.** Aurora is light but not whimsical. Solid colors only; the only gradients in the system are the `--primary-glow` color-mix effects on focus/hover.
 4. **No new spacing values outside the kit.css scale.** If you need 11px, you actually need 10 or 12. If you need 13px, use 12 or 14. Pick the closest step.

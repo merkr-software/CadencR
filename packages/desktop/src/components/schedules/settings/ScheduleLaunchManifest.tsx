@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import { useGetBranch, type ScheduleTarget } from "@/api/generated";
 import { LaunchManifest } from "@/components/composer/LaunchManifest";
@@ -34,6 +35,7 @@ export function ScheduleLaunchManifest({
   /** Gates "reuse worktree" for the branch already checked out there. */
   projectPath?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const projectId = target.project_id ?? undefined;
   const { data: branch, isLoading } = useGetBranch(
     { project_id: projectId ?? 0 },
@@ -52,7 +54,7 @@ export function ScheduleLaunchManifest({
         <Skeleton
           className="h-6 w-56 rounded-md"
           aria-busy="true"
-          aria-label="Loading branch options"
+          aria-label={t("schedules.launch.loadingBranchOptions", "Loading branch options")}
         />
       </div>
     );

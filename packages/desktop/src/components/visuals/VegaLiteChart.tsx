@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChartColumnIcon } from "lucide-react";
 import type { View } from "vega";
@@ -14,6 +15,7 @@ import {
   parseVegaLiteSpec,
   renderVegaLite,
   resizeToContainer,
+  type SpecParseError,
 } from "@/lib/visuals/vega-chart";
 import { vegaThemeConfig } from "@/lib/visuals/vega-theme";
 import { openVisualFullscreen } from "@/stores/visual-fullscreen-store";
@@ -33,6 +35,29 @@ function failed(error: unknown): ChartState {
  * height in fullscreen) and follows resizes once they settle, unless the spec
  * sets its own dimensions.
  */
+function ChartError({ message }: { message: string }) {
+  const { t } = useUiTranslation();
+  return (
+    <VisualError
+      message={t(
+        "conversation.stream.vegaLiteChart.couldNotRenderChart",
+        "Could not render chart: {{error}}",
+        { error: message },
+      )}
+    />
+  );
+}
+
+function ChartLoading() {
+  const { t } = useUiTranslation();
+  return (
+    <VisualLoading
+      overlay
+      label={t("conversation.stream.vegaLiteChart.renderingChart", "Rendering chart…")}
+    />
+  );
+}
+
 function ChartCanvas({
   code,
   spec,
@@ -120,7 +145,7 @@ function ChartCanvas({
         }
         style={!fullscreen && rendering ? { minHeight: rememberedHeight(code) } : undefined}
       >
-        {rendering && <VisualLoading overlay label="Rendering chart…" />}
+        {rendering && <ChartLoading />}
         <div
           ref={containerRef}
           className={
@@ -130,9 +155,7 @@ function ChartCanvas({
           }
         />
       </div>
-      {state.status === "error" && (
-        <VisualError message={`Could not render chart: ${state.message}`} />
-      )}
+      {state.status === "error" && <ChartError message={state.message} />}
     </>
   );
 }
@@ -143,27 +166,40 @@ interface VegaLiteChartProps {
 }
 
 const CHART_FENCE = {
-  label: "Chart",
   icon: <ChartColumnIcon className="size-3" />,
   sourceLanguage: "json",
 };
+
+function describeParseError(error: SpecParseError, t: UiTranslator): string {
+  return error.kind === "invalidJson"
+    ? t("conversation.stream.vegaChart.invalidJson", "Invalid JSON: {{error}}", {
+        error: error.detail,
+      })
+    : t(
+        "conversation.stream.vegaChart.aVegaLiteSpecMustBeAJson",
+        "A Vega-Lite spec must be a JSON object.",
+      );
+}
 
 /** A ` ```vega-lite ` fence: the chart, with its JSON one click away. */
 const VegaLiteChart = memo(function VegaLiteChart({
   code,
   variant = "inline",
 }: VegaLiteChartProps) {
+  const { t } = useUiTranslation();
   const parsed = useMemo(() => parseVegaLiteSpec(code), [code]);
   const expand = useCallback(() => openVisualFullscreen({ kind: "vega-lite", code }), [code]);
 
+  const label = t("conversation.stream.visual.chart", "Chart");
   if (!parsed.ok) {
+    const message = describeParseError(parsed.error, t);
     if (variant === "fullscreen") {
-      return <VisualError message={`Could not render chart: ${parsed.error}`} />;
+      return <ChartError message={message} />;
     }
     return (
       <>
-        <VisualError message={`Could not render chart: ${parsed.error}`} />
-        <VisualSourceBlock {...CHART_FENCE} code={code} />
+        <ChartError message={message} />
+        <VisualSourceBlock {...CHART_FENCE} label={label} code={code} />
       </>
     );
   }
@@ -171,7 +207,7 @@ const VegaLiteChart = memo(function VegaLiteChart({
     return <ChartCanvas code={code} spec={parsed.spec} variant="fullscreen" />;
   }
   return (
-    <VisualChrome {...CHART_FENCE} code={code} onExpand={expand}>
+    <VisualChrome {...CHART_FENCE} label={label} code={code} onExpand={expand}>
       <ChartCanvas code={code} spec={parsed.spec} />
     </VisualChrome>
   );

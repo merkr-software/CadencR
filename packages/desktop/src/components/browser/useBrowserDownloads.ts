@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -26,32 +27,36 @@ export interface BrowserDownloadsController {
   clear: () => Promise<void>;
 }
 
+type DownloadError = { kind: "list" | DownloadAction; cause: unknown };
+
 interface DownloadFeed {
   snapshot: BrowserDownloadSnapshot | null;
   loading: boolean;
-  error: string | null;
+  error: DownloadError | null;
   renderedScope: number;
   scope: MutableRefObject<number>;
   lifecycleGeneration: MutableRefObject<number>;
   snapshotRevision: MutableRefObject<number>;
   setSnapshot: Dispatch<SetStateAction<BrowserDownloadSnapshot | null>>;
-  setError: Dispatch<SetStateAction<string | null>>;
+  setError: Dispatch<SetStateAction<DownloadError | null>>;
   lifecycleIsCurrent: (scopeId: number, generation: number) => boolean;
   reload: () => Promise<void>;
 }
 
 export function useBrowserDownloads(scopeId: number): BrowserDownloadsController {
+  const { t } = useUiTranslation();
   const feed = useBrowserDownloadFeed(scopeId);
   const actions = useBrowserDownloadActions(scopeId, feed);
   const scopeMatches = feed.renderedScope === scopeId;
   const snapshot = feed.snapshot?.scopeId === scopeId ? feed.snapshot : null;
   const dismissError = useCallback((): void => feed.setError(null), [feed.setError]);
   const loading = !scopeMatches || feed.loading || (feed.snapshot !== null && snapshot === null);
+  const error = scopeMatches ? errorMessage(feed.error, t) : null;
   return useMemo(
     () => ({
       snapshot,
       loading,
-      error: scopeMatches ? feed.error : null,
+      error,
       pending: scopeMatches ? actions.pending : null,
       dismissError,
       reload: feed.reload,
@@ -61,7 +66,7 @@ export function useBrowserDownloads(scopeId: number): BrowserDownloadsController
       actions.commands,
       actions.pending,
       dismissError,
-      feed.error,
+      error,
       feed.reload,
       loading,
       scopeMatches,
@@ -73,7 +78,7 @@ export function useBrowserDownloads(scopeId: number): BrowserDownloadsController
 function useBrowserDownloadFeed(scopeId: number): DownloadFeed {
   const [snapshot, setSnapshot] = useState<BrowserDownloadSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DownloadError | null>(null);
   const [renderedScope, setRenderedScope] = useState(scopeId);
   const scope = useRef(scopeId);
   const lifecycleGeneration = useRef(0);
@@ -101,7 +106,7 @@ function useBrowserDownloadFeed(scopeId: number): DownloadFeed {
         lifecycleIsCurrent(targetScope, targetGeneration) &&
         snapshotRevision.current === targetRevision
       ) {
-        setError(errorMessage(cause));
+        setError({ kind: "list", cause });
       }
     } finally {
       if (
@@ -201,7 +206,7 @@ function useBrowserDownloadActions(
         }
       } catch (cause) {
         if (lifecycleIsCurrent(targetScope, targetGeneration) && operation.current === token) {
-          setError(errorMessage(cause));
+          setError({ kind: action, cause });
         }
       } finally {
         if (scope.current === targetScope && operation.current === token) {
@@ -229,6 +234,13 @@ function useBrowserDownloadActions(
   return useMemo(() => ({ pending, commands }), [commands, pending]);
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : "The download action failed.";
+function errorMessage(error: DownloadError | null, t: UiTranslator): string | null {
+  if (!error) return null;
+  const { cause } = error;
+  return cause instanceof Error && cause.message
+    ? cause.message
+    : t(
+        "workspace.tools.useBrowserDownloads.theDownloadActionFailed",
+        "The download action failed.",
+      );
 }

@@ -1,8 +1,9 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createElement } from "react";
 import { AGENT_ICONS } from "@/components/agent-icons";
 import { ModelSelectorRow } from "@/components/ModelSelectorRow";
 import { useModelSelectorState } from "@/hooks/useModelSelectorState";
-import { MODEL_SELECTOR_AGENT_LABELS, type ModelSelectorLevel } from "@/hooks/modelSelectorShared";
+import { modelSelectorAgentLabel, type ModelSelectorLevel } from "@/hooks/modelSelectorShared";
 import type { AgentTypeSetting } from "@/shared/models";
 
 interface ModelSelectorProps {
@@ -12,6 +13,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ level, featureId, agentTypes }: ModelSelectorProps) {
+  const { t } = useUiTranslation();
   const { isLoading, hasCatalogError, hasSelectionError, rows } = useModelSelectorState({
     level,
     featureId,
@@ -19,15 +21,33 @@ export function ModelSelector({ level, featureId, agentTypes }: ModelSelectorPro
   });
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading model settings...</div>;
+    return (
+      <div className="text-sm text-muted-foreground">
+        {t("conversation.composer.modelSelector.loadingModelSettings", "Loading model settings...")}
+      </div>
+    );
   }
 
   if (hasCatalogError) {
-    return <div className="text-sm text-destructive">Failed to load provider catalog.</div>;
+    return (
+      <div className="text-sm text-destructive">
+        {t(
+          "conversation.composer.modelSelector.failedToLoadProviderCatalog",
+          "Failed to load provider catalog.",
+        )}
+      </div>
+    );
   }
 
   if (hasSelectionError) {
-    return <div className="text-sm text-destructive">Failed to load the model selection.</div>;
+    return (
+      <div className="text-sm text-destructive">
+        {t(
+          "conversation.composer.modelSelector.failedToLoadTheModelSelection",
+          "Failed to load the model selection.",
+        )}
+      </div>
+    );
   }
 
   return (
@@ -35,7 +55,7 @@ export function ModelSelector({ level, featureId, agentTypes }: ModelSelectorPro
       {rows.map((row) => (
         <ModelSelectorRow
           key={row.agentType}
-          agentLabel={MODEL_SELECTOR_AGENT_LABELS[row.agentType] ?? row.agentType}
+          agentLabel={modelSelectorAgentLabel(row.agentType, t)}
           stateLabel={row.stateLabel}
           level={level}
           selectedProviderId={row.selectedProviderId}

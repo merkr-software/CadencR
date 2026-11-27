@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useState, type ReactElement } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ function normalizeDomain(input: string): string | null {
  * tab. Persists the list as a JSON array in one workspace setting.
  */
 export function InternalDomainsEditor(): ReactElement {
+  const { t } = useUiTranslation();
   const { value, setValue, isLoading, isSaving } = useSetting(INTERNAL_DOMAINS_SETTING_KEY);
   const busy = isLoading || isSaving;
   const [draft, setDraft] = useState("");
@@ -53,7 +55,10 @@ export function InternalDomainsEditor(): ReactElement {
       <div className="flex flex-wrap gap-2">
         {domains.length === 0 ? (
           <span className="text-sm text-muted-foreground">
-            No domains. Every link opens in the system browser.
+            {t(
+              "workspace.tools.internalDomainsEditor.noDomainsEveryLinkOpensInThe",
+              "No domains. Every link opens in the system browser.",
+            )}
           </span>
         ) : (
           domains.map((domain) => (
@@ -64,7 +69,11 @@ export function InternalDomainsEditor(): ReactElement {
               {domain}
               <button
                 type="button"
-                aria-label={`Remove ${domain}`}
+                aria-label={t(
+                  "workspace.tools.internalDomainsEditor.removeDomain",
+                  "Remove {{domain}}",
+                  { domain },
+                )}
                 onClick={() => removeDomain(domain)}
                 disabled={busy}
                 className="text-muted-foreground hover:text-foreground disabled:opacity-50"
@@ -85,13 +94,16 @@ export function InternalDomainsEditor(): ReactElement {
               addDomain();
             }
           }}
-          placeholder="localhost, example.com…"
+          placeholder={t(
+            "workspace.tools.internalDomainsEditor.localhostExampleCom",
+            "localhost, example.com…",
+          )}
           disabled={isLoading}
           className="max-w-xs"
         />
         <Button type="button" variant="outline" onClick={addDomain} disabled={busy}>
           <Plus className="size-4" />
-          Add
+          {t("workspace.tools.internalDomainsEditor.add", "Add")}
         </Button>
       </div>
     </div>

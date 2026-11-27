@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { render, screen, within } from "@/test-utils";
+import { act, render, screen, within } from "@/test-utils";
 import type { PluginTabBackendBinary } from "@/api/generated";
+import { uiI18n } from "@/lib/i18n/ui";
 import { pendingUpdateFixture, tabFixture } from "./custom-tabs-fixtures";
 import { CustomTabConsentDialog } from "./CustomTabConsentDialog";
 import type { ConsentRequest } from "./useCustomTabEnablement";
@@ -40,6 +41,34 @@ function renderDialog(tab: ConsentRequest["tab"]) {
 }
 
 describe("CustomTabConsentDialog levels", () => {
+  it("retranslates an open consent dialog without losing consent or authored content", async () => {
+    const previousLanguage = uiI18n.language;
+    uiI18n.addResourceBundle("fr-CA", "ui", {
+      "customTabs.consent.allowTitle": "Autoriser « {{name}} »?",
+      "customTabs.consent.commandLead": "<directory/> contient le code de cet onglet.",
+      "customTabs.consent.allowEnable": "Autoriser et activer",
+    });
+    try {
+      const { onAccept, dialog } = renderDialog(COMMANDS);
+      await userEvent.click(within(dialog).getByRole("checkbox"));
+      await act(async () => {
+        await uiI18n.changeLanguage("fr-CA");
+      });
+      expect(
+        within(dialog).getByRole("heading", { name: "Autoriser « Reviewers »?" }),
+      ).toBeVisible();
+      expect(dialog).toHaveTextContent(`${COMMANDS.dir} contient le code de cet onglet.`);
+      expect(within(dialog).getByText("Reads who changed these files.")).toBeVisible();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Autoriser et activer" }));
+      expect(onAccept).toHaveBeenCalledExactlyOnceWith(true);
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage(previousLanguage);
+      });
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+    }
+  });
+
   it("says a read-only tab only reads, with no acknowledgment", async () => {
     const { onAccept, dialog } = renderDialog(tabFixture());
     expect(within(dialog).getByText("Read-only")).toBeInTheDocument();

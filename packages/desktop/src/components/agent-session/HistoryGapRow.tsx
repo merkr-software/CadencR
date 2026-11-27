@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef, type ReactElement } from "react";
 import { Loader2Icon, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ export const HistoryGapRow = memo(function HistoryGapRow({
   status,
   spaceBelow,
 }: HistoryGapRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const rowRef = useRef<HTMLDivElement>(null);
   const trackRow = status?.trackRow;
   useEffect(() => {
@@ -54,7 +56,10 @@ export const HistoryGapRow = memo(function HistoryGapRow({
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <TriangleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
             <span className="shrink-0 font-medium text-destructive">
-              Couldn't load these messages
+              {t(
+                "conversation.stream.historyGapRow.couldnTLoadTheseMessages",
+                "Couldn't load these messages",
+              )}
             </span>
             <span className="min-w-0 truncate" title={failure}>
               {failure}
@@ -63,7 +68,12 @@ export const HistoryGapRow = memo(function HistoryGapRow({
         ) : (
           <span className="inline-flex shrink-0 items-center gap-1.5">
             {loading ? <Loader2Icon className="size-3 animate-spin" aria-hidden /> : null}
-            {loading ? "Loading messages…" : "Messages not loaded yet"}
+            {loading
+              ? t("conversation.stream.historyGapRow.loadingMessages", "Loading messages…")
+              : t(
+                  "conversation.stream.historyGapRow.messagesNotLoadedYet",
+                  "Messages not loaded yet",
+                )}
           </span>
         )}
         {failure && status ? (
@@ -74,7 +84,7 @@ export const HistoryGapRow = memo(function HistoryGapRow({
             className="h-auto shrink-0 p-0"
             onClick={status.retry}
           >
-            Retry
+            {t("conversation.stream.historyGapRow.retry", "Retry")}
           </Button>
         ) : null}
         <span className="h-px min-w-6 flex-1 bg-border/70" aria-hidden />

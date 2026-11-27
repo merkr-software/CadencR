@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import {
   Archive,
   Download,
@@ -44,10 +45,31 @@ function locationActions(
       folderMissing: project.path_missing,
       mode,
     });
-  const rename = { key: "rename", icon: Pencil, label: "Rename…", run: open("rename") };
+  const rename = {
+    key: "rename",
+    icon: Pencil,
+    label: translateUi("project.rowMenus.rename", "Rename…"),
+    run: open("rename"),
+  };
   return project.path_missing
-    ? [rename, { key: "locate", icon: FolderSearch, label: "Locate folder…", run: open("locate") }]
-    : [rename, { key: "move", icon: FolderInput, label: "Move folder…", run: open("move") }];
+    ? [
+        rename,
+        {
+          key: "locate",
+          icon: FolderSearch,
+          label: translateUi("project.rowMenus.locateFolder", "Locate folder…"),
+          run: open("locate"),
+        },
+      ]
+    : [
+        rename,
+        {
+          key: "move",
+          icon: FolderInput,
+          label: translateUi("project.rowMenus.moveFolder", "Move folder…"),
+          run: open("move"),
+        },
+      ];
 }
 
 export function ProjectRowActions({
@@ -57,11 +79,7 @@ export function ProjectRowActions({
   project: ProjectSummary;
   controller: ProjectTreeController;
 }) {
-  const target = {
-    id: project.id,
-    name: project.name,
-    authoringTarget: project.authoring_target,
-  };
+  const { t } = useUiTranslation();
   return (
     // Hidden (not just transparent) until hover, keyboard focus, or an open menu,
     // so the actions don't reserve width and truncate the project name.
@@ -69,6 +87,7 @@ export function ProjectRowActions({
       <span
         role="button"
         tabIndex={0}
+        aria-label={t("project.rowMenus.newSession", "New Session")}
         className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent"
         onClick={(event) => {
           event.stopPropagation();
@@ -82,7 +101,7 @@ export function ProjectRowActions({
           <span
             role="button"
             tabIndex={0}
-            aria-label="Project actions"
+            aria-label={t("project.rowMenus.projectActions", "Project actions")}
             className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent"
             onClick={(event) => event.stopPropagation()}
           >
@@ -90,53 +109,75 @@ export function ProjectRowActions({
           </span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setSettingsProject(target);
-            }}
-          >
-            <Settings className="size-4" /> Project Settings
-          </DropdownMenuItem>
-          {locationActions(project, controller).map(({ key, icon: Icon, label, run }) => (
-            <DropdownMenuItem
-              key={key}
-              onClick={(event) => {
-                event.stopPropagation();
-                run();
-              }}
-            >
-              <Icon className="size-4" /> {label}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuItem
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setImportProject(target);
-            }}
-          >
-            <Download className="size-4" /> Import existing sessions
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setArchiveSessionsProject(target);
-            }}
-          >
-            <Archive className="size-4" /> Archive all sessions
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={(event) => {
-              event.stopPropagation();
-              controller.setDeleteProject(target);
-            }}
-          >
-            <Trash2 className="size-4" /> Delete Project
-          </DropdownMenuItem>
+          <ProjectDropdownItems project={project} controller={controller} />
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+
+function ProjectDropdownItems({
+  project,
+  controller,
+}: {
+  project: ProjectSummary;
+  controller: ProjectTreeController;
+}) {
+  const { t } = useUiTranslation();
+  const target = {
+    id: project.id,
+    name: project.name,
+    authoringTarget: project.authoring_target,
+  };
+  return (
+    <>
+      <DropdownMenuItem
+        onClick={(event) => {
+          event.stopPropagation();
+          controller.setSettingsProject(target);
+        }}
+      >
+        <Settings className="size-4" /> {t("project.rowMenus.projectSettings", "Project Settings")}
+      </DropdownMenuItem>
+      {locationActions(project, controller).map(({ key, icon: Icon, label, run }) => (
+        <DropdownMenuItem
+          key={key}
+          onClick={(event) => {
+            event.stopPropagation();
+            run();
+          }}
+        >
+          <Icon className="size-4" /> {label}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuItem
+        onClick={(event) => {
+          event.stopPropagation();
+          controller.setImportProject(target);
+        }}
+      >
+        <Download className="size-4" />{" "}
+        {t("project.rowMenus.importExistingSessions", "Import existing sessions")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={(event) => {
+          event.stopPropagation();
+          controller.setArchiveSessionsProject(target);
+        }}
+      >
+        <Archive className="size-4" />{" "}
+        {t("project.rowMenus.archiveAllSessions", "Archive all sessions")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="text-destructive focus:text-destructive"
+        onClick={(event) => {
+          event.stopPropagation();
+          controller.setDeleteProject(target);
+        }}
+      >
+        <Trash2 className="size-4" /> {t("project.rowMenus.deleteProject", "Delete Project")}
+      </DropdownMenuItem>
+    </>
   );
 }
 
@@ -147,6 +188,7 @@ export function ProjectRowContextMenu({
   project: ProjectSummary;
   controller: ProjectTreeController;
 }) {
+  const { t } = useUiTranslation();
   const target = {
     id: project.id,
     name: project.name,
@@ -155,11 +197,11 @@ export function ProjectRowContextMenu({
   return (
     <ContextMenuContent>
       <ContextMenuActionItem icon={PlusIcon} onSelect={() => controller.startSession(project.id)}>
-        New Session
+        {t("project.rowMenus.newSession", "New Session")}
       </ContextMenuActionItem>
       <ContextMenuSeparator />
       <ContextMenuActionItem icon={Settings} onSelect={() => controller.setSettingsProject(target)}>
-        Project Settings
+        {t("project.rowMenus.projectSettings", "Project Settings")}
       </ContextMenuActionItem>
       {locationActions(project, controller).map(({ key, icon, label, run }) => (
         <ContextMenuActionItem key={key} icon={icon} onSelect={run}>
@@ -167,20 +209,20 @@ export function ProjectRowContextMenu({
         </ContextMenuActionItem>
       ))}
       <ContextMenuActionItem icon={Download} onSelect={() => controller.setImportProject(target)}>
-        Import existing sessions
+        {t("project.rowMenus.importExistingSessions", "Import existing sessions")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={Archive}
         onSelect={() => controller.setArchiveSessionsProject(target)}
       >
-        Archive all sessions
+        {t("project.rowMenus.archiveAllSessions", "Archive all sessions")}
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={Trash2}
         variant="destructive"
         onSelect={() => controller.setDeleteProject(target)}
       >
-        Delete Project
+        {t("project.rowMenus.deleteProject", "Delete Project")}
       </ContextMenuActionItem>
     </ContextMenuContent>
   );

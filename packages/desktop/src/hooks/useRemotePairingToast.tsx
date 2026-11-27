@@ -1,7 +1,21 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { takeJustPaired, takePairingError } from "@/api/remote-pairing";
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { trustCurrentDevice } from "@/lib/remote/device-token";
+import { formatPairingError, type PairingIssue } from "@/lib/remote/pairing-errors";
+
+function PairingErrorMessage({ error }: { error: PairingIssue }) {
+  const { t } = useUiTranslation();
+  return formatPairingError(error, t);
+}
+
+const connectedMessage = (
+  <UiTrans i18nKey="remote.pairing.connected" defaults="Connected to this workspace." />
+);
+const trustedMessage = (
+  <UiTrans i18nKey="remote.pairing.trusted" defaults="This device will stay signed in." />
+);
 
 /**
  * One-shot pairing follow-ups for a remote-browser session (pairing runs before
@@ -22,25 +36,37 @@ export function useRemotePairingToast(): void {
   useEffect(() => {
     const error = takePairingError();
     if (error) {
-      toast.error(error);
+      toast.error(<PairingErrorMessage error={error} />);
       return;
     }
     const mode = takeJustPaired();
     if (mode === "trusted") {
-      toast.success("Connected to this workspace.", {
-        description: "This device will stay signed in.",
+      toast.success(connectedMessage, {
+        description: trustedMessage,
       });
     } else if (mode === "session") {
-      toast.success("Connected to this workspace.", {
+      toast.success(connectedMessage, {
         // Actionable and easy to miss on mobile, so give it well beyond the
         // default dismiss window to read the question and tap "Stay signed in".
         duration: 15000,
-        description: "Stay signed in on this device after closing the tab?",
+        description: (
+          <UiTrans
+            i18nKey="remote.pairing.staySignedInDetail"
+            defaults="Stay signed in on this device after closing the tab?"
+          />
+        ),
         action: {
-          label: "Stay signed in",
+          label: <UiTrans i18nKey="remote.pairing.staySignedIn" defaults="Stay signed in" />,
           onClick: () => {
-            if (trustCurrentDevice()) toast.success("This device will stay signed in.");
-            else toast.error("Couldn't save sign-in on this device.");
+            if (trustCurrentDevice()) toast.success(trustedMessage);
+            else {
+              toast.error(
+                <UiTrans
+                  i18nKey="remote.pairing.saveSignInFailed"
+                  defaults="Couldn't save sign-in on this device."
+                />,
+              );
+            }
           },
         },
       });

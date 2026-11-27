@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
@@ -20,16 +21,23 @@ export function ErrorRow({ label }: { label: ReactNode }) {
 
 /** Success + error toast callbacks for a settings mutation. */
 export function toastCallbacks(
-  successMessage: string,
-  errorPrefix: string,
+  successMessage: () => string,
+  errorPrefix: () => string,
   onSuccess?: () => void,
 ) {
   return {
     onSuccess: () => {
-      toast.success(successMessage);
+      toast.success(successMessage());
       onSuccess?.();
     },
     onError: (error: unknown) =>
-      toast.error(`${errorPrefix}: ${(error as Error)?.message ?? "unknown error"}`),
+      toast.error(
+        translateUi("settings.providers.mutationError", "{{action}}: {{message}}", {
+          action: errorPrefix(),
+          message:
+            (error as Error)?.message ??
+            translateUi("settings.providers.unknownError", "unknown error"),
+        }),
+      ),
   };
 }

@@ -1,3 +1,4 @@
+import { translateUi, UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -7,7 +8,7 @@ import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBann
 import { Button } from "@/components/ui/button";
 import { apiErrorCode, toastError } from "@/lib/api-errors";
 import { PLUGIN_TAB_ERROR } from "@/lib/plugin-tabs/error-codes";
-import { refreshPluginTabReads } from "@/lib/plugin-tabs/live-instances";
+import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,6 +28,7 @@ export function CustomTabUpdateNotice({
   disabled?: boolean;
   className?: string;
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const update = tab.pending_update;
   const discard = useDiscard(tab);
   if (!update) return null;
@@ -41,10 +43,16 @@ export function CustomTabUpdateNotice({
           // Accepting it is refused (PLUGIN_TAB_BLOCKED): only discarding it is offered.
           <span>
             <span className="font-medium text-destructive">
-              Update <span className="font-mono">{update.version}</span> is blocked by Cadencr:{" "}
-              {reasonClause(update.blocked_reason)}.
+              <UiTrans
+                i18nKey="customTabs.updateNotice.blocked"
+                defaults="Update <version/> is blocked by Cadencr: <reason/>."
+                components={{
+                  version: <span className="font-mono">{update.version}</span>,
+                  reason: <span>{reasonClause(update.blocked_reason)}</span>,
+                }}
+              />
             </span>{" "}
-            Keep the current version to dismiss it.
+            {t("customTabs.updateNotice.blockedHint", "Keep the current version to dismiss it.")}
           </span>
         ) : (
           <ReadyText version={update.version} installed={tab.version} />
@@ -59,7 +67,7 @@ export function CustomTabUpdateNotice({
           onClick={() => void discard.run()}
         >
           {discard.pending ? <Loader2 className="animate-spin" aria-hidden /> : null}
-          Keep current version
+          {t("customTabs.updateNotice.keepCurrent", "Keep current version")}
         </Button>
         {update.blocked_reason ? null : (
           <Button
@@ -69,7 +77,7 @@ export function CustomTabUpdateNotice({
             disabled={disabled || discard.pending}
             onClick={onReview}
           >
-            Review permissions
+            {t("customTabs.customTabUpdateNotice.reviewPermissions", "Review permissions")}
           </Button>
         )}
       </span>
@@ -84,17 +92,27 @@ function ReadyText({
   version: string;
   installed: string | null | undefined;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <span>
       <span className="font-medium text-foreground">
-        Update <span className="font-mono">{version}</span> ready — review permissions.
+        <UiTrans
+          i18nKey="customTabs.updateNotice.ready"
+          defaults="Update <version/> ready — review permissions."
+          components={{ version: <span className="font-mono">{version}</span> }}
+        />
       </span>{" "}
       {installed ? (
-        <>
-          <span className="font-mono">{installed}</span> keeps running until you allow it.
-        </>
+        <UiTrans
+          i18nKey="customTabs.updateNotice.installedVersion"
+          defaults="<version/> keeps running until you allow it."
+          components={{ version: <span className="font-mono">{installed}</span> }}
+        />
       ) : (
-        "The installed version keeps running until you allow it."
+        t(
+          "customTabs.updateNotice.installedVersionFallback",
+          "The installed version keeps running until you allow it.",
+        )
       )}
     </span>
   );
@@ -109,17 +127,28 @@ function useDiscard(tab: PluginTabSummary): { pending: boolean; run: () => Promi
       await mutation.mutateAsync({ id: tab.id });
     } catch (error: unknown) {
       if (apiErrorCode(error) === PLUGIN_TAB_ERROR.updateNotFound) {
-        toast.info(`No update to “${tab.name}” was waiting anymore.`);
+        toast.info(
+          translateUi(
+            "customTabs.updateNotice.notWaiting",
+            "No update to “{{name}}” was waiting anymore.",
+            { name: tab.name },
+          ),
+        );
       } else {
-        toastError(error, `Could not discard the update to “${tab.name}”`);
+        toastError(
+          error,
+          translateUi(
+            "customTabs.updateNotice.discardError",
+            "Could not discard the update to “{{name}}”",
+            { name: tab.name },
+          ),
+        );
         return;
       }
     }
     setRefreshing(true);
     try {
-      await refreshPluginTabReads();
-    } catch (error: unknown) {
-      toastError(error, "Could not refresh the custom tabs");
+      await refreshPluginTabsOrToast();
     } finally {
       setRefreshing(false);
     }

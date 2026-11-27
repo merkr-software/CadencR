@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -135,7 +136,19 @@ function useWorktreePreference(projectId: number): WorktreePreferenceControls {
           },
           onError: (err) =>
             toast.error(
-              `Could not save the project's worktree default: ${apiErrorMessage(err, "Unknown error")}`,
+              translateUi(
+                "conversation.webSocketSessionControls.couldNotSaveWorktreeDefault",
+                "Could not save the project's worktree default: {{message}}",
+                {
+                  message: apiErrorMessage(
+                    err,
+                    translateUi(
+                      "conversation.webSocketSessionControls.unknownError",
+                      "Unknown error",
+                    ),
+                  ),
+                },
+              ),
             ),
         },
       );

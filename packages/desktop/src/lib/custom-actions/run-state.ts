@@ -1,4 +1,5 @@
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatRelativeDistance } from "@/lib/date-utils";
+import { translateUi as t, uiI18n } from "@/lib/i18n/ui";
 
 import type { CustomAction, LastRunSummary } from "@/api/generated";
 
@@ -39,20 +40,22 @@ export function parseRunTimestamp(value: string): Date {
 
 export function formatRunTime(value: string): string {
   const date = parseRunTimestamp(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : formatDistanceToNowStrict(date, { addSuffix: true });
+  return Number.isNaN(date.getTime()) ? value : formatRelativeDistance(date, uiI18n.language);
 }
 
 /** Short status text, e.g. "Running…", "Failed (exit 2) 3 min ago", "Never run". */
 export function runStateText(lastRun: RunOutcome | null | undefined): string {
   const state = runStateOf(lastRun);
-  if (state === "idle" || lastRun == null) return "Never run";
-  if (state === "running" || lastRun.ended_at == null) return "Running…";
+  if (state === "idle" || lastRun == null) return t("customActions.status.never", "Never run");
+  if (state === "running" || lastRun.ended_at == null)
+    return t("customActions.status.running", "Running…");
   const when = formatRunTime(lastRun.ended_at);
-  if (state === "succeeded") return `Passed ${when}`;
-  if (state === "stopped") return `Stopped ${when}`;
-  return `Failed (exit ${lastRun.exit_code}) ${when}`;
+  if (state === "succeeded") return t("customActions.status.passed", "Passed {{when}}", { when });
+  if (state === "stopped") return t("customActions.status.stopped", "Stopped {{when}}", { when });
+  return t("customActions.status.failed", "Failed (exit {{exit}}) {{when}}", {
+    exit: lastRun.exit_code ?? "?",
+    when,
+  });
 }
 
 /** The most urgent state across actions, for the launcher's single mark. */

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * What the user picks from the palette, remembered per client: how often and
  * how recently. It lifts those entries in the ranking and orders the empty
@@ -38,7 +39,7 @@ export function readFrecency(storage: Pick<Storage, "getItem"> = localStorage): 
   const { value, error } = parseJsonSetting(
     storage.getItem(STORAGE_KEY),
     frecencyMapSchema,
-    "a map of picks with a count and a time",
+    translateUi("palette.history.expected", "a map of picks with a count and a time"),
   );
   return { map: value ?? {}, error };
 }

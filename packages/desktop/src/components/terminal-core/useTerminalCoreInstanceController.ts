@@ -14,6 +14,7 @@ import { useTerminalWebSocket } from "@/hooks/useTerminalWebSocket";
 import { useCelerittyTransport } from "./useCelerittyTransport";
 import { useCelerittyTerminal } from "./useCelerittyTerminal";
 import { toControlChar } from "@/lib/terminal-keys";
+import { translateUi } from "@/lib/i18n/ui";
 import {
   getFocusedLeaf,
   selectFeatureLayout,
@@ -120,7 +121,9 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
     },
     onExit: (code) => {
       if (!refs.mountedRef.current) return;
-      bridge.deliverClose(`exited (${code})`);
+      bridge.deliverClose(
+        translateUi("workspace.tools.terminal.exited", "exited ({{code}})", { code }),
+      );
       const id = refs.ptyIdRef.current;
       if (id) props.onExit?.(id);
     },

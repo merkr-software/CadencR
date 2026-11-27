@@ -1,3 +1,5 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
+
 /**
  * Tunnel provider guides as data. M1 ships *instructions* only (no in-process
  * tunnel SDK), so the dialog renders these generically — no per-provider
@@ -12,7 +14,7 @@
 export interface TunnelGuide {
   id: string;
   name: string;
-  blurb: string;
+  blurb: (t: UiTranslator) => string;
   docsUrl: string;
   commands: string[];
   placeholder: string;
@@ -32,7 +34,11 @@ export const TUNNEL_GUIDES: TunnelGuide[] = [
   {
     id: "tailscale",
     name: "Tailscale",
-    blurb: "Reachable only from your own devices on your tailnet — no public exposure.",
+    blurb: (t) =>
+      t(
+        "remote.tunnel.tailscale.description",
+        "Reachable only from your own devices on your tailnet — no public exposure.",
+      ),
     docsUrl: "https://tailscale.com/kb/1242/tailscale-serve",
     commands: ["tailscale serve --bg https+insecure://localhost:{port}"],
     placeholder: "your-machine.tailnet.ts.net",

@@ -18,7 +18,11 @@
  * `TRUNCATION_NOTICE` is the user-visible signal.
  */
 
-import type { AgentBlockData } from "@/types/agent-block";
+import {
+  bashPreviewMayOmitMetadata,
+  blockPreviewOmission,
+  type AgentBlockData,
+} from "@/types/agent-block";
 import { extractPromptBlobs } from "@/lib/prompt-image-cache";
 
 /**
@@ -43,20 +47,38 @@ const MIN_LEAF_BUDGET = 1024;
 export interface ClampedText {
   text: string;
   truncated: boolean;
+  bashOutputOnly?: true;
 }
 
-/** Sentinel shown in place of the dropped content. Also marks a re-clamp. */
-export const TRUNCATION_NOTICE = "… content truncated …";
+/** The in-band marker also makes the missing section visible inside structured values. */
+export const TRUNCATION_NOTICE = "[…]";
+export const WIRE_TRUNCATION_NOTICE = "… [preview truncated; expand to load full content]";
+const TRUNCATED_SECTION = `${TRUNCATION_NOTICE}\n\n`;
 
 /**
- * Re-clamping an already-clamped value (the streaming append path) can only
- * measure the clamped length, so the character count would understate what was
- * really dropped. Detect the sentinel and omit the number rather than print a
- * wrong one.
+ * Older services appended an English suffix to plain-text wire previews.
+ * Only that root suffix can be attributed to the service. The same words
+ * inside a serialized JSON value may be part of the original payload.
  */
-function marker(hiddenChars: number, alreadyTruncated: boolean): string {
-  if (alreadyTruncated) return `${TRUNCATION_NOTICE}\n\n`;
-  return `${TRUNCATION_NOTICE} (${hiddenChars.toLocaleString()} characters hidden)\n\n`;
+export function withWirePreviewOmission(block: AgentBlockData): AgentBlockData {
+  if (!block.truncatedContent || block.fullContentBytes === undefined) return block;
+  const { content } = block;
+  if (!content.endsWith(WIRE_TRUNCATION_NOTICE)) return block;
+  return {
+    ...block,
+    [blockPreviewOmission]: {
+      content,
+      start: content.length - WIRE_TRUNCATION_NOTICE.length,
+      end: content.length,
+    },
+  };
+}
+
+/** Keep the in-band marker for parsing and streaming, with only an ellipsis on screen. */
+export function displayBlockPreview(block: AgentBlockData): string {
+  const { content, [blockPreviewOmission]: previewOmission } = block;
+  if (previewOmission?.content !== content) return content;
+  return `${content.slice(0, previewOmission.start)}…${content.slice(previewOmission.end)}`;
 }
 
 /**
@@ -89,9 +111,7 @@ export function clampText(text: string, max: number = BLOCK_CONTENT_MAX_CHARS): 
   const tailBudget = max - headBudget;
   const head = sliceHead(text, headBudget);
   const tail = sliceTail(text, text.length - tailBudget);
-  const hidden = text.length - head.length - tail.length;
-  const notice = marker(hidden, text.includes(TRUNCATION_NOTICE));
-  return { text: `${head}\n\n${notice}${tail}`, truncated: true };
+  return { text: `${head}\n\n${TRUNCATED_SECTION}${tail}`, truncated: true };
 }
 
 /**
@@ -103,8 +123,7 @@ export function clampText(text: string, max: number = BLOCK_CONTENT_MAX_CHARS): 
 export function clampTailText(text: string, max: number): ClampedText {
   if (text.length <= max) return { text, truncated: false };
   const tail = sliceTail(text, text.length - max);
-  const notice = marker(text.length - tail.length, text.includes(TRUNCATION_NOTICE));
-  return { text: `${notice}${tail}`, truncated: true };
+  return { text: `${TRUNCATED_SECTION}${tail}`, truncated: true };
 }
 
 /**
@@ -274,9 +293,15 @@ export function applyBlockContentBudget(
           ? clampUserMessageText(subject.content, max)
           : clampText(subject.content, max);
     next.content = clamped.text;
+    if (clamped.truncated) next[blockPreviewOmission] = undefined;
+    if (clamped.truncated && subject.toolName === "Bash" && !subject.toolArgs) {
+      next[bashPreviewMayOmitMetadata] = true;
+    }
   }
   if (overArgs && subject.toolArgs) {
-    next.toolArgs = clampJsonText(subject.toolArgs, max).text;
+    const clamped = clampJsonText(subject.toolArgs, max);
+    next.toolArgs = clamped.text;
+    if (clamped.truncated && subject.toolName === "Bash") next[bashPreviewMayOmitMetadata] = true;
   }
   next.truncatedContent = true;
   return next;

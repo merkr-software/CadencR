@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { PROVIDER_IDS } from "./providers";
 import { getCatalogProviderMetadata } from "./provider-catalog-registry";
 import type { ProviderPromptCapabilities } from "@/api/generated";
@@ -152,22 +153,45 @@ export function unsupportedAttachmentDescription(
   promptCapabilities: ProviderPromptCapabilities | null = capabilitiesFor(providerId),
 ): string {
   if (providerId === PROVIDER_IDS.OPENCODE) {
-    return "OpenCode accepts images, audio, PDFs, text files, and common document resources.";
+    return translateUi(
+      "conversation.composer.prompt-attachments.openCodeSupport",
+      "OpenCode accepts images, audio, PDFs, text files, and common document resources.",
+    );
   }
   if (providerId === PROVIDER_IDS.CLAUDE_CODE) {
-    return "Claude accepts images, PDFs, and text-like files such as TXT, CSV, Markdown, and JSON.";
+    return translateUi(
+      "conversation.composer.prompt-attachments.claudeSupport",
+      "Claude accepts images, PDFs, and text-like files such as TXT, CSV, Markdown, and JSON.",
+    );
   }
   if (providerId === undefined || providerId === PROVIDER_IDS.CODEX_CLI) {
-    return "Codex accepts images, PDFs, and Excel spreadsheets.";
+    return translateUi(
+      "conversation.composer.prompt-attachments.codexSupport",
+      "Codex accepts images, PDFs, and Excel spreadsheets.",
+    );
   }
   const policy = catalogAttachmentPolicy(promptCapabilities);
-  const kinds = [policy.images ? "images" : null, policy.pdfs ? "PDFs" : null].filter(
-    (kind): kind is string => kind !== null,
+  const kinds = [
+    policy.images
+      ? translateUi("conversation.composer.prompt-attachments.imageKind", "images")
+      : null,
+    policy.pdfs ? translateUi("conversation.composer.prompt-attachments.pdfKind", "PDFs") : null,
+  ].filter((kind): kind is string => kind !== null);
+  const textFiles = translateUi(
+    "conversation.composer.prompt-attachments.textKinds",
+    "text-like files such as TXT, CSV, Markdown, and JSON",
   );
-  const textFiles = "text-like files such as TXT, CSV, Markdown, and JSON";
   return kinds.length > 0
-    ? `This provider accepts ${kinds.join(", ")} and ${textFiles}.`
-    : `This provider accepts ${textFiles}.`;
+    ? translateUi(
+        "conversation.composer.prompt-attachments.providerSupport",
+        "This provider accepts {{kinds}} and {{textFiles}}.",
+        { kinds: kinds.join(", "), textFiles },
+      )
+    : translateUi(
+        "conversation.composer.prompt-attachments.providerTextSupport",
+        "This provider accepts {{textFiles}}.",
+        { textFiles },
+      );
 }
 
 function opencodeKind(mimeType: string): PromptAttachmentKind | null {

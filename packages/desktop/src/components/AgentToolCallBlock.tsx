@@ -1,9 +1,11 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { cn, formatJson, toRelativePath } from "@/lib/utils";
 import { parseToolCall } from "@/lib/tool-call-parser";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
 import { parseMcpTool } from "@/lib/mcp-tool-parser";
+import { displayToolName } from "@/lib/tool-display-policy";
 import { McpToolBlock } from "@/components/McpToolBlock";
 
 /**
@@ -13,38 +15,52 @@ import { McpToolBlock } from "@/components/McpToolBlock";
  */
 export function ToolCallBlock({
   name,
+  skill,
   args,
   basePath,
   error,
 }: {
-  name: string;
+  name?: string;
+  skill?: boolean;
   args?: string;
   basePath?: string;
   /** The message of the call's error result; set only when the call failed. */
   error?: string;
 }) {
-  const canonicalName = normalizeToolName(name);
-  const mcp = parseMcpTool(canonicalName, args);
+  const { t } = useUiTranslation();
+  const canonicalName = normalizeToolName(name ?? "unknown");
+  const mcp = parseMcpTool(canonicalName, args, t);
   if (mcp) return <McpToolBlock mcp={mcp} />;
   return (
-    <GenericToolCallBlock name={canonicalName} args={args} basePath={basePath} error={error} />
+    <GenericToolCallBlock
+      name={canonicalName}
+      label={displayToolName(name == null ? undefined : canonicalName, Boolean(skill), t)}
+      args={args}
+      basePath={basePath}
+      error={error}
+      t={t}
+    />
   );
 }
 
 function GenericToolCallBlock({
   name: canonicalName,
+  label,
   args,
   basePath,
   error,
+  t,
 }: {
   name: string;
+  label: string;
   args?: string;
   basePath?: string;
   error?: string;
+  t: UiTranslator;
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const summary = parseToolCall(canonicalName, args);
+  const summary = parseToolCall(canonicalName, args, t);
   const detail =
     summary?.detail && basePath ? toRelativePath(summary.detail, basePath) : summary?.detail;
   // File-patch tools (Edit / Write / ApplyPatch) use a dedicated accent while
@@ -76,7 +92,7 @@ function GenericToolCallBlock({
         onClick={() => setExpanded(!expanded)}
       >
         <WrenchIcon className={cn("size-3", toolColorClass)} />
-        <span className={cn("font-medium", toolColorClass)}>{canonicalName}</span>
+        <span className={cn("font-medium", toolColorClass)}>{label}</span>
         {detail && <span className="truncate text-muted-foreground">{detail}</span>}
         <ChevronRightIcon
           className={cn(
@@ -87,7 +103,7 @@ function GenericToolCallBlock({
       </button>
       {failed && (
         <pre className="whitespace-pre-wrap break-words border-t border-destructive/20 px-3 py-1.5 font-mono text-xs text-destructive">
-          {error.trim() || "Failed"}
+          {error.trim() || t("common.failed", "Failed")}
         </pre>
       )}
       {expanded && args && (

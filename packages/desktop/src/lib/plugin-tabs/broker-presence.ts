@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toast } from "sonner";
 
 import { pluginTabReleasePresence, pluginTabRenewPresence } from "@/api/generated";
@@ -33,7 +34,7 @@ const defaultPresenceDeps: PresenceDeps = {
   report: (message, error) =>
     toast.error(message, {
       id: "plugin-tab-presence",
-      description: apiErrorMessage(error, "unknown error"),
+      description: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
     }),
   newLeaseId: () => crypto.randomUUID(),
 };
@@ -41,7 +42,12 @@ const defaultPresenceDeps: PresenceDeps = {
 /** A renewal that did not finish before the next one was due. */
 class RenewalStalled extends Error {
   constructor() {
-    super("The previous renewal did not finish within a minute");
+    super(
+      translateUi(
+        "customTabs.presence.renewalStalled",
+        "The previous renewal did not finish within a minute",
+      ),
+    );
   }
 }
 
@@ -122,7 +128,11 @@ export class PresenceLease {
       .release(this.pluginId, this.leaseId)
       .catch((error: unknown) =>
         this.deps.report(
-          `${this.label} was closed but its backend could not be stopped right away (it stops within 3 minutes)`,
+          translateUi(
+            "customTabs.presence.releaseError",
+            "{{label}} was closed but its backend could not be stopped right away (it stops within 3 minutes)",
+            { label: this.label },
+          ),
           error,
         ),
       );
@@ -153,7 +163,11 @@ export class PresenceLease {
         this.failing = true;
         const reason: unknown = controller.signal.aborted ? controller.signal.reason : error;
         this.deps.report(
-          `${this.label}: Cadencr could not be told the tab is open, so its backend may stop`,
+          translateUi(
+            "customTabs.presence.renewError",
+            "{{label}}: Cadencr could not be told the tab is open, so its backend may stop",
+            { label: this.label },
+          ),
           reason,
         );
       },

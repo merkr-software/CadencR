@@ -127,8 +127,12 @@ pub(super) async fn reconcile(conn: &mut SqliteConnection) -> Result<(), sqlx::E
     for session_id in stopped {
         WsSessionPersistence::try_clear_all_pending_user_input_static(&mut *conn, session_id)
             .await?;
-        transcript::close_running_tool_calls(conn, session_id, transcript::STOP_TOOL_RESULT)
-            .await?;
+        transcript::close_running_tool_calls(
+            conn,
+            session_id,
+            transcript::ToolInterruption::UserStop,
+        )
+        .await?;
         transcript::insert_marker(conn, session_id, "").await?;
     }
     sqlx::query("UPDATE agent_user_stops SET marker_pending = 0 WHERE marker_pending IS NULL")

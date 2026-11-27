@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -47,6 +48,7 @@ export function NewProjectOnboardingDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const { data: settingsArray } = useGetProjectSettings(projectId, { query: { enabled: open } });
   const settings = useMemo(() => settingsArrayToMap(settingsArray), [settingsArray]);
@@ -77,11 +79,18 @@ export function NewProjectOnboardingDialog({
       <DialogContent className="flex max-h-[min(85vh,var(--dialog-max-h))] flex-col gap-0 p-0 sm:max-w-xl">
         <DialogHeader className="border-b border-border px-6 py-4 text-left">
           <DialogTitle className="text-base font-semibold">
-            Set up <span className="text-muted-foreground">{projectName}</span>
+            <UiTrans
+              i18nKey="onboarding.project.title"
+              defaults="Set up <project>{{projectName}}</project>"
+              components={{ project: <span className="text-muted-foreground" /> }}
+              values={{ projectName }}
+            />
           </DialogTitle>
           <DialogDescription>
-            A couple of defaults for this project. Everything saves as you go and can be changed
-            later in Project Settings.
+            {t(
+              "onboarding.project.description",
+              "A couple of defaults for this project. Everything saves as you go and can be changed later in Project Settings.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -116,9 +125,9 @@ export function NewProjectOnboardingDialog({
         <DialogFooter className="items-center justify-between border-t border-border px-6 py-4 sm:justify-between">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={dismissed} onCheckedChange={(next) => setDismissed(next === true)} />
-            Don&apos;t show this for new projects
+            {t("onboarding.project.dismiss", "Don't show this for new projects")}
           </label>
-          <Button onClick={() => onOpenChange(false)}>Done</Button>
+          <Button onClick={() => onOpenChange(false)}>{t("common.done", "Done")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ImportProviderStep } from "./ImportProviderStep";
@@ -25,6 +26,7 @@ function ImportConversationsDialogInner({
   open,
   onOpenChange,
 }: ImportConversationsDialogProps) {
+  const { t } = useUiTranslation();
   const [step, setStep] = useState<ImportStep>("provider");
   const [jobId, setJobId] = useState<string | null>(null);
   const [providerId, setProviderId] = useState<ProviderId>(PROVIDER_IDS.CLAUDE_CODE);
@@ -66,10 +68,18 @@ function ImportConversationsDialogInner({
       <DialogContent className={`flex w-[90vw] flex-col gap-0 p-0 sm:max-w-[640px] ${sizingClass}`}>
         <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
-            Import conversations — <span className="text-muted-foreground">{projectName}</span>
+            <UiTrans
+              i18nKey="conversation.importConversationsDialog.importIntoProject"
+              defaults="Import conversations — <project>{{name}}</project>"
+              values={{ name: projectName }}
+              components={{ project: <span className="text-muted-foreground" /> }}
+            />
           </DialogTitle>
           <p className="text-[11px] text-muted-foreground">
-            Pull existing conversations into this project. Already-imported sessions are skipped.
+            {t(
+              "conversation.importConversationsDialog.pullExistingConversationsIntoThisProjectAlreadyImported",
+              "Pull existing conversations into this project. Already-imported sessions are skipped.",
+            )}
           </p>
         </DialogHeader>
 

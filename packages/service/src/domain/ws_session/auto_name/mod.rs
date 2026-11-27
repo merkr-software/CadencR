@@ -19,7 +19,6 @@ use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::agents::{resolve_selection, SelectionError};
 use crate::domain::features::run_registry::FeatureRunPermit;
 use crate::domain::features::title::{lock_title_updates, GeneratedTitlePolicy};
-use crate::domain::settings_store::file::{SETTINGS_INVALID, SETTINGS_READ_FAILED};
 use crate::domain::workflow::ws_sender::{
     send_feature_renamed_envelope, send_feature_updated_envelope,
 };
@@ -31,6 +30,8 @@ use super::protocol::{
 
 mod drain;
 use drain::drain_title;
+mod error_copy;
+use error_copy::{settings_failure, with_naming_reason, NamingSetting};
 mod prompt;
 use prompt::{build_prompt, resolve_system_prompt};
 pub use prompt::{AUTO_NAME_USER_PROMPT_PREFIX, DEFAULT_AUTO_NAME_SYSTEM_PROMPT};
@@ -116,7 +117,7 @@ async fn auto_name_eligible_feature(
     title: impl Future<Output = Result<String, AppError>>,
 ) -> bool {
     let senders = std::slice::from_ref(ws_sender);
-    let (result, database_message) = match has_default_title(pool, feature_id).await {
+    let (result, reading_title) = match has_default_title(pool, feature_id).await {
         Ok(false) => return false,
         Ok(true) => (
             rename_with_progress(
@@ -127,17 +128,14 @@ async fn auto_name_eligible_feature(
                 title,
             )
             .await,
-            "Cadencr could not save the conversation title. Try again.",
+            false,
         ),
-        Err(error) => (
-            Err(error),
-            "Cadencr could not read the conversation title. Try again.",
-        ),
+        Err(error) => (Err(error), true),
     };
     match result {
         Ok(outcome) => outcome == TitleOutcome::Renamed,
         Err(error) => {
-            report_automatic_failure(senders, feature_id, &error, database_message);
+            report_automatic_failure(senders, feature_id, &error, reading_title);
             false
         }
     }
@@ -191,17 +189,11 @@ fn report_automatic_failure(
     senders: &[mpsc::UnboundedSender<Message>],
     feature_id: i64,
     error: &AppError,
-    database_message: &str,
+    reading_title: bool,
 ) {
     let code = error.code();
     warn!(feature_id, code, "auto-name: attempt failed");
-    let detail = match error {
-        AppError::Coded { message, .. } => message,
-        AppError::DatabaseBusy(_) => "The database is busy. Try again in a moment.",
-        AppError::DatabaseError(_) | AppError::ConstraintViolation(_) => database_message,
-        AppError::NotFound(_) => "The conversation no longer exists.",
-        _ => "Try again from the conversation title menu.",
-    };
+    let (detail, reason) = error_copy::warning_copy(error, reading_title);
     // Naming runs alongside the agent's turn. The existing warning channel
     // surfaces the problem without failing the turn or its pending prompts.
     send_session_event(
@@ -209,6 +201,7 @@ fn report_automatic_failure(
         WsSessionEvent::Warning(SessionWarningPayload {
             code: code.into(),
             message: format!("Could not auto-name this conversation. {detail}"),
+            auto_name_reason: Some(reason.into()),
         }),
     );
 }
@@ -283,46 +276,28 @@ fn selection_failure(error: SelectionError) -> AppError {
             "The auto-naming provider exposes no usable models. Check that its CLI is installed and authenticated, or select another provider.",
         ),
         SelectionError::Settings(error) => {
-            settings_failure(error, "the auto-naming provider, model or active profile")
+            settings_failure(error, NamingSetting::ProviderSelection)
         }
-    }
-}
-
-fn settings_failure(error: AppError, setting: &str) -> AppError {
-    match error {
-        // Profile validation can name stored values. Keep the status and code,
-        // and describe the setting to repair without quoting its contents.
-        AppError::Coded { status, code, .. } => {
-            let reason = match code {
-                SETTINGS_READ_FAILED => "could not be read",
-                SETTINGS_INVALID => "are invalid",
-                _ => "could not be loaded",
-            };
-            AppError::coded(
-                status,
-                code,
-                format!("The settings for {setting} {reason}. Check them in workspace settings via Edit JSON."),
-            )
-        }
-        AppError::BadRequest(_) | AppError::NotFound(_) => AppError::coded(
-            StatusCode::BAD_REQUEST,
-            "AUTO_NAME_PROFILE_FAILED",
-            "The auto-naming provider profile is invalid. Check its configuration and try again.",
-        ),
-        other => other,
     }
 }
 
 fn runtime_failure(error: RuntimeError, code: &'static str, message: &'static str) -> AppError {
     // Provider stderr and RPC errors can echo configuration or credentials.
     match error {
-        RuntimeError::Profile(error) => settings_failure(error, "the active auto-naming profile"),
+        RuntimeError::Profile(error) => settings_failure(error, NamingSetting::ActiveProfile),
         RuntimeError::CliNotFound { .. } => AppError::coded(
             StatusCode::SERVICE_UNAVAILABLE,
             "AUTO_NAME_CLI_NOT_FOUND",
             "The auto-naming provider's CLI could not be found. Check its installation and try again.",
         ),
-        _ => AppError::coded(StatusCode::BAD_GATEWAY, code, message),
+        _ => {
+            let error = AppError::coded(StatusCode::BAD_GATEWAY, code, message);
+            match code {
+                "AUTO_NAME_PROFILE_FAILED" => with_naming_reason(error, "profile_load_failed"),
+                "RUNTIME_CLOSE_FAILED" => with_naming_reason(error, "close_failed"),
+                _ => error,
+            }
+        }
     }
 }
 
@@ -382,6 +357,7 @@ mod tests {
     use crate::domain::features::repository::{manual_title_revision, update_title_manually};
     use crate::domain::features::run_registry::FeatureRunRegistry;
     use crate::domain::settings_store;
+    use crate::domain::settings_store::file::{SETTINGS_INVALID, SETTINGS_READ_FAILED};
     use axum::response::IntoResponse;
     use title_state::title_pool;
 
@@ -464,6 +440,7 @@ mod tests {
         );
         assert!(warning.r#ref.is_none());
         assert_eq!(warning.payload["code"], expected_code);
+        assert!(warning.payload["auto_name_reason"].is_string());
         let message = warning.payload["message"].as_str().unwrap();
         assert!(message.starts_with("Could not auto-name this conversation."));
         assert!(message.contains(expected_message), "{message}");

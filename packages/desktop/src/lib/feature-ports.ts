@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { PortSource, type AllocatedPort } from "@/api/generated";
 
 /**
@@ -12,12 +13,12 @@ export function portUrl(port: number): string {
 export function portSourceLabel(port: AllocatedPort): string {
   switch (port.source) {
     case PortSource.terminal:
-      return "started in a terminal";
+      return translateUi("sidebar.ports.terminal", "started in a terminal");
     case PortSource.agent:
-      return "started by the agent";
+      return translateUi("sidebar.ports.agent", "started by the agent");
     // The process no longer descends from a terminal or agent — typically a
     // server the agent left running after its session ended.
     case PortSource.workspace:
-      return "running in this worktree";
+      return translateUi("sidebar.ports.worktree", "running in this worktree");
   }
 }

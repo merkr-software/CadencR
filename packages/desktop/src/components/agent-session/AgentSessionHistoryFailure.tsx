@@ -1,10 +1,10 @@
+import { historyReadText } from "@/lib/history-read-error";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Loader2Icon, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-
-const TITLE = "Couldn't load this conversation's history";
 
 function useHistoryLoadFailure(sessionId: string | undefined) {
   return useWsSessionStore((state) =>
@@ -23,6 +23,7 @@ export function useIsHistoryLoading(sessionId: string | undefined): boolean {
 }
 
 function RetryButton({ sessionId, retrying }: { sessionId: string; retrying: boolean }) {
+  const { t } = useUiTranslation();
   const waitingForSocket = useWsSessionStore((state) => {
     const session = state.sessions[sessionId];
     return session?.historyLoadFailure?.resyncSessionDbId !== undefined && !session.isConnected;
@@ -36,7 +37,11 @@ function RetryButton({ sessionId, retrying }: { sessionId: string; retrying: boo
       onClick={() => useWsSessionStore.getState().retryPersistedLoad(sessionId)}
     >
       {retrying ? <Loader2Icon className="size-3.5 animate-spin" aria-hidden /> : null}
-      {waitingForSocket ? "Reconnecting…" : retrying ? "Loading…" : "Retry"}
+      {waitingForSocket
+        ? t("conversation.stream.agentSessionHistoryFailure.reconnecting", "Reconnecting…")
+        : retrying
+          ? t("common.loading", "Loading…")
+          : t("common.retry", "Retry")}
     </Button>
   );
 }
@@ -53,6 +58,7 @@ export const AgentSessionHistoryFailure = memo(function AgentSessionHistoryFailu
   sessionId: string | undefined;
   variant: "empty" | "notice";
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const failure = useHistoryLoadFailure(sessionId);
   if (!sessionId || !failure) return null;
   const empty = variant === "empty";
@@ -73,10 +79,18 @@ export const AgentSessionHistoryFailure = memo(function AgentSessionHistoryFailu
       <div className={cn("min-w-0", !empty && "flex-1")}>
         <p className="text-sm font-medium text-foreground">
           {failure.resyncSessionDbId === undefined
-            ? TITLE
-            : "Could not refresh conversation history"}
+            ? t(
+                "conversation.stream.agentSessionHistoryFailure.initialError",
+                "Couldn't load this conversation's history",
+              )
+            : t(
+                "conversation.stream.agentSessionHistoryFailure.couldNotRefreshConversationHistory",
+                "Could not refresh conversation history",
+              )}
         </p>
-        <p className="mt-0.5 break-words text-muted-foreground">{failure.message}</p>
+        <p className="mt-0.5 break-words text-muted-foreground">
+          {historyReadText(failure.message, t)}
+        </p>
       </div>
       <RetryButton sessionId={sessionId} retrying={failure.retrying} />
     </div>

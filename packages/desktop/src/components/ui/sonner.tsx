@@ -1,6 +1,7 @@
 import { memo, type CSSProperties } from "react";
 import { CircleAlert, CircleCheck, Info, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useToastAnchorStore, type ToastAnchor } from "@/stores/toast-anchor-store";
 
 // Toasts stack in the sidebar, above its footer (why: DESIGN.md "Toasts");
@@ -33,16 +34,22 @@ const TOAST_ICONS: ToasterProps["icons"] = {
  *
  * Memoized: Sonner reads the document direction with `getComputedStyle` on
  * every render, a forced style recalculation, so it renders only when the
- * anchor moves, never because the overlays around it did.
+ * anchor or its accessible labels change, never because the surrounding overlays did.
  */
-const Toaster = memo(function Toaster(props: ToasterProps) {
+const Toaster = memo(function Toaster({ toastOptions, ...props }: ToasterProps) {
+  const { t } = useUiTranslation();
   const anchor = useToastAnchorStore((s) => s.anchor);
   return (
     <Sonner
       {...placement(anchor)}
+      containerAriaLabel={t("system.toasts.notifications", "Notifications")}
       closeButton
       gap={8}
       icons={TOAST_ICONS}
+      toastOptions={{
+        closeButtonAriaLabel: t("system.toasts.close", "Close toast"),
+        ...toastOptions,
+      }}
       // Below 600px Sonner spans the toasts full-width at the top, under the
       // same safe-area inset.
       mobileOffset={{ top: "calc(env(safe-area-inset-top) + 12px)" }}

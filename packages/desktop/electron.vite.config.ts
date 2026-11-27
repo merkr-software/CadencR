@@ -200,6 +200,7 @@ export default defineConfig(({ mode }) => {
   );
   return {
     main: {
+      define: { __CADENCR_RENDERER__: "false" },
       plugins: [
         externalizeDepsPlugin(),
         electronBundleContractPlugin(electronBundleContracts.main),
@@ -241,6 +242,7 @@ export default defineConfig(({ mode }) => {
         proxy: serviceProxy.proxy,
       },
       define: {
+        __CADENCR_RENDERER__: "true",
         __APP_VERSION__: JSON.stringify(pkg.version),
         __APP_BUILD_ID__: JSON.stringify(rendererDiagnostics.buildId),
         __APP_BUILD_BRANCH__: JSON.stringify(resolveBuildBranch()),

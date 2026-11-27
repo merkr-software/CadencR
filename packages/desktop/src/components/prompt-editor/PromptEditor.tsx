@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   forwardRef,
   memo,
@@ -181,9 +182,10 @@ function usePromptEditorHandle(
 }
 
 function ShellCommandPlaceholder() {
+  const { t } = useUiTranslation();
   return (
     <div className="pointer-events-none absolute top-0 right-0 left-0 truncate font-mono text-sm leading-[22px] text-muted-foreground select-none max-[767px]:text-base">
-      Type a shell command…
+      {t("conversation.composer.promptEditor.typeAShellCommand", "Type a shell command…")}
     </div>
   );
 }
@@ -224,6 +226,11 @@ function editableClassName(
 // plugin's visual effect was already a no-op (max-height clamps the inline
 // height anyway), so dropping it was pure performance win.
 
+function usePromptAriaLabel(): string {
+  const { t } = useUiTranslation();
+  return t("conversation.composer.promptEditor.messageToTheAgent", "Message to the agent");
+}
+
 const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditorInner(
     {
@@ -247,6 +254,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
     },
     ref,
   ) {
+    const ariaLabel = usePromptAriaLabel();
     const editorRef = useRef<LexicalEditor | null>(null);
     const [shellCommandState, setShellCommandState] = useState<ShellCommandEditorState>({
       active: false,
@@ -272,10 +280,10 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
           contentEditable={
             <ContentEditable
               className={editableClassName(shellCommandState, disabled, className)}
-              // Shell commands are not prose — suppress the red spellcheck squiggle.
+              // Shell commands are not prose. Suppress spellcheck in shell mode.
               spellCheck={!shellCommandState.active}
               aria-disabled={disabled}
-              aria-label="Message to the agent"
+              aria-label={ariaLabel}
               aria-multiline
             />
           }
@@ -351,7 +359,13 @@ const PromptEditorImpl = forwardRef<PromptEditorHandle, PromptEditorProps>(
         theme: { paragraph: "m-0 leading-[22px]" },
         nodes: [MentionNode, SlashCommandNode, ConversationReferenceNode, ShellCommandPrefixNode],
         onError(error: Error) {
-          toast.error(`Editor error: ${error.message}`);
+          toast.error(
+            translateUi(
+              "conversation.composer.promptEditor.editorError",
+              "Editor error: {{error}}",
+              { error: error.message },
+            ),
+          );
         },
         editorState: initialTextRef.current
           ? () => {

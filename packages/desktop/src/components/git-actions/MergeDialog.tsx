@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { Fragment, useEffect, useRef, useState, type ReactElement } from "react";
 import { AlertTriangle, GitMerge, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
 import { RadioCardGroup } from "@/components/settings/RadioCardGroup";
-import { GIT_MERGE_RADIO_OPTIONS } from "@/components/settings/gitMergeRadioOptions";
+import { gitMergeRadioOptions } from "@/components/settings/gitMergeRadioOptions";
 import {
   GIT_MERGE_MODE_KEY,
   gitMergeModeFlag,
@@ -75,6 +76,7 @@ function MergeDialogBody({
   onCancel,
   onMerge,
 }: MergeDialogBodyProps): ReactElement {
+  const { t } = useUiTranslation();
   const alertRef = useRef<HTMLDivElement>(null);
   // On a phone the alert lands below the stacked option cards, out of view.
   useEffect(() => {
@@ -91,17 +93,22 @@ function MergeDialogBody({
             {currentBranch} → {targetBranch}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Remote targets such as origin/main are merged into their local branch, e.g. main.
+            {t(
+              "workspace.git.mergeDialog.remoteTargetsSuchAsOriginMainAreMerged",
+              "Remote targets such as origin/main are merged into their local branch, e.g. main.",
+            )}
           </p>
         </div>
 
         <div className="space-y-2">
-          <div className="text-sm font-medium">Merge option</div>
+          <div className="text-sm font-medium">
+            {t("workspace.git.mergeDialog.mergeOption", "Merge option")}
+          </div>
           <RadioCardGroup<GitMergeMode>
-            ariaLabel="Merge option"
+            ariaLabel={t("workspace.git.mergeDialog.mergeOption", "Merge option")}
             value={effectiveMode}
             onChange={onModeChange}
-            options={GIT_MERGE_RADIO_OPTIONS}
+            options={gitMergeRadioOptions(t)}
             layout="grid"
             disabled={submitting}
           />
@@ -112,7 +119,7 @@ function MergeDialogBody({
             checked={saveAsDefault}
             onCheckedChange={(checked) => onSaveAsDefaultChange(checked === true)}
           />
-          Save as default
+          {t("workspace.git.mergeDialog.saveAsDefault", "Save as default")}
         </label>
 
         {error && (
@@ -136,12 +143,12 @@ function MergeDialogBody({
 
       <DialogFooter>
         <Button variant="outline" onClick={onCancel} disabled={submitting}>
-          Cancel
+          {t("workspace.git.mergeDialog.cancel", "Cancel")}
           <KeyboardOnlyShortcutHint keys={ESC_KEYS} />
         </Button>
         <Button onClick={onMerge} disabled={submitting}>
           {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-          Merge
+          {t("workspace.git.mergeDialog.merge", "Merge")}
           <KeyboardOnlyShortcutHint keys={SUBMIT_KEYS} />
         </Button>
       </DialogFooter>
@@ -154,6 +161,7 @@ export default function MergeDialog({
   open,
   onOpenChange,
 }: MergeDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const snapshot = useGitStatusStore(selectGitStatus(featureId));
   const setting = useGetWorkspaceSetting(GIT_MERGE_MODE_KEY, { query: { enabled: open } });
   const [mode, setMode] = useState<GitMergeMode | null>(null);
@@ -189,7 +197,11 @@ export default function MergeDialog({
           queryKey: getGetWorkspaceSettingQueryKey(GIT_MERGE_MODE_KEY),
         });
       }
-      toast.success(`Merged with ${gitMergeModeFlag(effectiveMode)}`);
+      toast.success(
+        translateUi("workspace.git.mergeDialog.mergedWithFlag", "Merged with {{flag}}", {
+          flag: gitMergeModeFlag(effectiveMode),
+        }),
+      );
       // The merge is committed, but its cleanup (e.g. switching the target
       // worktree back to its original branch) did not finish.
       if (result.warning) toast.warning(result.warning);
@@ -222,7 +234,7 @@ export default function MergeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitMerge className="size-5" />
-            Merge branch
+            {t("workspace.git.mergeDialog.mergeBranch", "Merge branch")}
           </DialogTitle>
         </DialogHeader>
 
@@ -245,12 +257,16 @@ export default function MergeDialog({
 }
 
 function ConflictFileList({ files }: { files: string[] }): ReactElement {
+  const { t } = useUiTranslation();
   const visible = files.slice(0, MAX_CONFLICT_ROWS);
   const overflow = files.length - visible.length;
   return (
     <div>
       <p className="text-xs uppercase tracking-wide opacity-80">
-        Conflicting file{files.length === 1 ? "" : "s"}
+        {t("workspace.git.mergeDialog.conflictingFiles", "Conflicting files", {
+          count: files.length,
+          defaultValue_one: "Conflicting file",
+        })}
       </p>
       <ul className="mt-1 list-disc space-y-0.5 pl-5 font-mono text-xs wrap-anywhere">
         {visible.map((file) => (
@@ -261,7 +277,10 @@ function ConflictFileList({ files }: { files: string[] }): ReactElement {
       </ul>
       {overflow > 0 && (
         <p className="mt-1 text-xs opacity-80">
-          + {overflow} more file{overflow === 1 ? "" : "s"}
+          {t("workspace.git.mergeDialog.overflow", "+ {{count, number}} more files", {
+            count: overflow,
+            defaultValue_one: "+ {{count, number}} more file",
+          })}
         </p>
       )}
     </div>
@@ -289,7 +308,9 @@ function BreakablePath({ path }: { path: string }): ReactElement {
 }
 
 function formatMergeError(err: unknown): string {
-  return formatMergeErrorText(apiErrorMessage(err, "Merge failed."));
+  return formatMergeErrorText(
+    apiErrorMessage(err, translateUi("workspace.git.mergeDialog.mergeFailed", "Merge failed.")),
+  );
 }
 
 // The backend returns its own structured sentences for the conflict and
@@ -299,21 +320,29 @@ function formatMergeError(err: unknown): string {
 // in …" and are passed through unchanged.
 function formatMergeErrorText(message: string | null | undefined): string {
   const cleaned = message?.replace(/^Bad request:\s*/i, "").trim();
-  if (!cleaned) return "Merge failed.";
+  if (!cleaned) return translateUi("workspace.git.mergeDialog.mergeFailed", "Merge failed.");
 
   const normalized = cleaned.toLowerCase();
   if (normalized.includes("target branch worktree") && normalized.includes("uncommitted changes")) {
-    return "Cannot merge because the target branch worktree has uncommitted changes. Commit, stash, or discard those changes, then try again.";
+    return translateUi(
+      "workspace.git.mergeDialog.cannotMergeBecauseTheTargetBranchWorktree",
+      "Cannot merge because the target branch worktree has uncommitted changes. Commit, stash, or discard those changes, then try again.",
+    );
   }
   if (
     normalized.includes("source feature worktree") &&
     normalized.includes("uncommitted changes")
   ) {
-    return "Cannot merge because the source feature worktree has uncommitted changes. Commit, stash, or discard those changes, then try again.";
+    return translateUi(
+      "workspace.git.mergeDialog.cannotMergeBecauseTheSourceFeatureWorktree",
+      "Cannot merge because the source feature worktree has uncommitted changes. Commit, stash, or discard those changes, then try again.",
+    );
   }
   if (normalized.startsWith("merge conflict") || normalized.startsWith("git merge ")) {
     return cleaned;
   }
 
-  return `Merge failed: ${cleaned}`;
+  return translateUi("workspace.git.mergeDialog.mergeFailedError", "Merge failed: {{error}}", {
+    error: cleaned,
+  });
 }

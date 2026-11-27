@@ -1,3 +1,4 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Compartment, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -36,6 +37,13 @@ export interface CodeMirrorEditorProps {
 }
 
 const AUTO_SAVE_DELAY_MS = 1500;
+
+function blameUnavailable(t: UiTranslator): string {
+  return t(
+    "workspace.editor.useCodeMirrorEditorController.blameUnavailable",
+    "Git blame unavailable",
+  );
+}
 
 function useEditorFileData(props: CodeMirrorEditorProps) {
   const language = useEditorLanguage(props.projectId, props.filePath);
@@ -95,11 +103,7 @@ function useEditorFileData(props: CodeMirrorEditorProps) {
       },
     },
   );
-  useQueryErrorToast(
-    blame,
-    "Git blame unavailable",
-    `git-blame:${props.featureId}:${props.filePath}`,
-  );
+  useQueryErrorToast(blame, blameUnavailable, `git-blame:${props.featureId}:${props.filePath}`);
   const gitGutter = useGitGutter({
     projectId: props.projectId,
     featureId: props.featureId,

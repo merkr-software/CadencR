@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import { ChevronDownIcon, ChevronUpIcon, SearchIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ export const ConversationSearchBar = memo(function ConversationSearchBar({
   onPrev,
   onClose,
 }: ConversationSearchBarProps) {
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus + select on open and on every re-trigger of the shortcut.
@@ -75,8 +77,14 @@ export const ConversationSearchBar = memo(function ConversationSearchBar({
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Find in conversation"
-        aria-label="Find in conversation"
+        placeholder={t(
+          "conversation.stream.conversationSearchBar.findInConversation",
+          "Find in conversation",
+        )}
+        aria-label={t(
+          "conversation.stream.conversationSearchBar.findInConversation",
+          "Find in conversation",
+        )}
         className="w-44"
       />
       <span
@@ -90,7 +98,7 @@ export const ConversationSearchBar = memo(function ConversationSearchBar({
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="Previous match"
+        aria-label={t("conversation.stream.conversationSearchBar.previousMatch", "Previous match")}
         onClick={onPrev}
         disabled={matchCount === 0}
         className="text-muted-foreground"
@@ -100,7 +108,7 @@ export const ConversationSearchBar = memo(function ConversationSearchBar({
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="Next match"
+        aria-label={t("conversation.stream.conversationSearchBar.nextMatch", "Next match")}
         onClick={onNext}
         disabled={matchCount === 0}
         className="text-muted-foreground"
@@ -110,7 +118,7 @@ export const ConversationSearchBar = memo(function ConversationSearchBar({
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label="Close search"
+        aria-label={t("conversation.stream.conversationSearchBar.closeSearch", "Close search")}
         onClick={onClose}
         className="text-muted-foreground"
       >

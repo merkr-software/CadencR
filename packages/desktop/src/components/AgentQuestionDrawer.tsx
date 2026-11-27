@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { QuestionDraftIdentity } from "@/stores/question-drafts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ function AgentQuestionContent({
   questionCount,
   isSubmitting,
 }: AgentQuestionContentProps): React.ReactElement {
+  const { t } = useUiTranslation();
   const currentQuestion = form.currentQuestion!;
   const { hasAnswer, isLastQuestion, hasOptions, selectedPreview } = form;
   // `break-words` is inherited: long paths in the question or an option wrap
@@ -101,7 +103,10 @@ function AgentQuestionContent({
               if (event.key === "Enter" && !event.nativeEvent.isComposing)
                 form.handleFreeTextSubmit();
             }}
-            placeholder="Type your answer..."
+            placeholder={t(
+              "conversation.composer.agentQuestionDrawer.typeYourAnswer",
+              "Type your answer...",
+            )}
             className={cn(
               "text-sm",
               inline &&
@@ -118,7 +123,11 @@ function AgentQuestionContent({
           ) : (
             <SendIcon className="mr-1.5 size-3" />
           )}
-          {isSubmitting ? "Submitting…" : isLastQuestion ? "Submit" : "Next"}
+          {isSubmitting
+            ? t("conversation.composer.agentQuestionDrawer.submitting", "Submitting…")
+            : isLastQuestion
+              ? t("conversation.composer.agentQuestionDrawer.submit", "Submit")
+              : t("conversation.composer.agentQuestionDrawer.next", "Next")}
         </Button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * CodeMirror extension that turns CMD-click (macOS) / CTRL-click (Linux,
  * Windows) on a symbol into go-to-definition. We key on the modifier state
@@ -68,11 +69,26 @@ export function lspModClickExtension(
           ? getLspStatus(args.resolvedRoot, args.languageId)?.status
           : undefined;
       if (status === "error") {
-        toast.error("Language server failed — click the status indicator to retry.");
+        toast.error(
+          translateUi(
+            "workspace.editor.mod-click.failed",
+            "Language server failed — click the status indicator to retry.",
+          ),
+        );
       } else if (status === "reconnecting") {
-        toast.warning("Language server reconnecting — try again in a moment.");
+        toast.warning(
+          translateUi(
+            "workspace.editor.mod-click.reconnecting",
+            "Language server reconnecting — try again in a moment.",
+          ),
+        );
       } else {
-        toast.info("Language server is still starting — try again in a moment.");
+        toast.info(
+          translateUi(
+            "workspace.editor.mod-click.starting",
+            "Language server is still starting — try again in a moment.",
+          ),
+        );
       }
       return true;
     },

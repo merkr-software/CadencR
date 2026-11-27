@@ -1,3 +1,5 @@
+import { localizedBrowserError } from "@/shared/browser-error-copy";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import {
   AlertTriangleIcon,
@@ -32,6 +34,8 @@ export const BrowserPageError = memo(function BrowserPageError({
   onRetry,
   retrying = false,
 }: BrowserPageErrorProps): ReactElement {
+  const { t } = useUiTranslation();
+  const { title, description } = localizedBrowserError(error, t);
   return (
     <div
       role="alert"
@@ -42,8 +46,8 @@ export const BrowserPageError = memo(function BrowserPageError({
           <PageErrorIcon kind={error.kind} />
         </div>
         <div className="space-y-1.5">
-          <h2 className="text-base font-semibold text-foreground">{error.title}</h2>
-          <p className="text-sm text-muted-foreground">{error.description}</p>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         {error.url ? (
           <p
@@ -66,7 +70,9 @@ export const BrowserPageError = memo(function BrowserPageError({
             ) : (
               <RotateCwIcon className="size-4" />
             )}
-            {retrying ? "Retrying…" : "Try again"}
+            {retrying
+              ? t("workspace.tools.browserPageError.retrying", "Retrying…")
+              : t("workspace.tools.browserPageError.tryAgain", "Try again")}
           </Button>
         ) : null}
         {error.code ? (

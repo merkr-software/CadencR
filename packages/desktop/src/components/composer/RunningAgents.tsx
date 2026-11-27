@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import { AgentIcon } from "@/components/AgentIcon";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ import { useSettledOffScreen } from "./useSettledOffScreen";
  * card; nothing else happens from here.
  */
 export const RunningAgents = memo(function RunningAgents(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { featureId, sessionId } = useComposerContext();
   const runs = useRunningSubagents(featureId, sessionId);
   const { onScreen, reveal } = useSubagentCards();
@@ -44,13 +46,16 @@ export const RunningAgents = memo(function RunningAgents(): ReactElement | null 
   return (
     <StackSection
       tone="agents"
-      label="Running agents"
+      label={t("conversation.composer.runningAgents.runningAgents", "Running agents")}
       data-composer-running-agents
       icon={<AgentIcon />}
-      title="Running agents"
+      title={t("conversation.composer.runningAgents.runningAgents", "Running agents")}
       count={offScreen.length}
-      hint="Click one to find it in the conversation"
-      summary={agentsSummary(offScreen)}
+      hint={t(
+        "conversation.composer.runningAgents.clickOneToFindItInThe",
+        "Click one to find it in the conversation",
+      )}
+      summary={agentsSummary(offScreen, t)}
       fold={fold}
     >
       <StackList>
@@ -62,15 +67,13 @@ export const RunningAgents = memo(function RunningAgents(): ReactElement | null 
   );
 });
 
-function agentsSummary(runs: readonly SubagentRun[]): string {
-  const views = runs.map((run) => subagentView(run));
+function agentsSummary(runs: readonly SubagentRun[], t: UiTranslator): string {
+  const views = runs.map((run) => subagentView(run, undefined, t));
   const [first] = views;
   if (views.length === 1 && first.description) return `${first.title}: ${first.description}`;
   // Several agents often share a name (general-purpose): their tasks tell them apart.
   return views.map((view) => view.description ?? view.title).join(", ");
 }
-
-const NOT_LOADED = "That agent's card is not in the loaded conversation yet.";
 
 const RunningAgentRow = memo(function RunningAgentRow({
   run,
@@ -79,17 +82,31 @@ const RunningAgentRow = memo(function RunningAgentRow({
   run: SubagentRun;
   reveal: (toolUseId: string) => boolean;
 }): ReactElement {
-  const view = useMemo(() => subagentView(run), [run]);
+  const { t } = useUiTranslation();
+  const view = useMemo(() => subagentView(run, undefined, t), [run, t]);
   const show = (): void => {
-    if (!reveal(run.toolUseId)) toast.info(NOT_LOADED);
+    if (!reveal(run.toolUseId))
+      toast.info(
+        translateUi(
+          "conversation.composer.runningAgents.cardNotLoaded",
+          "That agent's card is not in the loaded conversation yet.",
+        ),
+      );
   };
   return (
     <li>
       <button
         type="button"
         onClick={show}
-        title="Show it in the conversation"
-        aria-label={`Show ${view.title}${view.description ? `: ${view.description}` : ""} in the conversation`}
+        title={t(
+          "conversation.composer.runningAgents.showItInTheConversation",
+          "Show it in the conversation",
+        )}
+        aria-label={t(
+          "conversation.composer.runningAgents.showAgent",
+          "Show {{agent}} in the conversation",
+          { agent: view.description ? `${view.title}: ${view.description}` : view.title },
+        )}
         className={STACK_ROW_BUTTON_CLASS}
       >
         <SubagentIdentity view={view} />

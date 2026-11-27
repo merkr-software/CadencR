@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode } from "react";
 import { ChevronRightIcon, Loader2Icon, PlayIcon, SquareIcon, TerminalIcon } from "lucide-react";
 
@@ -50,6 +51,7 @@ export function MobileCustomActionsSheet({
   onShowDetails,
   details,
 }: MobileCustomActionsSheetProps): ReactElement {
+  const { t } = useUiTranslation();
   const flagged = aggregate === "running" || aggregate === "failed";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,8 +62,10 @@ export function MobileCustomActionsSheet({
           className="relative border-border/80 bg-muted/20 text-xs"
           aria-label={
             flagged
-              ? `Actions, ${aggregate === "running" ? "one running" : "one failed"}`
-              : "Actions"
+              ? aggregate === "running"
+                ? t("customActions.mobile.running", "Actions, one running")
+                : t("customActions.mobile.failed", "Actions, one failed")
+              : t("customActions.mobileCustomActionsSheet.actions", "Actions")
           }
         >
           <PlayIcon className="size-3.5" />
@@ -78,8 +82,12 @@ export function MobileCustomActionsSheet({
       </DialogTrigger>
       <DialogContent className="top-auto bottom-0 max-w-full translate-y-0 rounded-b-none px-3 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 sm:max-w-full">
         <DialogHeader className={cn("px-1 text-left", details != null && "sr-only")}>
-          <DialogTitle>Actions</DialogTitle>
-          <DialogDescription>Run in this conversation&apos;s working copy.</DialogDescription>
+          <DialogTitle>
+            {t("customActions.mobileCustomActionsSheet.actions", "Actions")}
+          </DialogTitle>
+          <DialogDescription>
+            {t("customActions.mobile.help", "Run in this conversation's working copy.")}
+          </DialogDescription>
         </DialogHeader>
         {details != null ? (
           <div className="-mx-3 max-h-[80svh] overflow-y-auto pt-3">{details}</div>
@@ -116,6 +124,7 @@ function SheetRow({
   onDone: () => void;
   onShowDetails: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const starting = useIsActionStarting(action, featureId);
   const running = !action.run_in_terminal && runStateOf(action.last_run) === "running";
   const runId = action.last_run?.run_id;
@@ -138,7 +147,9 @@ function SheetRow({
           <span className="block truncate text-sm">{action.name}</span>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <RunStateDot run={action.run_in_terminal ? null : action.last_run} />
-            {action.run_in_terminal ? "Opens a terminal" : runStateText(action.last_run)}
+            {action.run_in_terminal
+              ? t("customActions.mobile.terminal", "Opens a terminal")
+              : runStateText(action.last_run)}
           </span>
         </span>
       </button>
@@ -147,7 +158,11 @@ function SheetRow({
         size="icon-sm"
         className="size-11 text-muted-foreground disabled:opacity-100"
         disabled={starting}
-        aria-label={running ? `Stop “${action.name}”` : `Run “${action.name}”`}
+        aria-label={
+          running
+            ? t("customActions.stopNamed", "Stop “{{name}}”", { name: action.name })
+            : t("customActions.runNamed", "Run “{{name}}”", { name: action.name })
+        }
         onClick={() => {
           if (running && runId != null) {
             void stopCustomActionRun({ action, featureId, projectId }, runId);
@@ -171,7 +186,7 @@ function SheetRow({
         variant="ghost"
         size="icon-sm"
         className="size-11 text-muted-foreground"
-        aria-label={`Details of “${action.name}”`}
+        aria-label={t("customActions.detailsNamed", "Details of “{{name}}”", { name: action.name })}
         onClick={onShowDetails}
       >
         <ChevronRightIcon />

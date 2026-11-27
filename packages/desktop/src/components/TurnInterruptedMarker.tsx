@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { Play, Power, RotateCw, Square, TimerOff, type LucideIcon } from "lucide-react";
 import { useIsLatestBlock } from "@/hooks/useIsLatestBlock";
@@ -35,41 +36,56 @@ const QUIT_BACKGROUND_STOPPED_PROMPT =
 
 const INTERRUPTIONS: Record<
   InterruptionKind,
-  { label: string; Icon: LucideIcon; iconClassName: string; resumePrompt: string | null }
+  {
+    label: (t: UiTranslator) => string;
+    Icon: LucideIcon;
+    iconClassName: string;
+    resumePrompt: string | null;
+  }
 > = {
   restart: {
-    label: "Interrupted by a Cadencr restart",
+    label: (t) =>
+      t("conversation.stream.turnInterruptedMarker.restart", "Interrupted by a Cadencr restart"),
     Icon: RotateCw,
     iconClassName: "size-3",
     resumePrompt: CONTINUE_PROMPT,
   },
   background: {
-    label: "Background tasks stopped by a Cadencr restart",
+    label: (t) =>
+      t(
+        "conversation.stream.turnInterruptedMarker.background",
+        "Background tasks stopped by a Cadencr restart",
+      ),
     Icon: TimerOff,
     iconClassName: "size-3",
     resumePrompt: BACKGROUND_STOPPED_PROMPT,
   },
   "quit-background": {
-    label: "Background tasks stopped when you quit Cadencr",
+    label: (t) =>
+      t(
+        "conversation.stream.turnInterruptedMarker.quitBackground",
+        "Background tasks stopped when you quit Cadencr",
+      ),
     Icon: Power,
     iconClassName: "size-3",
     resumePrompt: QUIT_BACKGROUND_STOPPED_PROMPT,
   },
   quit: {
-    label: "Stopped when you quit Cadencr",
+    label: (t) =>
+      t("conversation.stream.turnInterruptedMarker.quit", "Stopped when you quit Cadencr"),
     Icon: Power,
     iconClassName: "size-3",
     resumePrompt: CONTINUE_PROMPT,
   },
   // A stopped compaction has no work to resume.
   compact: {
-    label: "Compaction stopped",
+    label: (t) => t("conversation.stream.turnInterruptedMarker.compaction", "Compaction stopped"),
     Icon: Square,
     iconClassName: "size-2.5 fill-current",
     resumePrompt: null,
   },
   user: {
-    label: "Stopped by you",
+    label: (t) => t("conversation.stream.turnInterruptedMarker.user", "Stopped by you"),
     Icon: Square,
     iconClassName: "size-2.5 fill-current",
     resumePrompt: CONTINUE_PROMPT,
@@ -96,6 +112,7 @@ export const TurnInterruptedMarker = memo(function TurnInterruptedMarker({
   blockId: string;
   cause: string;
 }) {
+  const { t } = useUiTranslation();
   const { wsSessionId, sendPrompt } = useAgentSessionContext();
   const isLatest = useIsLatestBlock(wsSessionId, blockId);
   const kind = INTERRUPTION_KINDS.get(cause) ?? "user";
@@ -109,7 +126,7 @@ export const TurnInterruptedMarker = memo(function TurnInterruptedMarker({
       <span className="h-px flex-1 bg-border/70" aria-hidden />
       <span className="inline-flex items-center gap-1.5">
         <Icon className={iconClassName} aria-hidden />
-        {label}
+        {label(t)}
       </span>
       {isLatest && resumePrompt && (
         <button
@@ -118,7 +135,7 @@ export const TurnInterruptedMarker = memo(function TurnInterruptedMarker({
           className="composer-instrument gap-1.5 text-foreground"
         >
           <Play className="size-3" aria-hidden />
-          Resume
+          {t("conversation.stream.turnInterruptedMarker.resume", "Resume")}
         </button>
       )}
       <span className="h-px flex-1 bg-border/70" aria-hidden />
@@ -137,12 +154,16 @@ export const RestartResumedDivider = memo(function RestartResumedDivider({
 }: {
   sentAt?: string;
 }) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-3 py-3" data-restart-resumed role="note">
       <div className="h-px flex-1 bg-primary/30" />
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
         <RotateCw className="size-3" aria-hidden />
-        Resumed after restart
+        {t(
+          "conversation.stream.turnInterruptedMarker.resumedAfterRestart",
+          "Resumed after restart",
+        )}
         {sentAt && (
           <span className="font-normal text-muted-foreground tabular-nums">
             · {formatStreamTimestamp(sentAt)}

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useGetWorkspaceSetting } from "@/api/generated";
@@ -24,8 +25,17 @@ export function useUnifiedAgentsPerRowSetting(): UnifiedAgentsPerRowSetting {
 
   useEffect((): void => {
     if (!query.isError) return;
-    const message = apiErrorMessage(query.error, "Unknown error");
-    toast.error(`Could not load agents-per-row setting: ${message}`);
+    const message = apiErrorMessage(
+      query.error,
+      translateUi("agents.overview.unknownError", "Unknown error"),
+    );
+    toast.error(
+      translateUi(
+        "agents.overview.columns.loadError",
+        "Could not load agents-per-row setting: {{message}}",
+        { message },
+      ),
+    );
   }, [query.error, query.isError]);
 
   const setValue = useCallback(

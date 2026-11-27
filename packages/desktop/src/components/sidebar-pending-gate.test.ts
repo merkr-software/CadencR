@@ -5,7 +5,6 @@ import {
   gatePrompt,
   gateQuestions,
   permissionContext,
-  PLAN_READY_LABEL,
   sidebarGatePrompt,
   triggerPendingKind,
 } from "./sidebar-pending-gate";
@@ -93,7 +92,7 @@ describe("gateQuestions", () => {
 describe("sidebarGatePrompt", () => {
   it("names a plan by its label and anything else by its prompt", () => {
     expect(sidebarGatePrompt(gate({ kind: "plan", payload: { description: "x" } }))).toBe(
-      PLAN_READY_LABEL,
+      "Plan ready for review",
     );
     expect(
       sidebarGatePrompt(

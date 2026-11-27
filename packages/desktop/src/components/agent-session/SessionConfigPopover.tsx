@@ -1,3 +1,5 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import type { SessionConfigError } from "@/stores/ws-session-types";
 import { AlertCircle, Loader2, RefreshCw, SlidersHorizontal } from "lucide-react";
 import type {
   RuntimeSessionConfigOption,
@@ -22,7 +24,7 @@ interface SessionConfigPopoverProps {
   config: RuntimeSessionConfigSnapshot | null;
   loading: boolean;
   supported: boolean | null;
-  error: string | null;
+  error: SessionConfigError | null;
   pendingId: string | null;
   onRefresh: () => void;
   onChange: (configId: string, value: RuntimeSessionConfigValue) => void;
@@ -40,6 +42,7 @@ export function SessionConfigPopover({
   onChange,
   variant = "chip",
 }: SessionConfigPopoverProps): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   if (!shouldShowSessionConfig(config, loading, supported, error)) return null;
   const options = additionalSessionConfigOptions(config);
   return (
@@ -53,11 +56,17 @@ export function SessionConfigPopover({
               : META_BAR_CHIP,
             error && "text-destructive",
           )}
-          aria-label="Session configuration"
-          title="Configuration negotiated with this ACP provider"
+          aria-label={t(
+            "conversation.stream.sessionConfigPopover.sessionConfiguration",
+            "Session configuration",
+          )}
+          title={t(
+            "conversation.stream.sessionConfigPopover.configurationNegotiatedWithThisAcpProvider",
+            "Configuration negotiated with this ACP provider",
+          )}
         >
           {loading ? <Loader2 className="animate-spin" /> : <SlidersHorizontal />}
-          Session
+          {t("conversation.stream.sessionConfigPopover.session", "Session")}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -67,24 +76,36 @@ export function SessionConfigPopover({
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <div>
-          <p className="text-sm font-semibold">Session configuration</p>
+          <p className="text-sm font-semibold">
+            {t(
+              "conversation.stream.sessionConfigPopover.sessionConfiguration",
+              "Session configuration",
+            )}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Additional controls from the active ACP session. Model and thinking use the main session
-            controls so every change remains durable.
+            {t(
+              "conversation.stream.sessionConfigPopover.additionalControlsFromTheActiveAcpSession",
+              "Additional controls from the active ACP session. Model and thinking use the main session controls so every change remains durable.",
+            )}
           </p>
         </div>
         {loading ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Loading configuration…
+            <Loader2 className="size-3.5 animate-spin" />{" "}
+            {t(
+              "conversation.stream.sessionConfigPopover.loadingConfiguration",
+              "Loading configuration…",
+            )}
           </p>
         ) : null}
         {error ? (
           <div role="alert" className="rounded-md border border-destructive/30 p-2 text-xs">
             <p className="flex gap-2 text-destructive">
-              <AlertCircle className="mt-0.5 size-3.5 shrink-0" /> {error}
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />{" "}
+              {sessionConfigErrorMessage(error, t)}
             </p>
             <Button size="xs" variant="outline" className="mt-2" onClick={onRefresh}>
-              <RefreshCw /> Retry
+              <RefreshCw /> {t("common.retry", "Retry")}
             </Button>
           </div>
         ) : null}
@@ -106,6 +127,20 @@ export function SessionConfigPopover({
   );
 }
 
+function sessionConfigErrorMessage(error: SessionConfigError, t: UiTranslator): string {
+  switch (error.kind) {
+    case "provider":
+      return error.message;
+    case "timeout":
+      return t("conversation.config.timeout", "Session configuration timed out.");
+    case "invalid":
+      return t(
+        "conversation.config.invalid",
+        "The runtime returned invalid session configuration.",
+      );
+  }
+}
+
 export function hasAdditionalSessionConfigOptions(
   config: RuntimeSessionConfigSnapshot | null,
 ): boolean {
@@ -116,7 +151,7 @@ export function shouldShowSessionConfig(
   config: RuntimeSessionConfigSnapshot | null,
   loading: boolean,
   supported: boolean | null,
-  error: string | null,
+  error: SessionConfigError | null,
 ): boolean {
   if (supported === false) return false;
   if (loading || error) return true;

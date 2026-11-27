@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -60,25 +61,30 @@ export function registerRendererDiagnosticsIpc(
         failures.push(failure);
       }
     }
-    if (failures.length) throw new AggregateError(failures, "Could not save all diagnostic files");
+    if (failures.length)
+      throw new AggregateError(
+        failures,
+        t("system.diagnostics.partialSave", "Could not save all diagnostic files"),
+      );
   });
   ipcMain.handle("app:export-renderer-diagnostics", async (event, rawContext: unknown) => {
     assertTrusted(event);
     const current = diagnosticContextSchema.parse(rawContext);
     const reports = readDiagnosticRecords(historyPath());
     const window = getMainWindow();
-    if (!window) throw new Error("The application window is unavailable");
-    const selected = await dialog.showSaveDialog(window, {
-      title: "Export diagnostic report",
-      defaultPath: `cadencr-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-      filters: [{ name: "Diagnostic report", extensions: ["json"] }],
-    });
+    if (!window)
+      throw new Error(
+        t("system.diagnostics.missingWindow", "The application window is unavailable"),
+      );
+    const selected = await selectDiagnosticExport(window);
     if (selected.canceled || !selected.filePath) return { canceled: true };
     if (
       !selected.filePath.endsWith(".json") ||
       path.resolve(selected.filePath) === path.resolve(historyPath())
     ) {
-      throw new Error("Choose a new .json file for the diagnostic export");
+      throw new Error(
+        t("system.diagnostics.chooseJson", "Choose a new .json file for the diagnostic export"),
+      );
     }
     try {
       await writeFile(
@@ -97,10 +103,26 @@ export function registerRendererDiagnosticsIpc(
       );
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "EEXIST") {
-        throw new Error("Choose an unused filename for the diagnostic report", { cause: error });
+        throw new Error(
+          t(
+            "system.diagnostics.chooseUnused",
+            "Choose an unused filename for the diagnostic report",
+          ),
+          { cause: error },
+        );
       }
       throw error;
     }
     return { canceled: false };
+  });
+}
+
+function selectDiagnosticExport(window: BrowserWindow) {
+  return dialog.showSaveDialog(window, {
+    title: t("system.diagnostics.saveTitle", "Export diagnostic report"),
+    defaultPath: `cadencr-diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+    filters: [
+      { name: t("system.diagnostics.reportType", "Diagnostic report"), extensions: ["json"] },
+    ],
   });
 }

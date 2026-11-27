@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import { Loader2Icon } from "lucide-react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -53,27 +54,34 @@ function FeatureLabelCommand({
   onKeyDown,
   onSuggestionSelect,
 }: FeatureLabelCommandProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Command shouldFilter>
       <div className="border-b px-3 py-2 text-xs font-medium text-foreground">
-        Set feature label
+        {t("sidebar.labelEditor.title", "Set feature label")}
       </div>
       <CommandInput
         ref={inputRef}
         value={value}
         disabled={isSaving}
-        aria-label="Feature label"
+        aria-label={t("sidebar.labelEditor.label", "Feature label")}
         autoFocus
         data-ignore-feature-row-keydown
-        placeholder={isSaving ? "Saving label…" : "Set label"}
+        placeholder={
+          isSaving
+            ? t("sidebar.labelEditor.saving", "Saving label…")
+            : t("sidebar.projectFeatureRowParts.setLabel", "Set label")
+        }
         className="h-9 text-xs"
         onValueChange={onChange}
         onKeyDown={onKeyDown}
       />
       {suggestions.length > 0 && (
         <CommandList className="max-h-36">
-          <CommandEmpty className="py-3 text-center text-xs">No matching labels.</CommandEmpty>
-          <CommandGroup heading="Existing labels">
+          <CommandEmpty className="py-3 text-center text-xs">
+            {t("sidebar.labelEditor.noMatches", "No matching labels.")}
+          </CommandEmpty>
+          <CommandGroup heading={t("sidebar.labelEditor.existingLabels", "Existing labels")}>
             {suggestions.map((label) => (
               <CommandItem
                 key={label}
@@ -89,11 +97,16 @@ function FeatureLabelCommand({
       )}
       <div className="flex items-center justify-between gap-2 border-t p-2">
         <span className="text-[10.5px] text-muted-foreground">
-          Tab autocompletes · Enter saves · Esc cancels
+          {t("sidebar.labelEditor.shortcuts", "Tab autocompletes · Enter saves · Esc cancels")}
         </span>
         <Button type="button" size="xs" disabled={isSaving} onClick={() => onSave()}>
-          {isSaving && <Loader2Icon aria-label="Saving label" className="size-3 animate-spin" />}
-          Save
+          {isSaving && (
+            <Loader2Icon
+              aria-label={t("sidebar.labelEditor.loading", "Saving label")}
+              className="size-3 animate-spin"
+            />
+          )}
+          {t("sidebar.labelEditor.save", "Save")}
         </Button>
       </div>
     </Command>

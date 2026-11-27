@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
 import { lspListings } from "@/lib/marketplace-lsp-listings";
-import { TrustSection } from "./PluginDetailSections";
+import { FactsSection, TrustSection } from "./PluginDetailSections";
 
 vi.mock("./MarketplaceContext", () => ({
   useMarketplaceState: () => ({
@@ -28,6 +29,31 @@ function listing(status: "legacy" | "on_path" | "managed" | "invalid") {
     ],
   })[0];
 }
+
+it("keeps focus on a source link when its fact label changes language", async () => {
+  const previousLanguage = uiI18n.language;
+  uiI18n.addResourceBundle("fr-CA", "ui", {
+    marketplace: { pluginDetailSections: { source: "Code source" } },
+  });
+  const { unmount } = render(
+    <FactsSection listing={{ ...listing("managed"), repository: "https://example.com/source" }} />,
+  );
+  try {
+    expect(screen.getByText("Source")).toBeVisible();
+    const source = screen.getByRole("button", { name: "example.com/source" });
+    source.focus();
+
+    await act(() => uiI18n.changeLanguage("fr-CA"));
+
+    expect(screen.getByText("Code source")).toBeVisible();
+    expect(screen.getByRole("button", { name: "example.com/source" })).toBe(source);
+    expect(source).toHaveFocus();
+  } finally {
+    unmount();
+    await uiI18n.changeLanguage(previousLanguage);
+    uiI18n.removeResourceBundle("fr-CA", "ui");
+  }
+});
 
 describe("language server provenance", () => {
   afterEach(cleanup);

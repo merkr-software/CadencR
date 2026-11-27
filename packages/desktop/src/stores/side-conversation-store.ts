@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { z } from "zod";
@@ -27,10 +28,11 @@ interface SideConversationStore {
 
 function read(sourceSessionId: number): SideConversation[] {
   return (
-    readLocalJson(
-      STORAGE_PREFIX + sourceSessionId,
-      SIDE_CONVERSATIONS_SCHEMA,
-      "Couldn't read this conversation's side questions; they were reset.",
+    readLocalJson(STORAGE_PREFIX + sourceSessionId, SIDE_CONVERSATIONS_SCHEMA, () =>
+      translateUi(
+        "conversation.sideQuestions.restoreError",
+        "Couldn't read this conversation's side questions; they were reset.",
+      ),
     ) ?? []
   );
 }
@@ -39,7 +41,8 @@ function write(sourceSessionId: number, conversations: readonly SideConversation
   writeLocalJson(
     STORAGE_PREFIX + sourceSessionId,
     conversations.length > 0 ? conversations : null,
-    "Couldn't remember the side question",
+    () =>
+      translateUi("conversation.sideQuestions.saveError", "Couldn't remember the side question"),
   );
 }
 

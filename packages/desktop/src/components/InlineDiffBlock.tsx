@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useMemo, useState } from "react";
 import { ChevronRightIcon, PencilIcon, FilePlusIcon } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
@@ -16,6 +17,7 @@ interface InlineDiffBlockProps {
   filePath: string;
   oldContent: string;
   newContent: string;
+  emptyFileAction?: "created" | "deleted";
   /** Base path to strip from filePath for display (e.g. project or worktree root) */
   basePath?: string;
   /** Tool name (Edit or Write) — shown as a label in the header */
@@ -54,6 +56,7 @@ function InlineDiffHeader({
   toggleExpanded,
   toolName,
 }: InlineDiffHeaderProps): React.ReactElement {
+  const { t } = useUiTranslation();
   const ToolIcon = toolName === "Write" ? FilePlusIcon : PencilIcon;
   return (
     <div
@@ -75,7 +78,11 @@ function InlineDiffHeader({
         <button
           data-inline-diff-edit-action
           type="button"
-          aria-label={`Edit ${displayPath} in editor`}
+          aria-label={t(
+            "conversation.stream.inlineDiffBlock.editInEditor",
+            "Edit {{displayPath}} in editor",
+            { displayPath },
+          )}
           onClick={(event) => {
             event.stopPropagation();
             onOpenFileInEditor(filePath, firstChangedNewLine(patch));
@@ -83,7 +90,9 @@ function InlineDiffHeader({
           className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 leading-4 text-primary transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
         >
           <PencilIcon className="size-3" />
-          <span className="text-[11px] font-medium">Edit</span>
+          <span className="text-[11px] font-medium">
+            {t("conversation.stream.inlineDiffBlock.edit", "Edit")}
+          </span>
         </button>
       )}
       <button
@@ -94,7 +103,11 @@ function InlineDiffHeader({
         }}
         className="shrink-0 text-primary/70 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
         aria-expanded={isExpanded}
-        aria-label={isExpanded ? "Collapse diff" : "Expand diff"}
+        aria-label={
+          isExpanded
+            ? t("conversation.stream.inlineDiffBlock.collapseDiff", "Collapse diff")
+            : t("conversation.stream.inlineDiffBlock.expandDiff", "Expand diff")
+        }
       >
         <ChevronRightIcon
           className={cn("size-3 transition-transform", isExpanded && "rotate-90")}
@@ -110,14 +123,24 @@ function InlineDiffHeader({
  */
 export function InlineDiffBlock({
   filePath,
-  oldContent,
-  newContent,
+  oldContent: originalContent,
+  newContent: updatedContent,
+  emptyFileAction,
   basePath,
   toolName,
   onOpenFileInEditor,
   expanded,
   onExpandedChange,
 }: InlineDiffBlockProps) {
+  const { t } = useUiTranslation();
+  const oldContent =
+    emptyFileAction === "deleted"
+      ? t("workspace.git.inlineDiff.fileDeleted", "(file deleted)")
+      : originalContent;
+  const newContent =
+    emptyFileAction === "created"
+      ? t("workspace.git.inlineDiff.fileCreated", "(file created)")
+      : updatedContent;
   const { theme } = useTheme();
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
@@ -154,7 +177,7 @@ export function InlineDiffBlock({
   if (oldContent === newContent) {
     return (
       <div className="rounded-lg border border-[var(--editor-border)] bg-[var(--editor-bg)] px-3 py-2 text-xs text-[var(--editor-comment)]">
-        No changes
+        {t("conversation.stream.inlineDiffBlock.noChanges", "No changes")}
       </div>
     );
   }

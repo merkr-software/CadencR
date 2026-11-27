@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { z } from "zod";
@@ -20,6 +21,11 @@ const ITEM_SCHEMA = z.object({
   kind: z.enum(["pasted", "selection", "terminal", "pull_request", "review"]),
   label: z.string(),
   detail: z.string().optional(),
+  /** Line metadata for the tray. The stored label and detail are sent verbatim. */
+  lineCount: z.number().int().positive().optional(),
+  lineRange: z
+    .object({ start: z.number().int().positive(), end: z.number().int().positive() })
+    .optional(),
   /** Text appended to the prompt; `language` fences it as code. */
   content: z.string(),
   language: z.string().optional(),
@@ -45,19 +51,21 @@ const ITEMS_SCHEMA = z.array(ITEM_SCHEMA);
 
 function read(key: string): ComposerContextItem[] {
   return (
-    readLocalJson(
-      STORAGE_PREFIX + key,
-      ITEMS_SCHEMA,
-      "Couldn't restore the context attached to this draft; it was reset.",
+    readLocalJson(STORAGE_PREFIX + key, ITEMS_SCHEMA, () =>
+      translateUi(
+        "conversation.composer.context.restoreError",
+        "Couldn't restore the context attached to this draft; it was reset.",
+      ),
     ) ?? EMPTY
   );
 }
 
 function write(key: string, items: ComposerContextItem[]): void {
-  writeLocalJson(
-    STORAGE_PREFIX + key,
-    items.length === 0 ? null : items,
-    "Couldn't save the attached context for after a reload",
+  writeLocalJson(STORAGE_PREFIX + key, items.length === 0 ? null : items, () =>
+    translateUi(
+      "conversation.composer.context.saveError",
+      "Couldn't save the attached context for after a reload",
+    ),
   );
 }
 

@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { isHttpBrowserUrl } from "../../src/shared/browser-url";
 import { BrowserLibraryStore } from "./browser-library-store";
 import { removeLegacyOriginHistory } from "./browser-legacy-origins";
@@ -48,7 +49,12 @@ export class BrowserLibraryController {
   setBookmark(tabId: string, bookmarked: boolean): Promise<BrowserBookmark | null> {
     const tab = this.requireTab(tabId);
     if (tab.profile.mode !== "persistent") {
-      throw new Error("Private and feature-isolated tabs cannot be bookmarked.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.bookmarks.profileNotSupported",
+          "Private and feature-isolated tabs cannot be bookmarked.",
+        ),
+      );
     }
     return this.store.setBookmark(
       tab.webContents.getURL(),
@@ -64,7 +70,7 @@ export class BrowserLibraryController {
     this.recordedPages.set(tab.metadata.id, { url, title });
     this.runBackground(
       () => this.store.recordHistoryNavigation(url, title),
-      "Could not save Browser history",
+      translateUi("workspace.browser.history.saveFailed", "Could not save Browser history"),
       tab.metadata.scopeId,
     );
   }
@@ -90,7 +96,7 @@ export class BrowserLibraryController {
     this.pendingTitles.delete(tabId);
     this.runBackground(
       () => this.store.updateHistoryTitle(pending.url, pending.title),
-      "Could not update Browser history",
+      translateUi("workspace.browser.history.updateFailed", "Could not update Browser history"),
       pending.scopeId,
     );
   }

@@ -1,3 +1,6 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useGetUsageStats, type UsageStatsEntry } from "@/api/generated";
 import { UsageOverviewChart } from "@/components/usage/UsageOverviewChart";
 import { UsagePlotSkeleton } from "@/components/usage/UsagePlotPlaceholder";
@@ -6,9 +9,8 @@ import {
   type SegmentedOption,
 } from "@/components/usage/UsageSegmentedControl";
 import { useUsageCharts } from "@/components/usage/use-usage-charts";
-import { resolveEndDay, USAGE_METRIC_UNIT } from "@/components/usage/usage-stats-model";
+import { resolveEndDay } from "@/components/usage/usage-stats-model";
 import { apiErrorMessage } from "@/lib/api-errors";
-import { capitalize } from "@/lib/utils";
 import { type SessionUsageMetric, useSessionUsageMetric } from "./session-usage-measure";
 
 /**
@@ -19,10 +21,23 @@ const OVERVIEW_DAYS = 30;
 
 const NO_ENTRIES: UsageStatsEntry[] = [];
 
-const METRIC_OPTIONS = [
-  { value: "messages", label: "Messages", title: "Prompts you sent, by the model they went to" },
-  { value: "total", label: "Tokens", title: "Input plus output tokens" },
-] as const satisfies readonly SegmentedOption<SessionUsageMetric>[];
+function metricOptions(t: UiTranslator) {
+  return [
+    {
+      value: "messages",
+      label: t("conversation.stream.sessionUsageChart.messages", "Messages"),
+      title: t(
+        "conversation.stream.sessionUsageChart.messageMeasure",
+        "Prompts you sent, by the model they went to",
+      ),
+    },
+    {
+      value: "total",
+      label: t("conversation.stream.sessionUsageChart.tokens", "Tokens"),
+      title: t("conversation.stream.sessionUsageChart.tokenMeasure", "Input plus output tokens"),
+    },
+  ] as const satisfies readonly SegmentedOption<SessionUsageMetric>[];
+}
 
 /**
  * Last-30-days usage, one stacked series per provider + model, shown on the
@@ -34,6 +49,7 @@ const METRIC_OPTIONS = [
  * visible — a missing chart must never read as "no usage".
  */
 export function SessionUsageChart(): React.JSX.Element | null {
+  const { t, i18n } = useUiTranslation();
   const { data, isLoading, error } = useGetUsageStats({ days: OVERVIEW_DAYS });
   const [metric, setMetric] = useSessionUsageMetric();
   const { chart, labelOf, summary } = useUsageCharts({
@@ -49,7 +65,14 @@ export function SessionUsageChart(): React.JSX.Element | null {
     if (error) {
       return (
         <p role="status" className="w-full text-center text-xs text-muted-foreground">
-          Usage is unavailable right now. {apiErrorMessage(error, "Please try again.")}
+          {t(
+            "conversation.stream.sessionUsageChart.usageIsUnavailableRightNow",
+            "Usage is unavailable right now.",
+          )}{" "}
+          {apiErrorMessage(
+            error,
+            t("conversation.stream.sessionUsageChart.pleaseTryAgain", "Please try again."),
+          )}
         </p>
       );
     }
@@ -58,24 +81,41 @@ export function SessionUsageChart(): React.JSX.Element | null {
 
   if (!summary.hasUsage) return null;
 
-  const unit = USAGE_METRIC_UNIT[metric];
-  const caption = `${capitalize(unit)} over the last ${OVERVIEW_DAYS} days`;
+  const days = formatExactNumber(OVERVIEW_DAYS, formattingLocale(i18n.language));
+  const caption =
+    metric === "messages"
+      ? t(
+          "conversation.stream.sessionUsageChart.messagesOverDays",
+          "Messages sent over the last {{days}} days",
+          { days },
+        )
+      : t(
+          "conversation.stream.sessionUsageChart.tokensOverDays",
+          "Tokens exchanged over the last {{days}} days",
+          { days },
+        );
 
   return (
     <section aria-label={caption} className="w-full space-y-2">
       {error ? (
         <p role="status" className="text-[11px] text-muted-foreground">
-          Could not refresh usage. Showing the last loaded data.{" "}
-          {apiErrorMessage(error, "Please try again.")}
+          {t(
+            "conversation.stream.sessionUsageChart.couldNotRefreshUsageShowingTheLast",
+            "Could not refresh usage. Showing the last loaded data.",
+          )}{" "}
+          {apiErrorMessage(
+            error,
+            t("conversation.stream.sessionUsageChart.pleaseTryAgain", "Please try again."),
+          )}
         </p>
       ) : null}
       <div className="flex items-center justify-between gap-2">
         <p className="truncate text-[11px] text-muted-foreground">{caption}</p>
         <UsageSegmentedControl
           value={metric}
-          options={METRIC_OPTIONS}
+          options={metricOptions(t)}
           onChange={setMetric}
-          ariaLabel="Chart measure"
+          ariaLabel={t("conversation.stream.sessionUsageChart.chartMeasure", "Chart measure")}
           className="shrink-0"
         />
       </div>
@@ -86,7 +126,19 @@ export function SessionUsageChart(): React.JSX.Element | null {
         scale="absolute"
         metric={metric}
         windowDays={OVERVIEW_DAYS}
-        emptyText={`No ${unit} in the last ${OVERVIEW_DAYS} days.`}
+        emptyText={
+          metric === "messages"
+            ? t(
+                "conversation.stream.sessionUsageChart.noMessages",
+                "No messages sent in the last {{days}} days.",
+                { days },
+              )
+            : t(
+                "conversation.stream.sessionUsageChart.noTokens",
+                "No tokens exchanged in the last {{days}} days.",
+                { days },
+              )
+        }
       />
     </section>
   );

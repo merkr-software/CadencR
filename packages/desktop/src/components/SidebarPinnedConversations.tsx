@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { FeatureNavigateOptions } from "@/lib/feature-focus-handoff";
 import { useCallback, useMemo, useRef, type ReactElement } from "react";
 import { PinIcon } from "lucide-react";
@@ -41,6 +42,7 @@ export function SidebarPinnedConversations({
   activeFeatureId: number | null;
   onSelectFeature: (featureId: number) => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { data: fetchedPinned = EMPTY_FEATURES } = useListPinnedFeatures();
   const orderedPinned = usePinnedOrder(fetchedPinned);
   const activity = usePinnedActivity(fetchedPinned);
@@ -72,13 +74,16 @@ export function SidebarPinnedConversations({
     <SidebarBlock
       ref={listRef}
       block="pinned"
-      label="Pinned"
+      label={t("sidebar.pinnedConversations.pinned", "Pinned")}
       icon={PinIcon}
       count={pinnedFeatures.length}
       // Pinned rows show nowhere else: a folded block still flags who waits on the user.
       strongCount={strongCount}
       fold={fold}
-      empty="Pin a conversation to keep it here"
+      empty={t(
+        "sidebar.pinnedConversations.pinAConversationToKeepIt",
+        "Pin a conversation to keep it here",
+      )}
       isEmpty={isEmpty}
       capped
     >

@@ -1,6 +1,7 @@
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import { UsageTimelineChart } from "./UsageTimelineChart";
 import type { UsageChartData } from "./usage-stats-model";
 
@@ -54,6 +55,41 @@ describe("UsageTimelineChart", () => {
     await user.keyboard("{Home}");
     expect(column(/Jul 23/)).toHaveFocus();
     expect(screen.getAllByRole("img").filter((day) => day.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("translates a focused day while keeping its date, count and tab stop", async () => {
+    const user = userEvent.setup();
+    renderChart(THREE_DAYS);
+    await user.tab();
+    await user.keyboard("{ArrowRight}");
+    const focused = column(/Jul 24/);
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      system: {
+        usage: {
+          dailyTokens: "Jetons quotidiens",
+          dayTokens_other: "{{formattedCount}} jetons échangés le {{date}}",
+        },
+      },
+    });
+    try {
+      const locale = "fr-CA";
+      await act(() => uiI18n.changeLanguage(locale));
+      const date = new Intl.DateTimeFormat(locale, {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(new Date("2026-07-24T00:00:00Z"));
+      const exact = new Intl.NumberFormat(locale).format(2000);
+      expect(screen.getByRole("group", { name: "Jetons quotidiens" })).toBeVisible();
+      expect(focused).toHaveFocus();
+      expect(focused).toHaveAttribute("aria-label", `${exact} jetons échangés le ${date}`);
+      expect(focused).toHaveAttribute("tabindex", "0");
+      expect(screen.getByRole("tooltip")).toHaveTextContent(date);
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("opens one shared card on hover and closes it when the pointer leaves", async () => {

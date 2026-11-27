@@ -2,12 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import type { FileTree } from "@pierre/trees";
 import { FileStageState, type ChangedFile } from "@/api/generated";
 import { useFileTreeShadowStylesheet } from "@/components/file-tree/useFileTreeShadowStylesheet";
-import {
-  getGitFileActionAvailability,
-  type GitFileIndexAction,
-  type GitFileIndexActions,
-} from "./useGitFileIndexActions";
+import { getGitFileActionAvailability, type GitFileIndexActions } from "./useGitFileIndexActions";
 import { parseGitTreePath } from "@/lib/git-display-path";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { resolvedStageState } from "./useGitDiffFileTreeModel";
 import { useGitStageControlState, type GitStageControlState } from "./useGitStageControlState";
 import {
@@ -44,13 +41,8 @@ function ensureCheckboxInput(row: HTMLElement): HTMLInputElement {
   return input;
 }
 
-function stageActionLabel(path: string, action: GitFileIndexAction): string {
-  return `${action === "stage" ? "Staging" : "Unstaging"} ${path}`;
-}
-
-function createLoader(path: string, action: GitFileIndexAction): HTMLSpanElement {
+function createLoader(label: string): HTMLSpanElement {
   const loader = document.createElement("span");
-  const label = stageActionLabel(path, action);
   loader.setAttribute(LOADER_ATTR, "");
   loader.setAttribute("role", "status");
   loader.setAttribute("aria-label", label);
@@ -71,16 +63,15 @@ function createLoader(path: string, action: GitFileIndexAction): HTMLSpanElement
   return loader;
 }
 
-function ensureStageLoader(row: HTMLElement, path: string, action: GitFileIndexAction): void {
+function ensureStageLoader(row: HTMLElement, label: string): void {
   row.querySelector(`input[${CHECKBOX_ATTR}]`)?.remove();
   const existing = row.querySelector<HTMLElement>(`:scope > [${LOADER_ATTR}]`);
-  const label = stageActionLabel(path, action);
   if (existing) {
     if (existing.getAttribute("aria-label") !== label) existing.setAttribute("aria-label", label);
     if (existing.title !== label) existing.title = label;
     return;
   }
-  const loader = createLoader(path, action);
+  const loader = createLoader(label);
   const icon = row.querySelector('[data-item-section="icon"]');
   if (icon) icon.before(loader);
   else row.prepend(loader);
@@ -95,6 +86,7 @@ function syncRowAdornments(
   row: HTMLElement,
   file: ChangedFile | undefined,
   controlState: GitStageControlState,
+  t: UiTranslator,
 ): void {
   const path = row.getAttribute("data-item-path");
   if (!path || !file) {
@@ -111,14 +103,18 @@ function syncRowAdornments(
   // `path` is the row's (escaped) tree path, for labels; actions take the real one.
   const pendingAction = controlState.pendingAction;
   if (controlState.pendingPath === file.file && pendingAction) {
-    ensureStageLoader(row, path, pendingAction);
+    const label =
+      pendingAction === "stage"
+        ? t("workspace.git.stageCheckbox.stagingFile", "Staging {{path}}", { path })
+        : t("workspace.git.stageCheckbox.unstagingFile", "Unstaging {{path}}", { path });
+    ensureStageLoader(row, label);
     return;
   }
 
   row.querySelector(`[${LOADER_ATTR}]`)?.remove();
   const input = ensureCheckboxInput(row);
   if (input.getAttribute(PATH_ATTR) !== file.file) input.setAttribute(PATH_ATTR, file.file);
-  const label = `Stage ${path}`;
+  const label = t("workspace.git.gitDiffFileHeaderActions.stagePath", "Stage {{path}}", { path });
   if (input.getAttribute("aria-label") !== label) input.setAttribute("aria-label", label);
   const availability = getGitFileActionAvailability(stageState);
   const canToggle =
@@ -133,9 +129,10 @@ function syncAllStageRows(
   shadowRoot: ShadowRoot,
   byPath: ReadonlyMap<string, ChangedFile>,
   controlState: GitStageControlState,
+  t: UiTranslator,
 ): void {
   for (const row of shadowRoot.querySelectorAll<HTMLElement>(ROW_SELECTOR)) {
-    syncStageRow(row, byPath, controlState);
+    syncStageRow(row, byPath, controlState, t);
   }
 }
 
@@ -143,6 +140,7 @@ function syncStageRow(
   row: HTMLElement,
   byPath: ReadonlyMap<string, ChangedFile>,
   controlState: GitStageControlState,
+  t: UiTranslator,
 ): void {
   // Rows carry the tree's escaped path (`displayGitTreePath`); files are keyed by the real one.
   const path = row.getAttribute("data-item-path");
@@ -150,7 +148,7 @@ function syncStageRow(
     row.getAttribute("data-item-type") === "file" && path
       ? byPath.get(parseGitTreePath(path))
       : undefined;
-  syncRowAdornments(row, file, controlState);
+  syncRowAdornments(row, file, controlState, t);
 }
 
 function shadowRootOf(model: FileTree): ShadowRoot | null {
@@ -256,6 +254,7 @@ export function useGitDiffStageCheckboxes(
   indexActions: GitFileIndexActions,
   enabled: boolean,
 ): void {
+  const { t } = useUiTranslation();
   useFileTreeShadowStylesheet(
     model,
     "data-cadencr-git-diff-tree",
@@ -266,9 +265,11 @@ export function useGitDiffStageCheckboxes(
   const fileByPathRef = useRef<ReadonlyMap<string, ChangedFile>>(fileByPath);
   const controlStateRef = useRef(controlState);
   const actionsRef = useRef(indexActions);
+  const translateRef = useRef(t);
   fileByPathRef.current = fileByPath;
   controlStateRef.current = controlState;
   actionsRef.current = indexActions;
+  translateRef.current = t;
 
   useEffect(() => {
     if (!enabled) {
@@ -281,11 +282,16 @@ export function useGitDiffStageCheckboxes(
     const sync = (): void => {
       const shadowRoot = shadowRootOf(model);
       if (shadowRoot) {
-        syncAllStageRows(shadowRoot, fileByPathRef.current, controlStateRef.current);
+        syncAllStageRows(
+          shadowRoot,
+          fileByPathRef.current,
+          controlStateRef.current,
+          translateRef.current,
+        );
       }
     };
     const syncRow = (row: HTMLElement): void => {
-      syncStageRow(row, fileByPathRef.current, controlStateRef.current);
+      syncStageRow(row, fileByPathRef.current, controlStateRef.current, translateRef.current);
     };
 
     let detachShadow: (() => void) | null = null;
@@ -317,6 +323,6 @@ export function useGitDiffStageCheckboxes(
   useEffect(() => {
     if (!enabled) return;
     const shadowRoot = shadowRootOf(model);
-    if (shadowRoot) syncAllStageRows(shadowRoot, fileByPath, controlState);
-  }, [controlState, enabled, fileByPath, model]);
+    if (shadowRoot) syncAllStageRows(shadowRoot, fileByPath, controlState, t);
+  }, [controlState, enabled, fileByPath, model, t]);
 }

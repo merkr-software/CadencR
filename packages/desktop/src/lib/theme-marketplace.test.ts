@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { managedThemeEntrySchema, duplicateThemeResponseSchema } from "./theme-marketplace";
+import { afterEach, describe, expect, it } from "vitest";
+import { AxiosError } from "axios";
+import { translateUi, uiI18n } from "@/lib/i18n/ui";
+import { marketplaceError } from "./marketplace";
+import {
+  managedThemeEntrySchema,
+  managedThemeInventoryError,
+  duplicateThemeResponseSchema,
+  parseManagedThemeResponse,
+} from "./theme-marketplace";
 import { DRACULA_THEME } from "./themes/dracula";
 
 const theme = {
@@ -95,4 +103,45 @@ describe("theme label Rust parity", () => {
     expect(parse(" ".repeat(100) + "a".repeat(64) + " ".repeat(100)).success).toBe(true);
     expect(parse(" ".repeat(100) + "a".repeat(65)).success).toBe(false);
   });
+});
+
+afterEach(async () => {
+  await uiI18n.changeLanguage("en");
+  uiI18n.removeResourceBundle("fr", "ui");
+});
+
+it("keeps managed-theme validation errors translatable after a language change", async () => {
+  let failure: unknown;
+  try {
+    parseManagedThemeResponse(managedThemeEntrySchema, { ...entry, sha256: "", id: "" });
+  } catch (error: unknown) {
+    failure = error;
+  }
+
+  const before = marketplaceError(failure);
+  expect(before).toContain("Validated theme requires its revision digest");
+  expect(before).toContain("expected string to have >=1 characters");
+
+  uiI18n.addResourceBundle("fr", "ui", {
+    appearance: { library: { managedDigestRequired: "Empreinte de la révision requise" } },
+  });
+  await uiI18n.changeLanguage("fr");
+
+  const after = marketplaceError(failure);
+  expect(after).toContain("Empreinte de la révision requise");
+  expect(after).toContain("expected string to have >=1 characters");
+});
+
+it("reports managed theme list failures using transport details or the list fallback", async () => {
+  const error = new AxiosError("Network Error", "ERR_NETWORK");
+  expect(managedThemeInventoryError(error, translateUi)).toBe("Network Error");
+
+  uiI18n.addResourceBundle("fr", "ui", {
+    appearance: { library: { loadManagedFailed: "Impossible de charger les thèmes installés" } },
+  });
+  await uiI18n.changeLanguage("fr");
+
+  expect(managedThemeInventoryError({ code: "ETIMEDOUT" }, translateUi)).toBe(
+    "Impossible de charger les thèmes installés",
+  );
 });

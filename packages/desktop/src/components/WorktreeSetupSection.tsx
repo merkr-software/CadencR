@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement, ReactNode } from "react";
 import {
   CheckCircle2Icon,
@@ -32,9 +33,13 @@ function StepIcon({
 }
 
 function LogOutput({ log }: { log: string }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <BashBlock
-      command="Setup — worktree commands"
+      command={t(
+        "conversation.worktreeSetupSection.setupWorktreeCommands",
+        "Setup — worktree commands",
+      )}
       content={log}
       bodyExtraClassName="max-h-40 overflow-y-auto"
     />
@@ -79,17 +84,23 @@ function WorktreeSetupDetails({
   setupError,
   onRetrySetup,
 }: WorktreeSetupDetailsProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="space-y-1.5 border-t border-border/50 px-3 py-2 md:px-6">
       {isMissing && <MissingWorktreeWarning branch={branch} branchExists={branchExists} />}
       {healthError != null && (
         <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
           <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
-          <span>Could not verify whether the worktree and branch still exist.</span>
+          <span>
+            {t(
+              "conversation.worktreeSetupSection.couldNotVerifyWhetherTheWorktreeAnd",
+              "Could not verify whether the worktree and branch still exist.",
+            )}
+          </span>
         </div>
       )}
       {steps.map((step, index) => (
-        <WorktreeSetupStep key={step.label} index={index} log={log} step={step} />
+        <WorktreeSetupStep key={step.id} index={index} log={log} step={step} />
       ))}
       {isError && <WorktreeSetupRetry setupError={setupError} onRetrySetup={onRetrySetup} />}
     </div>
@@ -103,18 +114,43 @@ function MissingWorktreeWarning({
   branch: string;
   branchExists: boolean | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const branchStatus =
     branchExists === true
-      ? `The branch ${branch || "recorded for this session"} still exists.`
+      ? branch
+        ? t(
+            "conversation.worktreeSetupSection.branchStillExists",
+            "The branch {{branch}} still exists.",
+            { branch },
+          )
+        : t(
+            "conversation.worktreeSetupSection.recordedBranchStillExists",
+            "The branch recorded for this session still exists.",
+          )
       : branchExists === false
-        ? `The branch ${branch || "recorded for this session"} was also removed.`
-        : "The branch status could not be determined.";
+        ? branch
+          ? t(
+              "conversation.worktreeSetupSection.branchRemoved",
+              "The branch {{branch}} was also removed.",
+              { branch },
+            )
+          : t(
+              "conversation.worktreeSetupSection.recordedBranchRemoved",
+              "The branch recorded for this session was also removed.",
+            )
+        : t(
+            "conversation.worktreeSetupSection.branchStatusUnknown",
+            "The branch status could not be determined.",
+          );
   return (
     <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
       <span>
-        This worktree was removed from the machine. {branchStatus} Cadencr is using the project
-        folder instead.
+        {t(
+          "conversation.worktreeSetupSection.worktreeRemoved",
+          "This worktree was removed from the machine. {{branchStatus}} Cadencr is using the project folder instead.",
+          { branchStatus },
+        )}
       </span>
     </div>
   );
@@ -159,6 +195,7 @@ function WorktreeSetupRetry({
   setupError: string;
   onRetrySetup?: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex min-w-0 items-center gap-2 pt-0.5">
       <Button
@@ -169,7 +206,7 @@ function WorktreeSetupRetry({
         onClick={onRetrySetup}
       >
         <RefreshCwIcon className="size-3" />
-        Retry
+        {t("conversation.worktreeSetupSection.retry", "Retry")}
       </Button>
       {setupError && (
         <p className="min-w-0 truncate text-xs text-red-400" title={setupError}>

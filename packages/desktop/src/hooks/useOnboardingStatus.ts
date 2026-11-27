@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { useSettingWriter } from "@/hooks/useSetting";
+import { translateUi } from "@/lib/i18n/ui";
 import { apiErrorCode, isSettingsRepairError } from "@/lib/api-errors";
 import {
   COMPLETED_ONBOARDING_STEP,
@@ -43,7 +44,11 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
 
   const setStep = useCallback(
     async (next: OnboardingStep): Promise<void> => {
-      if (!(await setValue(next))) throw new Error("Could not save setup progress.");
+      if (!(await setValue(next))) {
+        throw new Error(
+          translateUi("onboarding.progress.saveFailed", "Could not save setup progress."),
+        );
+      }
     },
     [setValue],
   );

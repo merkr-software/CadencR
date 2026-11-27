@@ -1,7 +1,8 @@
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
+import { uiI18n } from "@/lib/i18n/ui";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { formatCompactCombo } from "@/lib/shortcuts/format";
 import { parseThinkingEffort } from "@/shared/thinking-effort";
@@ -453,7 +454,7 @@ describe("MetaBar negotiated session configuration", () => {
       sessionConfigControls: {
         supported: null,
         loading: false,
-        error: "Configuration request failed",
+        error: { kind: "provider", message: "Configuration request failed" },
         pendingId: null,
         config: null,
         onRefresh: vi.fn(),
@@ -462,6 +463,35 @@ describe("MetaBar negotiated session configuration", () => {
     });
     await user.click(screen.getByRole("button", { name: "Session configuration" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Configuration request failed");
+  });
+
+  it("retranslates an open session configuration timeout when the locale changes", async () => {
+    const user = userEvent.setup();
+    renderChip({
+      sessionConfigControls: {
+        supported: null,
+        loading: false,
+        error: { kind: "timeout" },
+        pendingId: null,
+        config: null,
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Session configuration" }));
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Session configuration timed out.");
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      "conversation.config.timeout": "La configuration de la session a expiré.",
+    });
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(alert).toHaveTextContent("La configuration de la session a expiré.");
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("keeps model and thinking changes on their durable primary controls", () => {

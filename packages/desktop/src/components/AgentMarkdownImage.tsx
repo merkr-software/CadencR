@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Images an agent posts in chat by local path — typically a QA screenshot,
  * `![after](/tmp/qa/after.png)`. Every local source loads through the service
@@ -94,7 +95,7 @@ function DirectAgentImage(props: MarkdownImageProps & { src: string }): ReactEle
         {
           id: `agent-direct-image:${id}`,
           src: props.src,
-          alt: props.alt || "image",
+          alt: props.alt ?? "",
           mediaType: dataUrlMediaType(props.src),
         },
       ],
@@ -113,6 +114,7 @@ function LocalAgentImage({
   src: string;
   insideLink: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const query = useQuery({
     queryKey: agentImageBlobQueryKey(featureId, props.src),
     queryFn: ({ signal }) => agentImageBlob(featureId, props.src, signal),
@@ -132,7 +134,13 @@ function LocalAgentImage({
   });
   const url = useObjectUrl(query.data);
   const errorMessage = query.error
-    ? apiErrorMessage(query.error, "Could not load this image")
+    ? apiErrorMessage(
+        query.error,
+        t(
+          "conversation.stream.agentMarkdownImage.couldNotLoadThisImage",
+          "Could not load this image",
+        ),
+      )
     : null;
   const onExpand = useCallback(() => {
     const blob = query.data;
@@ -144,7 +152,7 @@ function LocalAgentImage({
           id: `agent-image:${featureId}:${props.src}`,
           src: null,
           blob,
-          alt: props.alt || fileName || "image",
+          alt: props.alt || fileName || "",
           fileName,
           mediaType: blob.type || undefined,
         },

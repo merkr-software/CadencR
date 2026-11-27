@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo } from "react";
 import type { AgentCatalog } from "@/api/agentRuntime";
 import { pickerProviderFromCatalog } from "@/components/runtimeModelPickerGroups";
@@ -5,7 +6,6 @@ import { resolveProviderModelAlias } from "@/lib/provider-model-aliases";
 import { availableCatalogProviders, DEFAULT_PROVIDER } from "@/shared/models";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
 
-export const MODEL_CATALOG_LOADING_LABEL = "Loading model…";
 export type ModelSelectionStatus = "catalog-loading" | "selection-pending" | "ready";
 
 interface UseAgentSessionModelStateParams {
@@ -18,6 +18,7 @@ interface UseAgentSessionModelStateParams {
 }
 
 export function useAgentSessionModelState(params: UseAgentSessionModelStateParams) {
+  const { t } = useUiTranslation();
   const {
     agentCatalog,
     currentProviderId,
@@ -78,8 +79,10 @@ export function useAgentSessionModelState(params: UseAgentSessionModelStateParam
       : "ready";
   const currentModelLabel =
     modelSelectionStatus !== "ready"
-      ? MODEL_CATALOG_LOADING_LABEL
-      : (selectedModel?.label ?? currentModelId ?? "Model");
+      ? t("conversation.stream.modelMetaChip.loadingModel", "Loading model…")
+      : (selectedModel?.label ??
+        currentModelId ??
+        t("conversation.stream.modelMetaChip.model", "Model"));
 
   // Gate on conversation activity only. Backend-reported `status` races
   // with REST hydration: a freshly-created agent_sessions row is inserted

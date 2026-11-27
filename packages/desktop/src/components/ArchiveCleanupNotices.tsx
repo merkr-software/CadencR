@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useListArchiveCleanups } from "@/api/generated";
@@ -29,15 +30,22 @@ export function ArchiveCleanupNotices(): null {
       if (attention.length === 0) continue;
       const id = noticeId(status.feature_id);
       shown.add(id);
-      toast.warning(`Cleanup of “${status.title}” is incomplete`, {
-        id,
-        duration: Infinity,
-        description: reportDescription(attention),
-        action: {
-          label: "Review",
-          onClick: () => useArchiveCleanupReviewStore.getState().open(status.feature_id),
+      toast.warning(
+        translateUi(
+          "conversation.archiveCleanupNotices.cleanupIncomplete",
+          "Cleanup of “{{title}}” is incomplete",
+          { title: status.title },
+        ),
+        {
+          id,
+          duration: Infinity,
+          description: reportDescription(attention),
+          action: {
+            label: translateUi("conversation.archiveCleanupNotices.review", "Review"),
+            onClick: () => useArchiveCleanupReviewStore.getState().open(status.feature_id),
+          },
         },
-      });
+      );
     }
     for (const id of shownRef.current) if (!shown.has(id)) toast.dismiss(id);
     shownRef.current = shown;
@@ -45,9 +53,18 @@ export function ArchiveCleanupNotices(): null {
 
   useEffect(() => {
     if (query.error == null) return;
-    toast.error(apiErrorMessage(query.error, "Could not load archive cleanups"), {
-      id: LOAD_ERROR_TOAST_ID,
-    });
+    toast.error(
+      apiErrorMessage(
+        query.error,
+        translateUi(
+          "conversation.archiveCleanupNotices.couldNotLoadArchiveCleanups",
+          "Could not load archive cleanups",
+        ),
+      ),
+      {
+        id: LOAD_ERROR_TOAST_ID,
+      },
+    );
   }, [query.error]);
 
   return null;

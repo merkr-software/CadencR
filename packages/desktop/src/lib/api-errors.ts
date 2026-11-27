@@ -1,5 +1,6 @@
 import { isAxiosError } from "axios";
 import { toast } from "sonner";
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 
 interface ApiErrorBody {
   error?: unknown;
@@ -14,7 +15,12 @@ export function stripElectronIpcPrefix(message: string): string {
   return message.replace(ELECTRON_IPC_PREFIX, "").replace(LEADING_ERROR_PREFIX, "").trim();
 }
 
-export function apiErrorMessage(err: unknown, fallback: string): string {
+export function apiErrorMessage(
+  err: unknown,
+  fallback: string,
+  t: UiTranslator = translateUi,
+): string {
+  if (apiErrorCode(err) === WORKTREE_UNAVAILABLE) return worktreeUnavailableMessage(t);
   const backendMessage = backendErrorMessage(err);
   if (backendMessage) return backendMessage;
   if (err instanceof Error && err.message.trim().length > 0) return err.message;
@@ -41,6 +47,13 @@ function backendErrorMessage(err: unknown): string | null {
 /** A settings file the service could not read; the message names it and the cause. */
 export const SETTINGS_READ_FAILED = "SETTINGS_READ_FAILED";
 export const WORKTREE_UNAVAILABLE = "WORKTREE_UNAVAILABLE";
+
+export function worktreeUnavailableMessage(t: UiTranslator): string {
+  return t(
+    "workspace.git.status.worktreeUnavailableDetail",
+    "The feature's worktree is no longer available",
+  );
+}
 
 /** An invalid settings document or stored value that needs to be repaired. */
 export function isSettingsRepairError(code: string | null): boolean {

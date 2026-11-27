@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -18,6 +19,7 @@ export function MarketplaceSpotlight({
 }: {
   listings: MarketplaceListing[];
 }): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   // Follow the plugin, not the slot: an install that drops it from the list
   // falls back to the first entry instead of silently showing a neighbour.
   const [currentKey, setCurrentKey] = useState<string | null>(null);
@@ -31,8 +33,8 @@ export function MarketplaceSpotlight({
     setCurrentKey(listings[(index + delta + listings.length) % listings.length].key);
   return (
     <section
-      aria-label="Showcase"
-      aria-roledescription="carousel"
+      aria-label={t("marketplace.marketplaceSpotlight.showcase", "Showcase")}
+      aria-roledescription={t("marketplace.marketplaceSpotlight.carousel", "carousel")}
       className={cn(
         "mp-spotlight grid overflow-hidden rounded-xl md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]",
         KINDS[listing.kind].tone,
@@ -45,11 +47,11 @@ export function MarketplaceSpotlight({
             <h2 className="truncate text-[22px] font-bold leading-tight tracking-[-0.01em]">
               {listing.name}
             </h2>
-            <p className="truncate text-xs text-muted-foreground">{byline(listing)}</p>
+            <p className="truncate text-xs text-muted-foreground">{byline(listing, t)}</p>
           </div>
         </div>
         <p className="line-clamp-3 max-w-[60ch] text-sm leading-[1.55] text-foreground/85">
-          {describe(listing)}
+          {describe(listing, t)}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <KindChips kinds={listing.contributes} />
@@ -61,7 +63,11 @@ export function MarketplaceSpotlight({
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
           <Button asChild className="rounded-lg px-4">
             <Link to="/marketplace/$kind/$id" params={{ kind: listing.kind, id: listing.id }}>
-              {listing.update ? `Review update ${listing.update}` : "View and install"}
+              {listing.update
+                ? t("marketplace.pluginBits.reviewUpdate", "Review update {{version}}", {
+                    version: listing.update,
+                  })
+                : t("marketplace.marketplaceSpotlight.viewAndInstall", "View and install")}
             </Link>
           </Button>
           {listing.update && (
@@ -80,7 +86,7 @@ export function MarketplaceSpotlight({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Previous plugin"
+                aria-label={t("marketplace.marketplaceSpotlight.previousPlugin", "Previous plugin")}
                 onClick={() => step(-1)}
               >
                 <ChevronLeft />
@@ -88,7 +94,7 @@ export function MarketplaceSpotlight({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Next plugin"
+                aria-label={t("marketplace.marketplaceSpotlight.nextPlugin", "Next plugin")}
                 onClick={() => step(1)}
               >
                 <ChevronRight />

@@ -1,8 +1,10 @@
+import { reportProjectUpdate } from "./project-location-report";
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useId, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useUpdateProject, type UpdateProjectResponse } from "@/api/generated";
+import { useUpdateProject } from "@/api/generated";
 import { useDialogSubmitShortcut } from "@/components/git-actions/useDialogSubmitShortcut";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,11 +39,29 @@ export interface ProjectLocationTarget {
   mode: ProjectLocationMode;
 }
 
-const COPY: Record<ProjectLocationMode, { title: string; action: string; busy: string }> = {
-  rename: { title: "Rename project", action: "Rename", busy: "Renaming…" },
-  move: { title: "Move project folder", action: "Move", busy: "Moving…" },
-  locate: { title: "Locate project folder", action: "Use this folder", busy: "Locating…" },
-};
+function useLocationCopy(mode: ProjectLocationMode) {
+  const { t } = useUiTranslation();
+  switch (mode) {
+    case "rename":
+      return {
+        title: t("project.location.renameTitle", "Rename project"),
+        action: t("common.rename", "Rename"),
+        busy: t("project.location.renaming", "Renaming…"),
+      };
+    case "move":
+      return {
+        title: t("project.location.moveTitle", "Move project folder"),
+        action: t("common.move", "Move"),
+        busy: t("project.location.moving", "Moving…"),
+      };
+    case "locate":
+      return {
+        title: t("project.location.locateTitle", "Locate project folder"),
+        action: t("project.location.useFolder", "Use this folder"),
+        busy: t("project.location.locating", "Locating…"),
+      };
+  }
+}
 
 function initialDraft(target: ProjectLocationTarget): ProjectLocationDraft {
   return {
@@ -61,6 +81,7 @@ export function ProjectLocationDialog({
   target: ProjectLocationTarget;
   onClose: () => void;
 }) {
+  const { t } = useUiTranslation();
   const [draft, setDraft] = useState(() => initialDraft(target));
   const [folderEdited, setFolderEdited] = useState(false);
   const update = useProjectUpdate(onClose);
@@ -82,7 +103,7 @@ export function ProjectLocationDialog({
     event.preventDefault();
     submit();
   };
-  const copy = COPY[target.mode];
+  const copy = useLocationCopy(target.mode);
   const destination = destinationOf(target, draft);
 
   return (
@@ -111,7 +132,7 @@ export function ProjectLocationDialog({
             <MoveFields draft={draft} disabled={update.isPending} onChange={change} />
           ) : (
             <FolderPathField
-              label="Folder"
+              label={t("project.location.folder", "Folder")}
               value={draft.locatedPath}
               disabled={update.isPending}
               onChange={(locatedPath) => change({ locatedPath })}
@@ -119,11 +140,15 @@ export function ProjectLocationDialog({
           )}
           <DestinationPreview destination={destination} />
           <FormMessage
-            error={update.error ? apiErrorMessage(update.error, "Unknown error") : null}
+            error={
+              update.error
+                ? apiErrorMessage(update.error, translateUi("common.unknownError", "Unknown error"))
+                : null
+            }
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={update.isPending}>
-              Cancel
+              {t("common.cancel", "Cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
               {update.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
@@ -139,11 +164,21 @@ export function ProjectLocationDialog({
 function describe(target: ProjectLocationTarget): string {
   switch (target.mode) {
     case "rename":
-      return "The project's conversations and git worktrees follow a renamed folder, and so does the agents' own state wherever Cadencr can carry it.";
+      return translateUi(
+        "project.location.renameDescription",
+        "The project's conversations and git worktrees follow a renamed folder, and so does the agents' own state wherever Cadencr can carry it.",
+      );
     case "move":
-      return "The project's conversations and git worktrees follow the folder, and so does the agents' own state wherever Cadencr can carry it. Moving to another disk copies the folder and leaves the original in place.";
+      return translateUi(
+        "project.location.moveDescription",
+        "The project's conversations and git worktrees follow the folder, and so does the agents' own state wherever Cadencr can carry it. Moving to another disk copies the folder and leaves the original in place.",
+      );
     case "locate":
-      return `The folder is no longer at ${target.path}. Point the project at where it is now; nothing is moved.`;
+      return translateUi(
+        "project.location.locateDescription",
+        "The folder is no longer at {{path}}. Point the project at where it is now; nothing is moved.",
+        { path: target.path },
+      );
   }
 }
 
@@ -161,24 +196,6 @@ function useProjectUpdate(onClose: () => void) {
   });
 }
 
-function reportProjectUpdate(response: UpdateProjectResponse) {
-  toast.success(`Project "${response.project.name}" updated`, {
-    description: `Folder: ${folderName(response.project.path)}`,
-  });
-  if (response.original_left_at) {
-    toast.info("The original folder is still in place", {
-      description: `It was copied to another disk. Delete ${response.original_left_at} once you have checked the copy.`,
-      duration: Infinity,
-    });
-  }
-  if (response.warnings.length > 0) {
-    toast.warning("Some project data did not follow the folder", {
-      description: response.warnings.join("\n"),
-      duration: Infinity,
-    });
-  }
-}
-
 function RenameFields({
   draft,
   folderMissing,
@@ -194,12 +211,13 @@ function RenameFields({
   onRenameFolderChange: (renameFolder: boolean) => void;
   onFolderNameChange: (folderName: string) => void;
 }) {
+  const { t } = useUiTranslation();
   const nameId = useId();
   const folderId = useId();
   const checkboxId = useId();
   return (
     <>
-      <Field id={nameId} label="Name">
+      <Field id={nameId} label={t("project.location.name", "Name")}>
         <Input
           id={nameId}
           autoFocus
@@ -210,8 +228,10 @@ function RenameFields({
       </Field>
       {folderMissing ? (
         <p className="text-sm text-muted-foreground">
-          The folder is no longer at its recorded place, so only the name changes. Locate the folder
-          from the project menu first to rename it too.
+          {t(
+            "project.location.missingFolderRenameHint",
+            "The folder is no longer at its recorded place, so only the name changes. Locate the folder from the project menu first to rename it too.",
+          )}
         </p>
       ) : (
         <FolderRenameToggle
@@ -222,7 +242,7 @@ function RenameFields({
         />
       )}
       {draft.renameFolder ? (
-        <Field id={folderId} label="Folder name">
+        <Field id={folderId} label={t("project.location.folderName", "Folder name")}>
           <Input
             id={folderId}
             value={draft.folderName}
@@ -246,6 +266,7 @@ function FolderRenameToggle({
   disabled: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  const { t } = useUiTranslation();
   return (
     <label htmlFor={id} className="flex items-center gap-2 text-sm">
       <Checkbox
@@ -254,7 +275,7 @@ function FolderRenameToggle({
         disabled={disabled}
         onCheckedChange={(value) => onChange(value === true)}
       />
-      Also rename the folder
+      {t("project.location.renameFolder", "Also rename the folder")}
     </label>
   );
 }
@@ -268,16 +289,17 @@ function MoveFields({
   disabled: boolean;
   onChange: (patch: Partial<ProjectLocationDraft>) => void;
 }) {
+  const { t } = useUiTranslation();
   const folderId = useId();
   return (
     <>
       <FolderPathField
-        label="Move into"
+        label={t("project.location.moveInto", "Move into")}
         value={draft.parent}
         disabled={disabled}
         onChange={(parent) => onChange({ parent })}
       />
-      <Field id={folderId} label="Folder name">
+      <Field id={folderId} label={t("project.location.folderName", "Folder name")}>
         <Input
           id={folderId}
           value={draft.folderName}
@@ -300,6 +322,7 @@ function FolderPathField({
   disabled: boolean;
   onChange: (path: string) => void;
 }) {
+  const { t } = useUiTranslation();
   const id = useId();
   const [picking, setPicking] = useState(false);
   const pick = async () => {
@@ -308,7 +331,13 @@ function FolderPathField({
       const picked = await desktopBridge.pickDirectory();
       if (picked) onChange(picked);
     } catch (error) {
-      toast.error(`Could not open the folder picker: ${apiErrorMessage(error, "Unknown error")}`);
+      toast.error(
+        translateUi(
+          "project.location.folderPickerFailed",
+          "Could not open the folder picker: {{error}}",
+          { error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")) },
+        ),
+      );
     } finally {
       setPicking(false);
     }
@@ -335,7 +364,7 @@ function FolderPathField({
             ) : (
               <FolderOpen aria-hidden />
             )}
-            Browse
+            {t("common.browse", "Browse")}
           </Button>
         ) : null}
       </div>
@@ -355,10 +384,11 @@ function Field({ id, label, children }: { id: string; label: string; children: R
 }
 
 function DestinationPreview({ destination }: { destination: string | null }) {
-  if (destination === null) return null;
+  const { t } = useUiTranslation();
+  if (!destination) return null;
   return (
     <p className="flex min-w-0 gap-1 text-xs text-muted-foreground" title={destination}>
-      <span className="shrink-0">Folder:</span>
+      <span className="shrink-0">{t("project.location.folderLabel", "Folder:")}</span>
       {/* Elide the start: the folder's own name is the part worth reading. */}
       <span dir="rtl" className="min-w-0 truncate text-left font-mono">
         <span dir="ltr">{destination}</span>

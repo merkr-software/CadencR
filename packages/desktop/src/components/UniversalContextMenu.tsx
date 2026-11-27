@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ClipboardCopyIcon, FileTextIcon, MailIcon, MessageSquareIcon } from "lucide-react";
@@ -95,7 +96,8 @@ export default function UniversalContextMenu({ children }: UniversalContextMenuP
 
   async function handleCopy(format: ExportFormat): Promise<void> {
     if (!menu) return;
-    if (format === "plain") await copyToClipboard(menu.text, "Copied");
+    if (format === "plain")
+      await copyToClipboard(menu.text, translateUi("clipboard.copied", "Copied"));
     else if (menu.richSelection) {
       const markdown = selectionSnapshotToMarkdown(menu.richSelection);
       const emailHtml =
@@ -122,6 +124,7 @@ function SelectionMenu({
   menu: MenuPosition | null;
   onCopy: (format: ExportFormat) => void;
 }): ReactNode {
+  const { t } = useUiTranslation();
   if (!menu) return null;
   return createPortal(
     <div
@@ -138,19 +141,19 @@ function SelectionMenu({
         shortcutKeys={["mod", "c"]}
         onSelect={() => onCopy("plain")}
       >
-        Copy
+        {t("clipboard.copy", "Copy")}
       </ContextMenuActionButton>
       {menu.richSelection && (
         <>
           <div className="bg-border -mx-1 my-1 h-px" role="separator" />
           <ContextMenuActionButton icon={FileTextIcon} onSelect={() => onCopy("markdown")}>
-            Copy as Markdown
+            {t("clipboard.copyMarkdown", "Copy as Markdown")}
           </ContextMenuActionButton>
           <ContextMenuActionButton icon={MessageSquareIcon} onSelect={() => onCopy("slack")}>
-            Copy for Slack
+            {t("clipboard.copySlack", "Copy for Slack")}
           </ContextMenuActionButton>
           <ContextMenuActionButton icon={MailIcon} onSelect={() => onCopy("email")}>
-            Copy for email
+            {t("clipboard.copyEmail", "Copy for email")}
           </ContextMenuActionButton>
         </>
       )}

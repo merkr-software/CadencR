@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,11 +15,9 @@ import {
   getWorkspaceSettingsQueryKey,
 } from "@/api/settings";
 import { useLspMarketplace } from "@/hooks/useLspMarketplace";
-import { useLspResolution } from "@/lib/lsp/useLspResolution";
 import { catalogMembers } from "@/lib/marketplace-catalog";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -29,6 +28,7 @@ import {
 import { Virtuoso } from "react-virtuoso";
 import { useStableMutation } from "@/hooks/stable-query";
 import { IgnoredLspSuggestions } from "./IgnoredLspSuggestions";
+import { LanguageChoices } from "./LanguageChoices";
 import { LabeledControl } from "./LabeledControl";
 
 const KEY = "editor_lsp_languages";
@@ -37,9 +37,10 @@ const languageChoiceSchema = z.object({
   linters: z.array(z.string()).optional(),
 });
 const choicesSchema = z.record(z.string(), languageChoiceSchema);
-type Choice = z.infer<typeof languageChoiceSchema>;
+export type Choice = z.infer<typeof languageChoiceSchema>;
 
 function useLanguageServerSettings(projectId?: number) {
+  const { t } = useUiTranslation();
   const marketplace = useLspMarketplace();
   const global = useGetWorkspaceSettings();
   const project = useGetProjectSettings(projectId ?? 0, {
@@ -54,7 +55,7 @@ function useLanguageServerSettings(projectId?: number) {
     } catch (error) {
       return {
         data: {} as Record<string, Choice>,
-        error: apiErrorMessage(error, "Could not read language choices"),
+        error,
       };
     }
   }, [raw]);
@@ -68,7 +69,12 @@ function useLanguageServerSettings(projectId?: number) {
     useMutation({
       mutationFn: async ({ language, choice }: { language: string; choice: Choice }) => {
         if (!writable)
-          throw new Error("Language choices are unavailable. Reload settings before saving.");
+          throw new Error(
+            translateUi(
+              "workspace.editor.languageServers.choicesUnavailable",
+              "Language choices are unavailable. Reload settings before saving.",
+            ),
+          );
         const value = JSON.stringify({ ...parsed.data, [language]: choice });
         if (projectId === undefined) await setWorkspaceSetting(KEY, { value });
         else await setProjectSetting(projectId, { key: KEY, value });
@@ -102,22 +108,28 @@ function useLanguageServerSettings(projectId?: number) {
     global.isPending ||
     (projectId !== undefined && project.isPending) ||
     marketplace.inventory.isPending;
-  const error =
-    parsed.error ??
-    (global.error ||
-    project.error ||
-    marketplace.catalog.error ||
-    marketplace.inventory.error ||
-    save.error
+  const error = parsed.error
+    ? apiErrorMessage(
+        parsed.error,
+        t("workspace.editor.languageServers.readChoicesFailed", "Could not read language choices"),
+      )
+    : global.error ||
+        project.error ||
+        marketplace.catalog.error ||
+        marketplace.inventory.error ||
+        save.error
       ? apiErrorMessage(
           global.error ??
             project.error ??
             marketplace.catalog.error ??
             marketplace.inventory.error ??
             save.error,
-          "Could not load language servers",
+          t(
+            "workspace.editor.languageServers.loadServersFailed",
+            "Could not load language servers",
+          ),
         )
-      : null);
+      : null;
   return useMemo(
     () => ({ marketplace, languages, choices: parsed.data, save, loading, error, writable }),
     [marketplace, languages, parsed.data, save, loading, error, writable],
@@ -126,6 +138,7 @@ function useLanguageServerSettings(projectId?: number) {
 
 /** Global defaults and project overrides use the same installed, data-driven choices. */
 export function LanguageServerSettings({ projectId }: { projectId?: number }) {
+  const { t } = useUiTranslation();
   const state = useLanguageServerSettings(projectId);
   const [selected, setSelected] = useState("");
   const language = state.languages.includes(selected) ? selected : (state.languages[0] ?? "");
@@ -133,24 +146,35 @@ export function LanguageServerSettings({ projectId }: { projectId?: number }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Install servers in the marketplace, then choose a primary server and optional linters for
-          each language.
+          {t(
+            "workspace.editor.languageServers.installServersInTheMarketplaceThenChoose",
+            "Install servers in the marketplace, then choose a primary server and optional linters for each language.",
+          )}
         </p>
         <Button asChild variant="outline" size="sm">
           <Link to="/marketplace" search={{ kind: "lsp" }}>
-            Browse language servers
+            {t("workspace.editor.languageServers.browseLanguageServers", "Browse language servers")}
           </Link>
         </Button>
       </div>
       {state.loading ? (
         <p role="status" className="text-xs text-muted-foreground">
-          Loading language servers…
+          {t(
+            "workspace.editor.languageServers.loadingLanguageServers",
+            "Loading language servers…",
+          )}
         </p>
       ) : state.languages.length ? (
         <>
-          <LabeledControl label="Language">
+          <LabeledControl label={t("workspace.editor.languageServers.language", "Language")}>
             <Select value={language} onValueChange={setSelected}>
-              <SelectTrigger size="sm" aria-label="Language server language">
+              <SelectTrigger
+                size="sm"
+                aria-label={t(
+                  "workspace.editor.languageServers.languageServerLanguage",
+                  "Language server language",
+                )}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -173,17 +197,23 @@ export function LanguageServerSettings({ projectId }: { projectId?: number }) {
         </>
       ) : (
         <p className="text-xs text-muted-foreground">
-          No language servers installed. Browse the marketplace to add language tools.
+          {t(
+            "workspace.editor.languageServers.noLanguageServersInstalledBrowseTheMarketplace",
+            "No language servers installed. Browse the marketplace to add language tools.",
+          )}
         </p>
       )}
       {state.marketplace.catalog.isPending && (
         <p role="status" className="text-xs text-muted-foreground">
-          Checking marketplace languages…
+          {t(
+            "workspace.editor.languageServers.checkingMarketplaceLanguages",
+            "Checking marketplace languages…",
+          )}
         </p>
       )}
       {state.save.isPending && (
         <p role="status" className="text-xs text-muted-foreground">
-          Saving language choices…
+          {t("workspace.editor.languageServers.savingLanguageChoices", "Saving language choices…")}
         </p>
       )}
       {state.error && (
@@ -197,166 +227,21 @@ export function LanguageServerSettings({ projectId }: { projectId?: number }) {
   );
 }
 
-type Server = NonNullable<
+export type Server = NonNullable<
   ReturnType<typeof useLspMarketplace>["inventory"]["data"]
 >["servers"][number];
-function LanguageChoices({
-  projectId,
-  language,
-  choice,
-  save,
-  saving,
-}: {
-  projectId?: number;
-  language: string;
-  choice: Choice;
-  save: (choice: Choice) => void;
-  saving: boolean;
-}) {
-  const resolved = useLspResolution({ language_id: language, project_id: projectId });
-  const candidates = resolved.data?.candidates ?? [];
-  const primary =
-    choice.primary === undefined ? "inherit" : choice.primary === null ? "off" : choice.primary;
-  const primaries = candidates.filter(
-    (server) => server.role === "type_checker" || server.role === "general",
-  );
-  const linters = candidates.filter((server) => server.role === "linter");
-  const selectedLinters = choice.linters ?? resolved.data?.linters ?? [];
-  const extra =
-    primary !== "inherit" &&
-    primary !== "off" &&
-    !primaries.some((server) => server.lsp_id === primary);
-  return (
-    <div className="space-y-3">
-      <LabeledControl
-        label="Primary server"
-        hint={`Effective: ${resolved.data?.primary ?? "Off"}. ${projectId === undefined ? "Automatic uses the only installed compatible primary server; choose one when several are installed." : "Inherit uses the global default."}`}
-      >
-        <Select
-          value={primary}
-          disabled={saving || resolved.isPending}
-          onValueChange={(value) => {
-            const next = { ...choice };
-            if (value === "inherit") delete next.primary;
-            else next.primary = value === "off" ? null : value;
-            save(next);
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Primary language server">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="inherit">
-              {projectId === undefined ? "Automatic" : "Inherit global default"}
-            </SelectItem>
-            <SelectItem value="off">Off</SelectItem>
-            {primaries.map((server) => (
-              <SelectItem key={server.lsp_id} value={server.lsp_id}>
-                {server.name}
-              </SelectItem>
-            ))}
-            {extra && <SelectItem value={primary}>{primary} (not installed)</SelectItem>}
-          </SelectContent>
-        </Select>
-      </LabeledControl>
-      <LinterChoices
-        choice={choice}
-        save={save}
-        saving={saving || resolved.isPending}
-        linters={linters}
-        selectedLinters={selectedLinters}
-        projectId={projectId}
-      />
-      {resolved.isPending && (
-        <p role="status" className="text-xs text-muted-foreground">
-          Resolving language choices…
-        </p>
-      )}
-      {resolved.data?.catalog_warning && (
-        <p role="status" className="text-xs text-muted-foreground">
-          Catalog: {resolved.data.catalog_warning}
-        </p>
-      )}
-      {(resolved.error || resolved.data?.error) && (
-        <p role="alert" className="text-xs text-destructive">
-          {resolved.error?.message ?? resolved.data?.error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function LinterChoices({
-  choice,
-  save,
-  saving,
-  linters,
-  selectedLinters,
-  projectId,
-}: {
-  choice: Choice;
-  save: (choice: Choice) => void;
-  saving: boolean;
-  linters: Server[];
-  selectedLinters: string[];
-  projectId?: number;
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium">Linters</p>
-      <label className="flex items-center gap-2 text-xs">
-        <Checkbox
-          checked={choice.linters === undefined}
-          disabled={saving}
-          onCheckedChange={(checked) => {
-            const next = { ...choice };
-            if (checked) delete next.linters;
-            else next.linters = [...selectedLinters];
-            save(next);
-          }}
-        />
-        {projectId === undefined ? "Use default (no linters)" : "Inherit global linters"}
-      </label>
-      {linters.map((server) => (
-        <label key={server.lsp_id} className="flex items-center gap-2 text-xs">
-          <Checkbox
-            checked={selectedLinters.includes(server.lsp_id)}
-            disabled={saving}
-            onCheckedChange={(checked) =>
-              save({
-                ...choice,
-                linters: checked
-                  ? [...new Set([...selectedLinters, server.lsp_id])]
-                  : selectedLinters.filter((id) => id !== server.lsp_id),
-              })
-            }
-          />
-          {server.name}
-        </label>
-      ))}
-      {selectedLinters
-        .filter((id) => !linters.some((server) => server.lsp_id === id))
-        .map((id) => (
-          <label key={id} className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked
-              disabled={saving}
-              onCheckedChange={() =>
-                save({ ...choice, linters: selectedLinters.filter((selected) => selected !== id) })
-              }
-            />
-            {id} (saved, not installed)
-          </label>
-        ))}
-    </div>
-  );
-}
-
 function InstalledServers({ servers }: { servers: Server[] }) {
+  const { t } = useUiTranslation();
   if (!servers.length) return null;
   return (
     <div className="space-y-2 border-t border-border pt-3">
-      <p className="text-xs font-medium">Installed servers · {servers.length}</p>
+      <p className="text-xs font-medium">
+        {t(
+          "workspace.editor.languageServers.installedServers",
+          "Installed servers · {{count, number}}",
+          { count: servers.length },
+        )}
+      </p>
       <Virtuoso
         className="h-48"
         data={servers}
@@ -371,7 +256,7 @@ function InstalledServers({ servers }: { servers: Server[] }) {
               {server.name}
             </Link>
             <span className="ml-2 text-muted-foreground">
-              {server.status} · {server.language_ids.join(", ")}
+              {serverStatusLabel(server.status, t)} · {server.language_ids.join(", ")}
             </span>
             {server.error && (
               <p role="alert" className="text-destructive">
@@ -383,4 +268,17 @@ function InstalledServers({ servers }: { servers: Server[] }) {
       />
     </div>
   );
+}
+
+function serverStatusLabel(status: Server["status"], t: UiTranslator): string {
+  switch (status) {
+    case "managed":
+      return t("workspace.editor.languageServers.statusManaged", "managed");
+    case "on_path":
+      return t("workspace.editor.languageServers.statusOnPath", "on PATH");
+    case "legacy":
+      return t("workspace.editor.languageServers.statusLegacy", "legacy");
+    case "invalid":
+      return t("workspace.editor.languageServers.statusInvalid", "invalid");
+  }
 }

@@ -11,6 +11,7 @@ import { GlobalOperationToasts } from "@/components/GlobalOperationToasts";
 import { NotchChannelBridge } from "@/components/notch/NotchChannelBridge";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { RootOverlays } from "@/components/RootOverlays";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { SidebarContext } from "@/components/SidebarContext";
 import { SuspendedBanner } from "@/components/SuspendedBanner";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
@@ -27,11 +28,17 @@ interface RootSearch {
 
 export const Route = createRootRoute({
   component: RootLayout,
+  notFoundComponent: NotFound,
   validateSearch: (search: Record<string, unknown>): RootSearch => {
     const raw = search[THEME_SELECTOR_SEARCH_KEY];
     return raw === true || raw === "true" ? { [THEME_SELECTOR_SEARCH_KEY]: true } : {};
   },
 });
+
+function NotFound() {
+  const { t } = useUiTranslation();
+  return <p>{t("shell.routes.notFound", "Not Found")}</p>;
+}
 
 /**
  * The root's prop-less hosts and bridges. Behind one memo boundary: the root

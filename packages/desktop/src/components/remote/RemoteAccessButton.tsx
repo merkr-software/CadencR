@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, type ReactElement } from "react";
 import { Loader2, Radio } from "lucide-react";
+import { formatExactNumber } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { isBrowserRemote } from "@/lib/remote/device-token";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useRemoteStore } from "@/stores/remote-store";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
 import { cn } from "@/lib/utils";
@@ -21,6 +24,7 @@ const CONNECTED_POLL_MS = 10_000;
  * remote access is host-only, so it's hidden inside a remote browser session.
  */
 export function RemoteAccessButton(): ReactElement | null {
+  const { t, i18n } = useUiTranslation();
   const enabled = useRemoteStore((s) => s.status?.enabled ?? false);
   const connected = useRemoteStore((s) => s.status?.connected_devices ?? 0);
   const loaded = useRemoteStore((s) => s.loaded);
@@ -45,9 +49,16 @@ export function RemoteAccessButton(): ReactElement | null {
 
   if (isBrowserRemote()) return null;
 
+  const locale = formattingLocale(i18n.language);
   const title = enabled
-    ? `Remote access ON — ${connected} device${connected === 1 ? "" : "s"} connected`
-    : "Remote access";
+    ? t("remote.host.connected", {
+        count: connected,
+        formatParams: { count: { locale } },
+        defaultValue: "Remote access ON — {{count, number}} devices connected",
+        defaultValue_zero: "Remote access ON — {{count, number}} devices connected",
+        defaultValue_one: "Remote access ON — {{count, number}} device connected",
+      })
+    : t("remote.host.title", "Remote access");
 
   return (
     <>
@@ -68,7 +79,7 @@ export function RemoteAccessButton(): ReactElement | null {
           className={cn("size-3.5 shrink-0", enabled && "text-[var(--acc-green)]")}
           aria-hidden
         />
-        {enabled ? <span>{connected}</span> : null}
+        {enabled ? <span>{formatExactNumber(connected, locale)}</span> : null}
       </button>
 
       {open ? (
@@ -76,8 +87,9 @@ export function RemoteAccessButton(): ReactElement | null {
           fallback={
             // Brief dialog-chunk load: a dimmed backdrop + spinner so the open
             // click has immediate, modal-shaped feedback instead of a dead frame.
-            <div className="fixed inset-0 z-50 grid place-items-center bg-black/40">
+            <div role="status" className="fixed inset-0 z-50 grid place-items-center bg-black/40">
               <Loader2 className="size-5 animate-spin text-white" aria-hidden />
+              <span className="sr-only">{t("remote.host.opening", "Opening remote access…")}</span>
             </div>
           }
         >

@@ -1,3 +1,4 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import type { FileTreeDirectoryHandle } from "@pierre/trees";
 import { describe, expect, it, vi } from "vitest";
@@ -419,4 +420,33 @@ describe("useGitDiffFileTreeModel display mode", () => {
     ]);
     expect(ordered.map((file) => file.file)).toEqual(["a.ts", "b.ts", "m.ts", "z.ts"]);
   });
+});
+
+it("repaints Git decorations on locale changes only when there is localized row text", async () => {
+  const file = changedFile("src/a.ts");
+  const files = [file];
+  const conflicts = [{ ...file, stage_state: FileStageState.conflicted }];
+  const onSelectionChange = vi.fn();
+  const { result, rerender } = renderHook(
+    ({ currentFiles }) => useGitDiffFileTreeModel({ files: currentFiles, onSelectionChange }),
+    { initialProps: { currentFiles: files } },
+  );
+  const setGitStatus = vi.spyOn(result.current.model, "setGitStatus");
+  try {
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+    expect(setGitStatus).not.toHaveBeenCalled();
+
+    rerender({ currentFiles: conflicts });
+    setGitStatus.mockClear();
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    expect(setGitStatus).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+  }
 });

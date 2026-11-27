@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import {
   AlertTriangleIcon,
@@ -30,7 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  CLEANUP_STEP_LABELS,
+  cleanupStepLabel,
   describeStep,
   reportedSteps,
   type ReportedStep,
@@ -39,25 +40,42 @@ import { useArchiveCleanupReviewStore } from "@/stores/archive-cleanup-review-st
 
 type ForcedStep = "worktree" | "branch";
 
-const FORCE_CONFIRMATIONS: Record<
+function forceConfirmations(
+  t: UiTranslator,
+): Record<
   ForcedStep,
   { action: string; title: string; description: string; request: RetryArchiveCleanupRequest }
-> = {
-  worktree: {
-    action: "Discard changes & remove worktree",
-    title: "Discard uncommitted changes?",
-    description:
-      "The worktree has uncommitted or untracked changes. Removing it anyway permanently loses them.",
-    request: { force_remove_worktree: true },
-  },
-  branch: {
-    action: "Delete unmerged branch",
-    title: "Delete an unmerged branch?",
-    description:
-      "The branch has commits that are not merged into its target. Deleting it anyway loses them unless they exist elsewhere (for example a squash-merged pull request).",
-    request: { force_remove_branch: true },
-  },
-};
+> {
+  return {
+    worktree: {
+      action: t(
+        "conversation.archiveCleanupDialog.discardChangesRemoveWorktree",
+        "Discard changes & remove worktree",
+      ),
+      title: t(
+        "conversation.archiveCleanupDialog.discardUncommittedChanges",
+        "Discard uncommitted changes?",
+      ),
+      description: t(
+        "conversation.archiveCleanupDialog.theWorktreeHasUncommittedOrUntrackedChanges",
+        "The worktree has uncommitted or untracked changes. Removing it anyway permanently loses them.",
+      ),
+      request: { force_remove_worktree: true },
+    },
+    branch: {
+      action: t("conversation.archiveCleanupDialog.deleteUnmergedBranch", "Delete unmerged branch"),
+      title: t(
+        "conversation.archiveCleanupDialog.deleteAnUnmergedBranch",
+        "Delete an unmerged branch?",
+      ),
+      description: t(
+        "conversation.archiveCleanupDialog.theBranchHasCommitsThatAreNot",
+        "The branch has commits that are not merged into its target. Deleting it anyway loses them unless they exist elsewhere (for example a squash-merged pull request).",
+      ),
+      request: { force_remove_branch: true },
+    },
+  };
+}
 
 /**
  * The cleanup of an archived conversation as the service journaled it, with
@@ -66,6 +84,8 @@ const FORCE_CONFIRMATIONS: Record<
  * state shown comes from the service (query + `app/archive_cleanup` events).
  */
 export function ArchiveCleanupDialog(): ReactElement {
+  const { t } = useUiTranslation();
+  const confirmations = forceConfirmations(t);
   const featureId = useArchiveCleanupReviewStore((state) => state.featureId);
   const close = useArchiveCleanupReviewStore((state) => state.close);
   const [confirming, setConfirming] = useState<ForcedStep | null>(null);
@@ -98,15 +118,28 @@ export function ArchiveCleanupDialog(): ReactElement {
       <Dialog open={featureId != null} onOpenChange={(open) => !open && close()}>
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Archive cleanup</DialogTitle>
+            <DialogTitle>
+              {t("conversation.archiveCleanupDialog.archiveCleanup", "Archive cleanup")}
+            </DialogTitle>
             <DialogDescription>
-              {status ? `“${status.title}”` : "Cleanup of an archived session"}
+              {status
+                ? `“${status.title}”`
+                : t(
+                    "conversation.archiveCleanupDialog.cleanupOfAnArchivedSession",
+                    "Cleanup of an archived session",
+                  )}
             </DialogDescription>
           </DialogHeader>
           <CleanupBody query={query} />
           {retry.error != null && (
             <p role="alert" className="text-xs text-destructive">
-              {apiErrorMessage(retry.error, "Could not resume the cleanup")}
+              {apiErrorMessage(
+                retry.error,
+                t(
+                  "conversation.archiveCleanupDialog.couldNotResumeTheCleanup",
+                  "Could not resume the cleanup",
+                ),
+              )}
             </p>
           )}
           <DialogFooter>
@@ -119,7 +152,7 @@ export function ArchiveCleanupDialog(): ReactElement {
               />
             )}
             <Button variant="outline" onClick={close}>
-              Close
+              {t("conversation.archiveCleanupDialog.close", "Close")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -127,12 +160,16 @@ export function ArchiveCleanupDialog(): ReactElement {
       <ConfirmDialog
         open={confirming != null}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={confirming ? FORCE_CONFIRMATIONS[confirming].title : ""}
-        description={confirming ? FORCE_CONFIRMATIONS[confirming].description : undefined}
-        confirmText={confirming ? FORCE_CONFIRMATIONS[confirming].action : "Confirm"}
+        title={confirming ? confirmations[confirming].title : ""}
+        description={confirming ? confirmations[confirming].description : undefined}
+        confirmText={
+          confirming
+            ? confirmations[confirming].action
+            : t("conversation.archiveCleanupDialog.confirm", "Confirm")
+        }
         variant="destructive"
         busy={retry.isPending}
-        onConfirm={() => (confirming ? run(FORCE_CONFIRMATIONS[confirming].request) : undefined)}
+        onConfirm={() => (confirming ? run(confirmations[confirming].request) : undefined)}
       />
     </>
   );
@@ -143,22 +180,33 @@ function CleanupBody({
 }: {
   query: { isLoading: boolean; error: unknown; data: ArchiveCleanupStatus | undefined };
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (query.isLoading) {
     return (
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2Icon className="size-3.5 animate-spin" /> Loading the cleanup…
+        <Loader2Icon className="size-3.5 animate-spin" />{" "}
+        {t("conversation.archiveCleanupDialog.loadingTheCleanup", "Loading the cleanup…")}
       </p>
     );
   }
   if (query.error != null || !query.data) {
     return (
       <p role="alert" className="text-xs text-destructive">
-        {apiErrorMessage(query.error, "This session has no archive cleanup")}
+        {apiErrorMessage(
+          query.error,
+          t(
+            "conversation.archiveCleanupDialog.thisSessionHasNoArchiveCleanup",
+            "This session has no archive cleanup",
+          ),
+        )}
       </p>
     );
   }
   return (
-    <ul className="space-y-2" aria-label="Cleanup steps">
+    <ul
+      className="space-y-2"
+      aria-label={t("conversation.archiveCleanupDialog.cleanupSteps", "Cleanup steps")}
+    >
       {reportedSteps(query.data.cleanup).map((entry) => (
         <CleanupStepRow key={entry.name} entry={entry} />
       ))}
@@ -167,45 +215,71 @@ function CleanupBody({
 }
 
 function CleanupStepRow({ entry }: { entry: ReportedStep }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <li className="flex items-start gap-3 rounded-md border p-3 text-sm">
-      <span className="mt-0.5">{statusIcon(entry.step.status)}</span>
+      <span className="mt-0.5">{statusIcon(entry.step.status, t)}</span>
       <span className="min-w-0 flex-1">
-        <span className="block font-medium">{CLEANUP_STEP_LABELS[entry.name]}</span>
+        <span className="block font-medium">{cleanupStepLabel(entry.name, t)}</span>
         <span className="block break-words text-xs text-muted-foreground">
-          {describeStep(entry)}
+          {describeStep(entry, t)}
         </span>
       </span>
     </li>
   );
 }
 
-function statusIcon(status: StepOutcome["status"]): ReactElement {
+function statusIcon(status: StepOutcome["status"], t: UiTranslator): ReactElement {
   switch (status) {
     case "done":
-      return <CheckIcon className="size-4 text-primary" aria-label="Done" />;
+      return (
+        <CheckIcon
+          className="size-4 text-primary"
+          aria-label={t("conversation.archiveCleanupDialog.done", "Done")}
+        />
+      );
     case "skipped":
-      return <MinusIcon className="size-4 text-muted-foreground" aria-label="Skipped" />;
+      return (
+        <MinusIcon
+          className="size-4 text-muted-foreground"
+          aria-label={t("conversation.archiveCleanupDialog.skipped", "Skipped")}
+        />
+      );
     case "running":
-      return <Loader2Icon className="size-4 animate-spin" aria-label="In progress" />;
+      return (
+        <Loader2Icon
+          className="size-4 animate-spin"
+          aria-label={t("conversation.archiveCleanupDialog.inProgress", "In progress")}
+        />
+      );
     case "pending":
-      return <CircleDashedIcon className="size-4 text-muted-foreground" aria-label="Pending" />;
+      return (
+        <CircleDashedIcon
+          className="size-4 text-muted-foreground"
+          aria-label={t("conversation.archiveCleanupDialog.pending", "Pending")}
+        />
+      );
     case "interrupted":
       return (
         <PauseCircleIcon
           className="size-4 text-amber-600 dark:text-amber-400"
-          aria-label="Interrupted"
+          aria-label={t("conversation.archiveCleanupDialog.interrupted", "Interrupted")}
         />
       );
     case "blocked":
       return (
         <AlertTriangleIcon
           className="size-4 text-amber-600 dark:text-amber-400"
-          aria-label="Blocked"
+          aria-label={t("conversation.archiveCleanupDialog.blocked", "Blocked")}
         />
       );
     case "failed":
-      return <XCircleIcon className="size-4 text-destructive" aria-label="Failed" />;
+      return (
+        <XCircleIcon
+          className="size-4 text-destructive"
+          aria-label={t("conversation.archiveCleanupDialog.failed", "Failed")}
+        />
+      );
   }
 }
 
@@ -215,6 +289,7 @@ function CleanupActions(props: {
   onResume: () => void;
   onForce: (step: ForcedStep) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const blocked = (["worktree", "branch"] as const).filter(
     (name) => props.status.cleanup[name]?.status === "blocked",
   );
@@ -227,12 +302,14 @@ function CleanupActions(props: {
           disabled={props.busy}
           onClick={() => props.onForce(name)}
         >
-          {FORCE_CONFIRMATIONS[name].action}…
+          {forceConfirmations(t)[name].action}…
         </Button>
       ))}
       <Button disabled={props.busy} aria-busy={props.busy} onClick={props.onResume}>
         {props.busy ? <Loader2Icon className="size-4 animate-spin" /> : null}
-        {props.busy ? "Cleaning up…" : "Resume cleanup"}
+        {props.busy
+          ? t("conversation.archiveCleanupDialog.cleaningUp", "Cleaning up…")
+          : t("conversation.archiveCleanupDialog.resumeCleanup", "Resume cleanup")}
       </Button>
     </>
   );

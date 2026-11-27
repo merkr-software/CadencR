@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef, useState, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import { Settings, PanelLeftClose, Search, Maximize, Minimize, Share } from "lucide-react";
@@ -39,6 +40,8 @@ import { StorageMaintenanceProgress } from "@/components/StorageMaintenanceProgr
 import { APP_ENVIRONMENT } from "@/lib/app-environment";
 import { getActiveFocusZone } from "@/lib/focus-zones";
 import { APP_VERSION } from "@/lib/app-version";
+import { formatExactNumber } from "@/lib/format-number";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { cn } from "@/lib/utils";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
@@ -139,11 +142,15 @@ export const Sidebar = memo(function Sidebar({ onSearch }: { onSearch: () => voi
 });
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   const terminalFocused = useIsTerminalFocusActive();
   const searchCombo = useShortcutLabel("command-palette");
   const title = terminalFocused
-    ? "Search unavailable while terminal is focused"
-    : `Search (${searchCombo})`;
+    ? t(
+        "sidebar.searchUnavailableWhileTerminalIsFocused",
+        "Search unavailable while terminal is focused",
+      )
+    : t("sidebar.searchWithShortcut", "Search ({{shortcut}})", { shortcut: searchCombo });
   return (
     <button
       type="button"
@@ -156,7 +163,9 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
       )}
     >
       <Search className="size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-left">Search</span>
+      <span className="min-w-0 flex-1 truncate text-left">
+        {t("sidebar.searchButton", "Search")}
+      </span>
       {terminalFocused ? (
         <InactiveShortcutHint />
       ) : (
@@ -199,6 +208,7 @@ function InactiveShortcutHint(): ReactElement {
 }
 
 function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
   // Reserve a dedicated strip for the macOS traffic-light buttons (they sit
   // at ~y=12 inside `titleBarStyle: "hiddenInset"`) so the lockup below can
@@ -220,11 +230,13 @@ function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement
             variant="ghost"
             size="icon"
             className="size-7"
-            title={`Collapse sidebar (${toggleSidebarCombo})`}
+            title={t("sidebar.collapseWithShortcut", "Collapse sidebar ({{shortcut}})", {
+              shortcut: toggleSidebarCombo,
+            })}
             onClick={onCollapse}
           >
             <PanelLeftClose className="size-4" />
-            <span className="sr-only">Collapse sidebar</span>
+            <span className="sr-only">{t("sidebar.collapseSidebar", "Collapse sidebar")}</span>
           </Button>
         </div>
       </div>
@@ -233,6 +245,7 @@ function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement
 }
 
 function SidebarFullscreenButton(): ReactElement | null {
+  const { t } = useUiTranslation();
   const isMobile = useIsMobile();
   const { supported, isFullscreen, isStandalone, toggle } = useFullscreen();
   // Phones only, and not when already chromeless (installed / Add-to-Home-Screen).
@@ -245,7 +258,11 @@ function SidebarFullscreenButton(): ReactElement | null {
         data-nav-item
         onClick={toggle}
         className={cn(SIDEBAR_FOOTER_PILL_CLASS, "text-foreground/80")}
-        title={isFullscreen ? "Exit full screen" : "Full screen"}
+        title={
+          isFullscreen
+            ? t("sidebar.exitFullScreen", "Exit full screen")
+            : t("sidebar.fullScreen", "Full screen")
+        }
       >
         <span className="flex items-center gap-2">
           {isFullscreen ? (
@@ -253,7 +270,11 @@ function SidebarFullscreenButton(): ReactElement | null {
           ) : (
             <Maximize className="size-4 shrink-0" />
           )}
-          <span>{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+          <span>
+            {isFullscreen
+              ? t("sidebar.exitFullScreen", "Exit full screen")
+              : t("sidebar.fullScreen", "Full screen")}
+          </span>
         </span>
       </button>
     );
@@ -266,6 +287,10 @@ function SidebarFullscreenButton(): ReactElement | null {
 }
 
 function AddToHomeScreenDialog(): ReactElement {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
+  const stepNumber = (number: number) =>
+    t("sidebar.homeScreenStepNumber", "{{number}}.", { number: formatExactNumber(number, locale) });
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -273,47 +298,63 @@ function AddToHomeScreenDialog(): ReactElement {
           type="button"
           data-nav-item
           className={cn(SIDEBAR_FOOTER_PILL_CLASS, "text-foreground/80")}
-          title="Full screen"
+          title={t("sidebar.fullScreen", "Full screen")}
         >
           <span className="flex items-center gap-2">
             <Maximize className="size-4 shrink-0" />
-            <span>Full screen</span>
+            <span>{t("sidebar.fullScreen", "Full screen")}</span>
           </span>
         </button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add to Home Screen</DialogTitle>
+          <DialogTitle>{t("sidebar.addToHomeScreen", "Add to Home Screen")}</DialogTitle>
           <DialogDescription>
-            iPhone browsers can’t go full screen from a web page. Add Cadencr to your Home Screen to
-            run it full screen, like an app.
+            {t(
+              "sidebar.iosFullscreenInstructions",
+              "iPhone browsers can’t go full screen from a web page. Add Cadencr to your Home Screen to run it full screen, like an app.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <ol className="space-y-3 text-sm">
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">1.</span>
+            <span className="font-medium text-foreground">{stepNumber(1)}</span>
             <span>
-              Tap the <Share className="inline size-4 -translate-y-px" aria-label="Share" /> Share
-              button in your browser’s toolbar.
+              <UiTrans
+                i18nKey="sidebar.tapShare"
+                defaults="Tap the <icon/> Share button in your browser’s toolbar."
+                components={{
+                  icon: <Share className="inline size-4 -translate-y-px" aria-hidden />,
+                }}
+              />
             </span>
           </li>
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">2.</span>
+            <span className="font-medium text-foreground">{stepNumber(2)}</span>
             <span>
-              Scroll down and choose{" "}
-              <span className="font-medium text-foreground">Add to Home Screen</span>.
+              <UiTrans
+                i18nKey="sidebar.chooseAddToHomeScreen"
+                defaults="Scroll down and choose <action>Add to Home Screen</action>."
+                components={{ action: <span className="font-medium text-foreground" /> }}
+              />
             </span>
           </li>
           <li className="flex items-center gap-2">
-            <span className="font-medium text-foreground">3.</span>
+            <span className="font-medium text-foreground">{stepNumber(3)}</span>
             <span>
-              Open <span className="font-medium text-foreground">Cadencr</span> from the new icon —
-              it opens full screen.
+              <UiTrans
+                i18nKey="sidebar.openHomeScreenIcon"
+                defaults="Open <app>Cadencr</app> from the new icon — it opens full screen."
+                components={{ app: <span className="font-medium text-foreground" /> }}
+              />
             </span>
           </li>
         </ol>
         <p className="text-xs text-muted-foreground">
-          The first time you open it from the Home Screen, you’ll pair this device once more.
+          {t(
+            "sidebar.homeScreenPairing",
+            "The first time you open it from the Home Screen, you’ll pair this device once more.",
+          )}
         </p>
       </DialogContent>
     </Dialog>
@@ -321,6 +362,7 @@ function AddToHomeScreenDialog(): ReactElement {
 }
 
 function SidebarFooter({ anchorsToasts }: { anchorsToasts: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   const settingsRowRef = useRef<HTMLDivElement>(null);
   useToastAnchor(settingsRowRef, anchorsToasts);
   return (
@@ -340,7 +382,7 @@ function SidebarFooter({ anchorsToasts }: { anchorsToasts: boolean }): ReactElem
           )}
         >
           <Settings className="size-4 shrink-0" />
-          <span>Settings</span>
+          <span>{t("settings.nav.title", "Settings")}</span>
         </Link>
         <RemoteAccessButton />
         <span className="flex shrink-0 items-center gap-1.5 px-1 text-[10px] text-muted-foreground tabular-nums">

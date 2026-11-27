@@ -37,16 +37,10 @@ describe("clampText", () => {
     expect(result.text.length).toBeLessThan(1000 + 100);
   });
 
-  it("reports the hidden character count on a first clamp", () => {
-    const result = clampText("x".repeat(10_000), 1000);
-    expect(result.text).toMatch(/characters hidden/);
-  });
-
-  it("omits a character count when re-clamping an already-clamped value", () => {
+  it("keeps a neutral marker when re-clamping an already-clamped value", () => {
     const once = clampText("x".repeat(10_000), 1000).text;
     const twice = clampText(once + "y".repeat(10_000), 1000);
-    expect(twice.text).toContain(TRUNCATION_NOTICE);
-    expect(twice.text).not.toMatch(/characters hidden/);
+    expect(twice.text.split(TRUNCATION_NOTICE)).toHaveLength(2);
   });
 
   it("never splits a surrogate pair", () => {

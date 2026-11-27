@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { useBinaryDiscovery, type ProviderDiscovery } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ export function DiscoverCliStep({
   onBack,
   onSkipStep,
 }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   const query = useBinaryDiscovery();
   const providers = query.data?.providers ?? {};
 
@@ -32,41 +34,57 @@ export function DiscoverCliStep({
       className="flex flex-col gap-6"
     >
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight">Detect your agent CLIs</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.discovery.title", "Detect your agent CLIs")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Cadencr runs your locally-installed agents — Claude, OpenCode, Codex — and shows their
-          output here. We&apos;ll use whichever ones we can find.
+          {t(
+            "onboarding.discovery.description",
+            "Cadencr runs your locally-installed agents — Claude, OpenCode, Codex — and shows their output here. We'll use whichever ones we can find.",
+          )}
         </p>
       </header>
 
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
         <AlertTriangle className="size-4 text-amber-600 dark:text-amber-500 mt-0.5 shrink-0" />
         <div className="space-y-1">
-          <p className="font-medium">You handle authentication</p>
+          <p className="font-medium">
+            {t("onboarding.discovery.authTitle", "You handle authentication")}
+          </p>
           <p className="text-muted-foreground">
-            Each CLI is responsible for its own auth (
-            <code className="font-mono text-xs">claude login</code>,{" "}
-            <code className="font-mono text-xs">OPENAI_API_KEY</code>, etc.). Cadencr never stores
-            keys or tokens.
+            <UiTrans
+              i18nKey="onboarding.discovery.authDescription"
+              defaults="Each CLI is responsible for its own auth (<command>{{command}}</command>, <variable>{{variable}}</variable>, etc.). Cadencr never stores keys or tokens."
+              values={{ command: "claude login", variable: "OPENAI_API_KEY" }}
+              components={{
+                command: <code className="font-mono text-xs" />,
+                variable: <code className="font-mono text-xs" />,
+              }}
+            />
           </p>
         </div>
       </div>
 
       {query.isLoading ? (
-        <LoadingRow label="Discovering installs…" />
+        <LoadingRow label={t("onboarding.discovery.loading", "Discovering installs…")} />
       ) : query.isError ? (
         <ErrorRow
           label={
             <>
-              Failed to detect installed CLIs.{" "}
+              {t("onboarding.discovery.error", "Failed to detect installed CLIs.")}{" "}
               <Button type="button" variant="link" size="sm" onClick={() => void query.refetch()}>
-                Retry
+                {t("common.retry", "Retry")}
               </Button>
             </>
           }
         />
       ) : Object.keys(providers).length === 0 ? (
-        <ErrorRow label="No agent providers reported by the backend." />
+        <ErrorRow
+          label={t(
+            "onboarding.discovery.noProviders",
+            "No agent providers reported by the backend.",
+          )}
+        />
       ) : (
         <div className="rounded-md border border-border overflow-hidden divide-y divide-border">
           {Object.entries(providers).map(([id, p]) => (
@@ -76,7 +94,7 @@ export function DiscoverCliStep({
       )}
 
       <OnboardingFooter
-        primaryLabel="Continue"
+        primaryLabel={t("common.continue", "Continue")}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}
@@ -86,6 +104,7 @@ export function DiscoverCliStep({
 }
 
 function ProviderRow({ id, provider }: { id: string; provider: ProviderDiscovery }) {
+  const { t } = useUiTranslation();
   const detected = provider.selected != null;
   return (
     <div className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
@@ -106,7 +125,10 @@ function ProviderRow({ id, provider }: { id: string; provider: ProviderDiscovery
           </div>
         ) : (
           <div className="text-xs text-muted-foreground pl-6">
-            Not found — install the CLI on your machine, then click Continue.
+            {t(
+              "onboarding.discovery.notFound",
+              "Not found — install the CLI on your machine, then click Continue.",
+            )}
           </div>
         )}
       </div>

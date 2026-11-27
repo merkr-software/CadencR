@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { splitFilePatch } from "@/lib/split-file-patch";
@@ -11,6 +12,7 @@ import { PatchDiffView, type PatchDiffViewProps } from "./PatchDiffView";
  * navigation keep working.
  */
 function ProgressiveLargeDiffImpl(props: PatchDiffViewProps) {
+  const { t } = useUiTranslation();
   const { patch } = props;
   const chunks = useMemo(() => splitFilePatch(patch), [patch]);
   const [shownChunks, setShownChunks] = useState(chunks);
@@ -48,7 +50,11 @@ function ProgressiveLargeDiffImpl(props: PatchDiffViewProps) {
           role="status"
         >
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          Rendering diff… {Math.round((visibleCount / chunks.length) * 100)}%
+          {t(
+            "workspace.git.progressiveLargeDiff.renderingDiffProgress",
+            "Rendering diff… {{progress, number(style: percent)}}",
+            { progress: visibleCount / chunks.length },
+          )}
         </div>
       )}
     </>

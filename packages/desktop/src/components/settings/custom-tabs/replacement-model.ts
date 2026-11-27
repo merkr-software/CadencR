@@ -1,18 +1,14 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { PluginTabSummary } from "@/api/generated";
 import {
-  BUILTIN_TAB_LABELS,
+  builtinTabLabel,
   REPLACEABLE_TABS,
   replacedBy,
   type ReplaceableTab,
   type TabReplacementChoices,
 } from "@/lib/plugin-tabs/tab-replacements";
 
-import {
-  customTabStatus,
-  isSwitchedOnAnywhere,
-  type CustomTabStatus,
-  type ProjectOverride,
-} from "./custom-tab-model";
+import { customTabStatus, isSwitchedOnAnywhere, type ProjectOverride } from "./custom-tab-model";
 
 /** One built-in tab in Settings → Custom tabs → Replace built-in tabs. */
 export interface ReplacementSlot {
@@ -50,60 +46,128 @@ export function describeReplacement(
   slot: ReplacementSlot,
   tabs: readonly PluginTabSummary[],
   overrides: (tabId: string) => ReadonlyMap<number, ProjectOverride>,
+  t: UiTranslator = translateUi,
 ): { text: string; tone: ReplacementTone } {
-  const builtin = BUILTIN_TAB_LABELS[slot.tab];
+  const builtin = builtinTabLabel(slot.tab, t);
   if (!slot.chosenId) {
     const count = slot.candidates.length;
     return {
       text:
         count > 1
-          ? `${count} custom tabs can replace ${builtin}; it shows the built-in until you pick one.`
-          : `${slot.candidates[0]?.label ?? "A custom tab"} can replace ${builtin}.`,
+          ? t(
+              "customTabs.replacements.multipleCandidates",
+              "{{count}} custom tabs can replace {{builtin}}; it shows the built-in until you pick one.",
+              { count, builtin },
+            )
+          : slot.candidates[0]
+            ? t("customTabs.replacements.oneCandidate", "{{label}} can replace {{builtin}}.", {
+                label: slot.candidates[0].label,
+                builtin,
+              })
+            : t(
+                "customTabs.replacements.genericCandidate",
+                "A custom tab can replace {{builtin}}.",
+                { builtin },
+              ),
       tone: "muted",
     };
   }
   const summary = tabs.find((candidate) => candidate.id === slot.chosenId);
-  const warn = (text: string) => ({
-    text: `${text}, so ${builtin} shows.`,
-    tone: "warning" as const,
-  });
-  if (!summary) return warn(`The custom tab “${slot.chosenId}” is no longer installed`);
+  if (!summary)
+    return warn(
+      t(
+        "customTabs.replacements.missing",
+        "The custom tab “{{id}}” is no longer installed, so {{builtin}} shows.",
+        { id: slot.chosenId, builtin },
+      ),
+    );
   if (!summary.replaces.includes(slot.tab)) {
-    return warn(`${summary.label} no longer says it can replace ${builtin}`);
+    return warn(
+      t(
+        "customTabs.replacements.noLongerOffered",
+        "{{label}} no longer says it can replace {{builtin}}, so {{builtin}} shows.",
+        { label: summary.label, builtin },
+      ),
+    );
   }
-  const status = customTabStatus(summary);
-  if (status !== "valid") return warn(`${summary.label} ${NOT_RUNNING[status]}`);
+  const values = { label: summary.label, builtin };
+  switch (customTabStatus(summary)) {
+    case "blocked":
+      return warn(
+        t("customTabs.replacements.blocked", "{{label}} is blocked, so {{builtin}} shows.", values),
+      );
+    case "invalid":
+      return warn(
+        t("customTabs.replacements.invalid", "{{label}} has errors, so {{builtin}} shows.", values),
+      );
+    case "unavailable":
+      return warn(
+        t(
+          "customTabs.replacements.unavailable",
+          "{{label}} can't run on this platform, so {{builtin}} shows.",
+          values,
+        ),
+      );
+    case "not-built":
+      return warn(
+        t(
+          "customTabs.replacements.notBuilt",
+          "{{label}} isn't built yet, so {{builtin}} shows.",
+          values,
+        ),
+      );
+  }
   const overridden = overrides(summary.id);
   if (!isSwitchedOnAnywhere(summary, overridden)) {
     return {
-      text: `${summary.label} is off in every project, so ${builtin} shows. Turn it on below.`,
+      text: t(
+        "customTabs.replacements.switchedOff",
+        "{{label}} is off in every project, so {{builtin}} shows. Turn it on below.",
+        { ...values },
+      ),
       tone: "warning",
     };
   }
   if (summary.enablement.consent_required) {
-    return warn(`${summary.label} waits for you to approve its new permissions`);
+    return warn(
+      t(
+        "customTabs.replacements.waitingApproval",
+        "{{label}} waits for you to approve its new permissions, so {{builtin}} shows.",
+        { ...values },
+      ),
+    );
   }
-  return { text: whereItShows(summary, builtin, overridden), tone: "muted" };
+  return { text: whereItShows(summary, builtin, overridden, t), tone: "muted" };
 }
 
-const NOT_RUNNING: Record<Exclude<CustomTabStatus, "valid">, string> = {
-  blocked: "is blocked",
-  invalid: "has errors",
-  unavailable: "can't run on this platform",
-  "not-built": "isn't built yet",
-};
+function warn(text: string): { text: string; tone: ReplacementTone } {
+  return { text, tone: "warning" };
+}
 
 function whereItShows(
   summary: PluginTabSummary,
   builtin: string,
   overrides: ReadonlyMap<number, ProjectOverride>,
+  t: UiTranslator,
 ): string {
   if (summary.enablement.global === true) {
-    return `${summary.label} shows in place of ${builtin} in every project where it is on.`;
+    return t(
+      "customTabs.replacements.allProjects",
+      "{{label}} shows in place of {{builtin}} in every project where it is on.",
+      { label: summary.label, builtin },
+    );
   }
   const projectsOn = [...overrides.values()].filter((enabled) => enabled === true).length;
-  const where = projectsOn === 1 ? "project" : `${projectsOn} projects`;
-  return `${summary.label} shows in place of ${builtin} in the ${where} where it is on.`;
+  return t("customTabs.replacements.projectsOn", {
+    count: projectsOn,
+    label: summary.label,
+    builtin,
+    defaultValue_zero:
+      "{{label}} shows in place of {{builtin}} in the {{count}} projects where it is on.",
+    defaultValue_one: "{{label}} shows in place of {{builtin}} in the project where it is on.",
+    defaultValue_other:
+      "{{label}} shows in place of {{builtin}} in the {{count}} projects where it is on.",
+  });
 }
 
 /** Where a candidate already stands in for another built-in, for its option label. */
@@ -111,9 +175,13 @@ export function candidateLabel(
   summary: PluginTabSummary,
   tab: ReplaceableTab,
   choices: TabReplacementChoices,
+  t: UiTranslator = translateUi,
 ): string {
   const elsewhere = replacedBy(choices, summary.id);
   return elsewhere && elsewhere !== tab
-    ? `${summary.label} (moves from ${BUILTIN_TAB_LABELS[elsewhere]})`
+    ? t("customTabs.replacements.candidateMoves", "{{label}} (moves from {{builtin}})", {
+        label: summary.label,
+        builtin: builtinTabLabel(elsewhere, t),
+      })
     : summary.label;
 }

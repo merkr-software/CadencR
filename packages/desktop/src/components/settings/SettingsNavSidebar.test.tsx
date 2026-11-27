@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { fireEvent, render, screen, within } from "@/test-utils";
+import { act, fireEvent, render, screen, within } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import { SettingsNavSidebar } from "./SettingsNavSidebar";
+import { SettingsPageSection } from "./SettingsPageSection";
 import type { SettingsPageId } from "./settings-catalog";
 
 function Harness({
@@ -83,6 +85,46 @@ describe("SettingsNavSidebar", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No settings match “zzzz”.");
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeInTheDocument();
+  });
+
+  it("updates open search results on language change and keeps English queries working", async () => {
+    const language = uiI18n.language;
+    uiI18n.addResourceBundle("fr-CA", "ui", {
+      "settings.nav.search.field": "Rechercher dans les réglages",
+      "settings.nav.editor.label": "Éditeur",
+      "settings.nav.editor.description": "Réglages de l’éditeur intégré.",
+      "settings.nav.editor.entries.vim-mode.label": "Mode Vim",
+      "settings.nav.editor.entries.vim-mode.keywords": "raccourcis de navigation",
+    });
+    const onNavigate = vi.fn();
+    try {
+      render(
+        <>
+          <Harness onNavigate={onNavigate} initialQuery="editor vim" />
+          <SettingsPageSection pageId="editor" />
+        </>,
+      );
+      expect(screen.getByRole("button", { name: "Vim mode" })).toBeInTheDocument();
+
+      await act(async () => {
+        await uiI18n.changeLanguage("fr-CA");
+      });
+      const field = screen.getByRole("searchbox", { name: "Rechercher dans les réglages" });
+      expect(field).toHaveValue("editor vim");
+      expect(screen.getByRole("button", { name: "Éditeur" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Éditeur" })).toBeInTheDocument();
+      expect(screen.getByText("Réglages de l’éditeur intégré.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Mode Vim" })).toBeInTheDocument();
+      fireEvent.change(field, { target: { value: "editeur raccourcis" } });
+      expect(screen.getByRole("button", { name: "Mode Vim" })).toBeInTheDocument();
+      fireEvent.keyDown(field, { key: "Enter" });
+      expect(onNavigate).toHaveBeenCalledWith("editing");
+    } finally {
+      await act(async () => {
+        await uiI18n.changeLanguage(language);
+      });
+      uiI18n.removeResourceBundle("fr-CA", "ui");
+    }
   });
 
   it("walks the results with the arrow keys", () => {

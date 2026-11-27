@@ -72,3 +72,32 @@ id=$(printf '%s' "$initialize" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
 printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"models":[{"value":"opus","displayName":"Opus","description":"Opus","supportsEffort":true,"supportedEffortLevels":["low","medium","high"]}],"commands":[],"account":{}}}}\n' "$id"
 while read -r ignored; do :; done
 "#;
+
+#[tokio::test]
+async fn competing_language_invitations_preserve_the_first_confirmed_choice() {
+    use cadencr_service::domain::settings_store::{
+        global_read, global_set_if_current, global_write_content,
+    };
+
+    let _guard = isolated_settings().await;
+    global_write_content(r#"{"ui_language":"legacy-english"}"#)
+        .await
+        .unwrap();
+    let answer = |language: &str| {
+        global_set_if_current(
+            "ui_language".into(),
+            "legacy-english".into(),
+            language.into(),
+        )
+    };
+    let (accept, decline) = tokio::join!(answer("fr-FR"), answer("en-US"));
+    let confirmed = global_read("ui_language").unwrap();
+    assert!(matches!(confirmed.as_deref(), Some("fr-FR" | "en-US")));
+    assert_eq!(accept.unwrap(), confirmed);
+    assert_eq!(decline.unwrap(), confirmed);
+    global_write_content(r#"{"ui_language_initialized":true}"#)
+        .await
+        .unwrap();
+    assert_eq!(answer("fr-FR").await.unwrap(), None);
+    assert_eq!(global_read("ui_language").unwrap(), None);
+}

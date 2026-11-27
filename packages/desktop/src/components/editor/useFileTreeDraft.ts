@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { toast } from "sonner";
 import type { FileTree as FileTreeModel, FileTreeRenameEvent } from "@pierre/trees";
@@ -121,7 +122,12 @@ function useStartCreate(
         if (model.getItem(pierrePath) != null) {
           model.remove(pierrePath, kind === "folder" ? { recursive: true } : undefined);
         }
-        toast.error("Could not start inline create");
+        toast.error(
+          translateUi(
+            "workspace.editor.useFileTreeDraft.createFailed",
+            "Could not start inline create",
+          ),
+        );
       }
     },
     [draftRef, model],

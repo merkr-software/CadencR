@@ -1,8 +1,9 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { AgentBlockData } from "@/types/agent-block";
 import { isCountableTool } from "@/lib/agent-stream-summary";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
 import { mcpToolKey, parseMcpTool, type McpTool } from "@/lib/mcp-tool-parser";
-import { semanticSkillPresentation } from "@/lib/tool-display-policy";
+import { displayToolName, semanticSkillPresentation } from "@/lib/tool-display-policy";
 import { computeToolNumStat } from "@/lib/tool-numstat";
 import type { ToolAccent } from "@/lib/tool-accent";
 
@@ -13,7 +14,7 @@ import type { ToolAccent } from "@/lib/tool-accent";
  * tools carry their server so the pill can wear the brand badge + friendly label.
  */
 export interface ToolChip {
-  /** Grouping key (== normalized tool name; MCP raw names are already unique). */
+  /** Stable grouping key independent of the displayed label. */
   key: string;
   /** Display label — friendly MCP label, else the normalized tool name. */
   label: string;
@@ -39,7 +40,10 @@ function classifyAccent(name: string, mcp: McpTool | undefined): ToolAccent {
  * first-appearance order. File-change groups accumulate their numstat from each
  * call's args; the heavier diff parse only runs for `edit`-accent groups.
  */
-export function buildToolChips(blocks: AgentBlockData[]): ToolChip[] {
+export function buildToolChips(
+  blocks: AgentBlockData[],
+  t: UiTranslator = translateUi,
+): ToolChip[] {
   const order: string[] = [];
   const groups = new Map<string, ToolChip>();
 
@@ -50,14 +54,22 @@ export function buildToolChips(blocks: AgentBlockData[]): ToolChip[] {
     const name = skill ? "Skill" : normalizeToolName(rawName);
     const args = skill?.args ?? block.toolArgs;
     const mcpKey = mcpToolKey(rawName);
-    const key = mcpKey ? `mcp:${mcpKey}` : name;
+    const key = mcpKey
+      ? `mcp:${mcpKey}`
+      : skill
+        ? "semantic:skill"
+        : block.toolName == null
+          ? "tool:unnamed"
+          : `named-tool:${name}`;
 
     let chip = groups.get(key);
     if (!chip) {
-      const mcp = parseMcpTool(rawName, args);
+      const mcp = parseMcpTool(rawName, args, t);
       chip = {
         key,
-        label: mcp?.label ?? name,
+        label:
+          mcp?.label ??
+          displayToolName(block.toolName == null ? undefined : name, Boolean(skill), t),
         count: 0,
         accent: classifyAccent(name, mcp),
         mcpServer: mcp?.server,

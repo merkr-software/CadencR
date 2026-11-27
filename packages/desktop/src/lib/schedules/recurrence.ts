@@ -9,6 +9,7 @@
  * belong to the chosen kind rather than trusting the client to.
  */
 import type { Recurrence, RecurrenceInput, RecurrenceKind } from "@/api/generated";
+import { translateUi } from "@/lib/i18n/ui";
 
 export type IntervalUnit = "minutes" | "hours";
 
@@ -130,19 +131,35 @@ export function draftToInput(draft: RecurrenceDraft): RecurrenceInput {
   }
 }
 
-/** Why a draft can't be saved yet, or `null` when it can. */
-export function draftError(draft: RecurrenceDraft, now: Date = new Date()): string | null {
+function invalidField(draft: RecurrenceDraft, now: Date): RecurrenceKind | null {
   switch (draft.kind) {
     case "once":
-      return draft.runAt.getTime() <= now.getTime() ? "Pick a time in the future." : null;
+      return draft.runAt.getTime() <= now.getTime() ? "once" : null;
     case "interval":
-      return draftIntervalSeconds(draft) < MIN_INTERVAL_SECONDS
-        ? "The shortest interval is 1 minute."
-        : null;
+      return draftIntervalSeconds(draft) < MIN_INTERVAL_SECONDS ? "interval" : null;
     case "weekly":
-      return draft.weekdays.length === 0 ? "Pick at least one day." : null;
+      return draft.weekdays.length === 0 ? "weekly" : null;
     case "monthly":
-      return draft.dayOfMonth < 1 || draft.dayOfMonth > 31 ? "Pick a day between 1 and 31." : null;
+      return draft.dayOfMonth < 1 || draft.dayOfMonth > 31 ? "monthly" : null;
+    default:
+      return null;
+  }
+}
+
+/** Why a draft can't be saved yet, or `null` when it can. */
+export function draftError(draft: RecurrenceDraft, now: Date = new Date()): string | null {
+  switch (invalidField(draft, now)) {
+    case "once":
+      return translateUi("schedules.recurrence.futureRequired", "Pick a time in the future.");
+    case "interval":
+      return translateUi(
+        "schedules.recurrence.minimumInterval",
+        "The shortest interval is 1 minute.",
+      );
+    case "weekly":
+      return translateUi("schedules.recurrence.weekdayRequired", "Pick at least one day.");
+    case "monthly":
+      return translateUi("schedules.recurrence.dayRange", "Pick a day between 1 and 31.");
     default:
       return null;
   }
@@ -161,7 +178,7 @@ export function nextOccurrences(
   count: number,
   now: Date = new Date(),
 ): Date[] {
-  if (draftError(draft, now)) return [];
+  if (invalidField(draft, now)) return [];
   if (draft.kind === "once") return [draft.runAt];
   if (draft.kind === "interval") {
     const step = draftIntervalSeconds(draft) * 1000;

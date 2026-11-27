@@ -22,16 +22,17 @@ import { BrowserPageController } from "./browser-page-controller";
 import { normalizeBrowserOpenUrl } from "./browser-policy";
 import type { BrowserPopupController } from "./browser-popup-controller";
 import type { BrowserResponsiveController } from "./browser-responsive-controller";
+import { browserErrorMessage, browserScopeIssue } from "./browser-scope-failure";
 import { BrowserScopeState } from "./browser-scope-state";
 import { BrowserSiteApi } from "./browser-site-api";
 import { BrowserSiteController } from "./browser-site-controller";
 import type { BrowserTabCreationController } from "./browser-tab-creation-controller";
+import { unknownBrowserTab } from "./browser-tab-errors";
 import type { ManagedTab } from "./browser-tab-events";
 import { BrowserTabLifecycle } from "./browser-tab-lifecycle";
 import type { BrowserTabOrganizationController } from "./browser-tab-organization-controller";
 import { BrowserTabSessionStore } from "./browser-tab-session-store";
 import type { BrowserTabWorkspaceController } from "./browser-tab-workspace-controller";
-import { browserTabErrorMessage } from "./browser-tab-workspace-utils";
 import type {
   BrowserAutomationState,
   BrowserBounds,
@@ -384,7 +385,7 @@ export class BrowserManager {
   }
 
   private reportError(error: unknown, scopeId: number | null): void {
-    if (this.scopes.errors.report(scopeId, browserTabErrorMessage(error))) {
+    if (this.scopes.errors.report(scopeId, browserErrorMessage(error), browserScopeIssue(error))) {
       this.stateAuthority.emit(scopeId);
     }
   }
@@ -402,8 +403,9 @@ export class BrowserManager {
   private reportTabError(tab: Pick<ManagedTab, "metadata">, error: unknown): void {
     const tabError: BrowserTabError = {
       kind: "internal",
+      failure: { reason: "internal" },
       title: "Browser error",
-      description: browserTabErrorMessage(error),
+      description: browserErrorMessage(error),
       retryable: false,
     };
     if (this.setTabError(tab, tabError)) this.stateAuthority.emit(tab.metadata.scopeId);
@@ -411,7 +413,7 @@ export class BrowserManager {
 
   private requireTab(tabId: string): ManagedTab {
     const tab = this.tabs.get(tabId);
-    if (!tab) throw new Error(`Unknown browser tab: ${tabId}`);
+    if (!tab) throw unknownBrowserTab(tabId);
     return tab;
   }
 }

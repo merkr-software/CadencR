@@ -8,7 +8,9 @@ import {
   type RemoteStatus,
 } from "@/api/generated";
 import { isRemoteStatus } from "@/lib/remote/validate";
-import { apiErrorMessage } from "@/lib/api-errors";
+import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { readRemoteHostErrorDetails } from "@/lib/remote/host-errors";
 
 /**
  * Host-side remote-access control state. Loopback-only: these endpoints require
@@ -21,12 +23,61 @@ import { apiErrorMessage } from "@/lib/api-errors";
  */
 export type RemotePhase = "idle" | "loading" | "mutating";
 
+type RemoteFailure =
+  | { kind: "malformed" | "request" | "bind" | "unpackaged" }
+  | { kind: "missingIndex"; path: string }
+  | { kind: "detail"; message: string };
+
+function remoteRequestFailure(error: unknown): RemoteFailure {
+  if (apiErrorCode(error) === "REMOTE_BIND_FAILED") return { kind: "bind" };
+  const details = readRemoteHostErrorDetails(error);
+  if (details?.code === "REMOTE_RENDERER_DIRECTORY_MISSING") return { kind: "unpackaged" };
+  if (details?.code === "REMOTE_RENDERER_INDEX_MISSING") {
+    return { kind: "missingIndex", path: details.path };
+  }
+  const message = apiErrorMessage(error, "");
+  return message ? { kind: "detail", message } : { kind: "request" };
+}
+
+export function remoteFailureMessage(t: UiTranslator, error: RemoteFailure): string {
+  switch (error.kind) {
+    case "request":
+      return t("remote.host.errors.request", "Remote access request failed.");
+    case "malformed":
+      return t("remote.host.errors.malformed", "Malformed remote status response.");
+    case "bind":
+      return t(
+        "remote.host.errors.bind",
+        "could not bind the remote listener (port may be in use)",
+      );
+    case "unpackaged":
+      return t(
+        "remote.host.errors.unpacked",
+        "Service unavailable: remote access requires a packaged build (no renderer dir)",
+      );
+    case "missingIndex":
+      return t(
+        "remote.host.errors.missingIndex",
+        "Service unavailable: remote access needs a built frontend: no index.html at {{path}}",
+        { path: error.path },
+      );
+    case "detail":
+      return error.message;
+  }
+}
+
+export function useRemoteError(): string | null {
+  const { t } = useUiTranslation();
+  const error = useRemoteStore((state) => state.error);
+  return error ? remoteFailureMessage(t, error) : null;
+}
+
 interface RemoteState {
   status: RemoteStatus | null;
   /** True once at least one successful fetch has populated `status`. */
   loaded: boolean;
   phase: RemotePhase;
-  error: string | null;
+  error: RemoteFailure | null;
   refresh: () => Promise<void>;
   enable: () => Promise<void>;
   disable: () => Promise<void>;
@@ -45,12 +96,13 @@ async function runStatusCall(
   set({ phase, error: null });
   try {
     const result = await call();
-    if (!isRemoteStatus(result)) throw new Error("Malformed remote status response.");
+    if (!isRemoteStatus(result)) {
+      set({ phase: "idle", error: { kind: "malformed" } });
+      return;
+    }
     set({ status: result, loaded: true, phase: "idle" });
   } catch (err) {
-    // `apiErrorMessage` surfaces the backend `{ error }` body (e.g. the dev-only
-    // "remote access requires a packaged build" 503) instead of a bare HTTP code.
-    set({ phase: "idle", error: apiErrorMessage(err, "Remote access request failed.") });
+    set({ phase: "idle", error: remoteRequestFailure(err) });
   }
 }
 

@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import {
   AlertCircleIcon,
@@ -44,7 +45,8 @@ export function WorktreeSetupHeader({
   onToggle,
   className,
 }: WorktreeSetupHeaderProps): ReactElement {
-  const missing = status === "removed" ? missingSummary(branchExists) : null;
+  const { t } = useUiTranslation();
+  const missing = status === "removed" ? missingSummary(branchExists, t) : null;
   return (
     <div
       className={cn(
@@ -76,18 +78,25 @@ export function WorktreeSetupHeader({
           <GitBranchIcon className="size-3.5 shrink-0" />
           {branch ? (
             <>
-              <span className="sr-only">Worktree setup</span>
+              <span className="sr-only">
+                {t("conversation.worktreeSetupHeader.worktreeSetup", "Worktree setup")}
+              </span>
               <span className="truncate font-mono">{branch}</span>
             </>
           ) : (
-            <span className="truncate">Worktree setup</span>
+            <span className="truncate">
+              {t("conversation.worktreeSetupHeader.worktreeSetup", "Worktree setup")}
+            </span>
           )}
         </button>
         {branch && (
           <CopyButton
             text={branch}
-            label="Copy branch name"
-            copiedLabel="Copied branch name"
+            label={t("conversation.worktreeSetupHeader.copyBranchName", "Copy branch name")}
+            copiedLabel={t(
+              "conversation.worktreeSetupHeader.copiedBranchName",
+              "Copied branch name",
+            )}
             idleClassName="text-muted-foreground opacity-70"
             iconClassName="size-3"
             className="shrink-0 hover:text-foreground"
@@ -108,7 +117,8 @@ function WorktreeSetupBadge({
   status,
   setupError,
 }: Pick<WorktreeSetupHeaderProps, "status" | "setupError">): ReactElement {
-  const badge = badgeContent(status);
+  const { t } = useUiTranslation();
+  const badge = badgeContent(status, t);
   return (
     <Badge
       variant="secondary"
@@ -120,7 +130,10 @@ function WorktreeSetupBadge({
   );
 }
 
-function badgeContent(status: WorktreeSetupDisplayStatus): {
+function badgeContent(
+  status: WorktreeSetupDisplayStatus,
+  t: UiTranslator,
+): {
   content: ReactElement;
   style: string;
 } {
@@ -128,7 +141,8 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
     return {
       content: (
         <>
-          <AlertTriangleIcon className="size-2.5" /> removed
+          <AlertTriangleIcon className="size-2.5" />{" "}
+          {t("conversation.worktreeSetupHeader.removed", "removed")}
         </>
       ),
       style: "bg-destructive/15 text-destructive",
@@ -138,7 +152,8 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
     return {
       content: (
         <>
-          <AlertCircleIcon className="size-2.5" /> check failed
+          <AlertCircleIcon className="size-2.5" />{" "}
+          {t("conversation.worktreeSetupHeader.checkFailed", "check failed")}
         </>
       ),
       style: "bg-destructive/15 text-destructive",
@@ -148,7 +163,8 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
     return {
       content: (
         <>
-          <Loader2Icon className="size-2.5 animate-spin" /> checking
+          <Loader2Icon className="size-2.5 animate-spin" />{" "}
+          {t("conversation.worktreeSetupHeader.checking", "checking")}
         </>
       ),
       style: "bg-muted text-muted-foreground",
@@ -158,7 +174,8 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
     return {
       content: (
         <>
-          <CheckCircle2Icon className="size-2.5" /> ready
+          <CheckCircle2Icon className="size-2.5" />{" "}
+          {t("conversation.worktreeSetupHeader.ready", "ready")}
         </>
       ),
       style: "bg-green-500/15 text-green-400",
@@ -168,7 +185,8 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
     return {
       content: (
         <>
-          <Loader2Icon className="size-2.5 animate-spin" /> running
+          <Loader2Icon className="size-2.5 animate-spin" />{" "}
+          {t("conversation.worktreeSetupHeader.running", "running")}
         </>
       ),
       style: "bg-blue-500/15 text-blue-400",
@@ -177,15 +195,27 @@ function badgeContent(status: WorktreeSetupDisplayStatus): {
   return {
     content: (
       <>
-        <AlertCircleIcon className="size-2.5" /> error
+        <AlertCircleIcon className="size-2.5" />{" "}
+        {t("conversation.worktreeSetupHeader.error", "error")}
       </>
     ),
     style: "bg-red-500/15 text-red-400",
   };
 }
 
-function missingSummary(branchExists: boolean | null): string {
-  if (branchExists === true) return "Folder removed; branch still exists";
-  if (branchExists === false) return "Folder and branch removed";
-  return "Folder removed; branch status unknown";
+function missingSummary(branchExists: boolean | null, t: UiTranslator): string {
+  if (branchExists === true)
+    return t(
+      "conversation.worktreeSetupHeader.folderRemovedBranchStillExists",
+      "Folder removed; branch still exists",
+    );
+  if (branchExists === false)
+    return t(
+      "conversation.worktreeSetupHeader.folderAndBranchRemoved",
+      "Folder and branch removed",
+    );
+  return t(
+    "conversation.worktreeSetupHeader.folderRemovedBranchStatusUnknown",
+    "Folder removed; branch status unknown",
+  );
 }

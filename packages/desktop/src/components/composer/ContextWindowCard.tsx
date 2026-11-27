@@ -1,6 +1,7 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { History, MousePointerClick } from "lucide-react";
-import { CONTEXT_METER_DISPLAY_LABEL, type ContextMeterDisplay } from "@/lib/context-meter-display";
+import { contextMeterDisplayLabel, type ContextMeterDisplay } from "@/lib/context-meter-display";
 import { getContextUsageAppearance } from "@/lib/context-usage-appearance";
 import { cn } from "@/lib/utils";
 import { totalTokens, type ContextUsageState } from "@/types/agent";
@@ -24,6 +25,7 @@ export function ContextWindowCard({
   ratio: number | null;
   display?: ContextMeterDisplay;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const used = totalTokens(usage);
   if (ratio == null || !usage.contextWindow) {
     return (
@@ -31,17 +33,22 @@ export function ContextWindowCard({
         <CardTitle />
         <p className="text-[20px] leading-7 font-semibold tabular-nums">
           {formatCompactTokens(used)}
-          <span className="ml-1 text-xs font-normal text-muted-foreground">tokens used</span>
+          <span className="ml-1 text-xs font-normal text-muted-foreground">
+            {t("conversation.composer.contextWindowCard.tokensUsed", "tokens used")}
+          </span>
         </p>
         <p className="text-[11px] leading-4 text-muted-foreground">
-          The provider reports the window size at the end of a turn.
+          {t(
+            "conversation.composer.contextWindowCard.theProviderReportsTheWindowSizeAt",
+            "The provider reports the window size at the end of a turn.",
+          )}
         </p>
         <CompactedNote usage={usage} />
         <DisplayHint display={display} />
       </div>
     );
   }
-  const { glowColor: tone, verdict } = getContextUsageAppearance(ratio);
+  const { glowColor: tone, verdict } = getContextUsageAppearance(ratio, t);
   const filled = Math.min(CELLS, Math.round(ratio * CELLS));
   const free = Math.max(0, usage.contextWindow - used);
   return (
@@ -62,9 +69,18 @@ export function ContextWindowCard({
         ))}
       </div>
       <dl className="grid grid-cols-3 gap-2 text-[11px] leading-4">
-        <Figure label="Used" value={formatCompactTokens(used)} />
-        <Figure label="Free" value={formatCompactTokens(free)} />
-        <Figure label="Window" value={formatCompactTokens(usage.contextWindow)} />
+        <Figure
+          label={t("conversation.composer.contextWindowCard.used", "Used")}
+          value={formatCompactTokens(used)}
+        />
+        <Figure
+          label={t("conversation.composer.contextWindowCard.free", "Free")}
+          value={formatCompactTokens(free)}
+        />
+        <Figure
+          label={t("conversation.composer.contextWindowCard.window", "Window")}
+          value={formatCompactTokens(usage.contextWindow)}
+        />
       </dl>
       <p className="text-[11px] leading-4 text-muted-foreground">{verdict}</p>
       <CompactedNote usage={usage} />
@@ -74,20 +90,26 @@ export function ContextWindowCard({
 }
 
 function DisplayHint({ display }: { display?: ContextMeterDisplay }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!display) return null;
   return (
     <p className="flex items-center gap-1.5 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
-      <span className="truncate text-foreground/80">{CONTEXT_METER_DISPLAY_LABEL[display]}</span>
+      <span className="truncate text-foreground/80">{contextMeterDisplayLabel(t, display)}</span>
       <span className="ml-auto flex shrink-0 items-center gap-1">
         <MousePointerClick className="size-3" />
-        click to change
+        {t("conversation.composer.contextWindowCard.clickToChange", "click to change")}
       </span>
     </p>
   );
 }
 
 function CardTitle(): ReactElement {
-  return <span className="text-xs font-medium text-foreground">Context window</span>;
+  const { t } = useUiTranslation();
+  return (
+    <span className="text-xs font-medium text-foreground">
+      {t("conversation.composer.contextWindowCard.contextWindow", "Context window")}
+    </span>
+  );
 }
 
 function Figure({ label, value }: { label: string; value: string }): ReactElement {
@@ -100,11 +122,15 @@ function Figure({ label, value }: { label: string; value: string }): ReactElemen
 }
 
 function CompactedNote({ usage }: { usage: ContextUsageState }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!usage.wasCompacted) return null;
   return (
     <p className="flex items-center gap-1.5 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">
       <History className="size-3 shrink-0 text-[var(--acc-orange)]" />
-      Compacted earlier in this conversation
+      {t(
+        "conversation.composer.contextWindowCard.compacted",
+        "Compacted earlier in this conversation",
+      )}
     </p>
   );
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { Columns3Icon, Loader2Icon, MinusIcon, PlusIcon } from "lucide-react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -17,19 +18,33 @@ export const UnifiedAgentsPerRowStepper = memo(function UnifiedAgentsPerRowStepp
   isSaving,
   onChange,
 }: UnifiedAgentsPerRowStepperProps): ReactElement {
+  const { t } = useUiTranslation();
   const busy = isLoading || isSaving;
   // A maximum, not a promise: the grid drops columns when cards would get
   // too narrow to read.
   return (
-    <ShortcutTooltip label={`Up to ${value} per row — fewer when the window is narrow`} alignRight>
+    <ShortcutTooltip
+      label={t(
+        "agents.overview.columns.limit",
+        "Up to {{count}} per row — fewer when the window is narrow",
+        { count: value },
+      )}
+      alignRight
+    >
       <div
         role="group"
-        aria-label="Maximum agents per row"
+        aria-label={t(
+          "agents.unifiedAgentsPerRowStepper.maximumAgentsPerRow",
+          "Maximum agents per row",
+        )}
         className="titlebar-no-drag inline-flex h-9 items-center overflow-hidden rounded-lg border border-border/70 bg-card/80"
       >
         <Columns3Icon aria-hidden="true" className="mx-2 size-3.5 text-muted-foreground" />
         <StepperButton
-          label="Decrease agents per row"
+          label={t(
+            "agents.unifiedAgentsPerRowStepper.decreaseAgentsPerRow",
+            "Decrease agents per row",
+          )}
           disabled={busy || value <= AGENTS_PER_ROW_MIN}
           onClick={() => onChange(Math.max(AGENTS_PER_ROW_MIN, value - 1))}
         >
@@ -37,13 +52,22 @@ export const UnifiedAgentsPerRowStepper = memo(function UnifiedAgentsPerRowStepp
         </StepperButton>
         <span className="flex h-9 min-w-6 items-center justify-center font-mono text-[11.5px] font-semibold text-foreground tabular-nums">
           {busy ? (
-            <Loader2Icon aria-label="Saving agents per row" className="size-3 animate-spin" />
+            <Loader2Icon
+              aria-label={t(
+                "agents.unifiedAgentsPerRowStepper.savingAgentsPerRow",
+                "Saving agents per row",
+              )}
+              className="size-3 animate-spin"
+            />
           ) : (
             value
           )}
         </span>
         <StepperButton
-          label="Increase agents per row"
+          label={t(
+            "agents.unifiedAgentsPerRowStepper.increaseAgentsPerRow",
+            "Increase agents per row",
+          )}
           disabled={busy || value >= AGENTS_PER_ROW_MAX}
           onClick={() => onChange(Math.min(AGENTS_PER_ROW_MAX, value + 1))}
         >

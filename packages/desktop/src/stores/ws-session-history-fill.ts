@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { DisplayRowMode } from "@/types/agent-stream";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { type HistoryGapFillDirection, markPageLoaded } from "./ws-history-gaps";
@@ -11,7 +12,12 @@ import { mergeHistoryBlocks } from "./ws-session-prepend";
  */
 const MAX_PAGES_PER_FILL = 10;
 
-const NO_PROGRESS = "The service returned no messages for this part of the conversation.";
+function emptyHistoryPage(): string {
+  return translateUi(
+    "conversation.history.emptyPage",
+    "The service returned no messages for this part of the conversation.",
+  );
+}
 
 export interface FillHistoryGapOptions {
   displayMode?: DisplayRowMode;
@@ -44,7 +50,7 @@ async function fillGapPage(
   const page = downward
     ? await fetchNewerPage(session.featureId, session.sessionDbId, fillFrom, gap.beforeId)
     : await fetchOlderPage(session.featureId, session.sessionDbId, gap.beforeId, gap.afterId);
-  if (page.from > page.to) throw new Error(NO_PROGRESS);
+  if (page.from > page.to) throw new Error(emptyHistoryPage());
 
   // The request was in flight. Another load (a prompt's turn, a snapshot, a
   // clear) may have moved this gap: a page fetched for the old bounds could

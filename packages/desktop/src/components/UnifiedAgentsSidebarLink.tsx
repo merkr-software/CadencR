@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { LayoutGridIcon } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -7,6 +8,7 @@ import { useLiveTotalWorkingCount } from "@/stores/session-status-selectors";
 import { cn } from "@/lib/utils";
 
 export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink(): ReactElement {
+  const { t } = useUiTranslation();
   // A boolean, so navigating between other pages doesn't re-render the link.
   const active = useRouterState({ select: (state) => state.location.pathname === "/agents" });
   // The only number worth showing here is how many agents are actually
@@ -18,10 +20,16 @@ export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink()
   const openKeys = useShortcutKeys("open-unified-agents");
 
   return (
-    <ShortcutTooltip label="Open unified agents" keys={openKeys} className="w-full">
+    <ShortcutTooltip
+      label={t("sidebar.unifiedAgentsSidebarLink.openUnifiedAgents", "Open unified agents")}
+      keys={openKeys}
+      className="w-full"
+    >
       <AgentsSidebarAnchor active={active}>
         <LayoutGridIcon className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">Agents</span>
+        <span className="min-w-0 flex-1 truncate">
+          {t("sidebar.unifiedAgentsSidebarLink.agents", "Agents")}
+        </span>
         <RunningAgentsIndicator count={runningCount} />
       </AgentsSidebarAnchor>
     </ShortcutTooltip>
@@ -59,11 +67,19 @@ function AgentsSidebarAnchor({
  * working tint on each row's provider mark (`text-blue-500`).
  */
 function RunningAgentsIndicator({ count }: { count: number }): ReactElement {
+  const { t } = useUiTranslation();
   const running = count > 0;
   return (
     <span
       className="ml-auto inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
-      title={running ? `${count} agent${count === 1 ? "" : "s"} working` : "No agents working"}
+      title={
+        running
+          ? t("sidebar.unifiedAgentsSidebarLink.agentsWorking", "{{count}} agents working", {
+              count,
+              defaultValue_one: "{{count}} agent working",
+            })
+          : t("sidebar.unifiedAgentsSidebarLink.noAgentsWorking", "No agents working")
+      }
     >
       <span
         className={cn(

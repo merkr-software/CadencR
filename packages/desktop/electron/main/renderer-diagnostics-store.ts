@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -10,7 +11,9 @@ import {
 export function readDiagnosticRecords(file: string): DiagnosticRecord[] {
   if (!existsSync(file)) return [];
   if (statSync(file).size > 4 * 1024 * 1024)
-    throw new Error("Diagnostic history exceeds its size limit");
+    throw new Error(
+      t("system.diagnostics.historyLimit", "Diagnostic history exceeds its size limit"),
+    );
   return diagnosticRecordsSchema.parse(JSON.parse(readFileSync(file, "utf8")));
 }
 

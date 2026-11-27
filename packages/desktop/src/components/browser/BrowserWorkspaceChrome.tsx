@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { AlertTriangleIcon, GlobeIcon, Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 
@@ -6,13 +7,15 @@ import { Button } from "@/components/ui/button";
 export { BrowserTabStrip } from "./BrowserTabStrip";
 
 export function BrowserLoading(): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-background text-muted-foreground">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">
         <GlobeIcon className="size-6 animate-pulse" />
       </div>
       <div className="flex items-center gap-2 text-sm">
-        <Loader2Icon className="size-4 animate-spin" /> Starting browser…
+        <Loader2Icon className="size-4 animate-spin" />{" "}
+        {t("workspace.tools.browserWorkspaceChrome.startingBrowser", "Starting browser…")}
       </div>
     </div>
   );
@@ -25,15 +28,21 @@ export function BrowserEmptyState({
   onNewTab: () => void;
   creating?: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
       <div className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <GlobeIcon className="size-7" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">No browser tab open</p>
+        <p className="text-sm font-medium text-foreground">
+          {t("workspace.tools.browserWorkspaceChrome.noBrowserTabOpen", "No browser tab open")}
+        </p>
         <p className="max-w-xs text-xs text-muted-foreground">
-          Open a tab to preview your app, then send the page context straight to the agent.
+          {t(
+            "workspace.tools.browserWorkspaceChrome.openATabToPreviewYourApp",
+            "Open a tab to preview your app, then send the page context straight to the agent.",
+          )}
         </p>
       </div>
       <Button size="sm" onClick={onNewTab} disabled={creating} aria-busy={creating}>
@@ -42,7 +51,9 @@ export function BrowserEmptyState({
         ) : (
           <PlusIcon className="size-4" />
         )}
-        {creating ? "Opening tab…" : "New tab"}
+        {creating
+          ? t("workspace.tools.browserWorkspaceChrome.openingTab", "Opening tab…")
+          : t("workspace.browser.newTab", "New tab")}
       </Button>
     </div>
   );
@@ -57,6 +68,7 @@ export function BrowserError({
   message: string;
   onDismiss: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="alert"
@@ -77,7 +89,10 @@ export function BrowserError({
         type="button"
         size="icon-xs"
         variant="ghost"
-        aria-label="Dismiss browser error"
+        aria-label={t(
+          "workspace.tools.browserWorkspaceChrome.dismissBrowserError",
+          "Dismiss browser error",
+        )}
         onClick={onDismiss}
       >
         <XIcon />

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Acquire and track a SET of LSP clients for one editor (Phase 4: a file may
  * run a type checker plus one or more linters). Splits the multi-client
@@ -97,7 +98,13 @@ function useAcquireLspClients({
         if (result && "client" in result) {
           live.push(result);
         } else if (result && "error" in result) {
-          const message = apiErrorMessage(result.error, "Failed to start language server");
+          const message = apiErrorMessage(
+            result.error,
+            translateUi(
+              "workspace.editor.useLspClients.startFailed",
+              "Failed to start language server",
+            ),
+          );
           toast.error(message);
           if (result.id === typeCheckerId) setErrorMessage(message);
         }

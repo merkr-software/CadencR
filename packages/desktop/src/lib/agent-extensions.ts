@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type {
   ExtensionCliSummary,
   InstalledSkill,
@@ -46,12 +47,25 @@ export function optionUnsupportedReason(
   cli: ExtensionCliSummary,
   option: McpInstallOption,
   values: Readonly<Record<string, string>> = {},
+  t: UiTranslator = translateUi,
 ): string | null {
-  if (!cli.installed) return `${cli.label} is not installed on this computer.`;
+  if (!cli.installed)
+    return t("marketplace.agent.cliNotInstalled", "{{cli}} is not installed on this computer.", {
+      cli: cli.label,
+    });
   if (!cli.support.mcp_transports.includes(option.transport)) {
-    const transport =
-      option.transport === "stdio" ? "local" : option.transport === "sse" ? "SSE" : "HTTP";
-    return `${cli.label} cannot add ${transport} MCP servers from its command line.`;
+    if (option.transport === "stdio") {
+      return t(
+        "marketplace.agent.unsupportedLocalMcp",
+        "{{cli}} cannot add local MCP servers from its command line.",
+        { cli: cli.label },
+      );
+    }
+    return t(
+      "marketplace.agent.unsupportedRemoteMcp",
+      "{{cli}} cannot add {{transport}} MCP servers from its command line.",
+      { cli: cli.label, transport: option.transport === "sse" ? "SSE" : "HTTP" },
+    );
   }
   // Headers only block a CLI when one will actually be sent.
   const sendsHeaders = option.inputs.some(
@@ -59,7 +73,11 @@ export function optionUnsupportedReason(
       input.kind === "header" && (input.required || !!input.default || !!values[input.key]?.trim()),
   );
   if (!cli.support.mcp_headers && sendsHeaders)
-    return `${cli.label} cannot attach HTTP headers from its command line.`;
+    return t(
+      "marketplace.agent.unsupportedMcpHeaders",
+      "{{cli}} cannot attach HTTP headers from its command line.",
+      { cli: cli.label },
+    );
   return null;
 }
 

@@ -1,3 +1,4 @@
+import { HistoryReadError } from "@/lib/history-read-error";
 import { isAxiosError } from "axios";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { WsConnection } from "@/lib/ws-connection";
@@ -60,7 +61,10 @@ export async function recoverConnectedHistory(
           historyLoadFailure: {
             resyncSessionDbId: dbId,
             retrying: false,
-            message: apiErrorMessage(error, "Some messages may be missing."),
+            message:
+              error instanceof HistoryReadError
+                ? { issue: error.issue }
+                : apiErrorMessage(error, "") || { issue: "incomplete" },
           },
         }),
       );

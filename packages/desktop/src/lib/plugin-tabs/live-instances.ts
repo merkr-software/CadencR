@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toastError } from "@/lib/api-errors";
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
 import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
@@ -36,9 +37,9 @@ export function refreshPluginTabReads(): Promise<void> {
 }
 
 /** `refreshPluginTabReads` for a user's "Reload": a failure is a toast. */
-export function refreshPluginTabsOrToast(): void {
-  refreshPluginTabReads().catch((error: unknown) =>
-    toastError(error, "Custom tabs could not be refreshed"),
+export function refreshPluginTabsOrToast(): Promise<void> {
+  return refreshPluginTabReads().catch((error: unknown) =>
+    toastError(error, translateUi("customTabs.refreshError", "Could not refresh the custom tabs")),
   );
 }
 

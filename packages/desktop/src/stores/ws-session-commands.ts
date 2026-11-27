@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * One request/acknowledgement path for session commands (stop, clear, model,
  * mode, gate close, …).
@@ -66,7 +67,9 @@ const INTERRUPT_ACK_WINDOW_MS = 40_000;
 
 export const SESSION_COMMANDS = {
   interrupt: {
-    failure: "Couldn't stop the agent",
+    get failure() {
+      return translateUi("conversation.commands.interrupt", "Couldn't stop the agent");
+    },
     replay: false,
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
     // Nothing was running (the turn ended first): stopped is what the user
@@ -77,27 +80,81 @@ export const SESSION_COMMANDS = {
   // A refused pause leaves the agent working into the sleep: a toast, not a
   // failed turn (the turn goes on).
   suspend: {
-    failure: "Agent kept running into sleep",
+    get failure() {
+      return translateUi("conversation.commands.suspend", "Agent kept running into sleep");
+    },
     replay: false,
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
   },
-  clear: { failure: "Couldn't clear the conversation", replay: false },
+  clear: {
+    get failure() {
+      return translateUi("conversation.commands.clear", "Couldn't clear the conversation");
+    },
+    replay: false,
+  },
   gateClose: {
-    failure: "Couldn't dismiss the request",
+    get failure() {
+      return translateUi("conversation.commands.dismissGate", "Couldn't dismiss the request");
+    },
     replay: false,
     satisfiedBy: new Set(["STALE_GATE"]),
     onSatisfied: dropClosedGate,
   },
-  provider: { failure: "Couldn't switch provider", replay: true },
-  model: { failure: "Couldn't switch model", replay: true },
-  effort: { failure: "Couldn't change thinking effort", replay: true },
-  profile: { failure: "Couldn't switch profile", replay: true },
-  mode: { failure: "Couldn't change permission mode", replay: true },
-  accessMode: { failure: "Couldn't change access mode", replay: true },
-  fastMode: { failure: "Couldn't change fast mode", replay: true },
+  provider: {
+    get failure() {
+      return translateUi("conversation.commands.switchProvider", "Couldn't switch provider");
+    },
+    replay: true,
+  },
+  model: {
+    get failure() {
+      return translateUi("conversation.commands.switchModel", "Couldn't switch model");
+    },
+    replay: true,
+  },
+  effort: {
+    get failure() {
+      return translateUi("conversation.commands.changeEffort", "Couldn't change thinking effort");
+    },
+    replay: true,
+  },
+  profile: {
+    get failure() {
+      return translateUi("conversation.commands.switchProfile", "Couldn't switch profile");
+    },
+    replay: true,
+  },
+  mode: {
+    get failure() {
+      return translateUi("conversation.commands.changeMode", "Couldn't change permission mode");
+    },
+    replay: true,
+  },
+  accessMode: {
+    get failure() {
+      return translateUi("conversation.commands.changeAccessMode", "Couldn't change access mode");
+    },
+    replay: true,
+  },
+  fastMode: {
+    get failure() {
+      return translateUi("conversation.commands.changeFastMode", "Couldn't change fast mode");
+    },
+    replay: true,
+  },
   // Providers whose model and effort are runtime overrides (Codex).
-  runtimeModel: { failure: "Couldn't switch model", replay: true },
-  runtimeEffort: { failure: "Couldn't change thinking effort", replay: true },
+  runtimeModel: {
+    get failure() {
+      return translateUi("conversation.commands.switchModel", "Couldn't switch model");
+    },
+    replay: true,
+  },
+  runtimeEffort: {
+    get failure() {
+      return translateUi("conversation.commands.changeEffort", "Couldn't change thinking effort");
+    },
+    replay: true,
+  },
 } as const satisfies Record<string, SessionCommandSpec>;
 
 /** The command kinds (`commandKind`) that change fast mode, one per provider path. */
@@ -105,8 +162,6 @@ export const FAST_MODE_COMMAND_KINDS: readonly string[] = [
   "fast_mode.set",
   "runtime_overrides.set:fast_mode",
 ];
-
-const NOT_CONNECTED = "Not connected to the backend. Try again once it reconnects.";
 
 /** Keeps the previous array when nothing changed, so selectors of it do not re-render. */
 function sameOr(previous: readonly string[], next: string[]): readonly string[] {
@@ -144,7 +199,13 @@ function settle(ctx: StoreAccessors, sessionId: string, envelopeId: string) {
 }
 
 function reportUnsent(failure: string, envelopeId: string): void {
-  toast.error(failure, { id: `ws-command:${envelopeId}`, description: NOT_CONNECTED });
+  toast.error(failure, {
+    id: `ws-command:${envelopeId}`,
+    description: translateUi(
+      "conversation.commands.notConnected",
+      "Not connected to the backend. Try again once it reconnects.",
+    ),
+  });
 }
 
 /** On the wire: once its window closes, silence means success. */
@@ -255,7 +316,10 @@ export function abandonInFlight(ctx: StoreAccessors, sessionId: string): void {
     settle(ctx, sessionId, command.envelope.id);
     toast.warning(command.spec.failure, {
       id: `ws-command:${command.envelope.id}`,
-      description: "The connection dropped before the backend answered. Check that it took effect.",
+      description: translateUi(
+        "conversation.commands.unconfirmed",
+        "The connection dropped before the backend answered. Check that it took effect.",
+      ),
     });
   }
 }

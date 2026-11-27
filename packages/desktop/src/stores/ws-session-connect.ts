@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { WsConnection } from "@/lib/ws-connection";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
 import {
@@ -73,10 +74,17 @@ function handleConnectionDrop(context: SessionConnectionContext, drop: SocketDro
   const alreadyReportedReconnect = session?.blocks.at(-1)?.errorCode === WS_RECONNECTING_CODE;
   const closedDerived =
     wasRunning && !alreadyReportedReconnect
-      ? appendErrorBlockPatch(session, "Connection lost while streaming. Reconnecting…", {
-          code: WS_RECONNECTING_CODE,
-          idPrefix: "ws-err-close",
-        })
+      ? appendErrorBlockPatch(
+          session,
+          translateUi(
+            "conversation.connection.interrupted",
+            "Connection lost while streaming. Reconnecting…",
+          ),
+          {
+            code: WS_RECONNECTING_CODE,
+            idPrefix: "ws-err-close",
+          },
+        )
       : { blocks: session?.blocks ?? [] };
   set(
     updateSession(get(), context.sessionId, {
@@ -106,7 +114,7 @@ function createSessionConnection(context: SessionConnectionContext): WsConnectio
     key: context.reconnectKey,
     url: getWsUrl(),
     protocols: getWsProtocols(),
-    statusLabel: "Session WebSocket",
+    statusChannel: "session",
     // A replaced mobile socket can remain registered while its close is in
     // flight, so every callback verifies it still owns the shared store entry.
     isCurrent: (connection) => ctx.transport.get(sessionId)?.conn === connection,

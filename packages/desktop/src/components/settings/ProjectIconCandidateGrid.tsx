@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ImageOff } from "lucide-react";
@@ -29,6 +30,7 @@ function CandidateTile({
   selected: boolean;
   onSelect: (path: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { data: blob, isLoading } = useQuery({
     queryKey: projectIconQueryKey(projectId, candidate.path),
     queryFn: ({ signal }) => projectIconBlob(projectId, { path: candidate.path, signal }),
@@ -43,7 +45,10 @@ function CandidateTile({
     <button
       type="button"
       onClick={() => onSelect(candidate.path)}
-      title={`${candidate.path} · ${formatBytes(candidate.size_bytes)}`}
+      title={t("projects.iconCandidate.size", "{{path}} · {{size}}", {
+        path: candidate.path,
+        size: formatBytes(candidate.size_bytes, t),
+      })}
       aria-pressed={selected}
       className={cn(
         "group relative flex flex-col items-center gap-1.5 rounded-md border p-2 transition-colors",
@@ -91,6 +96,7 @@ export function ProjectIconCandidateGrid({
   selectedPath: string;
   onSelect: (path: string) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? candidates : candidates.slice(0, INITIAL_VISIBLE);
   const hidden = candidates.length - visible.length;
@@ -110,7 +116,7 @@ export function ProjectIconCandidateGrid({
       </div>
       {hidden > 0 ? (
         <Button variant="ghost" size="sm" onClick={() => setShowAll(true)}>
-          Show {hidden} more
+          {t("project.iconCandidateGrid.showMore", "Show {{count}} more", { count: hidden })}
         </Button>
       ) : null}
     </div>

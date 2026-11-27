@@ -80,7 +80,7 @@ function registerRendererIpc(
   });
   ipcMain.handle("plugin-tab:reload", (event, instanceId: unknown) => {
     assertTrustedSender(event, getMainWindow);
-    manager.reload(parseInstanceId(instanceId));
+    return manager.reload(parseInstanceId(instanceId));
   });
   ipcMain.handle("plugin-tab:close", (event, instanceId: unknown) => {
     assertTrustedSender(event, getMainWindow);

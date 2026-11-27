@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { shouldGateFullContent } from "@/lib/agent-block-content";
-import type { AgentBlockData } from "@/types/agent-block";
+import { bashPreviewMayOmitMetadata, type AgentBlockData } from "@/types/agent-block";
 
-const gate = (args: unknown) =>
+const gate = (args: unknown, metadataClipped?: true) =>
   shouldGateFullContent({
     id: "msg-42",
     type: "tool_call",
@@ -10,6 +10,7 @@ const gate = (args: unknown) =>
     content: JSON.stringify(args),
     toolArgs: JSON.stringify(args),
     truncatedContent: true,
+    [bashPreviewMayOmitMetadata]: metadataClipped,
   });
 
 describe("Bash output previews", () => {
@@ -39,11 +40,18 @@ describe("Bash output previews", () => {
   });
 
   it("does not present truncated or missing arguments as a complete command", () => {
-    expect(gate({ command: "echo … content truncated …", output: "ok" })).toBe(true);
-    expect(
-      gate({ command: "echo … [preview truncated; expand to load full content]", output: "ok" }),
-    ).toBe(true);
+    expect(gate({ command: "echo […]", output: "ok" }, true)).toBe(true);
     expect(gate({ command: "echo hi" })).toBe(true);
-    expect(gate({ _cadencrPreview: "structure too large" })).toBe(true);
+    expect(gate({ _cadencrPreview: "[…]" })).toBe(true);
+  });
+
+  it("does not gate a complete command containing literal marker text", () => {
+    for (const literal of [
+      "[…]",
+      "… content truncated …",
+      "… [preview truncated; expand to load full content]",
+    ]) {
+      expect(gate({ command: `printf '%s' '${literal}'`, output: "ok\n" })).toBe(false);
+    }
   });
 });

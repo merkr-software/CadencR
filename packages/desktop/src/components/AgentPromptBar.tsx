@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { forwardRef, memo, useMemo } from "react";
 import { useSessionCommandPending } from "@/hooks/useSessionCommandPending";
 import { cn } from "@/lib/utils";
@@ -159,12 +160,13 @@ function PromptSurface({
   props: AgentPromptBarProps;
   controller: AgentPromptBarController;
 }) {
+  const { t } = useUiTranslation();
   const queueCombo = useShortcutLabel("agent-send");
   const { editorActions, sending, state } = controller;
   const rows = useInstrumentRows();
   const slashCommands = useMemo(
-    () => withSideQuestionSkill(props.slashCommandsOverride, props.sessionId),
-    [props.slashCommandsOverride, props.sessionId],
+    () => withSideQuestionSkill(props.slashCommandsOverride, props.sessionId, t),
+    [props.slashCommandsOverride, props.sessionId, t],
   );
   // The 40% cap keeps a long draft from swallowing the transcript, but it
   // counts this card's own chrome (manifest, chips, instrument row, ~170px on a
@@ -208,7 +210,7 @@ function PromptSurface({
           onArrowDown={editorActions.handleArrowDown}
           isBrowsingHistory={editorActions.isBrowsingHistory}
           disabled={props.disabled || sending.sending}
-          placeholder={promptPlaceholder(props, controller, queueCombo)}
+          placeholder={promptPlaceholder(props, controller, queueCombo, t)}
           className="min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm leading-[22px] shadow-none focus:border-0 focus:ring-0"
           mentionProjectId={props.projectId}
           mentionFeatureId={props.featureId}
@@ -286,22 +288,46 @@ function promptPlaceholder(
   props: AgentPromptBarProps,
   controller: AgentPromptBarController,
   queueCombo: string,
+  t: UiTranslator,
 ) {
-  if (controller.sending.sending) return "Sending…";
+  if (controller.sending.sending)
+    return t("conversation.composer.agentPromptBar.sending", "Sending…");
   if (controller.state.isMobile) {
-    if (props.status === "question") return "Answer to resume…";
+    if (props.status === "question")
+      return t("conversation.composer.agentPromptBar.answer", "Answer to resume…");
     if (controller.isRunning)
-      return controller.sending.queuesOnEnter ? "Queue a message…" : "Steer the agent…";
-    return props.isFirstPrompt ? "Describe the task…" : "Message the agent…";
+      return controller.sending.queuesOnEnter
+        ? t("conversation.composer.agentPromptBar.queue", "Queue a message…")
+        : t("conversation.composer.agentPromptBar.steer", "Steer the agent…");
+    return props.isFirstPrompt
+      ? t("conversation.composer.agentPromptBar.describe", "Describe the task…")
+      : t("conversation.composer.agentPromptBar.message", "Message the agent…");
   }
-  if (props.status === "question") return "Answer to resume the agent…";
+  if (props.status === "question")
+    return t("conversation.composer.agentPromptBar.answerToResume", "Answer to resume the agent…");
   // Plain Enter is wired in the prompt editor, not the registry: format the
   // token so Linux reads "Enter" where macOS draws the return glyph.
   const enter = formatKey("enter");
   if (controller.sending.queuesOnEnter)
-    return `${enter} to queue your message until the agent finishes`;
+    return t(
+      "conversation.composer.agentPromptBar.queueHint",
+      "{{enter}} to queue your message until the agent finishes",
+      { enter },
+    );
   if (controller.isRunning)
-    return `${enter} to steer the agent at its next step, ${queueCombo} to queue it after this turn`;
-  if (props.isFirstPrompt) return "Describe the task — @ for files, / for commands";
-  return `Message the agent — @ files, @@ conversations, ${controller.promptCommandHint}`;
+    return t(
+      "conversation.composer.agentPromptBar.steerHint",
+      "{{enter}} to steer the agent at its next step, {{queueCombo}} to queue it after this turn",
+      { enter, queueCombo },
+    );
+  if (props.isFirstPrompt)
+    return t(
+      "conversation.composer.agentPromptBar.describeWithSyntax",
+      "Describe the task — @ for files, / for commands",
+    );
+  return t(
+    "conversation.composer.agentPromptBar.messageWithSyntax",
+    "Message the agent — @ files, @@ conversations, {{commands}}",
+    { commands: controller.promptCommandHint },
+  );
 }

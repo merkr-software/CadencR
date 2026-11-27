@@ -67,6 +67,7 @@ async fn publish_warning(
     let envelope = WsEnvelope::session_event(&WsSessionEvent::Warning(SessionWarningPayload {
         code: warning.code.into(),
         message: warning.message.clone(),
+        auto_name_reason: None,
     }))
     .expect("prompt warning should serialize");
     state

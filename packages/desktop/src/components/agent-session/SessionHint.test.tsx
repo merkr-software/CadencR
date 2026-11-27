@@ -3,6 +3,7 @@ import { render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 
 import { SessionHint } from "./SessionHint";
+import { translateUi } from "@/lib/i18n/ui";
 import { SESSION_HINT_BEHAVIORS } from "./session-hint-behaviors";
 
 /**
@@ -19,7 +20,9 @@ describe("SessionHint", () => {
     render(<SessionHint />);
     expect(screen.getByText("Start your first turn")).toBeInTheDocument();
     // The behavior list is finite — at least one of its entries must appear.
-    const behaviorMatches = SESSION_HINT_BEHAVIORS.some((b) => screen.queryByText(b) !== null);
+    const behaviorMatches = SESSION_HINT_BEHAVIORS.some(
+      (b) => screen.queryByText(b(translateUi)) !== null,
+    );
     expect(behaviorMatches).toBe(true);
   });
 

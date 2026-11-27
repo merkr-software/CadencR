@@ -72,7 +72,7 @@ export function createPluginTabsBridgeMock() {
     open: vi.fn(() => Promise.resolve()),
     setBounds: vi.fn(() => Promise.resolve()),
     setVisible: vi.fn(() => Promise.resolve()),
-    reload: vi.fn(() => Promise.resolve()),
+    reload: vi.fn<PluginTabsBridge["reload"]>(() => Promise.resolve()),
     close: vi.fn(() => Promise.resolve()),
     openDevTools: vi.fn(() => Promise.resolve()),
     setTheme: vi.fn(() => Promise.resolve()),

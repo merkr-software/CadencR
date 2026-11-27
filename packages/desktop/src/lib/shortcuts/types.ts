@@ -32,12 +32,14 @@ export type ShortcutKey =
   // Letter / digit / single-char literals are passed through verbatim.
   | (string & {});
 
+export type ShortcutTranslator = (key: string, defaultValue: string) => string;
+
 export interface Shortcut {
   id: string;
   keys: ShortcutKey[];
   /** Alternate combo, for shortcuts that intentionally bind two combos to the same action. */
   altKeys?: ShortcutKey[];
-  description: string;
+  describe: (t: ShortcutTranslator) => string;
   scope: ShortcutScopeId;
   /** Search-only synonyms (e.g. "quit", "exit" for ⌘Q). Never rendered. */
   aliases?: string[];

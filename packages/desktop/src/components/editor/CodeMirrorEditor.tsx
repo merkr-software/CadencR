@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { lazy, memo, Suspense } from "react";
 import { Loader2Icon } from "lucide-react";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -25,12 +26,16 @@ const BUFFER_KEYMAP_EXT = editorBufferKeymap();
 const BUFFER_SEARCH_EXT = bufferSearchExtension();
 
 function CodeMirrorEditor(props: CodeMirrorEditorProps) {
+  const { t } = useUiTranslation();
   const controller = useCodeMirrorEditorController(props);
   useLspSuggestion(props.projectId, controller.data.lsp.resolution);
   if (controller.data.fileQuery.error && !controller.data.fileQuery.data) {
     return (
       <div className="h-full flex items-center justify-center bg-background text-destructive text-sm px-6 text-center">
-        {apiErrorMessage(controller.data.fileQuery.error, "Failed to load file")}
+        {apiErrorMessage(
+          controller.data.fileQuery.error,
+          t("workspace.editor.codeMirrorEditor.loadFailed", "Failed to load file"),
+        )}
       </div>
     );
   }
@@ -85,7 +90,13 @@ function CodeMirrorEditorContent({
         isFormatting={buffer.isFormatting}
         readError={
           data.fileQuery.error
-            ? apiErrorMessage(data.fileQuery.error, "Failed to check disk")
+            ? apiErrorMessage(
+                data.fileQuery.error,
+                translateUi(
+                  "workspace.editor.codeMirrorEditor.diskCheckFailed",
+                  "Failed to check disk",
+                ),
+              )
             : undefined
         }
         lspStatus={data.lsp.status}

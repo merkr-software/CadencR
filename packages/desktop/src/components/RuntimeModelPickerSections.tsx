@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { CheckIcon, HistoryIcon, LockIcon, StarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommandGroup, CommandItem } from "@/components/ui/command";
@@ -54,8 +55,12 @@ export function SelectionGroup({
   action: RuntimeModelPickerAction;
   onSelect: () => void;
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <CommandGroup heading="Selection" className={PICKER_GROUP_CLASS}>
+    <CommandGroup
+      heading={t("conversation.composer.runtimeModelPickerSections.selection", "Selection")}
+      className={PICKER_GROUP_CLASS}
+    >
       <CommandItem
         value={action.id}
         keywords={action.keywords}
@@ -276,6 +281,7 @@ function FavoriteToggle({
   modelLabel: string;
   onToggle: () => void;
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       size="sm"
@@ -294,7 +300,15 @@ function FavoriteToggle({
       )}
     >
       <StarIcon className={cn("size-3", isFavorite && "fill-current")} />
-      <span className="sr-only">{`${isFavorite ? "Unstar" : "Star"} ${modelLabel}`}</span>
+      <span className="sr-only">
+        {isFavorite
+          ? t("conversation.composer.runtimeModelPickerSections.unstarModel", "Unstar {{model}}", {
+              model: modelLabel,
+            })
+          : t("conversation.composer.runtimeModelPickerSections.starModel", "Star {{model}}", {
+              model: modelLabel,
+            })}
+      </span>
     </Button>
   );
 }
@@ -308,6 +322,7 @@ export function CatalogRefreshNotices({
 }: {
   notices: CatalogRefreshNotice[];
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div role="status" className="flex flex-col gap-1 border-b border-border/60 px-2.5 py-1.5">
       {notices.map((notice) => (
@@ -319,9 +334,19 @@ export function CatalogRefreshNotices({
           <HistoryIcon className="mt-px size-3 shrink-0 text-[var(--acc-yellow)]" />
           <span className="min-w-0">
             <span className="text-foreground/80">
-              {notice.providerLabel}: showing the last known models.
+              {t(
+                "conversation.composer.runtimeModelPickerSections.lastKnownModels",
+                "{{provider}}: showing the last known models.",
+                { provider: notice.providerLabel },
+              )}
             </span>{" "}
-            <span className="line-clamp-2 break-words">Refresh failed: {notice.reason}</span>
+            <span className="line-clamp-2 break-words">
+              {t(
+                "conversation.composer.runtimeModelPickerSections.refreshFailed",
+                "Refresh failed: {{reason}}",
+                { reason: notice.reason },
+              )}
+            </span>
           </span>
         </p>
       ))}
@@ -334,8 +359,12 @@ export function ProviderStateGroup({
 }: {
   entries: ProviderStateEntry[];
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <CommandGroup heading="Providers" className={PICKER_GROUP_CLASS}>
+    <CommandGroup
+      heading={t("conversation.composer.runtimeModelPickerSections.providers", "Providers")}
+      className={PICKER_GROUP_CLASS}
+    >
       {entries.map((entry) => (
         <CommandItem
           key={entry.value}

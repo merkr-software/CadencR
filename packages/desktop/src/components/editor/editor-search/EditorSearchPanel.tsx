@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { EditorView } from "@codemirror/view";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -186,6 +187,7 @@ function EditorSearchPanel({
   replaceFocusSignal = 0,
   onClose,
 }: EditorSearchPanelProps) {
+  const { t } = useUiTranslation();
   const state = usePersistedSearchState(featureId, paneId);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const replaceInputRef = useRef<HTMLInputElement | null>(null);
@@ -220,8 +222,8 @@ function EditorSearchPanel({
   const matchInfo = useLiveMatchInfo(view);
   const actions = useEditorSearchActions(view, onClose, state.replacement);
   const counterLabel = useMemo(
-    () => buildCounterLabel(state.query, matchInfo),
-    [matchInfo, state.query],
+    () => buildCounterLabel(state.query, matchInfo, t),
+    [matchInfo, state.query, t],
   );
   const hasError = matchInfo.error !== null;
   const showNoMatches = state.query.length > 0 && matchInfo.total === 0 && !hasError;
@@ -230,7 +232,11 @@ function EditorSearchPanel({
     <div
       className="absolute top-2 right-3 z-20 flex flex-col rounded-md border border-border bg-card/95 px-2 py-1 shadow-md backdrop-blur"
       role="search"
-      aria-label={replaceMode ? "Find and replace in file" : "Find in file"}
+      aria-label={
+        replaceMode
+          ? t("workspace.editor.editorSearchPanel.findAndReplaceInFile", "Find and replace in file")
+          : t("workspace.editor.editorSearchPanel.findInFile", "Find in file")
+      }
       onMouseDown={(event) => {
         const target = event.target;
         if (target !== inputRef.current && target !== replaceInputRef.current) {
@@ -301,15 +307,18 @@ function readMatchInfo(view: EditorView): MatchInfo {
   };
 }
 
-function buildCounterLabel(query: string, info: MatchInfo): string {
-  if (info.error) return "Bad regex";
+function buildCounterLabel(query: string, info: MatchInfo, t: UiTranslator): string {
+  if (info.error) return t("workspace.editor.editorSearchPanel.badRegex", "Bad regex");
   if (!query) return "";
-  if (info.total === 0) return "No results";
+  if (info.total === 0) return t("workspace.editor.editorSearchPanel.noResults", "No results");
   const totalLabel = info.truncated ? `${MAX_BUFFER_MATCHES}+` : `${info.total}`;
   // When matches exist but no active match is highlighted (transient states
   // between dispatches), render an em-dash rather than a misleading "1 of N".
   const activeLabel = info.active >= 0 ? String(info.active + 1) : "–";
-  return `${activeLabel} of ${totalLabel}`;
+  return t("workspace.editor.editorSearchPanel.resultPosition", "{{active}} of {{total}}", {
+    active: activeLabel,
+    total: totalLabel,
+  });
 }
 
 export default memo(EditorSearchPanel);

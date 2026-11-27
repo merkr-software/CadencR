@@ -1,3 +1,4 @@
+import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useLayoutEffect, useMemo, type ReactElement, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
@@ -111,6 +112,7 @@ function RequestedFullContent({
   children,
 }: Required<Pick<FullContentPreviewProps, "messageId">> &
   Omit<FullContentPreviewProps, "messageId" | "hideLine"> & { release: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   const query = useGetMessageFullContent(messageId, {
     query: {
       gcTime: FULL_CONTENT_GC_MS,
@@ -129,9 +131,15 @@ function RequestedFullContent({
     return (
       <div>
         {children(query.data.content, "full")}
-        <TruncationLine label={sizeLabel("Full content", fullBytes)}>
+        <TruncationLine
+          label={sizeLabel(
+            t,
+            t("conversation.stream.fullContentPreview.fullContent", "Full content"),
+            fullBytes,
+          )}
+        >
           <LineAction onClick={release} expanded>
-            Show less
+            {t("conversation.stream.fullContentPreview.showLess", "Show less")}
           </LineAction>
         </TruncationLine>
       </div>
@@ -143,7 +151,15 @@ function RequestedFullContent({
       fullBytes={fullBytes}
       status={query.isError ? "error" : "loading"}
       error={
-        query.isError ? apiErrorMessage(query.error, "Could not load full content") : undefined
+        query.isError
+          ? apiErrorMessage(
+              query.error,
+              t(
+                "conversation.stream.fullContentPreview.couldNotLoadFullContent",
+                "Could not load full content",
+              ),
+            )
+          : undefined
       }
       load={() => void query.refetch()}
       cancel={release}
@@ -183,23 +199,41 @@ function PreviewContent({
   cancel,
   children,
 }: PreviewContentProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div>
       <div className={PREVIEW_CLIP}>{children(preview, "preview")}</div>
       {!hideLine && (
-        <TruncationLine label={sizeLabel("Truncated", fullBytes)}>
+        <TruncationLine
+          label={sizeLabel(
+            t,
+            t("conversation.stream.fullContentPreview.truncated", "Truncated"),
+            fullBytes,
+          )}
+        >
           {status === "unavailable" ? (
-            <span>full content unavailable for this unsaved message</span>
+            <span>
+              {t(
+                "conversation.stream.fullContentPreview.fullContentUnavailableForThisUnsavedMessage",
+                "full content unavailable for this unsaved message",
+              )}
+            </span>
           ) : (
             <LineAction onClick={load} disabled={status === "loading"}>
               {status === "loading" && <Loader2Icon className="size-3 animate-spin" />}
-              {status === "loading" ? "Loading…" : status === "error" ? "Retry" : "Show all"}
+              {status === "loading"
+                ? t("common.loading", "Loading…")
+                : status === "error"
+                  ? t("common.retry", "Retry")
+                  : t("conversation.stream.fullContentPreview.showAll", "Show all")}
             </LineAction>
           )}
           {cancel && (
             <>
               <span aria-hidden>·</span>
-              <LineAction onClick={cancel}>Cancel</LineAction>
+              <LineAction onClick={cancel}>
+                {t("conversation.stream.fullContentPreview.cancel", "Cancel")}
+              </LineAction>
             </>
           )}
         </TruncationLine>
@@ -213,8 +247,13 @@ function PreviewContent({
   );
 }
 
-function sizeLabel(prefix: string, fullBytes: number | undefined): string {
-  return fullBytes === undefined ? prefix : `${prefix} · ${formatBytes(fullBytes)}`;
+function sizeLabel(t: UiTranslator, prefix: string, fullBytes: number | undefined): string {
+  return fullBytes === undefined
+    ? prefix
+    : t("conversation.stream.fullContentPreview.size", "{{label}} · {{size}}", {
+        label: prefix,
+        size: formatBytes(fullBytes, t),
+      });
 }
 
 function TruncationLine({ label, children }: { label: string; children: ReactNode }) {

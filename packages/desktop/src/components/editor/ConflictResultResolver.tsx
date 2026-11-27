@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -9,7 +10,7 @@ import {
 } from "react";
 import type { EditorView } from "@codemirror/view";
 import { EditorView as CodeMirrorView } from "@codemirror/view";
-import type { Extension, Text } from "@codemirror/state";
+import { Compartment, type Extension, type Text } from "@codemirror/state";
 import { Loader2Icon } from "lucide-react";
 import type { GitOperationKind } from "@/api/generated";
 import { useSetting } from "@/hooks/useSetting";
@@ -40,26 +41,40 @@ interface ConflictResultResolverProps {
 }
 
 export default function ConflictResultResolver(props: ConflictResultResolverProps): ReactElement {
+  const { t } = useUiTranslation();
   const editor = useConflictResultEditor(props);
-  const labels = useMemo(() => conflictSourceLabels(props.operation), [props.operation]);
-  const extraExtensions = useMemo<Extension[]>(
+  const labels = conflictSourceLabels(props.operation, t);
+  const localizedControls = useRef(new Compartment());
+  const controls = useMemo<Extension[]>(
     () => [
       conflictResolutionControls({
         hunks: editor.hunks,
         currentLabel: labels.current,
         incomingLabel: labels.incoming,
         onApply: editor.onApply,
+        t,
       }),
-      CodeMirrorView.contentAttributes.of({ "aria-label": "Writable Result" }),
-      resultEditorTheme,
+      CodeMirrorView.contentAttributes.of({
+        "aria-label": t("workspace.editor.conflictResult.writableResult", "Writable Result"),
+      }),
     ],
-    [editor.hunks, editor.onApply, labels.current, labels.incoming],
+    [editor.hunks, editor.onApply, labels.current, labels.incoming, t],
   );
+  useEffect(() => {
+    const view = editor.viewRef.current;
+    const compartment = localizedControls.current;
+    if (view && compartment.get(view.state) !== controls) {
+      view.dispatch({ effects: compartment.reconfigure(controls) });
+    }
+  }, [controls, editor.viewRef]);
   // One writable Result view, edited like any file. The conflict regions and
   // per-hunk actions live inline in CodeMirror — no toolbar, header, or footer.
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-hidden" aria-label="Writable Result">
+      <div
+        className="min-h-0 flex-1 overflow-hidden"
+        aria-label={t("workspace.editor.conflictResult.writableResult", "Writable Result")}
+      >
         <BaseCodeMirrorEditor
           initialContent={props.initialContent}
           language={editor.languageExtension}
@@ -68,7 +83,7 @@ export default function ConflictResultResolver(props: ConflictResultResolverProp
           onDocChange={editor.onChange}
           onSave={editor.onSave}
           onEditorViewChange={editor.onViewChange}
-          extraExtensions={extraExtensions}
+          extraExtensions={[localizedControls.current.of(controls), resultEditorTheme]}
           className="h-full overflow-hidden"
         />
       </div>
@@ -87,6 +102,7 @@ function ConflictEditorStatus({
   sync: EditorDiskSyncState;
   isFormatting: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { isSaving, errorMessage } = sync;
   if (!isSaving && !isFormatting && !errorMessage && !sync.diskChanged) return null;
   return (
@@ -98,7 +114,10 @@ function ConflictEditorStatus({
           role={errorMessage ? "alert" : "status"}
           className={errorMessage ? "text-destructive" : "text-muted-foreground"}
         >
-          {errorMessage ?? (isFormatting ? "Formatting…" : "Saving…")}
+          {errorMessage ??
+            (isFormatting
+              ? t("workspace.editor.conflictResult.formatting", "Formatting…")
+              : t("workspace.editor.conflictResult.saving", "Saving…"))}
         </span>
       )}
     </div>
@@ -212,8 +231,11 @@ function useConflictHunkMappings({
       const applied = viewRef.current ? applyConflictChoice(viewRef.current, hunk, choice) : false;
       setAnnouncement(
         applied
-          ? `Applied ${choice} to the selected conflict hunk.`
-          : "The hunk changed and could not be applied safely.",
+          ? conflictChoiceAnnouncement(choice)
+          : translateUi(
+              "workspace.editor.conflictResult.applyFailed",
+              "The hunk changed and could not be applied safely.",
+            ),
       );
     },
     [viewRef],
@@ -233,17 +255,49 @@ function useConflictHunkMappings({
   );
 }
 
-function conflictSourceLabels(operation: GitOperationKind | null): {
+function conflictChoiceAnnouncement(choice: ConflictChoice): string {
+  switch (choice) {
+    case "current":
+      return translateUi(
+        "workspace.editor.conflictResult.appliedCurrent",
+        "Applied current to the selected conflict hunk.",
+      );
+    case "incoming":
+      return translateUi(
+        "workspace.editor.conflictResult.appliedIncoming",
+        "Applied incoming to the selected conflict hunk.",
+      );
+    case "both":
+      return translateUi(
+        "workspace.editor.conflictResult.appliedBoth",
+        "Applied both to the selected conflict hunk.",
+      );
+  }
+}
+
+function conflictSourceLabels(
+  operation: GitOperationKind | null,
+  t: UiTranslator,
+): {
   current: string;
   incoming: string;
 } {
   if (operation === "merge") {
-    return { current: "Current branch", incoming: "Incoming branch" };
+    return {
+      current: t("workspace.editor.conflictResult.currentBranch", "Current branch"),
+      incoming: t("workspace.editor.conflictResult.incomingBranch", "Incoming branch"),
+    };
   }
   if (operation === "rebase") {
-    return { current: "Rebased result", incoming: "Replayed commit" };
+    return {
+      current: t("workspace.editor.conflictResult.rebasedResult", "Rebased result"),
+      incoming: t("workspace.editor.conflictResult.replayedCommit", "Replayed commit"),
+    };
   }
-  return { current: "Index stage 2", incoming: "Index stage 3" };
+  return {
+    current: t("workspace.editor.conflictResult.indexStage2", "Index stage 2"),
+    incoming: t("workspace.editor.conflictResult.indexStage3", "Index stage 3"),
+  };
 }
 
 const resultEditorTheme = CodeMirrorView.theme({

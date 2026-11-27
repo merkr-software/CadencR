@@ -1,4 +1,5 @@
-import { StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
+import { Facet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import type {
   ConflictChoice,
@@ -9,39 +10,68 @@ import { mapConflictHunk } from "./conflict-resolution-adapter";
 
 interface ConflictControlConfig {
   hunks: ConflictHunk[];
+  t?: UiTranslator;
   currentLabel: string;
   incomingLabel: string;
   onApply: (hunk: MappedConflictHunk, choice: ConflictChoice) => void;
 }
 
-export function conflictResolutionControls(config: ConflictControlConfig): Extension {
-  const controls = StateField.define<DecorationSet>({
-    create: (state) => buildDecorations(state, config),
-    update: (decorations, transaction) =>
-      transaction.docChanged ? buildDecorations(transaction.state, config) : decorations,
-    provide: (field) => EditorView.decorations.from(field),
-  });
-  return [controls, conflictControlTheme];
+const controlConfig = Facet.define<ConflictControlConfig>();
+
+interface ConflictGeometry {
+  sections: Range<Decoration>[];
+  actions: { anchor: number; mapped: MappedConflictHunk }[];
 }
 
-function buildDecorations(state: EditorState, config: ConflictControlConfig): DecorationSet {
+interface ConflictControlsState {
+  geometry: ConflictGeometry;
+  decorations: DecorationSet;
+}
+
+const controls = StateField.define<ConflictControlsState>({
+  create: (state) => createControls(state, state.facet(controlConfig)[0]),
+  update: (previous, transaction) => {
+    const before = transaction.startState.facet(controlConfig)[0];
+    const next = transaction.state.facet(controlConfig)[0];
+    if (transaction.docChanged || before?.hunks !== next?.hunks) {
+      return createControls(transaction.state, next);
+    }
+    if (before === next) return previous;
+    return { ...previous, decorations: decorateControls(previous.geometry, next) };
+  },
+  provide: (field) => EditorView.decorations.from(field, (state) => state.decorations),
+});
+
+export function conflictResolutionControls(config: ConflictControlConfig): Extension {
+  return [controlConfig.of(config), controls, conflictControlTheme];
+}
+
+function createControls(state: EditorState, config?: ConflictControlConfig): ConflictControlsState {
   const documentText = state.doc.toString();
-  const decorations = conflictSectionDecorations(state);
-  for (const hunk of config.hunks) {
-    // Anchor the action row on the raw marker so a hunk that can no longer be
-    // applied safely (ambiguous or imprecise mapping) still explains itself
-    // inline instead of silently vanishing. A hunk whose marker is gone has
-    // been resolved away — nothing to render.
+  const geometry: ConflictGeometry = { sections: conflictSectionDecorations(state), actions: [] };
+  for (const hunk of config?.hunks ?? []) {
+    // Anchor action rows to the raw marker. Already resolved hunks have no anchor.
     const anchor = documentText.indexOf(hunk.markerText);
-    if (anchor < 0) continue;
-    const mapped = mapConflictHunk(documentText, hunk);
-    decorations.push(
-      Decoration.widget({
-        block: true,
-        side: -1,
-        widget: new ConflictActionsWidget(mapped, config),
-      }).range(anchor),
-    );
+    if (anchor >= 0) geometry.actions.push({ anchor, mapped: mapConflictHunk(documentText, hunk) });
+  }
+  return { geometry, decorations: decorateControls(geometry, config) };
+}
+
+function decorateControls(
+  geometry: ConflictGeometry,
+  config?: ConflictControlConfig,
+): DecorationSet {
+  const decorations = [...geometry.sections];
+  if (config) {
+    for (const { anchor, mapped } of geometry.actions) {
+      decorations.push(
+        Decoration.widget({
+          block: true,
+          side: -1,
+          widget: new ConflictActionsWidget(mapped, config),
+        }).range(anchor),
+      );
+    }
   }
   return Decoration.set(decorations, true);
 }
@@ -88,6 +118,8 @@ class ConflictActionsWidget extends WidgetType {
 
   eq(other: ConflictActionsWidget): boolean {
     return (
+      other.config.t === this.config.t &&
+      other.config.onApply === this.config.onApply &&
       other.hunk.id === this.hunk.id &&
       other.hunk.disabledReason === this.hunk.disabledReason &&
       other.config.currentLabel === this.config.currentLabel &&
@@ -96,20 +128,48 @@ class ConflictActionsWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    const t = this.config.t ?? translateUi;
     const container = document.createElement("div");
     container.className = "cm-conflictActions";
     container.setAttribute("role", "group");
-    container.setAttribute("aria-label", `Resolution actions for ${this.hunk.id}`);
+    container.setAttribute(
+      "aria-label",
+      t("workspace.editor.conflictControls.actions", "Resolution actions for {{hunk}}", {
+        hunk: this.hunk.id,
+      }),
+    );
     if (this.hunk.disabledReason) {
       container.classList.add("cm-conflictActions-disabled");
       const reason = container.appendChild(document.createElement("span"));
       reason.className = "cm-conflictActionsReason";
-      reason.textContent = this.hunk.disabledReason;
+      reason.textContent =
+        this.hunk.disabledReason === "edited"
+          ? t("workspace.editor.conflictControls.edited", "This hunk was edited manually.")
+          : t(
+              "workspace.editor.conflictControls.ambiguous",
+              "This marker block is ambiguous after overlapping edits.",
+            );
       return container;
     }
-    container.appendChild(this.button("current", `Accept ${this.config.currentLabel}`));
-    container.appendChild(this.button("incoming", `Accept ${this.config.incomingLabel}`));
-    container.appendChild(this.button("both", "Accept both"));
+    container.appendChild(
+      this.button(
+        "current",
+        t("workspace.editor.conflictControls.acceptCurrent", "Accept {{source}}", {
+          source: this.config.currentLabel,
+        }),
+      ),
+    );
+    container.appendChild(
+      this.button(
+        "incoming",
+        t("workspace.editor.conflictControls.acceptIncoming", "Accept {{source}}", {
+          source: this.config.incomingLabel,
+        }),
+      ),
+    );
+    container.appendChild(
+      this.button("both", t("workspace.editor.conflictControls.acceptBoth", "Accept both")),
+    );
     return container;
   }
 

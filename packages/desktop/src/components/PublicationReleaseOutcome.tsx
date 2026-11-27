@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { openExternalUrl } from "@/lib/open-external";
@@ -13,14 +14,22 @@ function ReleasePublicationStatus({
   pending: boolean;
   publishedUrl: string | null;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <>
       {error ? (
-        <PublicationError prefix="Could not publish the GitHub release" error={error} />
+        <PublicationError
+          prefix={t(
+            "marketplace.publication.release.publishFailed",
+            "Could not publish the GitHub release",
+          )}
+          error={error}
+        />
       ) : null}
       {pending ? (
         <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Publishing GitHub release…
+          <Loader2 className="size-4 animate-spin" aria-hidden />{" "}
+          {t("marketplace.publication.release.publishing", "Publishing GitHub release…")}
         </div>
       ) : null}
       {publishedUrl ? <PublishedRelease releaseUrl={publishedUrl} /> : null}
@@ -29,19 +38,29 @@ function ReleasePublicationStatus({
 }
 
 function PublishedRelease({ releaseUrl }: { releaseUrl: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div
       role="status"
       className="space-y-2 rounded-lg border border-[var(--acc-green)]/30 bg-[var(--acc-green)]/5 p-3 text-sm"
     >
       <p className="flex items-center gap-2 font-medium text-[var(--acc-green)]">
-        <CheckCircle2 className="size-4" aria-hidden /> GitHub release published
+        <CheckCircle2 className="size-4" aria-hidden />{" "}
+        {t("marketplace.publication.release.published", "GitHub release published")}
       </p>
       <Button
         type="button"
         variant="link"
         className="h-auto justify-start whitespace-normal break-all p-0"
-        onClick={() => void openExternalUrl(releaseUrl, "Could not open the GitHub release.")}
+        onClick={() =>
+          void openExternalUrl(
+            releaseUrl,
+            t(
+              "marketplace.publication.release.openReleaseError",
+              "Could not open the GitHub release.",
+            ),
+          )
+        }
       >
         {releaseUrl} <ExternalLink className="size-3" aria-hidden />
       </Button>

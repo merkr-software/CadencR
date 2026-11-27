@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   createContext,
   useContext,
@@ -81,17 +82,22 @@ function ExpandableMarkdownImage({
   onExpand: () => void;
   onError?: ReactEventHandler<HTMLImageElement>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [isTiny, setIsTiny] = useState(false);
   const handleLoad: ReactEventHandler<HTMLImageElement> = (event) => {
     const { naturalWidth, naturalHeight } = event.currentTarget;
     setIsTiny(naturalWidth > 0 && naturalHeight > 0 && Math.min(naturalWidth, naturalHeight) < 48);
   };
-  const label = props.alt ? `Full screen: ${props.alt}` : "Full screen";
+  const label = props.alt
+    ? t("conversation.stream.markdownImage.fullScreen", "Full screen: {{image}}", {
+        image: props.alt,
+      })
+    : t("conversation.stream.markdownImage.fullScreenLabel", "Full screen");
   return (
     <button
       type="button"
       onClick={onExpand}
-      title={props.title ?? "Full screen"}
+      title={props.title ?? t("conversation.stream.markdownImage.fullScreenLabel", "Full screen")}
       aria-label={label}
       className="group/mdimg relative inline-block max-w-full cursor-zoom-in rounded align-middle text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
@@ -147,7 +153,8 @@ export function ProxiedMarkdownImage({
   errorMessage: string | null;
   onExpand?: () => void;
 }): ReactElement {
-  const label = props.alt || props.src || "image";
+  const { t } = useUiTranslation();
+  const label = props.alt || props.src || t("conversation.stream.markdownImage.image", "image");
   if (errorMessage) {
     return (
       <MarkdownImageNotice title={errorMessage} label={label}>
@@ -170,10 +177,17 @@ export function DecodedMarkdownImage({
   onExpand,
   ...props
 }: MarkdownImageProps & { onExpand?: () => void }): ReactElement {
+  const { t } = useUiTranslation();
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <MarkdownImageNotice title="Could not display this image." label={props.alt || "image"}>
+      <MarkdownImageNotice
+        title={t(
+          "conversation.stream.markdownImage.couldNotDisplayThisImage",
+          "Could not display this image.",
+        )}
+        label={props.alt || t("conversation.stream.markdownImage.image", "image")}
+      >
         <ImageOffIcon className="size-3.5 shrink-0" aria-hidden />
       </MarkdownImageNotice>
     );
@@ -192,11 +206,17 @@ export function DecodedMarkdownImage({
  * rendered as a plain `<img>`.
  */
 export function MarkdownImg(props: MarkdownImageProps): ReactElement {
+  const { t } = useUiTranslation();
   const Renderer = useContext(MarkdownImageContext);
   if (props.src === INCOMPLETE_MARKDOWN_IMAGE_SRC) {
     return (
-      <MarkdownImageNotice label={props.alt || "image"}>
-        <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-label="Loading image" />
+      <MarkdownImageNotice
+        label={props.alt || t("conversation.stream.markdownImage.image", "image")}
+      >
+        <Loader2Icon
+          className="size-3.5 shrink-0 animate-spin"
+          aria-label={t("conversation.stream.markdownImage.loadingImage", "Loading image")}
+        />
       </MarkdownImageNotice>
     );
   }

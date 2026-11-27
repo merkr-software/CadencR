@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageCircleQuestionIcon, ChevronLeftIcon, ChevronRightIcon, X } from "lucide-react";
@@ -23,6 +24,7 @@ function AgentQuestionHeaderComponent({
   onForward,
   onCancel,
 }: AgentQuestionHeaderProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
       {questionsLength > 1 && (
@@ -35,13 +37,16 @@ function AgentQuestionHeaderComponent({
               "inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 transition-colors",
               canGoBack ? "text-foreground cursor-pointer" : "opacity-30 cursor-default",
             )}
-            aria-label="Previous question"
+            aria-label={t("question.previous", "Previous question")}
           >
             <ChevronLeftIcon className="size-3.5" />
           </button>
           <MessageCircleQuestionIcon className="size-3" />
           <span>
-            Question {currentIndex + 1} of {questionsLength}
+            {t("question.progress", "Question {{index}} of {{total}}", {
+              index: currentIndex + 1,
+              total: questionsLength,
+            })}
           </span>
           <button
             type="button"
@@ -51,7 +56,7 @@ function AgentQuestionHeaderComponent({
               "inline-flex size-5 items-center justify-center rounded hover:bg-muted/50 transition-colors",
               canGoForward ? "text-foreground cursor-pointer" : "opacity-30 cursor-default",
             )}
-            aria-label="Next question"
+            aria-label={t("question.next", "Next question")}
           >
             <ChevronRightIcon className="size-3.5" />
           </button>
@@ -63,8 +68,8 @@ function AgentQuestionHeaderComponent({
           variant="ghost"
           size="icon-xs"
           onClick={onCancel}
-          aria-label="Dismiss question (Esc)"
-          title="Dismiss (Esc) - stops the agent"
+          aria-label={t("question.dismiss", "Dismiss question (Esc)")}
+          title={t("question.dismissTooltip", "Dismiss (Esc) - stops the agent")}
           className="ml-auto size-5 text-muted-foreground"
         >
           <X className="size-3.5" />

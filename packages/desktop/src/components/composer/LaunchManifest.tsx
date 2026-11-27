@@ -1,3 +1,4 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { useGetProjectSettings } from "@/api/generated";
 import { settingsArrayToMap } from "@/api/settings";
@@ -19,6 +20,7 @@ const DEFAULT_BRANCH_PREFIX = "feature/";
 export const LaunchManifest = memo(function LaunchManifest(
   props: WorktreeChipProps,
 ): ReactElement | null {
+  const { t } = useUiTranslation();
   const { worktreeProjectId, worktreeMode } = props;
   const { data: projectSettings } = useGetProjectSettings(worktreeProjectId ?? 0, {
     query: { enabled: worktreeProjectId != null && createsBranch(worktreeMode) },
@@ -32,14 +34,19 @@ export const LaunchManifest = memo(function LaunchManifest(
       data-launch-manifest
       className="mx-1.5 flex flex-wrap items-center gap-x-1 gap-y-1 border-b border-border/60 px-1.5 pt-2 pb-2 text-[12px] text-muted-foreground"
     >
-      <span className="mr-0.5">Runs in</span>
+      <span className="mr-0.5">{t("conversation.composer.launchManifest.runsIn", "Runs in")}</span>
       <WorktreeChip {...props} variant="manifest" />
       {createsBranch(worktreeMode) && (
         <span className="inline-flex min-w-0 items-center gap-1">
           <span aria-hidden>·</span>
-          branch
-          <code className="truncate font-mono text-[11.5px] text-foreground/80">{prefix}…</code>
-          named from your prompt
+          <UiTrans
+            i18nKey="conversation.composer.launchManifest.branch"
+            defaults="branch <branch>{{prefix}}…</branch> named from your prompt"
+            values={{ prefix }}
+            components={{
+              branch: <code className="truncate font-mono text-[11.5px] text-foreground/80" />,
+            }}
+          />
         </span>
       )}
     </div>

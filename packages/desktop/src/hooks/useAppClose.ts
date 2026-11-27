@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useEditorStore } from "@/stores/editor-store";
@@ -15,16 +16,19 @@ const CLOSE_LOADING_TOAST_ID = "app-close:loading";
 const CLOSE_CONFIRM_TOAST_ID = "app-close:confirm";
 
 function reportCloseFailure(error: unknown): void {
-  toast.error("Could not close Cadencr", {
+  toast.error(translateUi("shell.close.failure", "Could not close Cadencr"), {
     id: CLOSE_ERROR_TOAST_ID,
     description: error instanceof Error ? error.message : String(error),
   });
 }
 
 function confirmClose(request: AppCloseRequest): Promise<void> {
-  toast.loading(request.quitting ? "Stopping agents…" : "Closing the window…", {
-    id: CLOSE_CONFIRM_TOAST_ID,
-  });
+  toast.loading(
+    request.quitting
+      ? translateUi("shell.close.stoppingAgents", "Stopping agents…")
+      : translateUi("shell.close.closingWindow", "Closing the window…"),
+    { id: CLOSE_CONFIRM_TOAST_ID },
+  );
   return desktopBridge
     .confirmClose(request.id)
     .catch(reportCloseFailure)
@@ -74,7 +78,9 @@ export function useAppClose(activeFeatureId: number | null) {
     const controller = new AbortController();
     lookup.current = controller;
     setRequest(null);
-    toast.loading("Checking for active agents…", { id: CLOSE_LOADING_TOAST_ID });
+    toast.loading(translateUi("shell.close.checkingAgents", "Checking for active agents…"), {
+      id: CLOSE_LOADING_TOAST_ID,
+    });
     const showDialog = (working: ActiveCloseWork[] | null): void => {
       if (controller.signal.aborted) return;
       setAgents(working);

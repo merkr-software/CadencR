@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -61,9 +62,17 @@ export function useCloseFeatureActivity(): (args: CloseFeatureActivityArgs) => v
         }
       })();
       toast.promise(work, {
-        loading: `Closing ${noun}…`,
-        success: `Closed ${noun}.`,
-        error: (err) => apiErrorMessage(err, `Failed to close ${noun}`),
+        loading: translateUi("sidebar.activity.closing", "Closing {{activity}}…", {
+          activity: noun,
+        }),
+        success: translateUi("sidebar.activity.closed", "Closed {{activity}}.", { activity: noun }),
+        error: (err) =>
+          apiErrorMessage(
+            err,
+            translateUi("sidebar.activity.closeFailed", "Failed to close {{activity}}", {
+              activity: noun,
+            }),
+          ),
       });
     },
     [killTerminals, queryClient],

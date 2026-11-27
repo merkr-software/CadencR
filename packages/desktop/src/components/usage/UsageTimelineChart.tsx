@@ -1,3 +1,5 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useId, useMemo, useState } from "react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -13,10 +15,10 @@ import {
   gridWidthCss,
   type UsageDensity,
 } from "./usage-cell-grid";
-import { formatDayLabel, formatExactNumber, seriesColor } from "./usage-chart-palette";
+import { formatDayLabel, seriesColor } from "./usage-chart-palette";
+import { usageChartLabel, usageColumnLabel } from "./usage-copy";
 import { UsageDayCard } from "./UsageDayCard";
 import {
-  USAGE_METRIC_UNIT,
   type UsageChartData,
   type UsageDay,
   type UsageMetric,
@@ -109,7 +111,8 @@ function UsageTimelineChartImpl({
   scale,
   metric,
 }: UsageTimelineChartProps): React.JSX.Element {
-  const metricLabel = USAGE_METRIC_UNIT[metric];
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   const { rows, dates, rounded } = CELL_DENSITY[density];
   const dayCount = data.days.length;
   const { active, clear, tabStop, handlers } = useColumnFocus(dayCount);
@@ -125,6 +128,14 @@ function UsageTimelineChartImpl({
     [dayCount],
   );
 
+  const columnLabels = useMemo(
+    () =>
+      data.days.map((day) =>
+        usageColumnLabel(t, metric, formatDayLabel(day.day, locale), day.total, locale),
+      ),
+    [data.days, locale, metric, t],
+  );
+
   return (
     <Popover
       open={activeDay !== undefined}
@@ -137,7 +148,7 @@ function UsageTimelineChartImpl({
         <div className="relative mx-auto" style={scopeStyle}>
           <div
             role="group"
-            aria-label={`Daily ${metricLabel}. Use the left and right arrow keys to read each day.`}
+            aria-label={usageChartLabel(t, metric)}
             data-active={active === null ? undefined : ""}
             // Rounding clips the grid itself: the corner cells take the curve.
             className={cn("group/plot flex", rounded && "overflow-hidden rounded-lg")}
@@ -149,14 +160,14 @@ function UsageTimelineChartImpl({
                 key={day.day}
                 index={index}
                 cells={stacks[index]!}
-                label={`${formatDayLabel(day.day)}: ${formatExactNumber(day.total)} ${metricLabel}`}
+                label={columnLabels[index]!}
                 isTabStop={index === tabStop}
                 isActive={active === index}
                 cardId={cardId}
               />
             ))}
           </div>
-          {dates ? <DateLabels days={data.days} /> : null}
+          {dates ? <DateLabels days={data.days} locale={locale} /> : null}
           {active === null ? null : (
             // Placed on the column's pitch rather than wrapping it, so one
             // anchor serves every column. Keyed so Radix measures it anew.
@@ -193,7 +204,7 @@ function UsageTimelineChartImpl({
  * Date labels under the grid, on the pitch of their columns. A label per column
  * would clip "Jun 26" down to "J…", so only a few columns carry one.
  */
-function DateLabels({ days }: { days: UsageDay[] }): React.JSX.Element {
+function DateLabels({ days, locale }: { days: UsageDay[]; locale: string }): React.JSX.Element {
   const ticks = useMemo(() => axisTickIndexes(days.length), [days.length]);
   return (
     <div className="relative" style={{ height: DATE_BAND_CSS }}>
@@ -204,7 +215,7 @@ function DateLabels({ days }: { days: UsageDay[] }): React.JSX.Element {
             className="absolute top-1.5 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
             style={{ left: columnCenterCss(index) }}
           >
-            {formatDayLabel(day.day)}
+            {formatDayLabel(day.day, locale)}
           </span>
         ) : null,
       )}

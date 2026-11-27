@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import type { CliInstallStatus } from "../../src/shared/cli-bridge";
+import { conflictCliStatus } from "../../src/shared/cli-install-copy";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import {
   appImageTarget,
   bundledCliPath,
@@ -53,7 +55,12 @@ async function readLocator(file: string): Promise<CliLocator | null> {
 function currentAppImage(context: CliInstallContext): string {
   const appImage = context.env.APPIMAGE;
   if (!appImage || !path.isAbsolute(appImage)) {
-    throw new Error("Cadencr can't tell where its AppImage is: APPIMAGE is not set.");
+    throw new Error(
+      t(
+        "settings.general.commandLine.appImagePathMissing",
+        "Cadencr can't tell where its AppImage is: APPIMAGE is not set.",
+      ),
+    );
   }
   return appImage;
 }
@@ -99,10 +106,10 @@ export async function appImageCliStatus(context: CliInstallContext): Promise<Cli
   if (!(await lstatOrNull(target))) return { state: "not-installed", target, onPath };
   const locator = await readLocator(cliLocatorPath(context));
   if (!locator) {
-    return { state: "conflict", target, existing: "a program not installed by Cadencr", onPath };
+    return conflictCliStatus(target, onPath, { kind: "unmanaged-program" });
   }
   if (!(await stillOurCopy(target, locator))) {
-    return { state: "conflict", target, existing: "a program that replaced Cadencr's", onPath };
+    return conflictCliStatus(target, onPath, { kind: "replaced-program" });
   }
   const current =
     locator.appimage === context.env.APPIMAGE && locator.appVersion === context.appVersion;

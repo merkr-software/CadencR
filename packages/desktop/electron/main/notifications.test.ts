@@ -1,3 +1,4 @@
+import { uiI18n } from "../../src/shared/ui-i18n";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserWindow } from "electron";
 
@@ -194,6 +195,38 @@ describe("sendNotification — dev override", () => {
 });
 
 describe("sendTestNotification", () => {
+  it("uses the active native language for test copy and preserves raw OS reasons", async () => {
+    uiI18n.addResource(
+      "fr",
+      "ui",
+      "native.notifications.testTitle",
+      "Notification de test Cadencr",
+    );
+    uiI18n.addResource(
+      "fr",
+      "ui",
+      "native.notifications.testBody",
+      "Les notifications fonctionnent.",
+    );
+    await uiI18n.changeLanguage("fr");
+    try {
+      const win = fakeWindow();
+      sendTestNotification(win as unknown as BrowserWindow);
+      expect(electronState.lastOpts).toEqual({
+        title: "Notification de test Cadencr",
+        body: "Les notifications fonctionnent.",
+        silent: true,
+      });
+      electronState.failedHandlers[0]({}, "Raw OS reason");
+      expect(win.webContents.send).toHaveBeenCalledWith("notification-failed", {
+        reason: "Raw OS reason",
+      });
+    } finally {
+      uiI18n.removeResourceBundle("fr", "ui");
+      await uiI18n.changeLanguage("en");
+    }
+  });
+
   it("shows a silent native notification and forwards failures (packaged)", () => {
     const win = fakeWindow();
     sendTestNotification(win as unknown as BrowserWindow);

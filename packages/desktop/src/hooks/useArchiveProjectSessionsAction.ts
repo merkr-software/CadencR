@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -15,11 +16,45 @@ interface UseArchiveProjectSessionsActionOptions {
   projectId: number;
 }
 
-function keptSuffix(skippedPinned: number, skippedRunning: number): string {
-  const kept: string[] = [];
-  if (skippedPinned > 0) kept.push(`${skippedPinned} pinned`);
-  if (skippedRunning > 0) kept.push(`${skippedRunning} running`);
-  return kept.length > 0 ? ` (${kept.join(" and ")} kept)` : "";
+function keptSessionSummary(pinned: number, running: number): string | undefined {
+  if (pinned > 0 && running > 0) {
+    return translateUi(
+      "project.archiveSessions.keptPinnedAndRunning",
+      "{{pinned}} pinned and {{running}} running kept",
+      { pinned, running },
+    );
+  }
+  if (pinned > 0) {
+    return translateUi("project.archiveSessions.keptPinned", "{{count}} pinned kept", {
+      count: pinned,
+    });
+  }
+  if (running > 0) {
+    return translateUi("project.archiveSessions.keptRunning", "{{count}} running kept", {
+      count: running,
+    });
+  }
+  return undefined;
+}
+
+function reportArchiveResult(archived: number, pinned: number, running: number): void {
+  const summary =
+    archived === 0
+      ? translateUi("project.archiveSessions.empty", "No sessions to archive in this project")
+      : translateUi("project.archiveSessions.archived", "Archived {{count}} sessions", {
+          count: archived,
+          defaultValue_one: "Archived {{count}} session",
+          defaultValue_other: "Archived {{count}} sessions",
+        });
+  const kept = keptSessionSummary(pinned, running);
+  const message = kept
+    ? translateUi("project.archiveSessions.resultWithKept", "{{summary}} ({{kept}})", {
+        summary,
+        kept,
+      })
+    : summary;
+  if (archived === 0) toast.info(message);
+  else toast.success(message);
 }
 
 /**
@@ -51,18 +86,18 @@ export function useArchiveProjectSessionsAction({
           );
           navigateToFeatureOrHome(navigate, projectId, remaining[0]);
         }
-        const archivedCount = response.archived_ids.length;
-        const suffix = keptSuffix(response.skipped_pinned, response.skipped_running);
-        if (archivedCount === 0) {
-          toast.info(`No sessions to archive in this project${suffix}`);
-          return;
-        }
-        toast.success(
-          `Archived ${archivedCount} session${archivedCount === 1 ? "" : "s"}${suffix}`,
+        reportArchiveResult(
+          response.archived_ids.length,
+          response.skipped_pinned,
+          response.skipped_running,
         );
       },
       onError: (error) => {
-        toast.error(`Could not archive sessions: ${apiErrorMessage(error, "Unknown error")}`);
+        toast.error(
+          translateUi("project.archiveSessions.failed", "Could not archive sessions: {{error}}", {
+            error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")),
+          }),
+        );
       },
     },
   });

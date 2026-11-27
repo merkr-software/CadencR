@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { PersistedStatePayload } from "./ws-session-types";
 
 export type { PersistedStatePayload };
@@ -22,7 +23,9 @@ export function formatQuestionResponse(
         rawQuestion != null &&
         typeof rawQuestion.question === "string"
           ? (rawQuestion.question as string)
-          : `Question ${index + 1}`;
+          : translateUi("conversation.question.numbered", "Question {{number}}", {
+              number: index + 1,
+            });
       return `*${question}*\n\n**${answerGroup.join("\n")}**`;
     })
     .join("\n\n\n\n");

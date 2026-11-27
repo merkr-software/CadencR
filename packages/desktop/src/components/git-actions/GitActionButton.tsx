@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { toast } from "sonner";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ import {
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { getCompareUrl, getGetGitStatusQueryKey, type GitStatusSnapshot } from "@/api/generated";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { toastError, WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
+import { toastError, WORKTREE_UNAVAILABLE, worktreeUnavailableMessage } from "@/lib/api-errors";
 import { openExternalUrl } from "@/lib/open-external";
 import {
   isActivityAction,
@@ -47,15 +48,32 @@ function useOpenCompare(
         const response = await getCompareUrl({ feature_id: featureId });
         if (response.available) url = response.url;
       } catch (error) {
-        toastError(error, "Failed to resolve compare URL.");
+        toastError(
+          error,
+          translateUi(
+            "workspace.git.gitActionButton.failedToResolveCompareUrl",
+            "Failed to resolve compare URL.",
+          ),
+        );
         return;
       }
     }
     if (!url) {
-      toast.error("Compare URL not available for this remote.");
+      toast.error(
+        translateUi(
+          "workspace.git.gitActionButton.compareUrlNotAvailableForThisRemote",
+          "Compare URL not available for this remote.",
+        ),
+      );
       return;
     }
-    await openExternalUrl(url, "Couldn't open compare URL.");
+    await openExternalUrl(
+      url,
+      translateUi(
+        "workspace.git.gitActionButton.couldnTOpenCompareUrl",
+        "Couldn't open compare URL.",
+      ),
+    );
   }, [compareUrl, featureId]);
 }
 
@@ -84,6 +102,7 @@ function useGitActionButtonState(featureId: number): {
 }
 
 function useGitStatusRetry(featureId: number): GitStatusRetry {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const health = useGitStatusStore(selectGitStatusHealth(featureId));
   const queryKey = useMemo(() => getGetGitStatusQueryKey({ feature_id: featureId }), [featureId]);
@@ -107,21 +126,22 @@ function useGitStatusRetry(featureId: number): GitStatusRetry {
   const pending = subscribing || (!isConnected && isFetching);
   return useMemo(() => {
     const watch = health?.watcherError
-      ? { label: "Git live updates unavailable", detail: health.watcherError }
-      : undefined;
-    const issue = health?.statusError
       ? {
-          label:
-            health.statusErrorCode === WORKTREE_UNAVAILABLE
-              ? "Worktree unavailable"
-              : "Git status unavailable",
-          detail: watch
-            ? `${health.statusError}\n${watch.label}. ${watch.detail}`
-            : health.statusError,
+          label: t("workspace.git.status.liveUpdatesUnavailable", "Git live updates unavailable"),
+          detail: health.watcherError,
         }
-      : watch;
-    return { run, pending, issue };
-  }, [health, pending, run]);
+      : undefined;
+    if (!health?.statusError) return { run, pending, issue: watch };
+    const unavailable = health.statusErrorCode === WORKTREE_UNAVAILABLE;
+    const label = unavailable
+      ? t("workspace.git.status.worktreeUnavailable", "Worktree unavailable")
+      : t("workspace.git.status.unavailable", "Git status unavailable");
+    const statusDetail = unavailable ? worktreeUnavailableMessage(t) : health.statusError;
+    const detail = watch
+      ? `${statusDetail}\n${t("workspace.git.status.issueWithDetail", "{{label}}. {{detail}}", watch)}`
+      : statusDetail;
+    return { run, pending, issue: { label, detail } };
+  }, [health, pending, run, t]);
 }
 
 /** Submitting ⇒ running; a failed run stays discoverable until dismissed. */
@@ -157,13 +177,12 @@ export const GitActionButton = memo(function GitActionButton({
     onOpenChange: handleDialogOpenChange,
   });
   const activities: GitActivities = useMemo(
-    () =>
-      worktreeError
-        ? { commit: null, push: null }
-        : {
-            commit: toActivity(commitSubmission.submitting, commitSubmission.outcome),
-            push: toActivity(pushSubmission.submitting, pushSubmission.outcome),
-          },
+    () => ({
+      commit: worktreeError
+        ? null
+        : toActivity(commitSubmission.submitting, commitSubmission.outcome),
+      push: worktreeError ? null : toActivity(pushSubmission.submitting, pushSubmission.outcome),
+    }),
     [
       commitSubmission.outcome,
       commitSubmission.submitting,
@@ -192,7 +211,10 @@ export const GitActionButton = memo(function GitActionButton({
       if (action === "stash") {
         const blockedReason = getStashMutationBlockedReason();
         if (blockedReason) {
-          toast.error("Cannot stash changes", { description: blockedReason });
+          toast.error(
+            translateUi("workspace.git.gitActionButton.cannotStashChanges", "Cannot stash changes"),
+            { description: blockedReason },
+          );
           return;
         }
       }

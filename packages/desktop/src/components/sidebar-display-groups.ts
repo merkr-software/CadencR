@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import type { SidebarOptionId } from "@/lib/sidebar-config";
 import { CHOICE_ROWS, SWITCH_ROWS } from "./sidebar-display-rows";
 
@@ -16,10 +17,18 @@ export interface DisplayGroup {
  * popover folds every group after the first.
  */
 export const DISPLAY_GROUPS: readonly DisplayGroup[] = [
-  { id: "essentials", label: "Essentials", items: ["density", "status", "time", "colorMode"] },
+  {
+    id: "essentials",
+    get label() {
+      return translateUi("sidebar.displayGroups.DISPLAYGROUPS.essentials.label", "Essentials");
+    },
+    items: ["density", "status", "time", "colorMode"],
+  },
   {
     id: "rows",
-    label: "Rows",
+    get label() {
+      return translateUi("sidebar.displayGroups.DISPLAYGROUPS.rows.label", "Rows");
+    },
     items: [
       "fontSize",
       "titleLines",
@@ -35,7 +44,9 @@ export const DISPLAY_GROUPS: readonly DisplayGroup[] = [
   },
   {
     id: "blocks",
-    label: "Blocks",
+    get label() {
+      return translateUi("sidebar.displayGroups.DISPLAYGROUPS.blocks.label", "Blocks");
+    },
     items: [
       "sectionOrder",
       "forMe",
@@ -50,7 +61,9 @@ export const DISPLAY_GROUPS: readonly DisplayGroup[] = [
   },
   {
     id: "organize",
-    label: "Organize",
+    get label() {
+      return translateUi("sidebar.displayGroups.DISPLAYGROUPS.organize.label", "Organize");
+    },
     items: [
       "lens",
       "conversationSort",
@@ -61,10 +74,21 @@ export const DISPLAY_GROUPS: readonly DisplayGroup[] = [
       "revealActive",
     ],
   },
-  { id: "attention", label: "Attention", items: ["gatePopover", "flashOnChange"] },
+  {
+    id: "attention",
+    get label() {
+      return translateUi("sidebar.displayGroups.DISPLAYGROUPS.attention.label", "Attention");
+    },
+    items: ["gatePopover", "flashOnChange"],
+  },
   {
     id: "collapsing",
-    label: "Collapsing & filter",
+    get label() {
+      return translateUi(
+        "sidebar.displayGroups.DISPLAYGROUPS.collapsing.label",
+        "Collapsing & filter",
+      );
+    },
     items: ["rail", "autoCollapse", "typeToFilter"],
   },
 ];

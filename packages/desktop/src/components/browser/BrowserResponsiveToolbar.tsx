@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -8,7 +9,7 @@ import {
   type ReactElement,
   type SetStateAction,
 } from "react";
-import { HandIcon, Loader2Icon, RotateCwIcon, XIcon } from "lucide-react";
+import { RotateCwIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,8 @@ import {
   isValidBrowserResponsiveState,
   toBrowserResponsiveRequest,
 } from "@/shared/browser-responsive";
+
+import { ResponsiveApplyActions, ResponsiveTouchToggle } from "./BrowserResponsiveActions";
 
 interface BrowserResponsiveToolbarProps {
   tab: BrowserTabMetadata;
@@ -78,6 +81,7 @@ export const BrowserResponsiveToolbar = memo(function BrowserResponsiveToolbar({
   onApply,
   onOverlayOpenChange,
 }: BrowserResponsiveToolbarProps): ReactElement {
+  const { t } = useUiTranslation();
   const responsive = tab.responsive;
   const [draft, setDraft] = useResponsiveDraft(tab);
   const [presetOpen, setPresetOpen] = useState(false);
@@ -86,7 +90,13 @@ export const BrowserResponsiveToolbar = memo(function BrowserResponsiveToolbar({
     onOverlayOpenChange(presetOpen || colorSchemeOpen);
     return () => onOverlayOpenChange(false);
   }, [colorSchemeOpen, onOverlayOpenChange, presetOpen]);
-  const validationError = useMemo(() => validateDraft(draft), [draft]);
+  const validDraft = useMemo(() => isValidBrowserResponsiveState(draft), [draft]);
+  const validationError = validDraft
+    ? null
+    : t(
+        "workspace.tools.browserResponsiveToolbar.invalidDraft",
+        "Use 240–2560 px, DPR 1–3, and at most 4 MP.",
+      );
   const updateNumber = useCallback(
     (field: "width" | "height" | "deviceScaleFactor", value: string): void => {
       setDraft((current) => ({ ...current, preset: "custom", [field]: Number(value) }));
@@ -114,17 +124,11 @@ export const BrowserResponsiveToolbar = memo(function BrowserResponsiveToolbar({
         rotate={rotate}
         onPresetOpenChange={setPresetOpen}
       />
-      <Button
-        type="button"
-        variant={draft.touch ? "secondary" : "ghost"}
-        size="sm"
-        disabled={pending}
-        aria-label="Emulate touch input"
-        aria-pressed={draft.touch}
-        onClick={() => setDraft((current) => ({ ...current, touch: !current.touch }))}
-      >
-        <HandIcon className="size-3.5" /> Touch
-      </Button>
+      <ResponsiveTouchToggle
+        enabled={draft.touch}
+        pending={pending}
+        onToggle={() => setDraft((current) => ({ ...current, touch: !current.touch }))}
+      />
       <ColorSchemeSelect
         value={draft.colorScheme}
         disabled={pending}
@@ -135,33 +139,20 @@ export const BrowserResponsiveToolbar = memo(function BrowserResponsiveToolbar({
         <ResponsiveModeSummary enabled={responsive.enabled} displayScale={displayScale} />
         <span className="min-w-0 flex-1 truncate text-[10px] text-destructive" role="status">
           {responsive.status === "error"
-            ? "Chromium overrides could not be fully cleared. Apply or exit to retry."
+            ? t(
+                "workspace.tools.browserResponsiveToolbar.chromiumOverridesCouldNotBeFullyCleared",
+                "Chromium overrides could not be fully cleared. Apply or exit to retry.",
+              )
             : validationError}
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          type="button"
-          size="sm"
-          disabled={pending || validationError !== null}
-          onClick={() => void onApply({ ...draft, enabled: true })}
-        >
-          {pending ? <Loader2Icon className="animate-spin" /> : null} Apply
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          disabled={pending}
-          aria-label="Exit responsive mode"
-          title="Exit responsive mode"
-          onClick={() =>
-            void onApply({ ...toBrowserResponsiveRequest(responsive), enabled: false })
-          }
-        >
-          <XIcon className="size-4" />
-        </Button>
-      </div>
+      <ResponsiveApplyActions
+        draft={draft}
+        responsive={responsive}
+        invalid={!validDraft}
+        pending={pending}
+        onApply={onApply}
+      />
     </div>
   );
 });
@@ -199,6 +190,7 @@ function BrowserResponsiveViewportControls(props: {
   rotate: () => void;
   onPresetOpenChange: (open: boolean) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <Select
@@ -207,19 +199,34 @@ function BrowserResponsiveViewportControls(props: {
         onOpenChange={props.onPresetOpenChange}
         onValueChange={(value) => props.choosePreset(value as BrowserResponsivePreset)}
       >
-        <SelectTrigger size="sm" className="w-28" aria-label="Responsive device preset">
+        <SelectTrigger
+          size="sm"
+          className="w-28"
+          aria-label={t(
+            "workspace.tools.browserResponsiveToolbar.responsiveDevicePreset",
+            "Responsive device preset",
+          )}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="desktop">Desktop</SelectItem>
-          <SelectItem value="tablet">Tablet</SelectItem>
-          <SelectItem value="mobile">Mobile</SelectItem>
-          <SelectItem value="custom">Custom</SelectItem>
+          <SelectItem value="desktop">
+            {t("workspace.tools.browserResponsiveToolbar.desktop", "Desktop")}
+          </SelectItem>
+          <SelectItem value="tablet">
+            {t("workspace.tools.browserResponsiveToolbar.tablet", "Tablet")}
+          </SelectItem>
+          <SelectItem value="mobile">
+            {t("workspace.tools.browserResponsiveToolbar.mobile", "Mobile")}
+          </SelectItem>
+          <SelectItem value="custom">
+            {t("workspace.tools.browserResponsiveToolbar.custom", "Custom")}
+          </SelectItem>
         </SelectContent>
       </Select>
       <DimensionInput
-        label="Viewport width"
-        shortLabel="W"
+        label={t("workspace.tools.browserResponsiveToolbar.viewportWidth", "Viewport width")}
+        shortLabel={t("workspace.tools.browserResponsiveToolbar.widthShort", "W")}
         value={props.draft.width}
         invalid={props.invalid}
         disabled={props.pending}
@@ -229,8 +236,8 @@ function BrowserResponsiveViewportControls(props: {
         ×
       </span>
       <DimensionInput
-        label="Viewport height"
-        shortLabel="H"
+        label={t("workspace.tools.browserResponsiveToolbar.viewportHeight", "Viewport height")}
+        shortLabel={t("workspace.tools.browserResponsiveToolbar.heightShort", "H")}
         value={props.draft.height}
         invalid={props.invalid}
         disabled={props.pending}
@@ -242,13 +249,16 @@ function BrowserResponsiveViewportControls(props: {
         size="icon-sm"
         disabled={props.pending}
         onClick={props.rotate}
-        aria-label="Rotate responsive viewport"
-        title="Rotate viewport"
+        aria-label={t(
+          "workspace.tools.browserResponsiveToolbar.rotateResponsiveViewport",
+          "Rotate responsive viewport",
+        )}
+        title={t("workspace.tools.browserResponsiveToolbar.rotateViewport", "Rotate viewport")}
       >
         <RotateCwIcon className="size-4" />
       </Button>
       <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-        DPR
+        {t("workspace.tools.browserResponsiveToolbar.dpr", "DPR")}
         <Input
           type="number"
           min={1}
@@ -256,7 +266,10 @@ function BrowserResponsiveViewportControls(props: {
           step={0.25}
           value={props.draft.deviceScaleFactor}
           disabled={props.pending}
-          aria-label="Device pixel ratio"
+          aria-label={t(
+            "workspace.tools.browserResponsiveToolbar.devicePixelRatio",
+            "Device pixel ratio",
+          )}
           aria-invalid={props.invalid}
           className="h-8 w-16 px-2 font-mono text-xs"
           onChange={(event) => props.updateNumber("deviceScaleFactor", event.target.value)}
@@ -299,6 +312,7 @@ function ColorSchemeSelect(props: {
   onOpenChange: (open: boolean) => void;
   onChange: (value: BrowserResponsiveColorScheme) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Select
       value={props.value}
@@ -306,13 +320,26 @@ function ColorSchemeSelect(props: {
       onOpenChange={props.onOpenChange}
       onValueChange={(value) => props.onChange(value as BrowserResponsiveColorScheme)}
     >
-      <SelectTrigger size="sm" className="w-24" aria-label="Emulated color scheme">
+      <SelectTrigger
+        size="sm"
+        className="w-24"
+        aria-label={t(
+          "workspace.tools.browserResponsiveToolbar.emulatedColorScheme",
+          "Emulated color scheme",
+        )}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="system">System</SelectItem>
-        <SelectItem value="light">Light</SelectItem>
-        <SelectItem value="dark">Dark</SelectItem>
+        <SelectItem value="system">
+          {t("workspace.tools.browserResponsiveToolbar.system", "System")}
+        </SelectItem>
+        <SelectItem value="light">
+          {t("workspace.tools.browserResponsiveToolbar.light", "Light")}
+        </SelectItem>
+        <SelectItem value="dark">
+          {t("workspace.tools.browserResponsiveToolbar.dark", "Dark")}
+        </SelectItem>
       </SelectContent>
     </Select>
   );
@@ -325,22 +352,27 @@ function ResponsiveModeSummary({
   enabled: boolean;
   displayScale: number | null;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const fit = enabled
     ? displayScale === null
-      ? "Fit …"
-      : `Fit ${Math.round(displayScale * 100)}%`
-    : "Fit off";
+      ? t("workspace.tools.browserResponsiveToolbar.fit", "Fit …")
+      : t("workspace.tools.browserResponsiveToolbar.fitPercent", "Fit {{percent}}%", {
+          percent: Math.round(displayScale * 100),
+        })
+    : t("workspace.tools.browserResponsiveToolbar.fitOff", "Fit off");
   return (
     <span
       className="min-w-0 truncate whitespace-nowrap text-[10px] text-muted-foreground"
-      title="Chromium viewport emulation; this does not emulate Safari or change the mobile user agent."
+      title={t(
+        "workspace.tools.browserResponsiveToolbar.chromiumViewportEmulationThisDoesNotEmulate",
+        "Chromium viewport emulation; this does not emulate Safari or change the mobile user agent.",
+      )}
     >
-      {fit} · Chromium · mobile UA unchanged
+      {fit}{" "}
+      {t(
+        "workspace.tools.browserResponsiveToolbar.chromiumMobileUaUnchanged",
+        "· Chromium · mobile UA unchanged",
+      )}
     </span>
   );
-}
-
-function validateDraft(draft: BrowserResponsiveRequest): string | null {
-  if (isValidBrowserResponsiveState(draft)) return null;
-  return "Use 240–2560 px, DPR 1–3, and at most 4 MP.";
 }

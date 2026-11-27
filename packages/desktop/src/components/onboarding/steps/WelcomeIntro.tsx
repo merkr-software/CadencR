@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -34,6 +35,7 @@ const FADE_OUT_MS = 600;
 const INTRO_DOTS = ringDots();
 
 export function WelcomeIntro({ onComplete }: { onComplete: () => void }) {
+  const { t } = useUiTranslation();
   const [isFading, setIsFading] = useState(false);
   const { setValue: setIntroShown } = useSettingWriter(ONBOARDING_INTRO_SHOWN_SETTING_KEY);
   const dismissedRef = useRef(false);
@@ -107,16 +109,20 @@ export function WelcomeIntro({ onComplete }: { onComplete: () => void }) {
 
       <div className="welcome-intro__wordmark">Cadencr</div>
       <div className="welcome-intro__accent" />
-      <div className="welcome-intro__tagline">Find your rhythm with every agent.</div>
+      <div className="welcome-intro__tagline">
+        {t("onboarding.intro.tagline", "Find your rhythm with every agent.")}
+      </div>
 
       <button type="button" className="welcome-intro__cta" onClick={onCtaClick}>
-        <span className="welcome-intro__cta-label">Let&apos;s find your cadence</span>
+        <span className="welcome-intro__cta-label">
+          {t("onboarding.intro.start", "Let's find your cadence")}
+        </span>
         <span className="welcome-intro__cta-arrow" aria-hidden>
           →
         </span>
       </button>
 
-      <div className="welcome-intro__hint">or press any key</div>
+      <div className="welcome-intro__hint">{t("onboarding.intro.hint", "or press any key")}</div>
     </div>
   );
 }

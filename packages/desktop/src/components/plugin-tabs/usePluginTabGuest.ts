@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import type { TabContext } from "@cadencr/tab-sdk/protocol";
@@ -9,14 +10,23 @@ import { PluginTabBroker } from "@/lib/plugin-tabs/broker";
 import type { PluginIdentity } from "@/lib/plugin-tabs/broker-runtime";
 import { registerLivePluginTab, reloadLivePluginTab } from "@/lib/plugin-tabs/live-instances";
 import { ensurePluginTabThemeSync } from "@/lib/plugin-tabs/theme-sync";
-import type { PluginTabEventType, PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
+import type {
+  PluginTabEventType,
+  PluginTabOwnShortcut,
+  PluginTabReloadFailure,
+} from "@/shared/plugin-tab-host";
+
+interface GuestBridgeFailure {
+  operation: "open" | "reload" | "reopen";
+  cause: unknown;
+}
 
 /** Where the guest view of a live instance stands. */
 export type GuestPhase =
   | { kind: "loading" }
   | { kind: "ready" }
   | { kind: "recycled" }
-  | { kind: "failed"; detail: string | null }
+  | { kind: "failed"; detail: string | GuestBridgeFailure | PluginTabReloadFailure | null }
   | { kind: "crashed"; detail: string | null };
 
 const LOADING: GuestPhase = { kind: "loading" };
@@ -44,10 +54,16 @@ function phaseOf(
  * stacking a toast per frame.
  */
 function reportBridgeError(error: unknown, what: string): void {
-  toast.error(`Custom tab: ${what}`, {
-    id: "plugin-tab-bridge",
-    description: apiErrorMessage(error, "The desktop shell did not answer"),
-  });
+  toast.error(
+    translateUi("customTabs.guest.bridgeError", "Custom tab: {{detail}}", { detail: what }),
+    {
+      id: "plugin-tab-bridge",
+      description: apiErrorMessage(
+        error,
+        translateUi("customTabs.guest.shellError", "The desktop shell did not answer"),
+      ),
+    },
+  );
 }
 
 export interface PluginTabGuestOptions {
@@ -106,9 +122,14 @@ function startGuest({
     setPhase(phaseOf(event.type, event.detail));
   });
   const reloadGuest = (): void => {
-    void bridge.reload(instanceId).catch((error: unknown) => {
-      setPhase({ kind: "failed", detail: apiErrorMessage(error, "Reload failed") });
-    });
+    void bridge.reload(instanceId).then(
+      (failure) => {
+        if (failure) setPhase({ kind: "failed", detail: failure });
+      },
+      (error: unknown) => {
+        setPhase({ kind: "failed", detail: { operation: "reload", cause: error } });
+      },
+    );
   };
   const offLive = registerLivePluginTab(instanceId, {
     pluginId,
@@ -123,7 +144,7 @@ function startGuest({
     },
   });
   void bridge.open(instanceId, pluginId).catch((error: unknown) => {
-    setPhase({ kind: "failed", detail: apiErrorMessage(error, "The tab could not be opened") });
+    setPhase({ kind: "failed", detail: { operation: "open", cause: error } });
   });
   return () => {
     offLive();
@@ -132,7 +153,9 @@ function startGuest({
     broker.dispose();
     void bridge
       .close(instanceId)
-      .catch((error: unknown) => reportBridgeError(error, "close failed"));
+      .catch((error: unknown) =>
+        reportBridgeError(error, translateUi("customTabs.guest.closeError", "close failed")),
+      );
   };
 }
 
@@ -175,7 +198,12 @@ export function usePluginTabGuest(options: PluginTabGuestOptions): PluginTabGues
     if (!live) return;
     void desktopBridge.pluginTabs
       .setTabShortcuts(instanceId, shortcuts)
-      .catch((error: unknown) => reportBridgeError(error, "its shortcuts could not be set"));
+      .catch((error: unknown) =>
+        reportBridgeError(
+          error,
+          translateUi("customTabs.guest.shortcutsError", "its shortcuts could not be set"),
+        ),
+      );
   }, [instanceId, live, shortcuts]);
 
   // Over the live-guest cap a hidden guest is destroyed; showing it again
@@ -185,7 +213,7 @@ export function usePluginTabGuest(options: PluginTabGuestOptions): PluginTabGues
     if (!live || !visible || !recycled) return;
     setPhase(LOADING);
     void desktopBridge.pluginTabs.open(instanceId, pluginId).catch((error: unknown) => {
-      setPhase({ kind: "failed", detail: apiErrorMessage(error, "The tab could not be reopened") });
+      setPhase({ kind: "failed", detail: { operation: "reopen", cause: error } });
     });
   }, [instanceId, live, pluginId, recycled, visible]);
 
@@ -198,7 +226,9 @@ export function usePluginTabGuest(options: PluginTabGuestOptions): PluginTabGues
       onBounds: (bounds) => {
         void desktopBridge.pluginTabs
           .setBounds(instanceId, bounds)
-          .catch((error: unknown) => reportBridgeError(error, "layout failed"));
+          .catch((error: unknown) =>
+            reportBridgeError(error, translateUi("customTabs.guest.layoutError", "layout failed")),
+          );
       },
     });
     tracker.attach(placeholder);
@@ -210,7 +240,12 @@ export function usePluginTabGuest(options: PluginTabGuestOptions): PluginTabGues
     if (!live) return;
     void desktopBridge.pluginTabs
       .setVisible(instanceId, shown)
-      .catch((error: unknown) => reportBridgeError(error, "show/hide failed"));
+      .catch((error: unknown) =>
+        reportBridgeError(
+          error,
+          translateUi("customTabs.guest.visibilityError", "show/hide failed"),
+        ),
+      );
   }, [instanceId, live, shown]);
 
   useEffect(() => {

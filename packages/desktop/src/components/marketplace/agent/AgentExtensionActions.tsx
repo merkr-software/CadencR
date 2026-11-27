@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -44,30 +45,59 @@ export function actionKey(action: AgentExtensionAction): string {
   }
 }
 
-async function execute(action: AgentExtensionAction): Promise<string> {
+async function execute(action: AgentExtensionAction): Promise<() => string> {
   switch (action.kind) {
     case "mcp-install":
       await installMcpServer(action.request);
-      return `${action.label} added to ${action.cliLabel}.`;
+      return () =>
+        translateUi("marketplace.agent.actions.mcpAdded", "{{name}} added to {{cli}}.", {
+          name: action.label,
+          cli: action.cliLabel,
+        });
     case "mcp-remove":
       await removeMcpServer({ provider_id: action.providerId, server_name: action.serverName });
-      return `${action.label} removed from ${action.cliLabel}.`;
+      return () =>
+        translateUi(
+          "marketplace.agent.actions.extensionRemoved",
+          "{{name}} removed from {{cli}}.",
+          { name: action.label, cli: action.cliLabel },
+        );
     case "mcp-update": {
       const { version } = await updateMcpServer({
         provider_id: action.providerId,
         server_name: action.serverName,
       });
-      return `${action.label} updated to ${version} in ${action.cliLabel}.`;
+      return () =>
+        translateUi(
+          "marketplace.agent.actions.mcpUpdated",
+          "{{name}} updated to {{version}} in {{cli}}.",
+          { name: action.label, cli: action.cliLabel, version },
+        );
     }
     case "skill-install":
       await installSkill({ provider_id: action.providerId, plugin_id: action.pluginId });
-      return `${action.label} installed in ${action.cliLabel}. New sessions load it.`;
+      return () =>
+        translateUi(
+          "marketplace.agent.actions.skillInstalled",
+          "{{name}} installed in {{cli}}. New sessions load it.",
+          { name: action.label, cli: action.cliLabel },
+        );
     case "skill-remove":
       await removeSkill({ provider_id: action.providerId, plugin_id: action.pluginId });
-      return `${action.label} removed from ${action.cliLabel}.`;
+      return () =>
+        translateUi(
+          "marketplace.agent.actions.extensionRemoved",
+          "{{name}} removed from {{cli}}.",
+          { name: action.label, cli: action.cliLabel },
+        );
     case "skill-update":
       await updateSkill({ provider_id: action.providerId, plugin_id: action.pluginId });
-      return `${action.label} is up to date in ${action.cliLabel}. New sessions load it.`;
+      return () =>
+        translateUi(
+          "marketplace.agent.actions.skillUpdated",
+          "{{name}} is up to date in {{cli}}. New sessions load it.",
+          { name: action.label, cli: action.cliLabel },
+        );
   }
 }
 
@@ -108,10 +138,17 @@ export function AgentExtensionActionsProvider({
       try {
         const message = await execute(action);
         if (reload) await invalidateByUrlPrefix(client, inventoryUrls([action]));
-        toast.success(message);
+        toast.success(message());
         return true;
       } catch (error) {
-        toastError(error, `${action.label}: ${action.cliLabel} did not confirm the change.`);
+        toastError(
+          error,
+          translateUi(
+            "marketplace.agent.actions.changeNotConfirmed",
+            "{{name}}: {{cli}} did not confirm the change.",
+            { name: action.label, cli: action.cliLabel },
+          ),
+        );
         // A failed CLI run may still have changed something: re-read it.
         if (reload) await invalidateByUrlPrefix(client, inventoryUrls([action]));
         return false;

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { getFileNameLower } from "@/lib/file-language";
 import {
   detectEditorLanguageId,
@@ -45,10 +46,21 @@ export function parseEditorLanguageOverrides(raw: string | null): EditorLanguage
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    throw new Error("Language overrides are not valid JSON", { cause: error });
+    throw new Error(
+      translateUi(
+        "workspace.editor.languageOverrides.invalidJson",
+        "Language overrides are not valid JSON",
+      ),
+      { cause: error },
+    );
   }
   if (!isRecord(value) || value.version !== 1) {
-    throw new Error("Language overrides use an unsupported format");
+    throw new Error(
+      translateUi(
+        "workspace.editor.languageOverrides.unsupportedFormat",
+        "Language overrides use an unsupported format",
+      ),
+    );
   }
 
   return {
@@ -117,11 +129,23 @@ export function updateEditorLanguageOverrides(
 }
 
 function parseFiles(value: unknown): Record<string, EditorLanguageId> {
-  if (!isRecord(value)) throw new Error("Language override files must be an object");
+  if (!isRecord(value))
+    throw new Error(
+      translateUi(
+        "workspace.editor.languageOverrides.invalidFiles",
+        "Language override files must be an object",
+      ),
+    );
   const files: Record<string, EditorLanguageId> = {};
   for (const [filePath, preference] of Object.entries(value)) {
     if (!isEditorLanguageId(preference)) {
-      throw new Error(`Invalid language override for ${filePath}`);
+      throw new Error(
+        translateUi(
+          "workspace.editor.languageOverrides.invalidFile",
+          "Invalid language override for {{path}}",
+          { path: filePath },
+        ),
+      );
     }
     setOwn(files, filePath, preference);
   }
@@ -129,11 +153,23 @@ function parseFiles(value: unknown): Record<string, EditorLanguageId> {
 }
 
 function parseExtensions(value: unknown): Record<string, EditorLanguageId> {
-  if (!isRecord(value)) throw new Error("Language override extensions must be an object");
+  if (!isRecord(value))
+    throw new Error(
+      translateUi(
+        "workspace.editor.languageOverrides.invalidExtensions",
+        "Language override extensions must be an object",
+      ),
+    );
   const extensions: Record<string, EditorLanguageId> = {};
   for (const [extension, languageId] of Object.entries(value)) {
     if (!isEditorLanguageId(languageId)) {
-      throw new Error(`Invalid language override for *.${extension}`);
+      throw new Error(
+        translateUi(
+          "workspace.editor.languageOverrides.invalidExtension",
+          "Invalid language override for *.{{extension}}",
+          { extension },
+        ),
+      );
     }
     setOwn(extensions, extension.toLowerCase(), languageId);
   }

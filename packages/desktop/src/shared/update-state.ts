@@ -20,6 +20,9 @@ export type UpdateStatus =
    */
   | "unsupported";
 
+const unsupportedReasonSchema = z.enum(["unsupported-install", "dev-build"]);
+type UnsupportedUpdateReason = z.infer<typeof unsupportedReasonSchema>;
+
 export interface UpdateSnapshot {
   /** Grows with every change, so a reader can drop a snapshot older than the one it holds. */
   revision: number;
@@ -32,7 +35,9 @@ export interface UpdateSnapshot {
   /** Download percent, 0–100. */
   progress: number;
   error: string | null;
-  /** Human-readable explanation when `status === "unsupported"`. */
+  /** Stable reason for resolving an unsupported install in the current UI language. */
+  unsupportedReason: UnsupportedUpdateReason | null;
+  /** Optional opaque detail from a development snapshot. */
   unsupportedMessage: string | null;
   /**
    * The user asked to install the downloaded update once no agent is
@@ -61,8 +66,8 @@ export const updateEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("downloaded"), version: z.string() }),
   z.object({
     kind: z.literal("unsupported"),
-    reason: z.literal("unsupported-install"),
-    message: z.string(),
+    reason: unsupportedReasonSchema,
+    message: z.string().optional(),
   }),
   /** The user set or cleared the wish to install once agents finish. */
   z.object({ kind: z.literal("install-when-agents-finish"), pending: z.boolean() }),
@@ -77,6 +82,7 @@ export const INITIAL_UPDATE_SNAPSHOT: UpdateSnapshot = {
   changelogLoading: false,
   progress: 0,
   error: null,
+  unsupportedReason: null,
   unsupportedMessage: null,
   installWhenAgentsFinish: false,
 };
@@ -111,7 +117,12 @@ function eventFields(prev: UpdateSnapshot, event: UpdateEvent): Partial<UpdateFi
     case "error":
       return { status: "error", error: event.message };
     case "unsupported":
-      return { status: "unsupported", unsupportedMessage: event.message, error: null };
+      return {
+        status: "unsupported",
+        unsupportedReason: event.reason,
+        unsupportedMessage: event.message ?? null,
+        error: null,
+      };
     case "install-when-agents-finish":
       // Only a downloaded update can wait to be installed; clearing always applies.
       return event.pending && prev.status !== "downloaded"

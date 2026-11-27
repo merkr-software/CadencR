@@ -14,6 +14,7 @@
 @source "../../../node_modules/streamdown/dist";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/figtree";
+@import "@fontsource-variable/noto-sans-jp";
 @import "./theme.css";
 @import "./theme-cadencr.css";
 @import "./theme-chrome.css";
@@ -39,7 +40,7 @@
 @theme inline {
   --font-sans:
     "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+    Roboto, "Helvetica Neue", Arial, "Noto Sans JP Variable", sans-serif;
   /* Brand wordmark face (the "CADENCR" logotype). See DESIGN.md › Typography ›
    * families.brand. Used at weight 800. */
   --font-brand: "Figtree Variable", var(--font-sans);
@@ -94,7 +95,7 @@
 @theme {
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
+    monospace, "Noto Sans JP Variable";
 }
 
 :root {

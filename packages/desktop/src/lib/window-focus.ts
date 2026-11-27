@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { toastError } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 
@@ -30,7 +31,10 @@ function track(): void {
       if (windowFocused === null) set(focused);
     })
     .catch((error: unknown) =>
-      toastError(error, "Could not tell whether Cadencr's window has focus"),
+      toastError(
+        error,
+        translateUi("shell.window.focusError", "Could not tell whether Cadencr's window has focus"),
+      ),
     );
 }
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import {
   applyManagedTheme,
   catalog,
@@ -291,6 +292,11 @@ function graphiteEntry(version: string) {
 
 const inMarketplace = (ui: ReactNode) => render(<MarketplaceProvider>{ui}</MarketplaceProvider>);
 
+afterEach(async () => {
+  await act(() => uiI18n.changeLanguage("en"));
+  uiI18n.removeResourceBundle("fr", "ui");
+});
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(getManagedTabCatalog).mockResolvedValue({
@@ -310,6 +316,38 @@ beforeEach(() => {
 });
 
 describe("plugin detail", () => {
+  it("translates the selected version and retained activity without resetting the page", async () => {
+    uiI18n.addResourceBundle("fr", "ui", {
+      marketplace: {
+        activity: { providerSaved: "{{id}} : modifications enregistrées." },
+        pluginInstallPanel: {
+          exactVersion: "Version exacte",
+          updateVersion: "Mettre à jour vers la version {{version}}",
+        },
+      },
+    });
+    stubBackend([{ ...pi, version: "1.0.0" }]);
+    vi.mocked(update).mockResolvedValue({ ...pi, version: "2.0.0" });
+    const { user } = inMarketplace(<PluginDetail kind="provider" id="pi" />);
+    await user.click(await screen.findByRole("button", { name: "Update to 2.0.0" }));
+    const notice = await screen.findByText("pi: changes saved.");
+    await user.click(screen.getByRole("button", { name: /^3\.0\.0 Cadencr/ }));
+    const versionSelect = screen.getByRole("combobox", { name: "Exact version" });
+    expect(versionSelect).toHaveTextContent("3.0.0");
+
+    await act(() => uiI18n.changeLanguage("fr"));
+
+    expect(screen.getByRole("combobox", { name: "Version exacte" })).toBe(versionSelect);
+    expect(versionSelect).toHaveTextContent("3.0.0");
+    expect(
+      screen.getByRole("button", { name: "Mettre à jour vers la version 3.0.0" }),
+    ).toBeEnabled();
+    expect(screen.getByText("pi : modifications enregistrées.")).toBeVisible();
+    expect(notice).toHaveTextContent("pi : modifications enregistrées.");
+    expect(screen.getByText("An ACP agent")).toBeVisible();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
   it("never offers a downgrade of a newer installed revision and installs nothing until chosen", async () => {
     stubBackend([pi], "2.0.0");
     inMarketplace(<PluginDetail kind="provider" id="pi" />);
@@ -411,6 +449,33 @@ describe("plugin detail", () => {
 });
 
 describe("marketplace home", () => {
+  it("reapplies a mounted search when localized kind names change", async () => {
+    uiI18n.addResourceBundle("fr", "ui", {
+      marketplace: {
+        kinds: { theme: { label: "Thème", plural: "Thèmes" } },
+        marketplaceHome: { searchTheMarketplace: "Rechercher sur la Marketplace" },
+      },
+    });
+    stubBackend([]);
+    const onChange = vi.fn();
+    inMarketplace(
+      <MarketplaceHome view="discover" kind="theme" query="thème" onChange={onChange} />,
+    );
+    expect(await screen.findByText("Nothing matches")).toBeVisible();
+    const search = screen.getByRole("textbox", { name: "Search the marketplace" });
+    const filter = screen.getByRole("button", { name: "Themes 0" });
+    expect(filter).toHaveAttribute("aria-pressed", "true");
+
+    await act(() => uiI18n.changeLanguage("fr"));
+
+    expect(screen.getByRole("textbox", { name: "Rechercher sur la Marketplace" })).toBe(search);
+    expect(search).toHaveValue("thème");
+    expect(screen.getByRole("button", { name: "Thèmes 1" })).toBe(filter);
+    expect(filter).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: /Graphite.*Cool charcoal/ })).toBeVisible();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it.each(["installed", "updates"] as const)(
     "does not mistake filtered %s for an empty library",
     async (view) => {
@@ -1115,7 +1180,7 @@ describe("platform filtering in the marketplace", () => {
     inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
     expect((await screen.findAllByText("Macagent")).length).toBeGreaterThan(0);
     expect(screen.queryByText("Linuxagent")).toBeNull();
-    expect(screen.getByText(/^\d+ plugins/).textContent).toMatch(/^2 plugins/);
+    expect(screen.getByText(/^\d+ plugins?/).textContent).toMatch(/^2 plugins/);
   });
 
   it("lists the Linux provider and hides the macOS-only one for a Linux host", async () => {
@@ -1128,7 +1193,7 @@ describe("platform filtering in the marketplace", () => {
   it("hides every provider when the host platform has no registry name", async () => {
     stubPlatformCatalog(null);
     inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
-    await screen.findByText(/^\d+ plugins/);
+    await screen.findByText(/^\d+ plugins?/);
     expect(screen.queryByText("Macagent")).toBeNull();
     expect(screen.queryByText("Linuxagent")).toBeNull();
   });

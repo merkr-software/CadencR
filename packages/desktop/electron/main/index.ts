@@ -1,10 +1,11 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import path from "node:path";
 import { installMainTelemetry } from "./main-telemetry";
-import { closeAllWindowsForQuit } from "./window-shutdown";
+import { closeAllWindowsForQuit, reportShutdownFailure } from "./window-shutdown";
 import { app, BrowserWindow, dialog, protocol } from "electron";
 import { loadDevEnv } from "./env";
 import { clearRegisteredFilePaths, registerIpc, registerThemeEvents } from "./ipc";
-import { installApplicationMenu } from "./menu";
+import { startApplicationMenu } from "./menu";
 import { registerPower, shutdownPower } from "./power";
 import { refreshBrowserOriginPolicy, setRuntimeConfig } from "./runtime-config";
 import { installServiceTransport } from "./service-transport";
@@ -16,7 +17,7 @@ import {
   type SidecarHandle,
   type SidecarStatusUpdate,
 } from "./sidecar";
-import { createSplashWindow, type SplashHandle } from "./splash";
+import { createSplashWindow, initializeStartupLanguage, type SplashHandle } from "./splash";
 import { installContextMenu } from "./context-menu";
 import { resolveDevProfile, type DevProfile } from "./dev-user-data";
 import { sendToWindow } from "./safe-send";
@@ -247,6 +248,8 @@ function wireMainProcess(): void {
 }
 
 async function bootstrap(): Promise<void> {
+  await initializeStartupLanguage();
+  if (voluntaryQuit.inProgress || shutdownReady) return;
   if (!app.isPackaged) {
     // Already loaded at module scope (see the `userData` block below); this is
     // where a failure becomes reportable. Throwing at module scope would land
@@ -261,7 +264,7 @@ async function bootstrap(): Promise<void> {
     () => mainWindow,
   );
   if (voluntaryQuit.inProgress || shutdownReady) return;
-  installApplicationMenu(requestQuit);
+  startApplicationMenu(requestQuit);
   splash = createSplashWindow(app.getVersion());
   splash.setPhase("starting");
   // Cmd+W (or any user-driven close on the splash) means "I want out" — the
@@ -360,7 +363,7 @@ app.on("before-quit", (event) => {
 
 async function prepareForUpdateInstall(): Promise<void> {
   if (voluntaryQuit.inProgress || preparingUpdate) {
-    throw new Error("Cadencr is already preparing to close.");
+    throw new Error(t("system.shutdown.alreadyClosing", "Cadencr is already preparing to close."));
   }
   preparingUpdate = true;
   try {
@@ -375,7 +378,12 @@ async function prepareForUpdateInstall(): Promise<void> {
 async function quitVoluntarily(): Promise<void> {
   await waitForStartupBeforeQuit(runtimeStarting);
   if (serviceSupervisor.status().state === "restarting") {
-    throw new Error("Cadencr is restarting its service. Try quitting again when it is ready.");
+    throw new Error(
+      t(
+        "system.shutdown.serviceRestarting",
+        "Cadencr is restarting its service. Try quitting again when it is ready.",
+      ),
+    );
   }
   await voluntaryQuit.prepare({
     service: app.isPackaged ? packagedService : sidecar,
@@ -406,9 +414,7 @@ async function finishExit(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Could not complete shutdown safely: ${message}`);
-  dialog.showErrorBox("Could not close Cadencr", message);
+  reportShutdownFailure(error);
 }
 
 async function stopBrowserBridge(): Promise<void> {

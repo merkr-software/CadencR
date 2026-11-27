@@ -1,7 +1,8 @@
 import { createRef, type ReactNode } from "react";
 import type { GroupProps, PanelImperativeHandle, PanelProps } from "react-resizable-panels";
-import { render, act, cleanup } from "@testing-library/react";
+import { render, act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
 
 /**
  * These tests guard the controlled collapsibility contract for the global
@@ -40,7 +41,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 vi.mock("@/components/Sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar-content" />,
+  Sidebar: () => <button data-testid="sidebar-content">Drawer content</button>,
 }));
 
 vi.mock("@/components/SidebarRail", () => ({
@@ -50,19 +51,15 @@ vi.mock("@/components/SidebarAttentionProvider", () => ({
   SidebarAttentionProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
-vi.mock("@/components/MobileDrawer", () => ({
-  MobileDrawer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
-
 import { AppShell } from "./AppShell";
 import { isResizing, popResize, pushResize } from "@/lib/resize-coordinator";
 
-function renderShell(collapsed: boolean) {
+function renderShell(collapsed: boolean, isMobile = false, setCollapsed = () => {}) {
   return render(
     <AppShell
-      isMobile={false}
+      isMobile={isMobile}
       collapsed={collapsed}
-      setCollapsed={() => {}}
+      setCollapsed={setCollapsed}
       onSearch={() => {}}
       sidebarPanelRef={createRef<PanelImperativeHandle | null>()}
       leftSidebarRef={createRef<HTMLDivElement | null>()}
@@ -73,6 +70,31 @@ function renderShell(collapsed: boolean) {
     </AppShell>,
   );
 }
+
+it("localizes the mounted mobile drawer without closing it or moving focus", async () => {
+  const setCollapsed = vi.fn();
+  uiI18n.addResourceBundle("fr", "ui", { shell: { navigation: { closeMenu: "Fermer le menu" } } });
+
+  try {
+    renderShell(false, true, setCollapsed);
+    const backdrop = screen.getByRole("button", { name: "Close menu" });
+    const drawerContent = screen.getByTestId("sidebar-content");
+    drawerContent.focus();
+
+    await act(() => uiI18n.changeLanguage("fr"));
+    expect(screen.getByRole("button", { name: "Fermer le menu" })).toBe(backdrop);
+    expect(drawerContent).toHaveFocus();
+    expect(setCollapsed).not.toHaveBeenCalled();
+
+    await act(() => uiI18n.changeLanguage("en"));
+    expect(screen.getByRole("button", { name: "Close menu" })).toBe(backdrop);
+    fireEvent.click(backdrop);
+    expect(setCollapsed).toHaveBeenCalledWith(true);
+  } finally {
+    await act(() => uiI18n.changeLanguage("en"));
+    uiI18n.removeResourceBundle("fr", "ui");
+  }
+});
 
 function latestCollapsible(): boolean | undefined {
   return sidebarPanelProps.at(-1)?.collapsible;

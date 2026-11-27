@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
+import frFR from "@/lib/i18n/catalogs/fr-FR.json";
 import { openImageLightbox, useImageLightboxStore } from "@/stores/image-lightbox-store";
 import { ImageLightboxHost } from "./ImageLightbox";
 
@@ -30,6 +32,34 @@ describe("ImageLightboxHost", () => {
     expect(screen.getByAltText("Attached image b")).toHaveAttribute("src", "blob:b");
     expect(screen.getByText("100%")).toBeInTheDocument();
     expect(screen.getByText("2 of 2")).toBeInTheDocument();
+  });
+
+  it("updates fallback image names in the open viewer and preserves supplied alt text", async () => {
+    render(<ImageLightboxHost />);
+    act(() => openImageLightbox([{ ...image("a"), alt: "" }, image("b")]));
+
+    const dialog = screen.getByRole("dialog", { name: "image" });
+    expect(screen.getByRole("img", { name: "image" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show image" })).toBeVisible();
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      conversation: { stream: { markdownImage: { image: "illustration" } } },
+    });
+    try {
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(screen.getByRole("dialog", { name: "illustration" })).toBe(dialog);
+      expect(screen.getByRole("img", { name: "illustration" })).toBeInTheDocument();
+      const show = frFR.ui.conversation.stream.lightboxRail.show;
+      expect(
+        screen.getByRole("button", { name: show.replace("{{image}}", "illustration") }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole("button", { name: show.replace("{{image}}", "Attached image b") }),
+      ).toBeVisible();
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 
   it("steps between images with the arrow keys, wrapping at the ends", async () => {

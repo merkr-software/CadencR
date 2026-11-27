@@ -1,3 +1,6 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type CSSProperties } from "react";
 import type { NotchAgent } from "@/shared/notch";
 import { activityDots } from "./notch-activity-layout";
@@ -15,17 +18,43 @@ export const NotchActivityStrip = memo(function NotchActivityStrip({
   width: number;
   height: number;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
+  const locale = formattingLocale(i18n.language);
   const working = agents.filter((agent) => agent.status === "running").length;
   const waiting = agents.filter((agent) => agent.status === "question").length;
   const unread = agents.length - working - waiting;
   const { shown, extra, countWidth } = activityDots(agents, width);
+  const counts = {
+    working: formatExactNumber(working, locale),
+    waiting: formatExactNumber(waiting, locale),
+    unread: formatExactNumber(unread, locale),
+  };
+  const formattedCount = formatExactNumber(extra, locale);
+  const summary =
+    extra > 0
+      ? t("notch.activity.summaryWithOverflow", {
+          ...counts,
+          count: extra,
+          formattedCount,
+          defaultValue_zero:
+            "{{working}} working, {{waiting}} waiting, {{unread}} unread; {{formattedCount}} more sessions",
+          defaultValue_one:
+            "{{working}} working, {{waiting}} waiting, {{unread}} unread; {{formattedCount}} more session",
+          defaultValue_other:
+            "{{working}} working, {{waiting}} waiting, {{unread}} unread; {{formattedCount}} more sessions",
+        })
+      : t(
+          "notch.activity.summary",
+          "{{working}} working, {{waiting}} waiting, {{unread}} unread",
+          counts,
+        );
   return (
     <div
       className="activity-strip"
       data-still={still}
       style={{ "--count-size": `${Math.min(height, 6)}px` } as CSSProperties}
       role="img"
-      aria-label={`${working} working, ${waiting} waiting, ${unread} unread${extra > 0 ? `; ${extra} more sessions` : ""}`}
+      aria-label={summary}
     >
       <span className="activity-logo" data-state={aggregateOrbState(agents)} aria-hidden="true">
         {[0, 1, 2].map((index) => (
@@ -44,7 +73,7 @@ export const NotchActivityStrip = memo(function NotchActivityStrip({
         ))}
         {extra > 0 ? (
           <span className="activity-count" style={{ width: countWidth }}>
-            +{extra}
+            {t("notch.activity.overflow", "+{{formattedCount}}", { formattedCount })}
           </span>
         ) : null}
       </span>

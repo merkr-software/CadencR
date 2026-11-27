@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -126,7 +127,11 @@ function useRootFeatureActions(route: RootRouteIds) {
           featureKnown: true,
         });
       },
-      onError: (error) => toastError(error, "Failed to create conversation"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi("projects.conversation.createFailed", "Failed to create conversation"),
+        ),
       onSettled: () => {
         createSessionPendingRef.current = false;
       },
@@ -134,7 +139,8 @@ function useRootFeatureActions(route: RootRouteIds) {
   });
   const { mutate: deleteFeatureMutate } = useDeleteFeature({
     mutation: {
-      onError: () => toast.error("Failed to delete feature"),
+      onError: () =>
+        toast.error(translateUi("projects.conversation.deleteFailed", "Failed to delete feature")),
       onSuccess: (_data, variables) => {
         removeFeatureFromCachedLists(queryClient, variables.id);
         closeFeatureSession(variables.id);
@@ -257,7 +263,9 @@ function useRootShortcuts(
     event.preventDefault();
     if (route.activeProjectId == null || route.activeFeatureId == null) return;
     const toastId = `feature-archive-check-${route.activeFeatureId}`;
-    toast.loading("Checking conversation…", { id: toastId });
+    toast.loading(translateUi("projects.conversation.checking", "Checking conversation…"), {
+      id: toastId,
+    });
     try {
       const prepared = await prepareFeatureAction(
         queryClient,
@@ -269,7 +277,7 @@ function useRootShortcuts(
       features.setArchiveActiveFeatures(prepared.activeFeatures);
       features.setConfirmAction(prepared.confirmAction);
     } catch (error) {
-      toastError(error, "Failed to load features");
+      toastError(error, translateUi("projects.conversation.loadFailed", "Failed to load features"));
     } finally {
       toast.dismiss(toastId);
     }

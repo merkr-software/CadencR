@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -9,6 +10,7 @@ import { settleExternalOpen, usePluginTabRuntimeStore } from "@/lib/plugin-tabs/
  * The dialog suppresses native views while open, so the guest can't cover it.
  */
 export function PluginTabExternalOpenDialog({ instanceId }: { instanceId: string }): ReactNode {
+  const { t } = useUiTranslation();
   const request = usePluginTabRuntimeStore(
     (state) => state.externalOpens.find((entry) => entry.instanceId === instanceId) ?? null,
   );
@@ -20,9 +22,14 @@ export function PluginTabExternalOpenDialog({ instanceId }: { instanceId: string
       onOpenChange={(open) => {
         if (!open) settleExternalOpen(request.id, false);
       }}
-      title="Open link in your browser?"
-      description={`${request.pluginName} wants to open this page:`}
-      confirmText="Open link"
+      title={t(
+        "customTabs.pluginTabExternalOpenDialog.openLinkInYourBrowser",
+        "Open link in your browser?",
+      )}
+      description={t("customTabs.externalOpen.description", "{{name}} wants to open this page:", {
+        name: request.pluginName,
+      })}
+      confirmText={t("customTabs.externalOpen.confirm", "Open link")}
       onConfirm={() => settleExternalOpen(request.id, true)}
     >
       <p className="rounded-md border border-border bg-[var(--surface-sunken)] px-3 py-2 font-mono text-[12px] break-all text-foreground">

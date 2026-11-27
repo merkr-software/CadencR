@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 const INTENT_TIMEOUT_MS = 2_000;
 const LIVE_QUIT_TIMEOUT_MS = 45_000;
 
@@ -13,7 +14,10 @@ export async function waitForStartupBeforeQuit(startup: Promise<void> | null): P
           () =>
             reject(
               new Error(
-                "Cadencr is still starting its service. Try quitting again when it is ready.",
+                t(
+                  "system.shutdown.serviceStarting",
+                  "Cadencr is still starting its service. Try quitting again when it is ready.",
+                ),
               ),
             ),
           INTENT_TIMEOUT_MS,
@@ -72,7 +76,13 @@ export async function stopLiveWorkForQuit(
   authToken: string | null,
 ): Promise<void> {
   const failure = (detail: string): Error =>
-    new Error(`Cadencr could not confirm that your agents stopped: ${detail}`);
+    new Error(
+      t(
+        "system.shutdown.agentsUnconfirmed",
+        "Cadencr could not confirm that your agents stopped: {{detail}}",
+        { detail },
+      ),
+    );
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/api/restart-continuations/prepare-desktop-quit`, {
@@ -84,6 +94,9 @@ export async function stopLiveWorkForQuit(
     throw failure(error instanceof Error ? error.message : String(error));
   }
   if (!response.ok) {
+    const statusDetail = t("system.shutdown.responseStatus", "the service returned {{status}}", {
+      status: response.status,
+    });
     const detail = await response
       .json()
       .then((body: unknown) =>
@@ -92,9 +105,9 @@ export async function stopLiveWorkForQuit(
         "error" in body &&
         typeof body.error === "string"
           ? body.error
-          : `the service returned ${response.status}`,
+          : statusDetail,
       )
-      .catch(() => `the service returned ${response.status}`);
+      .catch(() => statusDetail);
     throw failure(detail);
   }
 }

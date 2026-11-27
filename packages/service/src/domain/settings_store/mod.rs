@@ -28,6 +28,7 @@ pub mod dir;
 pub mod ephemeral;
 pub mod file;
 pub mod generation;
+mod interface_language;
 pub mod lock;
 pub mod migrate;
 pub mod paths;
@@ -42,8 +43,8 @@ pub use dir::{global_dir, init};
 pub use paths::name_is_shared;
 pub use store::{
     global_get, global_get_nonempty, global_list, global_map, global_modify_object, global_read,
-    global_read_for_edit, global_read_object, global_set, global_set_many, global_snapshot,
-    global_write_content, project_get, project_list, project_map, project_path,
+    global_read_for_edit, global_read_object, global_set, global_set_if_current, global_set_many,
+    global_snapshot, global_write_content, project_get, project_list, project_map, project_path,
     project_read_for_edit, project_rename, project_set, project_set_many, project_write_content,
 };
 pub(crate) use store::{global_inspect_document, global_update_document};
@@ -52,9 +53,7 @@ use serde::Serialize;
 use tracing::{info, warn};
 use utoipa::ToSchema;
 
-/// One-time startup cleanups of the global settings file. Each step leaves a
-/// missing or corrupt file untouched; a failure is logged and never blocks
-/// startup.
+/// One-time startup adjustments of the global settings file.
 pub async fn tidy_global_at_startup() {
     // Per-device UI state (active tab, sidebar visibility, last-opened feature)
     // now lives in the frontend's localStorage.
@@ -68,6 +67,14 @@ pub async fn tidy_global_at_startup() {
         Ok(false) => {}
         Err(e) => warn!("failed to carry renamed settings keys: {e}"),
     }
+    if let Err(error) = interface_language_preference().await {
+        warn!("failed to initialize the interface language: {error}");
+    }
+}
+
+pub(crate) async fn interface_language_preference() -> Result<Option<String>, crate::error::AppError>
+{
+    interface_language::read(&paths::global_file(&dir::global_dir())).await
 }
 
 /// Which settings document a key/value lives in.

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type Ref } from "react";
 import { Loader2Icon, RefreshCwIcon } from "lucide-react";
 import type { Project } from "@/api/generated";
@@ -72,8 +73,16 @@ function RefreshButton({
   isFetching: boolean;
   onRefresh: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
-    <ShortcutTooltip label={isFetching ? "Reloading agents…" : "Reload agents"} alignRight>
+    <ShortcutTooltip
+      label={
+        isFetching
+          ? t("agents.unifiedAgentsFilters.reloadingAgents", "Reloading agents…")
+          : t("agents.unifiedAgentsFilters.reloadAgents", "Reload agents")
+      }
+      alignRight
+    >
       <Button
         type="button"
         variant="ghost"
@@ -81,7 +90,7 @@ function RefreshButton({
         className="titlebar-no-drag size-9 rounded-lg text-muted-foreground hover:bg-accent/70 hover:text-foreground"
         onClick={onRefresh}
         disabled={isFetching}
-        aria-label="Reload agents"
+        aria-label={t("agents.unifiedAgentsFilters.reloadAgents", "Reload agents")}
         aria-busy={isFetching}
       >
         {isFetching ? (

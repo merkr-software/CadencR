@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createContext, useContext, type ReactElement } from "react";
 import { CheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export function SidebarForMeDoneAction({
   featureId: number;
   kind: NextActionKind;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const markDone = useContext(ForMeDoneContext);
   if (kind === "waiting") return null;
   return (
@@ -31,7 +33,7 @@ export function SidebarForMeDoneAction({
       <Button
         size="sm"
         variant="ghost"
-        title="Mark done"
+        title={t("sidebar.forMeDoneAction.markDone", "Mark done")}
         data-for-me-done
         className="size-6 shrink-0 p-0 text-muted-foreground transition-none hover:text-foreground"
         onClick={(e) => {
@@ -40,7 +42,7 @@ export function SidebarForMeDoneAction({
         }}
       >
         <CheckIcon className="size-3.5" />
-        <span className="sr-only">Mark done</span>
+        <span className="sr-only">{t("sidebar.forMeDoneAction.markDone", "Mark done")}</span>
       </Button>
     </span>
   );

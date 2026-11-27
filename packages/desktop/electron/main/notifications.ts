@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { app, Notification, type BrowserWindow } from "electron";
 import { sendToWindow } from "./safe-send";
 
@@ -56,8 +57,11 @@ export function sendNotificationClick(
  * user's saved preference.
  */
 export function sendTestNotification(mainWindow: BrowserWindow): void {
-  const title = "Cadencr test notification";
-  const body = "If you can see this, system notifications are working.";
+  const title = translateUi("native.notifications.testTitle", "Cadencr test notification");
+  const body = translateUi(
+    "native.notifications.testBody",
+    "If you can see this, system notifications are working.",
+  );
   if (!app.isPackaged) {
     sendToWindow(mainWindow, "notification-fallback", { title, body, click: null });
     return;
@@ -87,7 +91,10 @@ function showNotification(
 ): void {
   if (!Notification.isSupported()) {
     sendToWindow(mainWindow, "notification-failed", {
-      reason: "Notifications are not supported on this system.",
+      reason: translateUi(
+        "native.notifications.unsupported",
+        "Notifications are not supported on this system.",
+      ),
     });
     return;
   }
@@ -108,9 +115,12 @@ function showNotification(
  * "denied", …) verbatim so we don't hide useful detail.
  */
 export function friendlyFailureReason(rawError: string | undefined): string {
-  const error = rawError && rawError.length > 0 ? rawError : "Unknown error";
-  if (error.includes("UNErrorDomain error 1") || error.includes("UNErrorDomain Code=1")) {
-    return "macOS refused to deliver this notification because the app isn't code-signed. Use the production build, or rebuild locally so an ad-hoc signature is applied.";
+  if (!rawError) return translateUi("common.unknownError", "Unknown error");
+  if (rawError.includes("UNErrorDomain error 1") || rawError.includes("UNErrorDomain Code=1")) {
+    return translateUi(
+      "native.notifications.unsigned",
+      "macOS refused to deliver this notification because the app isn't code-signed. Use the production build, or rebuild locally so an ad-hoc signature is applied.",
+    );
   }
-  return error;
+  return rawError;
 }

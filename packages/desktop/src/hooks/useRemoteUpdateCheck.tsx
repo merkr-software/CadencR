@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { UiTrans } from "@/lib/i18n/ui";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { isUpdateAvailable } from "@/lib/remote/update-check";
 
@@ -34,11 +35,19 @@ export function useRemoteUpdateCheck(): void {
 
     const promptReload = (): void => {
       prompted.current = true;
-      toast("A new version is available", {
+      toast(<UiTrans i18nKey="remote.update.available" defaults="A new version is available" />, {
         id: UPDATE_TOAST_ID,
-        description: "Reload to get the latest Cadencr.",
+        description: (
+          <UiTrans
+            i18nKey="remote.update.reloadDetail"
+            defaults="Reload to get the latest Cadencr."
+          />
+        ),
         duration: Infinity,
-        action: { label: "Reload", onClick: () => location.reload() },
+        action: {
+          label: <UiTrans i18nKey="common.reload" defaults="Reload" />,
+          onClick: () => location.reload(),
+        },
       });
     };
 

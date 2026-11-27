@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useRef, type ReactElement } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { PaletteFooter } from "./PaletteFooter";
@@ -12,6 +13,7 @@ export type { PaletteSurfaceProps } from "./usePaletteView";
 export function PaletteSurface(props: PaletteSurfaceProps): ReactElement {
   const view = usePaletteView(props);
   const { flow, sources, now, sections, selected } = view;
+  const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <CommandPrimitive
@@ -19,7 +21,7 @@ export function PaletteSurface(props: PaletteSurfaceProps): ReactElement {
       loop
       value={view.selectedKey}
       onValueChange={flow.setSelectedKey}
-      label="Command palette"
+      label={t("palette.title", "Command palette")}
     >
       <PaletteInputRow
         ref={inputRef}
@@ -41,7 +43,7 @@ export function PaletteSurface(props: PaletteSurfaceProps): ReactElement {
           emptyTitle={view.empty.title}
           emptyHint={view.empty.hint}
         />
-        <aside className="cp-preview" aria-label="Preview">
+        <aside className="cp-preview" aria-label={t("palette.preview.labelRegion", "Preview")}>
           <PalettePreview
             entry={flow.view.kind === "actions" ? flow.view.entry : selected}
             projectNames={sources.projectNames}

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactNode } from "react";
 
 import { useAutoLayoutStore } from "@/stores/auto-layout-store";
@@ -7,13 +8,20 @@ import { useAutoLayoutStore } from "@/stores/auto-layout-store";
  * browser, so its activity is visible even when the Browser pane is hidden.
  */
 export function AgentBrowserActivityDot({ featureId }: { featureId: number }): ReactNode {
+  const { t } = useUiTranslation();
   const active = useAutoLayoutStore((s) => s.agentBrowserActive[featureId] === true);
   if (!active) return null;
   return (
     <span
       role="status"
-      aria-label="Agent is using the browser"
-      title="Agent is using the browser"
+      aria-label={t(
+        "workspace.tools.agentBrowserActivityDot.agentIsUsingTheBrowser",
+        "Agent is using the browser",
+      )}
+      title={t(
+        "workspace.tools.agentBrowserActivityDot.agentIsUsingTheBrowser",
+        "Agent is using the browser",
+      )}
       className="ml-0.5 animate-pulse size-1.5 shrink-0 rounded-full bg-primary"
     />
   );

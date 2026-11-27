@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -9,9 +10,8 @@ import { MONO_FONT_PREVIEW } from "@/lib/fonts/constants";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { FontComboboxList } from "./FontComboboxList";
 
-const DEFAULT_LABEL = "Default";
-
 export function FontSelector(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { family, resolved, setFamily, isLoading: isSettingLoading } = useMonoFont();
   const [showAll, setShowAll] = useState(false);
   const { fonts, isLoading: isFontsLoading, error, load } = useSystemFonts();
@@ -20,11 +20,19 @@ export function FontSelector(): React.JSX.Element {
 
   // Surface detection failure once per error transition (never swallow).
   useEffect(() => {
-    if (error) toast.error("Font detection unavailable — using the default font.");
+    if (error)
+      toast.error(
+        translateUi(
+          "appearance.font.detectionToast",
+          "Font detection unavailable — using the default font.",
+        ),
+      );
   }, [error]);
 
   const isLoading = isSettingLoading || isFontsLoading;
-  const currentLabel = isLoading ? "Loading…" : (family ?? DEFAULT_LABEL);
+  const currentLabel = isLoading
+    ? t("appearance.font.loading", "Loading…")
+    : (family ?? t("appearance.font.default", "Default"));
 
   // queryLocalFonts() requires transient user activation, so the query must
   // be kicked off from a click/toggle handler — never on mount.
@@ -51,7 +59,7 @@ export function FontSelector(): React.JSX.Element {
             <button
               type="button"
               role="combobox"
-              aria-label="Monospace font"
+              aria-label={t("appearance.font.title", "Monospace font")}
               aria-expanded={open}
               aria-busy={isLoading}
               disabled={isLoading}
@@ -80,12 +88,15 @@ export function FontSelector(): React.JSX.Element {
 
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <Switch checked={showAll} onCheckedChange={handleShowAllChange} />
-          Show all fonts (not just monospace)
+          {t("appearance.font.showAll", "Show all fonts (not just monospace)")}
         </label>
 
         {error && (
           <p className="text-[11px] text-destructive">
-            Font detection unavailable — only the default font is available.
+            {t(
+              "appearance.font.detectionWarning",
+              "Font detection unavailable — only the default font is available.",
+            )}
           </p>
         )}
 

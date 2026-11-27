@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { uiI18n } from "@/lib/i18n/ui";
 import type { CustomAction } from "@/api/generated";
 import { createMockCustomAction } from "@/test-fixtures";
 import { CustomActionsMenu } from "./CustomActionsMenu";
@@ -37,6 +38,26 @@ function renderMenu(actions: CustomAction[]) {
 
 describe("CustomActionsMenu", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("finds translated commands with a query already entered in the open menu", async () => {
+    uiI18n.addResourceBundle("fr", "ui", {
+      customActions: { customActionsMenu: { manageActions: "Gérer les actions…" } },
+    });
+    try {
+      renderMenu([action(1)]);
+      const input = screen.getByLabelText("Filter actions");
+      input.focus();
+      fireEvent.change(input, { target: { value: "gérer" } });
+      expect(screen.queryByText("Manage actions…")).toBeNull();
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(await screen.findByText("Gérer les actions…")).toBeVisible();
+      expect(input).toHaveValue("gérer");
+      expect(input).toHaveFocus();
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
 
   it("opens an action's details from its chevron without running it", () => {
     const { onDone, onShowDetails } = renderMenu([action(1), action(2)]);

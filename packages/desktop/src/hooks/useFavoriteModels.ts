@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useSettingWriter } from "./useSetting";
@@ -29,7 +30,10 @@ export function useFavoriteModels(): FavoriteModelsResult {
     } catch (err) {
       return {
         favorites: new Set<string>(),
-        error: err instanceof Error ? err.message : "Unknown error",
+        error:
+          err instanceof Error
+            ? err.message
+            : translateUi("conversation.composer.useFavoriteModels.unknownError", "Unknown error"),
       };
     }
   }, [value]);
@@ -38,9 +42,16 @@ export function useFavoriteModels(): FavoriteModelsResult {
     if (!parsed.error) return;
     // Every mounted picker runs this hook; a shared toast id collapses the
     // duplicates into one message.
-    toast.error(`Could not read your starred models: ${parsed.error}`, {
-      id: FAVORITE_MODELS_SETTING_KEY,
-    });
+    toast.error(
+      translateUi(
+        "conversation.composer.useFavoriteModels.loadFailed",
+        "Could not read your starred models: {{error}}",
+        { error: parsed.error },
+      ),
+      {
+        id: FAVORITE_MODELS_SETTING_KEY,
+      },
+    );
   }, [parsed.error]);
 
   const { favorites } = parsed;

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, useState, type ReactElement } from "react";
 import { InboxIcon } from "lucide-react";
 import { SidebarConversationBlock } from "@/components/SidebarConversationBlock";
@@ -28,6 +29,7 @@ export function SidebarForMeSection(props: SectionProps): ReactElement | null {
 }
 
 function ForMeBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const { actions: liveActions, actionsLoading } = useSidebarAttention();
   // Rows hold their place while the pointer is on the list or the user works a quick
   // reply (clicked or hovered open): not for an automatic card, which nobody is using.
@@ -49,7 +51,7 @@ function ForMeBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactEl
       onPointerLeave={() => setPointerOver(false)}
     >
       <SidebarConversationBlock
-        label="For me"
+        label={t("sidebar.forMeSection.forMe", "For me")}
         icon={InboxIcon}
         surface="for-me"
         features={features}
@@ -57,7 +59,7 @@ function ForMeBlock({ activeFeatureId, onSelectFeature }: SectionProps): ReactEl
         nextActions={kinds}
         footer={<SidebarShowMoreButton more={more} />}
         loading={actionsLoading}
-        empty="Nothing waiting on you"
+        empty={t("sidebar.forMeSection.nothingWaitingOnYou", "Nothing waiting on you")}
         strongCount={strongCount}
         activeFeatureId={activeFeatureId}
         onSelectFeature={onSelectFeature}

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { isUntitledPath } from "@/stores/editor-store";
 import { copyToClipboard } from "@/lib/clipboard";
 import { toast } from "sonner";
@@ -11,8 +12,11 @@ import { toast } from "sonner";
  */
 export function copyFilePath(filePath: string | null | undefined): void {
   if (!filePath || isUntitledPath(filePath)) {
-    toast.error("No file path to copy");
+    toast.error(translateUi("workspace.editor.copyFilePath.missingPath", "No file path to copy"));
     return;
   }
-  void copyToClipboard(filePath, "Path copied");
+  void copyToClipboard(
+    filePath,
+    translateUi("workspace.editor.copyFilePath.copied", "Path copied"),
+  );
 }

@@ -1,12 +1,13 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import type { CustomTabStatus } from "./custom-tab-model";
 
-const STATUS_LABEL: Record<CustomTabStatus, string> = {
-  blocked: "Blocked",
-  valid: "Valid",
-  invalid: "Invalid",
-  unavailable: "Unavailable",
-  "not-built": "Not built",
+const statusLabel: Record<CustomTabStatus, (t: UiTranslator) => string> = {
+  blocked: (t) => t("customTabs.status.blocked", "Blocked"),
+  valid: (t) => t("customTabs.status.valid", "Valid"),
+  invalid: (t) => t("customTabs.status.invalid", "Invalid"),
+  unavailable: (t) => t("customTabs.status.unavailable", "Unavailable"),
+  "not-built": (t) => t("customTabs.status.not-built", "Not built"),
 };
 
 // Literal class strings: Tailwind only emits arbitrary values it finds verbatim.
@@ -26,6 +27,7 @@ const STATUS_CLASS: Record<CustomTabStatus, string> = {
  * card says which platforms it runs on).
  */
 export function CustomTabStatusBadge({ status }: { status: CustomTabStatus }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <span
       className={cn(
@@ -33,7 +35,7 @@ export function CustomTabStatusBadge({ status }: { status: CustomTabStatus }): R
         STATUS_CLASS[status],
       )}
     >
-      {STATUS_LABEL[status]}
+      {statusLabel[status](t)}
     </span>
   );
 }

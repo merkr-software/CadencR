@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { GitBranch, TerminalSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +38,7 @@ export function WorktreeSetupFields({
    *  new-project onboarding modal, which only collects setup commands. */
   includeBranchPrefix?: boolean;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const branchPrefixInput = useSyncedSettingInput(branchPrefix, `${resetKeyPrefix}:branch_prefix`);
   const setupWorktreeInput = useSyncedSettingInput(
     setupWorktree,
@@ -61,16 +63,21 @@ export function WorktreeSetupFields({
         <>
           <div className="space-y-2">
             <label htmlFor={branchPrefixId} className="text-sm font-medium">
-              Branch prefix
+              {t("project.worktreeSetupFields.branchPrefix", "Branch prefix")}
             </label>
-            <p className="text-xs text-muted-foreground">Prefix added to worktree branch names.</p>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "project.worktreeSetupFields.branchPrefixDescription",
+                "Prefix added to worktree branch names.",
+              )}
+            </p>
             <div className="flex items-center gap-2">
               <IconTile tint="cyan">
                 <GitBranch className="size-4" />
               </IconTile>
               <Input
                 id={branchPrefixId}
-                placeholder="e.g. feature/"
+                placeholder={t("project.worktreeSetupFields.branchPrefixExample", "e.g. feature/")}
                 value={branchPrefixInput.value}
                 onChange={(e) => {
                   branchPrefixInput.setValue(e.target.value);
@@ -91,13 +98,21 @@ export function WorktreeSetupFields({
             <TerminalSquare className="size-4" />
           </IconTile>
           <div>
-            <div className="text-sm font-medium">Worktree setup commands</div>
+            <div className="text-sm font-medium">
+              {t("project.worktreeSetupFields.worktreeSetupCommands", "Worktree setup commands")}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Shell commands to run after creating a worktree (one per line).
+              {t(
+                "project.worktreeSetupFields.commandsDescription",
+                "Shell commands to run after creating a worktree (one per line).",
+              )}
             </p>
           </div>
         </div>
-        <ShellTerminalFrame subtitle="one command per line" bodyClassName="p-0">
+        <ShellTerminalFrame
+          subtitle={t("project.worktreeSetupFields.oneCommandPerLine", "one command per line")}
+          bodyClassName="p-0"
+        >
           <Textarea
             placeholder={"pnpm install\ncp packages/service/.env.example packages/service/.env"}
             rows={4}

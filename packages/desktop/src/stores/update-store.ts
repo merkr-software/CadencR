@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { create } from "zustand";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { toastError } from "@/lib/api-errors";
@@ -30,7 +31,12 @@ export const useUpdateStore = create<UpdateState>((set, get) => {
     try {
       get().receive(await desktopBridge.setInstallWhenAgentsFinish(pending));
     } catch (err) {
-      toastError(err, pending ? "Could not schedule the update." : "Could not cancel the update.");
+      toastError(
+        err,
+        pending
+          ? translateUi("updates.scheduleError", "Could not schedule the update.")
+          : translateUi("updates.cancelError", "Could not cancel the update."),
+      );
     } finally {
       set({ installWishPending: false });
     }
@@ -47,7 +53,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => {
         await desktopBridge.installUpdate();
       } catch (err) {
         // The main process also records an install failure in the update state.
-        toastError(err, "Could not install the update.");
+        toastError(err, translateUi("updates.installError", "Could not install the update."));
       }
     },
     scheduleInstallWhenAgentsFinish: () => requestInstallWish(true),

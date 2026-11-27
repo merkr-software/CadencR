@@ -1,14 +1,19 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { GitOperationKind } from "@/api/generated";
 
-export function gitUpdateContinueDisabledReason(conflictCount: number): string | null {
+export function gitUpdateContinueDisabledReason(
+  conflictCount: number,
+  t: UiTranslator = translateUi,
+): string | null {
   if (conflictCount <= 0) return null;
-  const noun = conflictCount === 1 ? "file" : "files";
-  return `Resolve and stage ${conflictCount} conflicting ${noun} first`;
-}
-
-/** Human noun for the paused operation — matches what Git itself calls it. */
-export function gitOperationNoun(operation: GitOperationKind): string {
-  return operation === "rebase" ? "rebase" : "merge";
+  return t(
+    "workspace.git.gitUpdateMessages.stageConflictsFirst",
+    "Resolve and stage {{count, number}} conflicting files first",
+    {
+      count: conflictCount,
+      defaultValue_one: "Resolve and stage {{count, number}} conflicting file first",
+    },
+  );
 }
 
 /**
@@ -19,16 +24,37 @@ export function gitOperationNoun(operation: GitOperationKind): string {
 export function gitUpdateActionLabel(
   action: "continue" | "abort",
   operation: GitOperationKind,
+  t: UiTranslator = translateUi,
 ): string {
-  const verb = action === "continue" ? "Continue" : "Abort";
-  return `${verb} ${gitOperationNoun(operation)}`;
+  return action === "continue"
+    ? operation === "rebase"
+      ? t("workspace.git.gitUpdateMessages.continueRebase", "Continue rebase")
+      : t("workspace.git.gitUpdateMessages.continueMerge", "Continue merge")
+    : operation === "rebase"
+      ? t("workspace.git.gitUpdateMessages.abortRebase", "Abort rebase")
+      : t("workspace.git.gitUpdateMessages.abortMerge", "Abort merge");
 }
 
-export function describeGitUpdateConflictFiles(files: string[]): string {
+export function describeGitUpdateConflictFiles(
+  files: string[],
+  t: UiTranslator = translateUi,
+): string {
   if (files.length === 0) {
-    return "Resolve the conflicts in Uncommitted, then continue or abort.";
+    return t(
+      "workspace.git.gitUpdateMessages.resolveConflicts",
+      "Resolve the conflicts in Uncommitted, then continue or abort.",
+    );
   }
   const visible = files.slice(0, 3).join(", ");
   const overflow = files.length - 3;
-  return overflow > 0 ? `${visible}, and ${overflow} more` : visible;
+  return overflow > 0
+    ? t(
+        "workspace.git.gitUpdateMessages.conflictOverflow",
+        "{{files}}, and {{count, number}} more",
+        {
+          files: visible,
+          count: overflow,
+        },
+      )
+    : visible;
 }

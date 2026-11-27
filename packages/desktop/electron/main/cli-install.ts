@@ -1,5 +1,15 @@
 import fs from "node:fs/promises";
-import type { CliInstallOptions, CliInstallStatus } from "../../src/shared/cli-bridge";
+import type {
+  CliInstallOptions,
+  CliInstallStatus,
+  CliInstallUnavailableCode,
+} from "../../src/shared/cli-bridge";
+import {
+  describeCliConflict,
+  describeCliUnavailable,
+  unavailableCliStatus,
+} from "../../src/shared/cli-install-copy";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import {
   appImageCliStatus,
   appImageInstallCli,
@@ -13,7 +23,7 @@ import { macCliStatus, macInstallCli, macUninstallCli } from "./cli-install-maco
 /** How the command reaches PATH on this install; `null` when it can't. */
 type InstallKind = "macos" | "appimage" | "package";
 
-type Resolution = { kind: InstallKind } | { kind: null; reason: string };
+type Resolution = { kind: InstallKind } | { kind: null; code: CliInstallUnavailableCode };
 
 async function bundledCliExists(context: CliInstallContext): Promise<boolean> {
   try {
@@ -35,36 +45,24 @@ function isTemporaryMacLocation(resourcesPath: string): boolean {
 
 async function resolveInstallKind(context: CliInstallContext): Promise<Resolution> {
   if (!context.isPackaged) {
-    return {
-      kind: null,
-      reason:
-        "Development builds don't ship the cadencr command. From the repository, run it with: pnpm rust -- run -p cadencr-cli --",
-    };
+    return { kind: null, code: "development" };
   }
   if (context.platform !== "darwin" && context.platform !== "linux") {
-    return { kind: null, reason: "The cadencr command is available on macOS and Linux." };
+    return { kind: null, code: "unsupported-platform" };
   }
   if (context.platform === "linux") {
     if (context.linuxInstallType === "deb" || context.linuxInstallType === "rpm") {
       return { kind: "package" };
     }
     if (context.linuxInstallType === "unknown") {
-      return {
-        kind: null,
-        reason:
-          "This Linux build is not an official AppImage, DEB or RPM package, so it can't install the cadencr command.",
-      };
+      return { kind: null, code: "unofficial-linux-package" };
     }
   }
   if (context.platform === "darwin" && isTemporaryMacLocation(context.resourcesPath)) {
-    return {
-      kind: null,
-      reason:
-        "Cadencr is running from a disk image or a temporary copy, so a link to it would break. Move Cadencr to Applications and open it from there to install the cadencr command.",
-    };
+    return { kind: null, code: "temporary-macos-location" };
   }
   if (!(await bundledCliExists(context))) {
-    return { kind: null, reason: "This build of Cadencr does not include the cadencr command." };
+    return { kind: null, code: "missing-command" };
   }
   return { kind: context.platform === "darwin" ? "macos" : "appimage" };
 }
@@ -73,7 +71,7 @@ export async function cliInstallStatus(context: CliInstallContext): Promise<CliI
   const resolution = await resolveInstallKind(context);
   switch (resolution.kind) {
     case null:
-      return { state: "unavailable", reason: resolution.reason };
+      return unavailableCliStatus(resolution.code);
     case "package":
       return { state: "package", path: PACKAGE_CLI_PATH };
     case "macos":
@@ -91,13 +89,23 @@ export async function installCli(
   const status = await cliInstallStatus(context);
   switch (status.state) {
     case "unavailable":
-      throw new Error(status.reason);
+      throw new Error(describeCliUnavailable(status));
     case "package":
-      throw new Error(`The ${status.path} command comes with the Cadencr package already.`);
+      throw new Error(
+        t(
+          "settings.general.commandLine.alreadyPackaged",
+          "The {{path}} command comes with the Cadencr package already.",
+          { path: status.path },
+        ),
+      );
     case "conflict":
       if (!replace) {
         throw new Error(
-          `${status.target} already exists (${status.existing}). Review it in Settings → General.`,
+          t(
+            "settings.general.commandLine.reviewConflict",
+            "{{target}} already exists ({{existing}}). Review it in Settings → General.",
+            { target: status.target, existing: describeCliConflict(status) },
+          ),
         );
       }
       break;
@@ -114,7 +122,12 @@ export async function installCli(
 export async function uninstallCli(context: CliInstallContext): Promise<CliInstallStatus> {
   const status = await cliInstallStatus(context);
   if (status.state !== "installed") {
-    throw new Error("The cadencr command was not installed by Cadencr, so it was left in place.");
+    throw new Error(
+      t(
+        "settings.general.commandLine.unmanagedUninstall",
+        "The cadencr command was not installed by Cadencr, so it was left in place.",
+      ),
+    );
   }
   if (context.platform === "darwin") await macUninstallCli(context);
   else await appImageUninstallCli(context);

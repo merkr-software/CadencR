@@ -10,6 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post, put};
 use axum::{Extension, Json, Router};
+use serde_json::json;
 
 use super::models::{
     PairRequest, PairResponse, PairingCodeResponse, RemoteBrowserOrigins, RemoteStatus,
@@ -166,10 +167,14 @@ pub async fn browser_origins_handler(State(state): State<AppState>) -> Json<Remo
 /// internal.
 #[track_caller]
 fn start_error(err: RemoteError) -> AppError {
-    match err {
-        RemoteError::NoRendererDir | RemoteError::RendererIndexMissing(_) => {
-            AppError::ServiceUnavailable(err.to_string())
-        }
+    match &err {
+        RemoteError::NoRendererDir => AppError::ServiceUnavailable(err.to_string())
+            .with_public_details(json!({ "code": "REMOTE_RENDERER_DIRECTORY_MISSING" })),
+        RemoteError::RendererIndexMissing(path) => AppError::ServiceUnavailable(err.to_string())
+            .with_public_details(json!({
+                "code": "REMOTE_RENDERER_INDEX_MISSING",
+                "path": path.to_string_lossy(),
+            })),
         RemoteError::BindFailed => {
             AppError::coded(StatusCode::CONFLICT, "REMOTE_BIND_FAILED", err.to_string())
         }
@@ -203,11 +208,10 @@ pub async fn disable_handler(
 pub async fn pairing_code_handler(
     State(state): State<AppState>,
 ) -> Result<Json<PairingCodeResponse>, AppError> {
-    let info = state
-        .remote
-        .status()
-        .await
-        .ok_or_else(|| AppError::Conflict("Enable remote access before pairing".into()))?;
+    let info = state.remote.status().await.ok_or_else(|| {
+        AppError::Conflict("Enable remote access before pairing".into())
+            .with_public_details(json!({ "code": "REMOTE_PAIRING_DISABLED" }))
+    })?;
     let minted = state.remote.pairing().mint();
     let urls = pairing_urls(&info, &minted.code);
     Ok(Json(PairingCodeResponse {
@@ -455,6 +459,61 @@ mod tests {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["error"], "Internal server error");
+        assert!(body.get("details").is_none());
+    }
+
+    #[tokio::test]
+    async fn remote_renderer_errors_preserve_the_legacy_response_and_add_details() {
+        use axum::response::IntoResponse;
+        let path = "/tmp/Mon projet 日本語/index.html";
+        let cases = [
+            (
+                RemoteError::NoRendererDir,
+                "Service unavailable: remote access requires a packaged build (no renderer dir)"
+                    .to_owned(),
+                json!({ "code": "REMOTE_RENDERER_DIRECTORY_MISSING" }),
+            ),
+            (
+                RemoteError::RendererIndexMissing(path.into()),
+                format!("Service unavailable: remote access needs a built frontend: no index.html at {path}"),
+                json!({ "code": "REMOTE_RENDERER_INDEX_MISSING", "path": path }),
+            ),
+        ];
+        for (error, message, details) in cases {
+            let response = start_error(error).into_response();
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                body,
+                json!({ "code": "SERVICE_UNAVAILABLE", "error": message, "details": details })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pairing_code_reports_disabled_access_as_a_structured_conflict() {
+        use axum::response::IntoResponse;
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let response = pairing_code_handler(State(AppState::with_pool(pool)))
+            .await
+            .unwrap_err()
+            .into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "code": "CONFLICT",
+                "error": "Conflict: Enable remote access before pairing",
+                "details": { "code": "REMOTE_PAIRING_DISABLED" },
+            })
+        );
     }
 
     const IPHONE_SAFARI: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) \

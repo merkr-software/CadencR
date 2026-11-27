@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Feature-scoped prompt draft persistence.
  *
@@ -50,6 +51,21 @@ function upsertDraftSetting(
   return current.map((setting, i) => (i === index ? { ...setting, value } : setting));
 }
 
+function reportDraftSaveError(error: unknown): void {
+  toast.error(
+    translateUi(
+      "conversation.composer.usePromptDraft.saveFailed",
+      "Could not save draft: {{error}}",
+      {
+        error: apiErrorMessage(
+          error,
+          translateUi("conversation.composer.usePromptDraft.unknownError", "Unknown error"),
+        ),
+      },
+    ),
+  );
+}
+
 export function usePromptDraft({ featureId }: UsePromptDraftOptions): UsePromptDraftResult {
   const queryClient = useQueryClient();
   const featureSettingsQuery = useGetFeatureSettings(featureId ?? 0, {
@@ -88,7 +104,7 @@ export function usePromptDraft({ featureId }: UsePromptDraftOptions): UsePromptD
           },
           onError: (error: unknown): void => {
             if (requestSeqRef.current !== requestSeq) return;
-            toast.error(`Could not save draft: ${apiErrorMessage(error, "Unknown error")}`);
+            reportDraftSaveError(error);
           },
         },
       );
@@ -99,7 +115,16 @@ export function usePromptDraft({ featureId }: UsePromptDraftOptions): UsePromptD
   useEffect(() => {
     if (!featureSettingsQuery.isError) return;
     toast.error(
-      `Could not load draft: ${apiErrorMessage(featureSettingsQuery.error, "Unknown error")}`,
+      translateUi(
+        "conversation.composer.usePromptDraft.loadFailed",
+        "Could not load draft: {{error}}",
+        {
+          error: apiErrorMessage(
+            featureSettingsQuery.error,
+            translateUi("conversation.composer.usePromptDraft.unknownError", "Unknown error"),
+          ),
+        },
+      ),
     );
   }, [featureSettingsQuery.error, featureSettingsQuery.isError]);
 

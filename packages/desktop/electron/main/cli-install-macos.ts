@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { CliInstallStatus } from "../../src/shared/cli-bridge";
+import { conflictCliStatus } from "../../src/shared/cli-install-copy";
 import {
   bundledCliPath,
   CLI_NAME,
@@ -40,14 +41,14 @@ export async function macCliStatus(context: CliInstallContext): Promise<CliInsta
   const stats = await lstatOrNull(target);
   if (!stats) return { state: "not-installed", target, onPath };
   if (!stats.isSymbolicLink()) {
-    return { state: "conflict", target, existing: "a program not installed by Cadencr", onPath };
+    return conflictCliStatus(target, onPath, { kind: "unmanaged-program" });
   }
   const linked = path.resolve(context.macBinDir, await fs.readlink(target));
   if (linked === bundledCliPath(context)) {
     return { state: "installed", target, onPath, current: true };
   }
   if (CADENCR_APP_CLI.test(linked)) return { state: "installed", target, onPath, current: false };
-  return { state: "conflict", target, existing: `a link to ${linked}`, onPath };
+  return conflictCliStatus(target, onPath, { kind: "link", path: linked });
 }
 
 function needsPrivileges(error: unknown): boolean {

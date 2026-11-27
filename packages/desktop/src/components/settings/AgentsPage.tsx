@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ModelSelector } from "@/components/ModelSelector";
 import { AutoNamePromptSetting } from "./AutoNamePromptSetting";
 import { SettingsGroup } from "./SettingsGroup";
@@ -13,14 +14,18 @@ const AUTO_NAME_ONLY = ["auto_name"] as const;
  * is an Appearance setting.
  */
 export function AgentsPage(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsPageSection pageId="agents">
       <SettingsGroup
         id={SETTINGS_ANCHORS.autoNaming}
-        title="Conversation names"
-        description="The model and prompt that title each new conversation."
+        title={t("settings.agents.naming.title", "Conversation names")}
+        description={t(
+          "settings.agents.naming.description",
+          "The model and prompt that title each new conversation.",
+        )}
       >
-        <SettingsSubsection title="Naming model">
+        <SettingsSubsection title={t("settings.agents.naming.model", "Naming model")}>
           <ModelSelector level="global" agentTypes={AUTO_NAME_ONLY} />
         </SettingsSubsection>
         <AutoNamePromptSetting />

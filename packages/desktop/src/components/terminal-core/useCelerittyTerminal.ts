@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState } from "react";
 import type { TerminalOptions, TerminalTransport } from "celeritty";
 import { toast } from "sonner";
@@ -45,7 +46,13 @@ export function useCelerittyTerminal({
       setState({
         terminal: undefined,
         status: "error",
-        errorMessage: error instanceof Error ? error.message : "Terminal initialization failed",
+        errorMessage:
+          error instanceof Error
+            ? error.message
+            : translateUi(
+                "workspace.tools.useCelerittyTerminal.terminalInitializationFailed",
+                "Terminal initialization failed",
+              ),
       });
       // Dispose outside the event callback to avoid reentrant renderer teardown.
       queueMicrotask(lifecycle.dispose);
@@ -55,10 +62,16 @@ export function useCelerittyTerminal({
         if (cancelled || !instance) return;
         unsubscribe = instance.on("error", fail);
         unsubscribeDiagnostic = instance.on("diagnostic", (error) => {
-          toast.warning("Terminal rendering warning", {
-            id: "terminal-renderer-diagnostic",
-            description: error.message,
-          });
+          toast.warning(
+            translateUi(
+              "workspace.tools.useCelerittyTerminal.terminalRenderingWarning",
+              "Terminal rendering warning",
+            ),
+            {
+              id: "terminal-renderer-diagnostic",
+              description: error.message,
+            },
+          );
         });
         setState({ terminal: instance, status: "ready", errorMessage: null });
       })

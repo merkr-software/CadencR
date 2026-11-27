@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { useSettingWriter } from "@/hooks/useSetting";
@@ -36,7 +37,14 @@ export function useAccessModeSetting(providerId: string): UseAccessModeSettingRe
     (mode: AccessMode): void => {
       if (!providerLabel || mode === globalAccessMode) return;
       void setValue(mode).then((saved) => {
-        if (saved) toast.success(`${providerLabel} access default updated`);
+        if (saved)
+          toast.success(
+            translateUi(
+              "settings.providers.useAccessModeSetting.updated",
+              "{{provider}} access default updated",
+              { provider: providerLabel },
+            ),
+          );
       });
     },
     [globalAccessMode, providerLabel, setValue],

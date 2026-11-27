@@ -8,6 +8,7 @@
  * one is left out, so it can never take a key Cadencr uses.
  */
 import type { TabShortcut } from "@/api/generated";
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { findOverride, type ShortcutOverride } from "@/lib/shortcuts/overrides";
 import { SHORTCUTS, type ShortcutKey, type ShortcutScopeId } from "@/lib/shortcuts/registry";
 import type { PluginTabShortcutBinding } from "@/shared/plugin-tab-host";
@@ -39,6 +40,7 @@ function isCommandChord(keys: readonly ShortcutKey[]): boolean {
  */
 export function appShortcutBindings(
   overrides: Readonly<Record<string, ShortcutOverride>>,
+  t: UiTranslator = translateUi,
 ): AppShortcutBinding[] {
   const bindings: AppShortcutBinding[] = [];
   for (const shortcut of SHORTCUTS) {
@@ -52,7 +54,7 @@ export function appShortcutBindings(
     if (!keys) continue;
     bindings.push({
       id: shortcut.id,
-      description: shortcut.description,
+      description: shortcut.describe(t),
       keys,
       ...(altKeys ? { altKeys } : {}),
     });

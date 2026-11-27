@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import {
   BrainIcon,
@@ -93,18 +94,21 @@ function ToolOutcome({
   result,
   agentRunning,
 }: Pick<SubagentActionRowProps, "block" | "result" | "agentRunning">): ReactElement | null {
-  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
+  const { t } = useUiTranslation();
+  const failure = useMemo(() => toolCallFailure(block, result, t), [block, result, t]);
   if (failure) {
     return (
       <span className="shrink-0 text-[10px] text-destructive" title={failure.reason}>
-        Failed
+        {t("conversation.subagentActionRow.failed", "Failed")}
       </span>
     );
   }
   if (!result && !(agentRunning && block.toolUseId)) return null;
   return (
     <span className="shrink-0 text-[10px] text-muted-foreground">
-      {result ? "Result received" : "Awaiting result"}
+      {result
+        ? t("conversation.subagentActionRow.resultReceived", "Result received")
+        : t("conversation.subagentActionRow.awaitingResult", "Awaiting result")}
     </span>
   );
 }
@@ -140,6 +144,7 @@ function ThinkingActionLine({
   expanded: boolean;
   isStreaming: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const displayContent = useStreamingMarkdownThrottle(content, isStreaming);
   if (expanded) {
     return (
@@ -150,7 +155,7 @@ function ThinkingActionLine({
             aria-hidden
           />
           <span className={cn("shrink-0 font-medium", TOOL_ACCENT_CLASSES.thinking.label)}>
-            Thinking
+            {t("conversation.subagentActionRow.thinking", "Thinking")}
           </span>
         </div>
         {displayContent.trim() && (
@@ -163,7 +168,12 @@ function ThinkingActionLine({
   }
   const preview = truncateSubagentText(thinkingPreview(displayContent), 80);
   return (
-    <ActionLine icon={BrainIcon} accent="thinking" label="Thinking" detail={preview || undefined} />
+    <ActionLine
+      icon={BrainIcon}
+      accent="thinking"
+      label={t("conversation.subagentActionRow.thinking", "Thinking")}
+      detail={preview || undefined}
+    />
   );
 }
 
@@ -174,15 +184,29 @@ function ToolActionLine({
   block: AgentBlockData;
   basePath?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const rawToolName = block.toolName ?? "Tool";
   const skill = semanticSkillPresentation(rawToolName, block.toolArgs);
   if (skill) {
-    return <ActionLine icon={WrenchIcon} accent="tool" label="Skill" detail={skill.name} />;
+    return (
+      <ActionLine
+        icon={WrenchIcon}
+        accent="tool"
+        label={t("conversation.subagentActionRow.skill", "Skill")}
+        detail={skill.name}
+      />
+    );
   }
 
   const toolName = normalizeToolName(rawToolName);
   if (toolName === "Bash") {
-    return <BashActionLine toolArgs={block.toolArgs} basePath={basePath} />;
+    return (
+      <BashActionLine
+        toolArgs={block.toolArgs}
+        basePath={basePath}
+        label={t("conversation.subagentActionRow.bash", "Bash")}
+      />
+    );
   }
   if (isFileChangeTool(toolName)) {
     return (
@@ -194,21 +218,33 @@ function ToolActionLine({
       />
     );
   }
-  return <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} />;
+  return (
+    <GenericActionLine
+      toolName={toolName}
+      label={
+        block.toolName == null ? t("conversation.stream.compactToolLine.tool", "Tool") : toolName
+      }
+      toolArgs={block.toolArgs}
+      basePath={basePath}
+      t={t}
+    />
+  );
 }
 
 function BashActionLine({
   toolArgs,
   basePath,
+  label,
 }: {
   toolArgs: string | undefined;
   basePath: string | undefined;
+  label: string;
 }): ReactElement {
   const detail = useMemo(() => {
     const command = oneLineShellCommand(extractBashCommand(toolArgs), basePath);
     return truncateOptional(command, 90);
   }, [toolArgs, basePath]);
-  return <ActionLine icon={TerminalIcon} accent="bash" label="Bash" detail={detail} />;
+  return <ActionLine icon={TerminalIcon} accent="bash" label={label} detail={detail} />;
 }
 
 function FileChangeActionLine({
@@ -248,25 +284,29 @@ function FileChangeActionLine({
 
 function GenericActionLine({
   toolName,
+  label: toolLabel,
   toolArgs,
   basePath,
+  t,
 }: {
   toolName: string;
+  label: string;
   toolArgs: string | undefined;
   basePath: string | undefined;
+  t: UiTranslator;
 }): ReactElement {
   const { label, detail, accent } = useMemo(() => {
-    const mcp = parseMcpTool(toolName, toolArgs);
+    const mcp = parseMcpTool(toolName, toolArgs, t);
     if (mcp) {
       return { label: mcp.label, detail: mcp.detail, accent: "mcp" as const };
     }
-    const summary = parseToolCall(toolName, toolArgs);
+    const summary = parseToolCall(toolName, toolArgs, t);
     return {
-      label: toolName,
+      label: toolLabel,
       detail: summary?.detail === toolName ? undefined : oneLineDetail(summary?.detail, basePath),
       accent: "tool" as const,
     };
-  }, [toolName, toolArgs, basePath]);
+  }, [toolName, toolLabel, toolArgs, basePath, t]);
   return (
     <ActionLine
       icon={WrenchIcon}

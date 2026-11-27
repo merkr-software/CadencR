@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, useState } from "react";
 import { ChevronRightIcon, ChevronUpIcon, WrenchIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -71,11 +72,12 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
   toolResultMap,
   verbosityMode,
 }: ToolSummaryBlockProps) {
+  const { t } = useUiTranslation();
   const [expanded, setExpanded] = useState(false);
   const detail = childBlocks ?? EMPTY_BLOCKS;
   // Recap chips are derived here (not upstream) so the diff parse for numstat
   // only runs for the recaps Virtuoso actually mounts, and re-memoizes per turn.
-  const chips = useMemo(() => buildToolChips(detail), [detail]);
+  const chips = useMemo(() => buildToolChips(detail, t), [detail, t]);
   if (chips.length === 0) return null;
 
   const total = chips.reduce((sum, chip) => sum + chip.count, 0);
@@ -110,7 +112,9 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
           )}
         />
         <WrenchIcon className="size-3 shrink-0 text-foreground" />
-        <span className="font-medium text-foreground">Tools used</span>
+        <span className="font-medium text-foreground">
+          {t("conversation.stream.toolSummaryBlock.toolsUsed", "Tools used")}
+        </span>
         <span className="text-muted-foreground tabular-nums">· {total}</span>
         <span className="mx-1 h-3 w-px bg-border" aria-hidden />
         {chips.map((chip) => (
@@ -123,7 +127,9 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
               "ml-auto shrink-0 pl-2 opacity-0 transition-opacity group-hover:opacity-100",
             )}
           >
-            {expanded ? "Collapse" : "Expand"}
+            {expanded
+              ? t("conversation.stream.toolSummaryBlock.collapse", "Collapse")
+              : t("conversation.stream.toolSummaryBlock.expand", "Expand")}
           </span>
         )}
       </button>
@@ -148,7 +154,7 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
           )}
         >
           <ChevronUpIcon className="size-3 shrink-0" />
-          Collapse
+          {t("conversation.stream.toolSummaryBlock.collapse", "Collapse")}
         </button>
       </CollapsibleSection>
     </div>

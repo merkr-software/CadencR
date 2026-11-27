@@ -1,3 +1,4 @@
+import { translateUi } from "../../src/shared/ui-i18n";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -97,10 +98,20 @@ export class BrowserDownloadManager {
   reveal(scopeId: number, id: string): void {
     const record = this.requireOwned(scopeId, id);
     if (record.public.state !== "completed") {
-      throw new Error("Only completed downloads can be revealed.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.downloads.revealIncomplete",
+          "Only completed downloads can be revealed.",
+        ),
+      );
     }
     if (!existsSync(record.public.destination)) {
-      throw new Error("The downloaded file is no longer at its saved destination.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.downloads.fileMissing",
+          "The downloaded file is no longer at its saved destination.",
+        ),
+      );
     }
     this.revealDestination(record.public.destination);
   }
@@ -265,7 +276,12 @@ export class BrowserDownloadManager {
       active.filter((entry) => entry.public.scopeId === scopeId).length >=
         MAX_ACTIVE_DOWNLOADS_PER_SCOPE
     ) {
-      throw new Error("Too many active downloads. Finish or cancel one before starting another.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.downloads.limit",
+          "Too many active downloads. Finish or cancel one before starting another.",
+        ),
+      );
     }
   }
 
@@ -337,14 +353,22 @@ export class BrowserDownloadManager {
   private requireOwned(scopeId: number, id: string): BrowserDownloadRecord {
     const record = this.downloads.get(id);
     if (!record || record.public.scopeId !== scopeId) {
-      throw new Error("This download is no longer available in this Browser workspace.");
+      throw new Error(
+        translateUi(
+          "workspace.browser.downloads.gone",
+          "This download is no longer available in this Browser workspace.",
+        ),
+      );
     }
     return record;
   }
 
   private requireLive(scopeId: number, id: string): BrowserDownloadRecord {
     const record = this.requireOwned(scopeId, id);
-    if (!record.live) throw new Error("This download has finished.");
+    if (!record.live)
+      throw new Error(
+        translateUi("workspace.browser.downloads.finished", "This download has finished."),
+      );
     return record;
   }
 

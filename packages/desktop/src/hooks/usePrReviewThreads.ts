@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useMemo } from "react";
 import { useGetPrComments, type CommentThread } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -60,7 +61,13 @@ export function usePrReviewThreads(
   const navigationTargets = useMemo(() => reviewNavigationTargets(unresolved), [unresolved]);
   const summary = useMemo(() => summarizeReviewThreads(unresolved), [unresolved]);
   const errorMessage = query.isError
-    ? apiErrorMessage(query.error, "Could not load review threads")
+    ? apiErrorMessage(
+        query.error,
+        translateUi(
+          "workspace.git.usePrReviewThreads.couldNotLoadReviewThreads",
+          "Could not load review threads",
+        ),
+      )
     : undefined;
   const retry = useCallback((): void => {
     void refetch();

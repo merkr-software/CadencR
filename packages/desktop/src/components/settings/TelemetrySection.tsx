@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -14,29 +15,45 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { TelemetryDetails } from "./TelemetryDetails";
 import { SettingsGroup } from "./SettingsGroup";
-import { SettingsRow } from "./SettingsRow";
+import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 const queryKey = TELEMETRY_QUERY_KEY;
-const statusLabels: Record<TelemetryState["diagnostics_status"], string> = {
-  disabled: "Off — nothing is sent.",
-  not_configured: "Not configured in this build — nothing is sent.",
-  ready: "Enabled — ready to send.",
-  delivery_failed: "Delivery failed. Reports may be dropped while offline.",
-};
+function deliveryStatus(t: UiTranslator, status: TelemetryState["diagnostics_status"]): string {
+  switch (status) {
+    case "disabled":
+      return t("system.telemetry.disabled", "Off — nothing is sent.");
+    case "not_configured":
+      return t("system.telemetry.notConfigured", "Not configured in this build — nothing is sent.");
+    case "ready":
+      return t("system.telemetry.ready", "Enabled — ready to send.");
+    case "delivery_failed":
+      return t(
+        "system.telemetry.deliveryFailed",
+        "Delivery failed. Reports may be dropped while offline.",
+      );
+  }
+}
+
+type Notice = "saved" | "reset";
 
 export function TelemetrySection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   if (isBrowserRemote()) {
     return (
-      <SettingsGroup id={SETTINGS_ANCHORS.telemetry} title="Privacy and telemetry">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.telemetry}
+        title={t("system.telemetrySection.privacyAndTelemetry", "Privacy and telemetry")}
+      >
         <SettingsSubsection>
           <p className="text-xs text-muted-foreground">
-            Manage telemetry from the local Cadencr desktop. Its choices apply to the host,
-            including operations started from remote devices. Remote browser errors stay local.
+            {t(
+              "system.telemetrySection.manageTelemetryFromTheLocalCadencrDesktop",
+              "Manage telemetry from the local Cadencr desktop. Its choices apply to the host, including operations started from remote devices. Remote browser errors stay local.",
+            )}
           </p>
         </SettingsSubsection>
       </SettingsGroup>
@@ -46,12 +63,13 @@ export function TelemetrySection(): React.JSX.Element {
 }
 
 function LocalTelemetrySection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const client = useQueryClient();
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const query = useQuery({ queryKey, queryFn: readTelemetry, refetchInterval: 5000, retry: false });
   const relay = useQuery({
     queryKey: ["telemetry-relay-status"],
-    queryFn: () => desktopBridge.telemetryRelayStatus?.() ?? Promise.resolve("idle"),
+    queryFn: () => desktopBridge.telemetryRelayStatus?.() ?? Promise.resolve("idle" as const),
     refetchInterval: 5000,
     retry: false,
   });
@@ -59,14 +77,14 @@ function LocalTelemetrySection(): React.JSX.Element {
     mutationFn: updateTelemetry,
     onSuccess: (state) => {
       client.setQueryData(queryKey, state);
-      setNotice("Preferences saved.");
+      setNotice("saved");
     },
   });
   const reset = useMutation({
     mutationFn: resetTelemetryIdentity,
     onSuccess: (state) => {
       client.setQueryData(queryKey, state);
-      setNotice("Telemetry ID reset. Previous events are not deleted.");
+      setNotice("reset");
     },
   });
   const state = query.data;
@@ -85,8 +103,11 @@ function LocalTelemetrySection(): React.JSX.Element {
   return (
     <SettingsGroup
       id={SETTINGS_ANCHORS.telemetry}
-      title="Privacy and telemetry"
-      description="Diagnostics and usage start off. The monthly audience counter starts on when configured and sends independently, including before your detailed telemetry choice. These choices apply to this host, including operations started from remote devices."
+      title={t("system.telemetrySection.privacyAndTelemetry", "Privacy and telemetry")}
+      description={t(
+        "system.telemetrySection.diagnosticsAndUsageStartOffTheMonthly",
+        "Diagnostics and usage start off. The monthly audience counter starts on when configured and sends independently, including before your detailed telemetry choice. These choices apply to this host, including operations started from remote devices.",
+      )}
     >
       {query.isPending ? <TelemetryLoading /> : null}
       {query.isError ? (
@@ -110,34 +131,72 @@ function LocalTelemetrySection(): React.JSX.Element {
           />
         </>
       ) : null}
-      {pending ||
-      notice ||
-      save.isError ||
-      reset.isError ||
-      relay.data === "unavailable" ||
-      relay.data === "frames_unavailable" ||
-      relay.isError ? (
-        <SettingsSubsection>
-          <p
-            role={save.isError || reset.isError ? "alert" : "status"}
-            aria-live="polite"
-            className="text-xs text-muted-foreground"
-          >
-            {pending
-              ? "Saving…"
-              : save.isError
-                ? apiErrorMessage(save.error, "Could not save preferences.")
-                : reset.isError
-                  ? apiErrorMessage(reset.error, "Could not reset identity.")
-                  : relay.data === "unavailable" || relay.isError
-                    ? "Desktop diagnostic delivery is unavailable. Local diagnostic reports are still kept on this computer."
-                    : relay.data === "frames_unavailable"
-                      ? "Bundled stack locations are unavailable. Diagnostics contain error categories only."
-                      : notice}
-          </p>
-        </SettingsSubsection>
-      ) : null}
+      <TelemetryNotice
+        pending={pending}
+        notice={notice}
+        saveError={save.isError ? { detail: save.error } : null}
+        resetError={reset.isError ? { detail: reset.error } : null}
+        relayStatus={relay.isError ? "unavailable" : relay.data}
+      />
     </SettingsGroup>
+  );
+}
+
+function TelemetryNotice({
+  pending,
+  notice,
+  saveError,
+  resetError,
+  relayStatus,
+}: {
+  pending: boolean;
+  notice: Notice | null;
+  saveError: { detail: unknown } | null;
+  resetError: { detail: unknown } | null;
+  relayStatus: "idle" | "unavailable" | "frames_unavailable" | undefined;
+}): React.JSX.Element | null {
+  const { t } = useUiTranslation();
+  let message: string;
+  if (pending) {
+    message = t("system.telemetry.saving", "Saving…");
+  } else if (saveError != null) {
+    message = apiErrorMessage(
+      saveError.detail,
+      t("system.telemetry.saveError", "Could not save preferences."),
+    );
+  } else if (resetError != null) {
+    message = apiErrorMessage(
+      resetError.detail,
+      t("system.telemetry.resetError", "Could not reset identity."),
+    );
+  } else if (relayStatus === "unavailable") {
+    message = t(
+      "system.telemetry.relayUnavailable",
+      "Desktop diagnostic delivery is unavailable. Local diagnostic reports are still kept on this computer.",
+    );
+  } else if (relayStatus === "frames_unavailable") {
+    message = t(
+      "system.telemetry.relayFramesUnavailable",
+      "Bundled stack locations are unavailable. Diagnostics contain error categories only.",
+    );
+  } else if (notice === "saved") {
+    message = t("system.telemetry.saved", "Preferences saved.");
+  } else if (notice === "reset") {
+    message = t("system.telemetry.reset", "Telemetry ID reset. Previous events are not deleted.");
+  } else {
+    return null;
+  }
+
+  return (
+    <SettingsSubsection>
+      <p
+        role={saveError != null || resetError != null ? "alert" : "status"}
+        aria-live="polite"
+        className="text-xs text-muted-foreground"
+      >
+        {message}
+      </p>
+    </SettingsSubsection>
   );
 }
 
@@ -150,62 +209,100 @@ function TelemetryControls({
   disabled: boolean;
   update: (field: keyof TelemetryPreferences, value: boolean) => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const audienceLabel = t(
+    "system.telemetrySection.monthlyAudienceCounter",
+    "Monthly audience counter",
+  );
+  const diagnosticsLabel = t(
+    "system.telemetrySection.technicalDiagnostics",
+    "Technical diagnostics",
+  );
+  const usageLabel = t("system.telemetrySection.usageAnalytics", "Usage analytics");
   return (
     <>
-      <SettingsRow
-        htmlFor="telemetry-audience"
-        label="Monthly audience counter"
-        description={`Estimate active installations with one minimal monthly PostHog event using a fresh ID, without a persistent identifier or linking across months or to detailed analytics. The count is approximate and does not track sessions or features. ${statusLabels[state.audience_status]}`}
-        control={
-          <Switch
-            id="telemetry-audience"
-            aria-label="Monthly audience counter"
-            checked={state.audience_enabled}
-            disabled={disabled}
-            onCheckedChange={(value) => update("audience_enabled", value)}
-          />
-        }
+      <SettingsSwitchRow
+        id="telemetry-audience"
+        label={audienceLabel}
+        ariaLabel={audienceLabel}
+        align="center"
+        description={t(
+          "system.telemetry.audienceDescription",
+          "Estimate active installations with one minimal monthly PostHog event using a fresh ID, without a persistent identifier or linking across months or to detailed analytics. The count is approximate and does not track sessions or features. {{status}}",
+          { status: deliveryStatus(t, state.audience_status) },
+        )}
+        checked={state.audience_enabled}
+        disabled={disabled}
+        onCheckedChange={(value) => update("audience_enabled", value)}
       />
-      <SettingsRow
+      <SettingsSwitchRow
         divided
-        htmlFor="telemetry-diagnostics"
-        label="Technical diagnostics"
-        description={`Send curated error categories and app stack locations to Sentry to help fix crashes. ${statusLabels[state.diagnostics_status]}${!state.diagnostics_configured && state.diagnostics_status !== "not_configured" ? " This build has no Sentry destination configured." : ""}`}
-        control={
-          <Switch
-            id="telemetry-diagnostics"
-            aria-label="Technical diagnostics"
-            checked={state.diagnostics_enabled}
-            disabled={disabled}
-            onCheckedChange={(value) => update("diagnostics_enabled", value)}
-          />
+        id="telemetry-diagnostics"
+        label={diagnosticsLabel}
+        ariaLabel={diagnosticsLabel}
+        align="center"
+        description={
+          <>
+            {t(
+              "system.telemetry.diagnosticsDescription",
+              "Send curated error categories and app stack locations to Sentry to help fix crashes. {{status}}",
+              {
+                status: deliveryStatus(t, state.diagnostics_status),
+              },
+            )}
+            {!state.diagnostics_configured && state.diagnostics_status !== "not_configured" ? (
+              <>
+                {" "}
+                {t("system.telemetry.noSentry", "This build has no Sentry destination configured.")}
+              </>
+            ) : null}
+          </>
         }
+        checked={state.diagnostics_enabled}
+        disabled={disabled}
+        onCheckedChange={(value) => update("diagnostics_enabled", value)}
       />
-      <SettingsRow
+      <SettingsSwitchRow
         divided
-        htmlFor="telemetry-usage"
-        label="Usage analytics"
-        description={`Send basic app sessions and feature outcomes to PostHog to understand which features help. ${statusLabels[state.usage_status]}${!state.usage_configured && state.usage_status !== "not_configured" ? " This build has no PostHog destination configured." : ""}`}
-        control={
-          <Switch
-            id="telemetry-usage"
-            aria-label="Usage analytics"
-            checked={state.usage_enabled}
-            disabled={disabled}
-            onCheckedChange={(value) => update("usage_enabled", value)}
-          />
+        id="telemetry-usage"
+        label={usageLabel}
+        ariaLabel={usageLabel}
+        align="center"
+        description={
+          <>
+            {t(
+              "system.telemetry.usageDescription",
+              "Send basic app sessions and feature outcomes to PostHog to understand which features help. {{status}}",
+              {
+                status: deliveryStatus(t, state.usage_status),
+              },
+            )}
+            {!state.usage_configured && state.usage_status !== "not_configured" ? (
+              <>
+                {" "}
+                {t(
+                  "system.telemetry.noPostHog",
+                  "This build has no PostHog destination configured.",
+                )}
+              </>
+            ) : null}
+          </>
         }
+        checked={state.usage_enabled}
+        disabled={disabled}
+        onCheckedChange={(value) => update("usage_enabled", value)}
       />
     </>
   );
 }
 
 function TelemetryLoading(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSubsection>
       <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
         <Loader2 className="size-4 animate-spin" aria-hidden />
-        Loading privacy preferences…
+        {t("system.telemetrySection.loadingPrivacyPreferences", "Loading privacy preferences…")}
       </p>
     </SettingsSubsection>
   );
@@ -220,26 +317,34 @@ function TelemetryReadFailure({
   busy: boolean;
   retry: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSubsection>
       <p role="alert" className="text-xs text-destructive">
-        {apiErrorMessage(error, "Could not load telemetry preferences.")} Preferences are
-        unavailable while the service is disconnected.
+        {apiErrorMessage(
+          error,
+          t("system.telemetry.loadError", "Could not load telemetry preferences."),
+        )}{" "}
+        {t(
+          "system.telemetry.disconnected",
+          "Preferences are unavailable while the service is disconnected.",
+        )}
       </p>
       <Button variant="outline" size="sm" onClick={retry} disabled={busy}>
-        Retry
+        {t("system.telemetrySection.retry", "Retry")}
       </Button>
     </SettingsSubsection>
   );
 }
 
 function TelemetryDecisionStatus({ state }: { state: TelemetryState }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <SettingsSubsection>
       <p className="text-xs text-muted-foreground">
         {needsTelemetryDecision(state)
-          ? "Detailed telemetry decision not yet saved."
-          : "Detailed telemetry decision saved."}
+          ? t("system.telemetry.decisionPending", "Detailed telemetry decision not yet saved.")
+          : t("system.telemetry.decisionSaved", "Detailed telemetry decision saved.")}
       </p>
     </SettingsSubsection>
   );

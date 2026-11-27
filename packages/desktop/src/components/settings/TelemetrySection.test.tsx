@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uiI18n } from "@/lib/i18n/ui";
 import { TelemetrySection } from "./TelemetrySection";
 import {
   readTelemetry,
@@ -78,7 +79,7 @@ describe("telemetry preferences", () => {
     );
     mount();
     const diagnostics = await screen.findByRole("switch", { name: "Technical diagnostics" });
-    fireEvent.click(diagnostics);
+    fireEvent.click(screen.getByText("Technical diagnostics"));
     await waitFor(() =>
       expect(vi.mocked(updateTelemetry).mock.calls[0]?.[0]).toEqual({
         diagnostics_enabled: true,
@@ -132,6 +133,36 @@ describe("telemetry preferences", () => {
     expect(await screen.findByText(/Telemetry ID reset/)).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+  it("retranslates an existing success notice without polling or resetting choices", async () => {
+    vi.mocked(updateTelemetry).mockResolvedValue({
+      ...initial,
+      diagnostics_enabled: true,
+    });
+    mount();
+    const diagnostics = await screen.findByRole("switch", { name: "Technical diagnostics" });
+    fireEvent.click(diagnostics);
+    expect(await screen.findByText("Preferences saved.")).toBeVisible();
+    expect(readTelemetry).toHaveBeenCalledOnce();
+
+    uiI18n.addResourceBundle("fr", "ui", {
+      system: {
+        telemetry: { saved: "Préférences enregistrées." },
+        telemetrySection: { technicalDiagnostics: "Diagnostics techniques" },
+      },
+    });
+    try {
+      await act(() => uiI18n.changeLanguage("fr-CA"));
+      expect(screen.getByText("Préférences enregistrées.")).toBeVisible();
+      expect(screen.getByRole("switch", { name: "Diagnostics techniques" })).toBe(diagnostics);
+      expect(diagnostics).toBeChecked();
+      expect(readTelemetry).toHaveBeenCalledOnce();
+      expect(updateTelemetry).toHaveBeenCalledOnce();
+    } finally {
+      await act(() => uiI18n.changeLanguage("en"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
+  });
+
   it("resets identity through the service without altering choices", async () => {
     vi.mocked(resetTelemetryIdentity).mockResolvedValue({ ...initial, installation_id: "new-id" });
     mount();

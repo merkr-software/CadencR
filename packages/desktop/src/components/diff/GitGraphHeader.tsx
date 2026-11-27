@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownIcon,
@@ -38,6 +39,7 @@ export const GitGraphHeader = memo(function GitGraphHeader({
   targetBranch,
   onBackToBranches,
 }: GitGraphHeaderProps): ReactElement {
+  const { t } = useUiTranslation();
   const branch = currentBranch ?? "HEAD";
   return (
     <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
@@ -49,22 +51,29 @@ export const GitGraphHeader = memo(function GitGraphHeader({
           className="-ml-1.5 font-normal text-muted-foreground"
         >
           <ArrowLeftIcon className="size-3.5" />
-          Branches
+          {t("workspace.git.gitGraphHeader.branches", "Branches")}
         </Button>
       )}
       <div
         className="flex min-w-0 flex-1 items-center gap-1.5"
         title={
           targetBranch
-            ? `History of ${branch} and its target branch ${targetBranch}`
-            : `History of ${branch}`
+            ? t(
+                "workspace.git.gitGraphHeader.historyWithTarget",
+                "History of {{branch}} and its target branch {{target}}",
+                { branch, target: targetBranch },
+              )
+            : t("workspace.git.gitGraphHeader.history", "History of {{branch}}", { branch })
         }
       >
         <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span className="truncate font-mono font-medium text-foreground">{branch}</span>
         {targetBranch && (
           <>
-            <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" aria-label="into" />
+            <ArrowRightIcon
+              className="size-3 shrink-0 text-muted-foreground"
+              aria-label={t("workspace.git.gitGraphHeader.into", "into")}
+            />
             <span className="truncate font-mono text-muted-foreground">{targetBranch}</span>
           </>
         )}
@@ -81,6 +90,7 @@ function RemoteSyncStatus({
   featureId: number;
   branch: string;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const ahead = useGitStatusStore(selectGitAheadOfRemote(featureId));
   const behind = useGitStatusStore(selectGitBehindRemote(featureId));
   if (ahead === undefined || behind === undefined) return null;
@@ -89,9 +99,13 @@ function RemoteSyncStatus({
       <SyncLabel
         icon={<CheckIcon className="size-3.5" />}
         tone="muted"
-        hint={`Every commit on ${branch} is on the remote`}
+        hint={t(
+          "workspace.git.gitGraphHeader.everyCommitOnBranchIsOnThe",
+          "Every commit on {{branch}} is on the remote",
+          { branch: branch },
+        )}
       >
-        All pushed
+        {t("workspace.git.gitGraphHeader.allPushed", "All pushed")}
       </SyncLabel>
     );
   }
@@ -101,18 +115,37 @@ function RemoteSyncStatus({
         <SyncLabel
           icon={<ArrowUpIcon className="size-3.5" />}
           tone="local"
-          hint={`${ahead} ${ahead === 1 ? "commit" : "commits"} on ${branch} not on the remote yet — push to share`}
+          hint={t(
+            "workspace.git.gitGraphHeader.aheadHint",
+            "{{count, number}} commits on {{branch}} not on the remote yet — push to share",
+            {
+              count: ahead,
+              branch,
+              defaultValue_one:
+                "{{count, number}} commit on {{branch}} not on the remote yet — push to share",
+            },
+          )}
         >
-          {ahead} not pushed
+          {t("workspace.git.gitGraphHeader.ahead", "{{count, number}} not pushed", {
+            count: ahead,
+          })}
         </SyncLabel>
       )}
       {behind > 0 && (
         <SyncLabel
           icon={<ArrowDownIcon className="size-3.5" />}
           tone="default"
-          hint={`The remote has ${behind} ${behind === 1 ? "commit" : "commits"} this branch does not — pull to catch up`}
+          hint={t(
+            "workspace.git.gitGraphHeader.behindHint",
+            "The remote has {{count, number}} commits this branch does not — pull to catch up",
+            {
+              count: behind,
+              defaultValue_one:
+                "The remote has {{count, number}} commit this branch does not \u2014 pull to catch up",
+            },
+          )}
         >
-          {behind} to pull
+          {t("workspace.git.gitGraphHeader.behind", "{{count, number}} to pull", { count: behind })}
         </SyncLabel>
       )}
     </div>

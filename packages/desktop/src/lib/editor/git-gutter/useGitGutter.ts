@@ -5,6 +5,7 @@ import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { useQueryErrorToast } from "@/hooks/useQueryErrorToast";
 import { apiErrorCode, retryUnlessRefusedForSize } from "@/lib/api-errors";
 import { featurePathToGitPath } from "@/lib/git-paths";
+import type { UiTranslator } from "@/lib/i18n/ui";
 import { gitGutterExtension } from "./git-gutter-extension";
 
 interface UseGitGutterArgs {
@@ -32,6 +33,10 @@ interface UseGitGutterResult {
 // share it — handing CodeMirror a fresh extension array would reset editor
 // state on every render (see `.claude/rules/frontend-performance.md`).
 const GIT_GUTTER_EXTENSION = gitGutterExtension();
+
+function gutterUnavailable(t: UiTranslator): string {
+  return t("workspace.editor.gitGutter.unavailable", "Git change markers unavailable");
+}
 
 /**
  * Supplies the editor's git change-marker gutter.
@@ -73,7 +78,7 @@ export function useGitGutter({
   const noTextBaseline = apiErrorCode(query.error) === "UNSUPPORTED_FILE_TYPE";
   useQueryErrorToast(
     { isError: query.isError && !noTextBaseline, error: query.error },
-    "Git change markers unavailable",
+    gutterUnavailable,
     `git-gutter:${featureId}:${gitPath}`,
   );
   const { data } = query;

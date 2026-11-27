@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import { z } from "zod";
 import type {
   ManagedCatalogResponse,
@@ -112,7 +113,33 @@ export const inventorySchema = z
 /** A confirmed result, or a change Cadencr did not confirm (shown as a failure). */
 export interface MarketplaceNotice {
   tone: "done" | "error";
-  text: string;
+  text: (t: UiTranslator) => string;
+}
+
+type ConfirmedAction = "install" | "update" | "remove" | "apply" | "duplicate";
+
+const CONFIRMED_ACTIONS: Record<ConfirmedAction, (t: UiTranslator, id: string) => string> = {
+  install: (t, id) =>
+    t("marketplace.activity.confirmedInstall", "{{id}}: install confirmed by Cadencr.", { id }),
+  update: (t, id) =>
+    t("marketplace.activity.confirmedUpdate", "{{id}}: update confirmed by Cadencr.", { id }),
+  remove: (t, id) =>
+    t("marketplace.activity.confirmedRemove", "{{id}}: remove confirmed by Cadencr.", { id }),
+  apply: (t, id) =>
+    t("marketplace.activity.confirmedApply", "{{id}}: apply confirmed by Cadencr.", { id }),
+  duplicate: (t, id) =>
+    t("marketplace.activity.confirmedDuplicate", "{{id}}: duplicate confirmed by Cadencr.", { id }),
+};
+
+export function confirmedAction(t: UiTranslator, action: { kind: ConfirmedAction; id: string }) {
+  return CONFIRMED_ACTIONS[action.kind](t, action.id);
+}
+
+/** Host-created failures keep their translation data while rendered in the Marketplace. */
+export class MarketplaceOperationError extends Error {
+  constructor(readonly text: (t: UiTranslator) => string) {
+    super(text(translateUi));
+  }
 }
 
 /** The service's code for a build with no catalog feed compiled in (dev builds, forks). */
@@ -143,19 +170,25 @@ export function installedRevision(entry?: ManagedProviderInventoryEntry): boolea
 }
 
 /** Display only the service's stable error shape; never arbitrary provider output. */
-export function marketplaceError(error: unknown): string | null {
+export function marketplaceError(error: unknown, t: UiTranslator = translateUi): string | null {
   if (!error) return null;
+  if (error instanceof MarketplaceOperationError) return error.text(t);
   const transport = z
     .object({ code: z.enum(["ECONNABORTED", "ETIMEDOUT", "ERR_NETWORK"]) })
     .safeParse(error);
   if (transport.success)
-    return "Connection lost or timed out. The operation outcome is unknown; recheck Installed before retrying.";
+    return t(
+      "marketplace.activity.unknownOutcome",
+      "Connection lost or timed out. The operation outcome is unknown; recheck Installed before retrying.",
+    );
   const response = z
     .object({ response: z.object({ data: z.object({ error: z.string(), code: z.string() }) }) })
     .safeParse(error);
   if (response.success)
     return `${response.data.response.data.code}: ${response.data.response.data.error}`;
-  return error instanceof Error ? error.message : "Marketplace request failed.";
+  return error instanceof Error
+    ? error.message
+    : t("marketplace.activity.requestFailed", "Marketplace request failed.");
 }
 
 /** Only presentation is filtered; callers keep the complete signed envelope for mutations. */

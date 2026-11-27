@@ -1,5 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { uiI18n } from "@/lib/i18n/ui";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { FontSelector } from "./FontSelector";
 
 const setFamily = vi.fn();
@@ -16,6 +17,11 @@ const toastError = vi.fn();
 vi.mock("@/lib/fonts/mono-font-setting", () => ({ useMonoFont: () => monoState }));
 vi.mock("@/lib/fonts/useSystemFonts", () => ({ useSystemFonts: () => systemState }));
 vi.mock("sonner", () => ({ toast: { error: (m: string) => toastError(m) } }));
+
+afterEach(async () => {
+  await act(() => uiI18n.changeLanguage("en"));
+  uiI18n.removeResourceBundle("fr", "ui");
+});
 
 beforeEach(() => {
   setFamily.mockClear();
@@ -77,4 +83,60 @@ describe("FontSelector", () => {
     fireEvent.click(screen.getByRole("combobox"));
     expect(within(screen.getByRole("listbox")).getByText(/Default/)).toBeInTheDocument();
   });
+});
+
+it("updates an open font list and finds Default by its translated display label", async () => {
+  render(<FontSelector />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Monospace font" }));
+  const input = screen.getByPlaceholderText("Search fonts…");
+  input.focus();
+  const defaultOption = screen.getByRole("option", { name: "Default" });
+  fireEvent.change(input, { target: { value: "default" } });
+
+  uiI18n.addResourceBundle("fr", "ui", {
+    appearance: {
+      font: {
+        default: "Par défaut",
+        search: "Chercher des polices…",
+        results: "Polices trouvées",
+      },
+    },
+  });
+  await act(() => uiI18n.changeLanguage("fr"));
+
+  expect(screen.getByPlaceholderText("Chercher des polices…")).toBe(input);
+  expect(input).toHaveValue("default");
+  expect(input).toHaveFocus();
+  expect(screen.getByRole("option", { name: "Par défaut" })).toBe(defaultOption);
+  fireEvent.change(input, { target: { value: "par défaut" } });
+  expect(screen.getByRole("option", { name: "Par défaut" })).toBe(defaultOption);
+
+  await act(() => uiI18n.changeLanguage("en"));
+  expect(screen.getByPlaceholderText("Search fonts…")).toBe(input);
+  expect(screen.getByText("No matching fonts.")).toBeVisible();
+  await act(() => uiI18n.changeLanguage("fr"));
+  expect(input).toHaveValue("par défaut");
+
+  const localizedDefault = screen.getByRole("option", { name: "Par défaut" });
+  await waitFor(() => expect(localizedDefault).toHaveAttribute("aria-selected", "true"));
+  expect(input).toHaveFocus();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(setFamily).toHaveBeenCalledWith("");
+});
+
+it("navigates filtered font options by arrow and commits the raw family with Enter", async () => {
+  systemState.fonts = ["Fira Mono", "JetBrains Mono"];
+  render(<FontSelector />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Monospace font" }));
+  const input = screen.getByPlaceholderText("Search fonts…");
+
+  fireEvent.change(input, { target: { value: "mono" } });
+  const first = screen.getByRole("option", { name: "Fira Mono" });
+  const second = screen.getByRole("option", { name: "JetBrains Mono" });
+  await waitFor(() => expect(first).toHaveAttribute("aria-selected", "true"));
+
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  expect(second).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(setFamily).toHaveBeenCalledWith("JetBrains Mono");
 });

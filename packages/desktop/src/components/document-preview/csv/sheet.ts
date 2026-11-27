@@ -1,3 +1,4 @@
+import { type UiTranslator } from "@/lib/i18n/ui";
 /**
  * The grid model the CSV / TSV reader (`parse-csv.ts`) produces and
  * `SheetGrid` renders.
@@ -38,7 +39,21 @@ export function columnName(index: number): string {
  * Status-bar summary: `"12 rows × 4 columns"`, flagged when the sheet was
  * clipped to `MAX_ROWS` × `MAX_COLS` (the counts are then what's shown).
  */
-export function sheetSummary(sheet: Sheet): string {
-  const size = `${sheet.rowCount.toLocaleString()} rows × ${sheet.colCount} columns`;
-  return sheet.truncated ? `${size} · truncated` : size;
+export function sheetSummary(sheet: Sheet, t: UiTranslator): string {
+  const rows = t("workspace.editor.sheet.rowCount", {
+    count: sheet.rowCount,
+    defaultValue_zero: "{{count, number}} rows",
+    defaultValue_one: "{{count, number}} row",
+    defaultValue_other: "{{count, number}} rows",
+  });
+  const columns = t("workspace.editor.sheet.columnCount", {
+    count: sheet.colCount,
+    defaultValue_zero: "{{count, number}} columns",
+    defaultValue_one: "{{count, number}} column",
+    defaultValue_other: "{{count, number}} columns",
+  });
+  const size = t("workspace.editor.sheet.size", "{{rows}} × {{columns}}", { rows, columns });
+  return sheet.truncated
+    ? t("workspace.editor.sheet.truncated", "{{size}} · truncated", { size })
+    : size;
 }

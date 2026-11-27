@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * Searchable, virtualized branch picker. Repos can have hundreds of branches —
  * `frontend-performance.md` requires virtualization for any list whose size
@@ -38,6 +39,7 @@ function BranchPicker({
   onSelect,
   errorMessage,
 }: BranchPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const branchesQuery = useListBranches({ project_id: projectId });
   const [query, setQuery] = useState("");
   const [pendingName, setPendingName] = useState<string | null>(null);
@@ -78,7 +80,9 @@ function BranchPicker({
     onPick: onPickBranch,
     renderRow,
     emptyState: (
-      <p className="text-sm text-muted-foreground p-3 text-center">No matching branches.</p>
+      <p className="text-sm text-muted-foreground p-3 text-center">
+        {t("workspace.git.branchPicker.noMatchingBranches", "No matching branches.")}
+      </p>
     ),
   });
 
@@ -88,7 +92,7 @@ function BranchPicker({
         <Input
           variant="ghost"
           autoFocus
-          placeholder="Search branches…"
+          placeholder={t("workspace.git.branchPicker.searchBranches", "Search branches…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -98,11 +102,17 @@ function BranchPicker({
       {branchesQuery.isLoading ? (
         <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          <span>Loading branches…</span>
+          <span>{t("workspace.git.branchPicker.loadingBranches", "Loading branches…")}</span>
         </div>
       ) : branchesQuery.isError ? (
         <p className="text-sm text-destructive p-3">
-          {apiErrorMessage(branchesQuery.error, "Failed to load branches.")}
+          {apiErrorMessage(
+            branchesQuery.error,
+            translateUi(
+              "workspace.git.branchPicker.failedToLoadBranches",
+              "Failed to load branches.",
+            ),
+          )}
         </p>
       ) : (
         list
@@ -128,6 +138,7 @@ export function TargetBranchPicker({
   currentTarget,
   onPicked,
 }: TargetBranchPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const { mutateAsync } = useUpdateTargetBranch();
   const select = useCallback(
     async (name: string): Promise<void> => {
@@ -143,7 +154,10 @@ export function TargetBranchPicker({
       projectId={projectId}
       selected={currentTarget}
       onSelect={select}
-      errorMessage="Failed to update target branch."
+      errorMessage={t(
+        "workspace.git.branchPicker.failedToUpdateTargetBranch",
+        "Failed to update target branch.",
+      )}
     />
   );
 }
@@ -160,6 +174,7 @@ export function LinkBranchPicker({
   projectId,
   onLinked,
 }: LinkBranchPickerProps): ReactElement {
+  const { t } = useUiTranslation();
   const { mutateAsync } = useLinkFeatureBranch();
   const select = useCallback(
     async (name: string): Promise<void> => {
@@ -173,7 +188,10 @@ export function LinkBranchPicker({
       projectId={projectId}
       selected={null}
       onSelect={select}
-      errorMessage="Failed to link the branch."
+      errorMessage={t(
+        "workspace.git.branchPicker.failedToLinkTheBranch",
+        "Failed to link the branch.",
+      )}
     />
   );
 }
@@ -193,12 +211,21 @@ function BranchRow({
   isPending,
   onSelect,
 }: BranchRowProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
       onClick={onSelect}
       disabled={isPending}
-      aria-label={`Select ${branch.is_local ? "local" : "remote"} branch ${branch.name}`}
+      aria-label={
+        branch.is_local
+          ? t("workspace.git.branchPicker.selectBranchLocal", "Select local branch {{branch}}", {
+              branch: branch.name,
+            })
+          : t("workspace.git.branchPicker.selectBranchRemote", "Select remote branch {{branch}}", {
+              branch: branch.name,
+            })
+      }
       className={cn(
         "w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left hover:bg-accent disabled:opacity-50",
         isSelected && "bg-accent/50",
@@ -207,11 +234,15 @@ function BranchRow({
     >
       <span className="flex-1 truncate font-mono text-xs">{branch.name}</span>
       {!branch.is_local && (
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">remote</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          {t("workspace.git.branchPicker.remote", "remote")}
+        </span>
       )}
       {branch.attached_feature_id != null && (
         <span className="text-[10px] text-muted-foreground">
-          in use by feature #{branch.attached_feature_id}
+          {t("workspace.git.branchPicker.usedByFeature", "in use by feature #{{number}}", {
+            number: branch.attached_feature_id,
+          })}
         </span>
       )}
       {isPending && <Loader2 className="size-3 animate-spin" />}

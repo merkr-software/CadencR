@@ -4,6 +4,7 @@
  * non-zero. Bounds mirror `schedules/condition.rs`.
  */
 import type { ScheduleCondition, ScheduleLastCheck } from "@/api/generated";
+import { translateUi } from "@/lib/i18n/ui";
 import { formatAbsolute } from "./format";
 
 export const DEFAULT_CONDITION_TIMEOUT_SECONDS = 300;
@@ -36,13 +37,18 @@ export function conditionDraftToInput(draft: ConditionDraft): ScheduleCondition 
 
 export function conditionDraftError(draft: ConditionDraft): string | null {
   if (!draft.enabled) return null;
-  if (!draft.command.trim()) return "Enter the command to check.";
+  if (!draft.command.trim())
+    return translateUi("schedules.condition.commandRequired", "Enter the command to check.");
   if (
     !Number.isInteger(draft.timeoutSeconds) ||
     draft.timeoutSeconds < 1 ||
     draft.timeoutSeconds > MAX_CONDITION_TIMEOUT_SECONDS
   ) {
-    return `The timeout must be between 1 and ${MAX_CONDITION_TIMEOUT_SECONDS} seconds.`;
+    return translateUi(
+      "schedules.condition.timeoutRange",
+      "The timeout must be between 1 and {{max, number}} seconds.",
+      { max: MAX_CONDITION_TIMEOUT_SECONDS },
+    );
   }
   return null;
 }
@@ -52,18 +58,23 @@ export function conditionDraftError(draft: ConditionDraft): string | null {
  * A triggered check doesn't claim the prompt arrived: the check is recorded
  * before delivery, and the last-run line reports how delivery went.
  */
-export function describeLastCheck(check: ScheduleLastCheck): string {
-  const at = formatAbsolute(new Date(check.at));
+export function describeLastCheck(check: ScheduleLastCheck, language?: string): string {
+  const at = formatAbsolute(new Date(check.at), language);
   switch (check.status) {
     case "passed":
-      return `Check passed ${at} — nothing sent`;
+      return translateUi("schedules.condition.passed", "Check passed {{at}} — nothing sent", {
+        at,
+      });
     case "triggered":
       return check.exit_code == null
-        ? `Command was killed ${at}`
-        : `Command failed (exit ${check.exit_code}) ${at}`;
+        ? translateUi("schedules.condition.killed", "Command was killed {{at}}", { at })
+        : translateUi("schedules.condition.failed", "Command failed (exit {{code}}) {{at}}", {
+            at,
+            code: check.exit_code,
+          });
     case "busy":
-      return `Skipped ${at} — the agent was busy`;
+      return translateUi("schedules.condition.busy", "Skipped {{at}} — the agent was busy", { at });
     case "error":
-      return `Command could not run ${at}`;
+      return translateUi("schedules.condition.error", "Command could not run {{at}}", { at });
   }
 }

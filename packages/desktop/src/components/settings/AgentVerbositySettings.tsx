@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createElement, useMemo } from "react";
 import { useSetting } from "@/hooks/useSetting";
 import {
@@ -9,6 +10,7 @@ import {
 import { RadioCardGroup, type RadioCardOption } from "@/components/settings/RadioCardGroup";
 
 export function AgentVerbositySettings(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const modeSetting = useSetting(AGENT_VERBOSITY_SETTING_KEY);
   const currentMode = parseAgentVerbosityMode(modeSetting.value);
 
@@ -16,19 +18,19 @@ export function AgentVerbositySettings(): React.JSX.Element {
     () =>
       AGENT_VERBOSITY_OPTIONS.map((option) => ({
         value: option.value,
-        label: option.label,
-        description: option.description,
+        label: option.label(t),
+        description: option.description(t),
         visual: createElement(option.icon, {
           className: "mt-0.5 size-4",
           style: { color: option.iconColorVar },
         }),
       })),
-    [],
+    [t],
   );
 
   return (
     <RadioCardGroup<AgentVerbosityMode>
-      ariaLabel="Agent output verbosity"
+      ariaLabel={t("settings.agentOutput.verbosity", "Agent output verbosity")}
       value={currentMode}
       onChange={modeSetting.setValue}
       options={options}

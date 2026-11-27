@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, type ReactElement } from "react";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
@@ -30,6 +31,7 @@ export function FilterEditorShell({
   onFocusChange,
   onActiveSlashFilterTokenChange,
 }: FilterEditorShellProps): ReactElement {
+  const { t } = useUiTranslation();
   const handleChange = useCallback(
     (_editorState: EditorState): void => {
       editor.getEditorState().read(() => {
@@ -52,7 +54,7 @@ export function FilterEditorShell({
                 ? "overflow-hidden whitespace-nowrap [&>p]:overflow-hidden [&>p]:text-ellipsis [&>p]:whitespace-nowrap"
                 : "whitespace-pre-wrap break-words",
             )}
-            aria-label="Filter agents"
+            aria-label={t("agents.unifiedAgentsFilterEditorShell.filterAgents", "Filter agents")}
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"
@@ -62,11 +64,17 @@ export function FilterEditorShell({
         }
         placeholder={
           <div className="pointer-events-none absolute top-1/2 right-16 left-8 -translate-y-1/2 truncate select-none text-[12.5px] leading-5 text-muted-foreground">
-            Filter agents by name · type{" "}
-            <span className="text-foreground/70">
-              <KbdShortcut keys={["/"]} variant="inline-sm" />
-            </span>{" "}
-            for project, time, sort…
+            <UiTrans
+              i18nKey="agents.filter.placeholder"
+              defaults="Filter agents by name · type <shortcut/> for project, time, sort…"
+              components={{
+                shortcut: (
+                  <span className="text-foreground/70">
+                    <KbdShortcut keys={["/"]} variant="inline-sm" />
+                  </span>
+                ),
+              }}
+            />
           </div>
         }
         ErrorBoundary={LexicalErrorBoundary}

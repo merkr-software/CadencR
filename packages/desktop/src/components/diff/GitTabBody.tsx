@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { FeaturePrView } from "@/components/FeaturePrView";
 import type { CommentThread } from "@/api/generated";
@@ -10,6 +11,7 @@ import { StashesView } from "./StashesView";
 import type { GitViewMode } from "./GitTabToggle";
 import type { DiffMode } from "./useDiffData";
 import type { GitNavigationAdapterRegistrar } from "./gitNavigation";
+import { worktreeUnavailableMessage } from "@/lib/api-errors";
 import {
   selectGitCheckoutPending,
   selectGitMissingTargetBranch,
@@ -62,6 +64,7 @@ export const GitTabBody = memo(function GitTabBody({
   onViewReviewThread,
   onSendReviewThread,
 }: GitTabBodyProps): ReactElement {
+  const { t } = useUiTranslation();
   const missingTargetBranch = useGitStatusStore(selectGitMissingTargetBranch(featureId));
   const checkoutError = useGitStatusStore(selectGitWorktreeError(featureId));
   const checkingCheckout = useGitStatusStore(selectGitCheckoutPending(featureId));
@@ -88,7 +91,9 @@ export const GitTabBody = memo(function GitTabBody({
         className="flex h-full items-center justify-center px-4 text-center text-muted-foreground"
         role={checkoutError ? "alert" : "status"}
       >
-        {checkoutError ?? "Loading Git status…"}
+        {checkoutError
+          ? worktreeUnavailableMessage(t)
+          : t("workspace.git.status.loading", "Loading Git status…")}
       </div>
     );
   }
@@ -142,14 +147,18 @@ export const GitTabBody = memo(function GitTabBody({
  *  `main` in a repository without one): said once, rather than one failed read
  *  per pane. */
 function MissingTargetBranch({ branch }: { branch: string }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       className="flex h-full items-center justify-center bg-background px-4 text-center text-muted-foreground"
       role="status"
     >
       <p>
-        Target branch “{branch}” does not exist in this repository. Pick a target from the branch
-        menu in the header to compare against.
+        {t(
+          "workspace.git.gitTabBody.missingTargetBranch",
+          "Target branch “{{branch}}” does not exist in this repository. Pick a target from the branch menu in the header to compare against.",
+          { branch },
+        )}
       </p>
     </div>
   );

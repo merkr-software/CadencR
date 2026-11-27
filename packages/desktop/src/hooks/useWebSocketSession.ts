@@ -28,7 +28,7 @@ import type { DisplayRowMode, HistoryGap } from "@/types/agent-stream";
 import { NO_HISTORY_GAPS, type HistoryGapFillDirection } from "@/stores/ws-history-gaps";
 import type { FillHistoryGapOptions } from "@/stores/ws-session-history-fill";
 import type { AccessMode } from "@/types/access-mode";
-import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
+import type { McpServerStatus, SessionConfigError, SessionEntry } from "@/stores/ws-session-types";
 import { retainWsSession } from "@/hooks/ws-session-retention";
 import { usePersistedSessionLoader } from "@/hooks/usePersistedSessionLoader";
 import { useWorkspaceSession } from "@/hooks/useWorkspaceSession";
@@ -102,7 +102,7 @@ export interface UseWebSocketSessionReturn {
   sessionConfig: RuntimeSessionConfigSnapshot | null;
   sessionConfigLoading: boolean;
   sessionConfigSupported: boolean | null;
-  sessionConfigError: string | null;
+  sessionConfigError: SessionConfigError | null;
   pendingSessionConfigId: string | null;
   requestSessionConfig: () => Promise<void>;
   setSessionConfigOption: (configId: string, value: RuntimeSessionConfigValue) => Promise<void>;

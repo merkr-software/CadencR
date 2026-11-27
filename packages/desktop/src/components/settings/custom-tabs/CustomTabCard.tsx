@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { useId } from "react";
 import { ArrowUpCircle, Ban, ChevronRight, ShieldAlert } from "lucide-react";
 import type { PluginTabSummary, Project } from "@/api/generated";
@@ -5,8 +6,8 @@ import { PluginTabAccessBadge } from "@/components/plugin-tabs/PluginTabAccess";
 import { PluginTabIcon } from "@/components/plugin-tabs/PluginTabIcon";
 import {
   backendPlatforms,
-  BLOCKED_COPY,
-  UNAVAILABLE_HERE,
+  blockedCopy,
+  unavailableHere,
 } from "@/components/plugin-tabs/plugin-tab-access";
 import { cn } from "@/lib/utils";
 import {
@@ -37,12 +38,18 @@ export interface CustomTabCardProps {
  * tab still gets its card, with the issues that keep it from running.
  */
 export function CustomTabCard(props: CustomTabCardProps): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { tab, projects, overrides, expanded, onExpandedChange } = props;
   const detailsId = useId();
   const projectIds = projects.map((project) => project.id);
   const status = customTabStatus(tab);
   // A blocked tab runs nowhere, whatever its switches still say.
-  const summary = status === "blocked" ? "Off" : enablementSummary(tab, overrides, projectIds);
+  const off =
+    status === "blocked" ||
+    (tab.enablement.global !== true && !projectIds.some((id) => overrides.get(id) === true));
+  const summary = off
+    ? t("customTabs.enablement.off", "Off")
+    : enablementSummary(tab, overrides, projectIds, t);
   // An invalid tab can't be consented to; its issues say why it is off.
   const paused =
     tab.status === "valid" &&
@@ -77,43 +84,27 @@ export function CustomTabCard(props: CustomTabCardProps): React.JSX.Element {
           </span>
           {status === "unavailable" && tab.backend ? (
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              {UNAVAILABLE_HERE}: its backend runs on {backendPlatforms(tab.backend)} only.
+              {t(
+                "customTabs.card.unavailable",
+                "{{title}}: its backend runs on {{platforms}} only.",
+                { title: unavailableHere(t), platforms: backendPlatforms(tab.backend, t) },
+              )}
             </span>
           ) : null}
-          {/* Open, the details lead with the same notices and their actions. */}
-          {status === "blocked" && !expanded ? (
-            <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-[var(--acc-red)]">
-              <Ban className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">
-                {tab.blocked_reason
-                  ? `${BLOCKED_COPY.title}: ${tab.blocked_reason}`
-                  : BLOCKED_COPY.title}
-              </span>
-            </span>
-          ) : null}
-          {tab.pending_update && !expanded ? (
-            <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-[var(--acc-orange)]">
-              <ArrowUpCircle className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">
-                Update <span className="font-mono">{tab.pending_update.version}</span>{" "}
-                {tab.pending_update.blocked_reason
-                  ? "blocked by Cadencr"
-                  : "ready — review permissions"}
-              </span>
-            </span>
-          ) : null}
+          {/* The expanded details lead with the same notices and their actions. */}
+          {!expanded && <CollapsedTabNotices tab={tab} blocked={status === "blocked"} />}
         </span>
         <span className="flex shrink-0 items-center gap-2 self-center">
           {paused ? (
             <span className="flex items-center gap-1 text-xs font-medium text-[var(--acc-orange)]">
               <ShieldAlert className="size-3.5" aria-hidden />
-              Needs consent
+              {t("customTabs.card.needsConsent", "Needs consent")}
             </span>
           ) : (
             <span
               className={cn(
                 "text-xs",
-                summary === "Off" ? "text-muted-foreground" : "font-medium text-foreground",
+                off ? "text-muted-foreground" : "font-medium text-foreground",
               )}
             >
               {summary}
@@ -134,5 +125,57 @@ export function CustomTabCard(props: CustomTabCardProps): React.JSX.Element {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CollapsedTabNotices({
+  tab,
+  blocked: isBlocked,
+}: {
+  tab: PluginTabSummary;
+  blocked: boolean;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const blocked = isBlocked ? blockedCopy(t) : null;
+  return (
+    <>
+      {blocked ? (
+        <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-[var(--acc-red)]">
+          <Ban className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">
+            {tab.blocked_reason
+              ? t("customTabs.card.blockedWithReason", "{{title}}: {{reason}}", {
+                  title: blocked.title,
+                  reason: tab.blocked_reason,
+                })
+              : blocked.title}
+          </span>
+        </span>
+      ) : null}
+      {tab.pending_update ? (
+        <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-[var(--acc-orange)]">
+          <ArrowUpCircle className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">
+            {tab.pending_update.blocked_reason ? (
+              <UiTrans
+                i18nKey="customTabs.card.updateBlocked"
+                defaults="Update <version/> blocked by Cadencr"
+                components={{
+                  version: <span className="font-mono">{tab.pending_update.version}</span>,
+                }}
+              />
+            ) : (
+              <UiTrans
+                i18nKey="customTabs.card.updateReady"
+                defaults="Update <version/> ready — review permissions"
+                components={{
+                  version: <span className="font-mono">{tab.pending_update.version}</span>,
+                }}
+              />
+            )}
+          </span>
+        </span>
+      ) : null}
+    </>
   );
 }

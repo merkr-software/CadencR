@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Symbol rename via the type-checker LSP client.
  *
@@ -87,7 +88,8 @@ export async function performRename(
   host: WorkspaceEditHost,
 ): Promise<WorkspaceEditResult> {
   const plugin = LSPPlugin.get(view);
-  if (!plugin) throw new Error("No language server attached");
+  if (!plugin)
+    throw new Error(translateUi("workspace.editor.rename.noServer", "No language server attached"));
   plugin.client.sync();
   const edit = await plugin.client.request<unknown, LspWorkspaceEdit | null>(
     "textDocument/rename",
@@ -97,6 +99,9 @@ export async function performRename(
       newName,
     },
   );
-  if (!edit) throw new Error("Server returned no rename edit");
+  if (!edit)
+    throw new Error(
+      translateUi("workspace.editor.rename.noEdit", "Server returned no rename edit"),
+    );
   return applyWorkspaceEdit(view, edit, host);
 }

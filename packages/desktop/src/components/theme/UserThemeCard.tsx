@@ -1,9 +1,12 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { Code2, Copy, Download, Loader2, Trash2 } from "lucide-react";
 import type { UserTheme } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { SettingsWarningsBanner } from "@/components/settings/SettingsWarningsBanner";
 import { copyToClipboard } from "@/lib/clipboard";
+import { themeAppearanceLabel } from "@/lib/themes/display";
 import { toThemeDefinition, userThemeLabel } from "@/lib/themes/user-theme";
 import { ThemeSwatch } from "./ThemeSwatch";
 
@@ -39,6 +42,7 @@ export function UserThemeCard({
   onExport,
   onDelete,
 }: UserThemeCardProps): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
   const themeDocument = theme.theme;
   const label = userThemeLabel(theme);
   const switchId = `theme-enabled-${theme.id}`;
@@ -58,21 +62,27 @@ export function UserThemeCard({
             <span className="truncate text-sm font-medium">{label}</span>
             {isActive ? (
               <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                Active
+                {t("appearance.library.active", "Active")}
               </span>
             ) : null}
           </div>
           <p className="truncate text-xs text-muted-foreground">
             {/* The id is the directory name on disk, so it is shown verbatim —
                 only the appearance is title-cased. */}
-            {themeDocument ? <span className="capitalize">{themeDocument.appearance}</span> : null}
+            {themeDocument ? (
+              <span className="capitalize">
+                {themeAppearanceLabel(themeDocument.appearance, t)}
+              </span>
+            ) : null}
             {themeDocument ? " · " : null}
             {theme.id}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <label htmlFor={switchId} className="text-xs text-muted-foreground">
-            {isEnabled ? "Enabled" : "Disabled"}
+            {isEnabled
+              ? t("appearance.library.enabled", "Enabled")
+              : t("appearance.library.disabled", "Disabled")}
           </label>
           <Switch
             id={switchId}
@@ -86,11 +96,12 @@ export function UserThemeCard({
 
       <SettingsWarningsBanner
         tone="blocking"
-        title={
-          theme.issues.length === 1
-            ? "Not applied: 1 problem"
-            : `Not applied: ${theme.issues.length} problems`
-        }
+        title={t("appearance.library.issueCount", "Not applied: {{count, number}} problems", {
+          count: theme.issues.length,
+          defaultValue_zero: "Not applied: {{count, number}} problems",
+          defaultValue_one: "Not applied: {{count, number}} problem",
+          formatParams: { count: { locale: formattingLocale(i18n.language) } },
+        })}
         warnings={theme.issues.map((issue) => ({
           key: issue.token ?? "",
           message: issue.token ? `${issue.token}: ${issue.message}` : issue.message,
@@ -120,6 +131,7 @@ function CardActions({
 }: Pick<UserThemeCardProps, "isDeleting" | "isOpening" | "onEdit" | "onExport" | "onDelete"> & {
   path: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" size="xs" className="gap-1.5" disabled={isOpening} onClick={onEdit}>
@@ -128,20 +140,25 @@ function CardActions({
         ) : (
           <Code2 className="size-3.5" />
         )}
-        Edit
+        {t("appearance.library.edit", "Edit")}
       </Button>
       <Button
         variant="outline"
         size="xs"
         className="gap-1.5"
-        onClick={() => void copyToClipboard(path, "Theme path copied")}
+        onClick={() =>
+          void copyToClipboard(
+            path,
+            translateUi("appearance.library.pathCopied", "Theme path copied"),
+          )
+        }
       >
         <Copy className="size-3.5" />
-        Copy path
+        {t("appearance.library.copyPath", "Copy path")}
       </Button>
       <Button variant="outline" size="xs" className="gap-1.5" onClick={onExport}>
         <Download className="size-3.5" />
-        Export
+        {t("appearance.library.export", "Export")}
       </Button>
       <Button
         variant="ghost"
@@ -151,7 +168,7 @@ function CardActions({
         onClick={onDelete}
       >
         <Trash2 className="size-3.5" />
-        Delete
+        {t("appearance.library.delete", "Delete")}
       </Button>
     </div>
   );

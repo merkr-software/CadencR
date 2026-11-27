@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  app,
   dialog,
   ipcMain,
   nativeTheme,
@@ -11,6 +12,8 @@ import {
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
+import { supportedLocale } from "../../src/lib/i18n/languages";
+import { changeUiLanguage, translateUi } from "../../src/shared/ui-i18n";
 import { getRendererRuntimeConfig } from "./runtime-config";
 import { isMainRendererFrame, type RendererTarget } from "./renderer-trust";
 import { rendererLoadTarget } from "./renderer-window-security";
@@ -39,9 +42,16 @@ export interface IpcOptions {
 }
 
 export function registerIpc({ getMainWindow }: IpcOptions): void {
+  ipcMain.handle("app:set-interface-language", async (event, language: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    const locale = supportedLocale(language);
+    if (!locale) throw new Error("Unsupported interface language");
+    await changeUiLanguage(locale);
+  });
   ipcMain.handle("runtime-config", (event) => {
     assertTrustedSender(event, getMainWindow);
-    return getRendererRuntimeConfig();
+    const config = getRendererRuntimeConfig();
+    return { ...config, preferredLanguages: app.getPreferredSystemLanguages() };
   });
   ipcMain.handle("fs:register-file-paths", (event, rawPaths: unknown) => {
     assertTrustedSender(event, getMainWindow);
@@ -291,9 +301,11 @@ const ICON_FILE_EXTENSIONS = ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif"
 
 async function pickImageFile(): Promise<string | null> {
   const result = await dialog.showOpenDialog({
-    title: "Choose a project icon",
+    title: translateUi("project.iconField.chooseProjectIcon", "Choose a project icon"),
     properties: ["openFile"],
-    filters: [{ name: "Images", extensions: ICON_FILE_EXTENSIONS }],
+    filters: [
+      { name: translateUi("project.iconField.images", "Images"), extensions: ICON_FILE_EXTENSIONS },
+    ],
   });
   return result.canceled ? null : (result.filePaths[0] ?? null);
 }

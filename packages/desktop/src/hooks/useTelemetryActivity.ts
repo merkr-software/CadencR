@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useState } from "react";
 import { activity as recordActivity } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -6,7 +7,8 @@ const ACTIVITY_INTERVAL_MS = 60 * 60 * 1000;
 
 /** Local foreground activity only; the service deduplicates the monthly audience event. */
 export function useTelemetryActivity(enabled: boolean): string | null {
-  const [error, setError] = useState<string | null>(null);
+  const { t } = useUiTranslation();
+  const [error, setError] = useState<{ failure: unknown } | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
@@ -21,8 +23,7 @@ export function useTelemetryActivity(enabled: boolean): string | null {
           if (alive) setError(null);
         },
         (failure: unknown) => {
-          if (alive)
-            setError(apiErrorMessage(failure, "Could not update the monthly audience counter."));
+          if (alive) setError({ failure });
         },
       );
     };
@@ -41,5 +42,10 @@ export function useTelemetryActivity(enabled: boolean): string | null {
       document.removeEventListener("visibilitychange", record);
     };
   }, [enabled]);
-  return enabled ? error : null;
+  return enabled && error
+    ? apiErrorMessage(
+        error.failure,
+        t("telemetry.audience.updateError", "Could not update the monthly audience counter."),
+      )
+    : null;
 }

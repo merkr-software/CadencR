@@ -16,11 +16,12 @@ import {
   duplicateThemeResponseSchema,
   themeCatalogSchema,
   managedThemesKey,
+  parseManagedThemeResponse,
 } from "@/lib/theme-marketplace";
 import { useManagedThemes } from "./useManagedThemes";
 import { useStableMutation, useStableQuery } from "./stable-query";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
-import type { MarketplaceNotice } from "@/lib/marketplace";
+import { confirmedAction, type MarketplaceNotice } from "@/lib/marketplace";
 
 type ThemeAction =
   | { kind: "install" | "update"; id: string; version: string }
@@ -63,14 +64,27 @@ export function useThemeMarketplace() {
       onSuccess: async (warning, action) => {
         setNotice({
           tone: "done",
-          text: `${action.id}: ${action.kind} confirmed by Cadencr.${warning ? ` Warning: ${warning}` : ""}`,
+          text: (t) => {
+            const confirmed = confirmedAction(t, action);
+            return warning
+              ? t("marketplace.activity.themeWarning", "{{confirmed}} Warning: {{warning}}", {
+                  confirmed,
+                  warning,
+                })
+              : confirmed;
+          },
         });
         await reconcileThemeAction(client, action);
       },
       onError: async (_, action) => {
         setNotice({
           tone: "error",
-          text: `${action.id}: the change was not confirmed. Reloading affected state before retrying.`,
+          text: (t) =>
+            t(
+              "marketplace.activity.themeUnconfirmed",
+              "{{id}}: the change was not confirmed. Reloading affected state before retrying.",
+              { id: action.id },
+            ),
         });
         await reconcileThemeAction(client, action);
       },
@@ -99,10 +113,13 @@ async function executeThemeAction(action: ThemeAction): Promise<string | null> {
         action.kind === "install"
           ? await installManagedTheme(body)
           : await updateManagedTheme(action.id, body);
-      return managedThemeEntrySchema.parse(response).warning ?? null;
+      return parseManagedThemeResponse(managedThemeEntrySchema, response).warning ?? null;
     }
     case "apply":
-      return managedThemeEntrySchema.parse(await applyManagedTheme(action.id)).warning ?? null;
+      return (
+        parseManagedThemeResponse(managedThemeEntrySchema, await applyManagedTheme(action.id))
+          .warning ?? null
+      );
     case "remove":
       z.object({ success: z.literal(true), fallback: z.string().nullable().optional() }).parse(
         await removeManagedTheme(action.id, { confirm_builtin_fallback: action.confirmFallback }),

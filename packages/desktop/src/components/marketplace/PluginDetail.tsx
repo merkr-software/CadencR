@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, PackageX } from "lucide-react";
@@ -17,18 +18,15 @@ import { MarketplaceActivity } from "./MarketplaceActivity";
 import { MarketplaceTrustNotice } from "./MarketplaceTrustNotice";
 import { MarketplaceEmpty } from "./MarketplaceStates";
 import { DetailHero, DetailStage } from "./PluginHero";
-import {
-  FactsSection,
-  HistorySection,
-  TrustSection,
-  VersionsSection,
-} from "./PluginDetailSections";
+import { FactsSection, TrustSection, VersionsSection } from "./PluginDetailSections";
+import { HistorySection } from "./PluginHistory";
 import { PluginInstallPanel } from "./PluginInstallPanel";
 import { PluginManage } from "./PluginManage";
 import { PluginPackageBody } from "./PluginPackageDetail";
 
 /** One plugin's page: what it is, how it looks in Cadencr, every version, and its record here. */
 export function PluginDetail({ kind, id }: { kind: ListingKind; id: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const state = useMarketplaceState();
   const listing = state.listings.find((item) => item.kind === kind && item.id === id);
   return (
@@ -44,16 +42,21 @@ export function PluginDetail({ kind, id }: { kind: ListingKind; id: string }): R
       ) : state.loading ? (
         <Skeleton
           role="status"
-          aria-label="Loading plugin"
+          aria-label={t("marketplace.pluginDetail.loadingPlugin", "Loading plugin")}
           className="h-[320px] w-full rounded-xl"
         />
       ) : (
         <MarketplaceEmpty
           icon={PackageX}
-          title="This plugin is not in the catalog or installed"
+          title={t(
+            "marketplace.pluginDetail.thisPluginIsNotInTheCatalog",
+            "This plugin is not in the catalog or installed",
+          )}
           action={
             <Button asChild size="sm" variant="outline">
-              <Link to="/marketplace">Back to the marketplace</Link>
+              <Link to="/marketplace">
+                {t("marketplace.pluginDetail.backToTheMarketplace", "Back to the marketplace")}
+              </Link>
             </Button>
           }
         />
@@ -93,6 +96,7 @@ export function DetailHeader({
   kind: MarketplaceKind;
   name: string;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <header className="titlebar-drag flex min-h-14 shrink-0 items-center gap-2 border-b border-border/60 px-5">
@@ -100,7 +104,7 @@ export function DetailHeader({
       <Button asChild variant="ghost" size="sm" className="h-7 gap-1.5 px-2">
         <Link to="/marketplace">
           <ArrowLeft aria-hidden="true" className="size-3.5" />
-          Marketplace
+          {t("marketplace.marketplaceHome.marketplace", "Marketplace")}
         </Link>
       </Button>
       <span aria-hidden="true" className="text-muted-foreground/60">
@@ -111,7 +115,7 @@ export function DetailHeader({
         search={kind === "plugin" ? {} : { kind }}
         className="text-sm text-muted-foreground hover:text-foreground"
       >
-        {KINDS[kind].plural}
+        {KINDS[kind].plural(t)}
       </Link>
       <span aria-hidden="true" className="text-muted-foreground/60">
         /

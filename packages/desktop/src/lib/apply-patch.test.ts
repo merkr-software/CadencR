@@ -76,6 +76,7 @@ describe("extractApplyPatchPreview", () => {
       filePath: "toto.txt",
       oldContent: "",
       newContent: "(file created)",
+      emptyFileAction: "created",
     });
   });
 
@@ -87,6 +88,7 @@ describe("extractApplyPatchPreview", () => {
     ).toEqual({
       filePath: "toto.txt",
       oldContent: "(file deleted)",
+      emptyFileAction: "deleted",
       newContent: "",
     });
   });

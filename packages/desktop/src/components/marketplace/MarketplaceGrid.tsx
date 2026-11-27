@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,8 +17,13 @@ export const GridList = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement
 );
 
 export function TileGridSkeleton(): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
-    <div role="status" aria-label="Loading" className={TILE_GRID}>
+    <div
+      role="status"
+      aria-label={t("marketplace.marketplaceGrid.loading", "Loading")}
+      className={TILE_GRID}
+    >
       {[0, 1, 2, 3].map((index) => (
         <Skeleton key={index} className="aspect-[4/3.4] rounded-lg" />
       ))}
@@ -41,6 +47,7 @@ export function ShelfFrame({
   onSeeAll: () => void;
   children: ReactNode;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const meta = KINDS[kind];
   const Icon = meta.icon;
   return (
@@ -49,14 +56,14 @@ export function ShelfFrame({
         <div className="min-w-0 flex-1">
           <h2 id={`mp-shelf-${kind}`} className="flex items-center gap-2 text-[15px] font-semibold">
             <Icon aria-hidden="true" className="size-4 text-[var(--mp-kind)]" />
-            {meta.plural}
+            {meta.plural(t)}
             {count !== undefined && (
               <span className="font-mono text-[11px] font-normal tabular-nums text-muted-foreground">
                 {count}
               </span>
             )}
           </h2>
-          <p className="text-xs text-muted-foreground">{meta.pitch}</p>
+          <p className="text-xs text-muted-foreground">{meta.pitch(t)}</p>
         </div>
         {seeAll && (
           <Button variant="ghost" size="xs" onClick={onSeeAll}>

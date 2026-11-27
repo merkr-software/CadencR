@@ -1,3 +1,4 @@
+import { uiI18n } from "@/lib/i18n/ui";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -224,4 +225,42 @@ describe("useGitFileIndexActions", () => {
 
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
   });
+});
+
+it("retranslates a blocked stage and preserves raw Git failures without replaying requests", async () => {
+  const key = "workspace.git.useGitFileIndexActions.theProjectSGitRootIsStillLoading";
+  uiI18n.addResource("fr", "ui", key, "Le dossier Git est en cours de chargement.");
+  mocks.gitPrefix = undefined;
+  const { result, rerender } = renderHook(() => useGitFileIndexActions(1));
+  try {
+    act(() => result.current.stage("src/a.ts"));
+    expect(result.current.error?.message).toBe(
+      "The project's Git root is still loading; try again.",
+    );
+    await act(async () => {
+      await uiI18n.changeLanguage("fr");
+    });
+    expect(result.current.error?.message).toBe("Le dossier Git est en cours de chargement.");
+    expect(mocks.stageMutate).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledTimes(1);
+
+    mocks.gitPrefix = "";
+    rerender();
+    act(() => result.current.stage("src/a.ts"));
+    act(() =>
+      mocks.stageOptions?.onError?.(new Error("fatal: Git message"), {
+        data: { file_path: "src/a.ts" },
+      }),
+    );
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    expect(result.current.error?.message).toBe("fatal: Git message");
+    expect(mocks.stageMutate).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => {
+      await uiI18n.changeLanguage("en");
+    });
+    uiI18n.removeResourceBundle("fr", "ui");
+  }
 });

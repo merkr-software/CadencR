@@ -1,3 +1,4 @@
+import { UiTrans } from "@/lib/i18n/ui";
 /**
  * Small top-of-screen banner shown only while the OS is suspended (or in
  * the brief window before the renderer has reconciled with backend after
@@ -23,7 +24,10 @@ export function SuspendedBanner() {
       className="pointer-events-none fixed inset-x-0 top-2 z-40 flex justify-center"
     >
       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300 shadow-sm">
-        System sleeping — agents paused. They&rsquo;ll reconnect when you wake the machine.
+        <UiTrans
+          i18nKey="shell.power.sleeping"
+          defaults="System sleeping — agents paused. They’ll reconnect when you wake the machine."
+        />
       </div>
     </div>
   );

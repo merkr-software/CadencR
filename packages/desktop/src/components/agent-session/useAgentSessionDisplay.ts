@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { Loader2Icon } from "lucide-react";
 import { capitalize } from "@/lib/utils";
 import { AGENT_ICONS } from "../agent-icons";
@@ -7,6 +8,7 @@ import { createElement } from "react";
 import { TurnWorkingText, useStableTurnClock } from "@/components/TurnWorkingLabel";
 
 export function useAgentSessionDisplay(props: AgentSessionProps) {
+  useUiTranslation();
   const { agentType, status, isCompacting = false, lifecycle, turnClock, label, icon } = props;
   const isAgentWorking = status === "agent";
   const isTurnActive = status !== "idle";

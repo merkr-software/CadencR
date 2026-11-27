@@ -1,8 +1,10 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { CadencrFileTree } from "@/components/file-tree/CadencrFileTree";
 import { useFileTreeController, type FileTreeProps } from "./useFileTreeController";
 
 function FileTree(props: FileTreeProps) {
+  const { t } = useUiTranslation();
   const controller = useFileTreeController(props);
   return (
     <div
@@ -16,7 +18,7 @@ function FileTree(props: FileTreeProps) {
         isLoading={controller.isLoading}
         errorMessage={controller.errorMessage}
         renderContextMenu={controller.renderContextMenu}
-        aria-label="Project file tree"
+        aria-label={t("workspace.editor.fileTree.projectFileTree", "Project file tree")}
       />
     </div>
   );

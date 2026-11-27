@@ -1,3 +1,4 @@
+import { translateUi } from "../../../src/shared/ui-i18n";
 import type { RuntimeConfig } from "../runtime-config";
 import { isOwnPluginTabUrl } from "./plugin-tab-ids";
 
@@ -82,10 +83,24 @@ export function createPluginTabAssetHandler(
     // Same origin gate as the navigation and request guards; a malformed URL
     // is not one of the plugin's own either.
     if (!isOwnPluginTabUrl(request.url, pluginId)) {
-      return plain(403, "This custom tab may only load its own assets.");
+      return plain(
+        403,
+        translateUi(
+          "customTabs.native.assetForbidden",
+          "This custom tab may only load its own assets.",
+        ),
+      );
     }
     const url = new URL(request.url);
-    if (request.method !== "GET") return plain(405, "Method not allowed.", { allow: "GET" });
+    if (request.method !== "GET") {
+      return plain(
+        405,
+        translateUi("customTabs.native.assetMethodNotAllowed", "Method not allowed."),
+        {
+          allow: "GET",
+        },
+      );
+    }
 
     const config = deps.getConfig();
     const headers: Record<string, string> = {};
@@ -95,7 +110,16 @@ export function createPluginTabAssetHandler(
       upstream = await deps.fetch(assetUrl(config, pluginId, url), { headers, redirect: "manual" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return plain(502, `Cadencr could not reach its service: ${message}`);
+      return plain(
+        502,
+        translateUi(
+          "customTabs.native.assetServiceUnavailable",
+          "Cadencr could not reach its service: {{message}}",
+          {
+            message,
+          },
+        ),
+      );
     }
     const body = NULL_BODY_STATUSES.has(upstream.status) ? null : upstream.body;
     return new Response(body, {

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,21 +23,22 @@ export function PrCommentsFilterToggle({
   totalCount: number;
   onChange: (next: PrCommentFilter) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="group"
-      aria-label="Filter review threads"
+      aria-label={t("workspace.git.prCommentsFilter.filterReviewThreads", "Filter review threads")}
       className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-card/70 p-0.5"
     >
       <FilterButton
         active={value === "unresolved"}
-        label="Unresolved"
+        label={t("workspace.git.prCommentsFilter.unresolved", "Unresolved")}
         count={unresolvedCount}
         onClick={() => onChange("unresolved")}
       />
       <FilterButton
         active={value === "all"}
-        label="All"
+        label={t("workspace.git.prCommentsFilter.all", "All")}
         count={totalCount}
         onClick={() => onChange("all")}
       />

@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Shared chrome for the document renderers: the centered loading / error
  * states, the bottom status bar (same anatomy as `ImageFileViewer`'s) and
@@ -98,25 +99,40 @@ export function DocumentZoomControls({
   fitActive?: boolean;
   children?: ReactNode;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (!viewer) return null;
   return (
     <>
       {children}
-      <DocumentToolButton label="Zoom out" onClick={() => viewer.zoomOut()}>
+      <DocumentToolButton
+        label={t("workspace.editor.documentChrome.zoomOut", "Zoom out")}
+        onClick={() => viewer.zoomOut()}
+      >
         <MinusIcon />
       </DocumentToolButton>
       <span className="w-10 text-center tabular-nums">
         {scale === null ? "" : `${Math.round(scale * 100)}%`}
       </span>
-      <DocumentToolButton label="Zoom in" onClick={() => viewer.zoomIn()}>
+      <DocumentToolButton
+        label={t("workspace.editor.documentChrome.zoomIn", "Zoom in")}
+        onClick={() => viewer.zoomIn()}
+      >
         <PlusIcon />
       </DocumentToolButton>
       {fit === "page" ? (
-        <DocumentToolButton label="Fit slide" active={fitActive} onClick={() => viewer.fitPage()}>
+        <DocumentToolButton
+          label={t("workspace.editor.documentChrome.fitSlide", "Fit slide")}
+          active={fitActive}
+          onClick={() => viewer.fitPage()}
+        >
           <MaximizeIcon />
         </DocumentToolButton>
       ) : (
-        <DocumentToolButton label="Fit width" active={fitActive} onClick={() => viewer.fitWidth()}>
+        <DocumentToolButton
+          label={t("workspace.editor.documentChrome.fitWidth", "Fit width")}
+          active={fitActive}
+          onClick={() => viewer.fitWidth()}
+        >
           <MoveHorizontalIcon />
         </DocumentToolButton>
       )}
@@ -126,6 +142,15 @@ export function DocumentZoomControls({
 
 /** Message for a rejected parse/render promise, never empty. */
 export function documentErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return `${fallback}: ${error.message}`;
+  if (error instanceof Error && error.message) {
+    return translateUi(
+      "workspace.editor.documentChrome.errorWithDetail",
+      "{{summary}}: {{detail}}",
+      {
+        summary: fallback,
+        detail: error.message,
+      },
+    );
+  }
   return fallback;
 }

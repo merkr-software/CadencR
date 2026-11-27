@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { useSetting } from "@/hooks/useSetting";
@@ -29,9 +30,16 @@ export function useSidebarViews(): SidebarViews {
 
   useEffect(() => {
     if (parsed.error) {
-      toast.error(`Could not read your saved views: ${parsed.error}.`, {
-        id: "sidebar-views-error",
-      });
+      toast.error(
+        translateUi(
+          "sidebar.useSidebarViews.readFailed",
+          "Could not read your saved views: {{error}}.",
+          { error: parsed.error },
+        ),
+        {
+          id: "sidebar-views-error",
+        },
+      );
     }
   }, [parsed.error]);
 
@@ -42,9 +50,15 @@ export function useSidebarViews(): SidebarViews {
   const saveViews = useCallback(
     (views: readonly SidebarView[]) => {
       if (!loaded) {
-        toast.error("Could not save your views: the saved ones haven't been read.", {
-          id: "sidebar-views-error",
-        });
+        toast.error(
+          translateUi(
+            "sidebar.useSidebarViews.couldNotSaveYourViewsThe",
+            "Could not save your views: the saved ones haven't been read.",
+          ),
+          {
+            id: "sidebar-views-error",
+          },
+        );
         return;
       }
       setStored(JSON.stringify(views));

@@ -1,22 +1,27 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { DownloadIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { stripElectronIpcPrefix } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { captureDiagnosticContext } from "@/lib/renderer-diagnostics";
 
 export function ExportDiagnosticsButton() {
+  const { t } = useUiTranslation();
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [status, setStatus] = useState<
+    { kind: "success" } | { kind: "error"; detail?: string } | null
+  >(null);
   const exportReport = async () => {
     setBusy(true);
     setStatus(null);
     try {
       const result = await desktopBridge.exportRendererDiagnostics(captureDiagnosticContext());
-      if (!result.canceled) setStatus({ kind: "success", message: "Diagnostic report exported" });
+      if (!result.canceled) setStatus({ kind: "success" });
     } catch (error) {
       setStatus({
         kind: "error",
-        message: error instanceof Error ? error.message : "Could not export diagnostics",
+        detail: error instanceof Error ? stripElectronIpcPrefix(error.message) : undefined,
       });
     } finally {
       setBusy(false);
@@ -30,7 +35,9 @@ export function ExportDiagnosticsButton() {
         ) : (
           <DownloadIcon className="size-4" />
         )}
-        {busy ? "Exporting…" : "Export diagnostic report"}
+        {busy
+          ? t("diagnostics.export.inProgress", "Exporting…")
+          : t("diagnostics.export.action", "Export diagnostic report")}
       </Button>
       {status && (
         <p
@@ -39,7 +46,13 @@ export function ExportDiagnosticsButton() {
             status.kind === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"
           }
         >
-          {status.message}
+          {status.kind === "success"
+            ? t("diagnostics.export.success", "Diagnostic report exported")
+            : status.detail
+              ? t("diagnostics.export.failureDetail", "Could not export diagnostics: {{detail}}", {
+                  detail: status.detail,
+                })
+              : t("diagnostics.export.failure", "Could not export diagnostics")}
         </p>
       )}
     </div>

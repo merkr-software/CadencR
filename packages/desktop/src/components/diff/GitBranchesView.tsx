@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -60,7 +61,9 @@ export const GitBranchesView = memo(function GitBranchesView({
     () => (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
         <GitBranchIcon className="size-5" />
-        {query ? "No matching branches." : "No branches found."}
+        {query
+          ? translateUi("workspace.git.gitBranchesView.noMatchingBranches", "No matching branches.")
+          : translateUi("workspace.git.gitBranchesView.noBranchesFound", "No branches found.")}
       </div>
     ),
     [query],
@@ -130,13 +133,17 @@ function BranchSearchHeader({
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onKeyDown: (event: KeyboardEvent) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
       <GitBranchIcon className="size-4 shrink-0 text-muted-foreground" />
       <Input
         variant="ghost"
-        aria-label="Search branches"
-        placeholder="Search branches…"
+        aria-label={t("workspace.git.gitBranchesView.searchBranches", "Search branches")}
+        placeholder={t(
+          "workspace.git.gitBranchesView.searchBranchesPlaceholder",
+          "Search branches…",
+        )}
         value={query}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -144,7 +151,10 @@ function BranchSearchHeader({
       />
       {showCount && (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {filteredCount} {filteredCount === 1 ? "branch" : "branches"}
+          {filteredCount}{" "}
+          {filteredCount === 1
+            ? t("workspace.git.gitBranchesView.branch", "branch")
+            : t("workspace.git.gitBranchesView.branches", "branches")}
         </span>
       )}
     </div>
@@ -162,18 +172,25 @@ function BranchListBody({
   error: unknown;
   list: ReactElement;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2Icon className="size-4 animate-spin" />
-        Loading branches…
+        {t("workspace.git.gitBranchesView.loadingBranches", "Loading branches…")}
       </div>
     );
   }
   if (isError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">
-        {apiErrorMessage(error, "Could not load branches")}
+        {apiErrorMessage(
+          error,
+          translateUi(
+            "workspace.git.gitBranchesView.couldNotLoadBranches",
+            "Could not load branches",
+          ),
+        )}
       </div>
     );
   }
@@ -193,11 +210,24 @@ const BranchGraphRow = memo(function BranchGraphRow({
   active,
   onSelect,
 }: BranchGraphRowProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
       onClick={onSelect}
-      aria-label={`Open commits for ${branch.is_local ? "local" : "remote"} ${branch.name}`}
+      aria-label={
+        branch.is_local
+          ? t(
+              "workspace.git.gitBranchesView.openCommitsLocal",
+              "Open commits for local {{branch}}",
+              { branch: branch.name },
+            )
+          : t(
+              "workspace.git.gitBranchesView.openCommitsRemote",
+              "Open commits for remote {{branch}}",
+              { branch: branch.name },
+            )
+      }
       className={cn(
         "flex w-full items-center gap-3 border-b border-border/50 px-4 py-2.5 text-left transition-colors hover:bg-accent/60",
         active && "bg-accent/70",
@@ -210,20 +240,24 @@ const BranchGraphRow = memo(function BranchGraphRow({
           <span className="truncate font-mono text-xs text-foreground">{branch.name}</span>
           {current && (
             <span className="shrink-0 rounded border border-primary/40 bg-primary/10 px-1 py-px text-[10px] text-primary">
-              current
+              {t("workspace.git.gitBranchesView.current", "current")}
             </span>
           )}
           {!branch.is_local && (
             <span className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
-              remote
+              {t("workspace.git.gitBranchesView.remote", "remote")}
             </span>
           )}
         </div>
         {branch.attached_worktree_path && (
           <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
             {branch.attached_feature_id != null
-              ? `Worktree for feature #${branch.attached_feature_id}`
-              : "Attached worktree"}
+              ? t(
+                  "workspace.git.gitBranchesView.worktreeForFeatureNumber",
+                  "Worktree for feature #{{number}}",
+                  { number: branch.attached_feature_id },
+                )
+              : t("workspace.git.gitBranchesView.attachedWorktree", "Attached worktree")}
           </p>
         )}
       </div>

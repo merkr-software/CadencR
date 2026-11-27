@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { HistoryGapFillDirection } from "@/stores/ws-history-gaps";
@@ -9,8 +10,6 @@ import {
   HISTORY_GAP_HAS_ABOVE_ATTRIBUTE,
   readerFocusRow,
 } from "./agent-session-scroll-utils";
-
-const GAP_FAILURE_FALLBACK = "The service didn't return these messages.";
 
 /** `shouldContinue` is read before each page lands; false stops the fill there. */
 export type FillHistoryGap = (
@@ -183,7 +182,16 @@ export function useHistoryGapFiller(options: GapFillerOptions) {
       };
       run(target.gapId, target.direction, () => shouldContinue(generation)).then(
         () => settle(null),
-        (error: unknown) => settle(apiErrorMessage(error, GAP_FAILURE_FALLBACK)),
+        (error: unknown) =>
+          settle(
+            apiErrorMessage(
+              error,
+              translateUi(
+                "conversation.stream.useHistoryGapFiller.theServiceDidnTReturnTheseMessages",
+                "The service didn't return these messages.",
+              ),
+            ),
+          ),
       );
     },
     [publishFailures, work, shouldContinue],

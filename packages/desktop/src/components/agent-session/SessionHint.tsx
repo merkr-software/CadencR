@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * "Did you know?" card shown on the new-session empty state to help users
  * discover Cadencr's features. Combines two independent dimensions:
@@ -31,7 +32,7 @@ import { SessionUsageChart } from "./SessionUsageChart";
 interface Hint {
   shortcut: Shortcut;
   scope: ShortcutScope;
-  behavior: string;
+  behavior: (t: UiTranslator) => string;
 }
 
 function randomItem<T>(items: readonly T[]): T {
@@ -65,6 +66,7 @@ function pickHint(prev?: Hint): Hint {
 }
 
 export function SessionHint() {
+  const { t } = useUiTranslation();
   const [hint, setHint] = useState<Hint>(() => pickHint());
   // Separate from `hint` because it's a remount token, not part of the
   // hint's identity. Bumping it on every cycle drives the fade animation
@@ -85,8 +87,15 @@ export function SessionHint() {
         >
           <Lightbulb className="size-6" strokeWidth={1.75} />
         </div>
-        <h2 className="text-base font-semibold text-foreground">Start your first turn</h2>
-        <p className="text-xs text-muted-foreground">A quick tip while you draft.</p>
+        <h2 className="text-base font-semibold text-foreground">
+          {t("conversation.stream.sessionHint.startYourFirstTurn", "Start your first turn")}
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "conversation.stream.sessionHint.aQuickTipWhileYouDraft",
+            "A quick tip while you draft.",
+          )}
+        </p>
       </div>
 
       <SessionUsageChart />
@@ -95,19 +104,27 @@ export function SessionHint() {
         key={rerollKey}
         className="w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
       >
-        <HintSection icon={<Keyboard className="size-3" aria-hidden />} label="Keyboard shortcut">
+        <HintSection
+          icon={<Keyboard className="size-3" aria-hidden />}
+          label={t("conversation.stream.sessionHint.keyboardShortcut", "Keyboard shortcut")}
+        >
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
             {/* Hints are drawn from SHORTCUTS_BY_SCOPE, so the id is a registry id. */}
             <ResolvedKbdChord shortcutId={hint.shortcut.id as ShortcutId} />
-            <span className="text-sm font-medium text-foreground">{hint.shortcut.description}</span>
+            <span className="text-sm font-medium text-foreground">{hint.shortcut.describe(t)}</span>
           </div>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint.scope.hint}</p>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            {hint.scope.describeHint(t)}
+          </p>
         </HintSection>
 
         <div className="h-px bg-border/60" role="presentation" />
 
-        <HintSection icon={<Lightbulb className="size-3" aria-hidden />} label="Did you know?">
-          <p className="text-sm leading-relaxed text-foreground">{hint.behavior}</p>
+        <HintSection
+          icon={<Lightbulb className="size-3" aria-hidden />}
+          label={t("conversation.stream.sessionHint.didYouKnow", "Did you know?")}
+        >
+          <p className="text-sm leading-relaxed text-foreground">{hint.behavior(t)}</p>
         </HintSection>
       </div>
 
@@ -119,7 +136,7 @@ export function SessionHint() {
         className="group text-muted-foreground hover:text-foreground"
       >
         <RotateCw className="transition-transform group-hover:rotate-90" aria-hidden />
-        Show another tip
+        {t("conversation.stream.sessionHint.showAnotherTip", "Show another tip")}
       </Button>
     </div>
   );

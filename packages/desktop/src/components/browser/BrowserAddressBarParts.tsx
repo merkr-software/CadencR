@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   type ChangeEvent,
   type FocusEvent,
@@ -33,6 +34,7 @@ interface BrowserNavControlsProps {
 }
 
 export function BrowserNavControls(props: BrowserNavControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const { activeTab, onBack, onForward, onReload, onStop } = props;
   const loading = activeTab?.loading === true;
   return (
@@ -43,7 +45,7 @@ export function BrowserNavControls(props: BrowserNavControlsProps): ReactElement
         size="icon-sm"
         disabled={!activeTab?.canGoBack}
         onClick={onBack}
-        aria-label="Back"
+        aria-label={t("workspace.tools.browserAddressBarParts.back", "Back")}
       >
         <ArrowLeftIcon className="size-4" />
       </Button>
@@ -53,7 +55,7 @@ export function BrowserNavControls(props: BrowserNavControlsProps): ReactElement
         size="icon-sm"
         disabled={!activeTab?.canGoForward}
         onClick={onForward}
-        aria-label="Forward"
+        aria-label={t("workspace.tools.browserAddressBarParts.forward", "Forward")}
       >
         <ArrowRightIcon className="size-4" />
       </Button>
@@ -63,7 +65,11 @@ export function BrowserNavControls(props: BrowserNavControlsProps): ReactElement
         size="icon-sm"
         disabled={!activeTab}
         onClick={loading ? onStop : onReload}
-        aria-label={loading ? "Stop" : "Reload"}
+        aria-label={
+          loading
+            ? t("workspace.tools.browserAddressBarParts.stop", "Stop")
+            : t("workspace.tools.browserAddressBarParts.reload", "Reload")
+        }
       >
         {loading ? <SquareIcon className="size-4" /> : <RefreshCwIcon className="size-4" />}
       </Button>
@@ -100,6 +106,7 @@ export interface BrowserUrlFieldProps {
 }
 
 export function BrowserUrlField(props: BrowserUrlFieldProps): ReactElement {
+  const { t } = useUiTranslation();
   function handleInputChange(event: ChangeEvent<HTMLInputElement>): void {
     props.onDismissError();
     props.onChange(event.target.value);
@@ -135,7 +142,7 @@ export function BrowserUrlField(props: BrowserUrlFieldProps): ReactElement {
         )}
         <Input
           ref={props.inputRef}
-          aria-label="Browser URL"
+          aria-label={t("workspace.tools.browserAddressBarParts.browserUrl", "Browser URL")}
           variant="ghost"
           role="combobox"
           aria-expanded={props.panelOpen}
@@ -148,7 +155,10 @@ export function BrowserUrlField(props: BrowserUrlFieldProps): ReactElement {
           onFocus={handleInputFocus}
           onPointerDown={handleInitialPointerDown}
           onKeyDown={props.onKeyDown}
-          placeholder="Search or enter address"
+          placeholder={t(
+            "workspace.tools.browserAddressBarParts.searchOrEnterAddress",
+            "Search or enter address",
+          )}
           className="h-7 flex-1 font-mono text-xs"
         />
         <BookmarkButton
@@ -174,7 +184,10 @@ function BookmarkButton({
   disabledReason: string | null;
   onToggle: () => void;
 }): ReactElement {
-  const label = bookmarked ? "Remove bookmark" : "Bookmark this page";
+  const { t } = useUiTranslation();
+  const label = bookmarked
+    ? t("workspace.tools.browserAddressBarParts.removeBookmark", "Remove bookmark")
+    : t("workspace.tools.browserAddressBarParts.bookmarkThisPage", "Bookmark this page");
   return (
     <Button
       type="button"

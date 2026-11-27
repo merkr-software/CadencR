@@ -41,14 +41,6 @@ export function isBinaryDocumentFile(filePath: string): boolean {
   return kind !== null && kind !== "csv";
 }
 
-export const DOCUMENT_KIND_LABELS: Readonly<Record<DocumentKind, string>> = {
-  pdf: "PDF",
-  docx: "Word document",
-  xlsx: "Excel workbook",
-  pptx: "PowerPoint presentation",
-  csv: "CSV file",
-};
-
 const READ_DOCUMENT_URL = "/api/editor/read-document";
 
 /**
@@ -58,7 +50,8 @@ const READ_DOCUMENT_URL = "/api/editor/read-document";
  */
 export type FormulaRecalc =
   | { status: "computed"; computed: number; unresolved: number }
-  | { status: "failed"; reason: string };
+  | { status: "failed"; reason: string }
+  | { status: "unreadable"; header: string };
 
 export interface DocumentPayload {
   bytes: ArrayBuffer;
@@ -80,7 +73,7 @@ export function parseFormulaRecalc(header: unknown): FormulaRecalc | null {
   const computed = count("computed");
   const unresolved = count("unresolved");
   if (computed === null || unresolved === null) {
-    return { status: "failed", reason: `Unreadable recalculation summary: ${header}` };
+    return { status: "unreadable", header };
   }
   return { status: "computed", computed, unresolved };
 }

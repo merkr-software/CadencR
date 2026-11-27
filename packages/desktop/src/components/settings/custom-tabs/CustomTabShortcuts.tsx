@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { PluginTabSummary } from "@/api/generated";
 import { KbdChord } from "@/components/KbdShortcut";
 import { useResolvedTabShortcuts } from "@/components/plugin-tabs/useTabShortcuts";
@@ -13,16 +14,24 @@ export function CustomTabShortcuts({
 }: {
   tab: Pick<PluginTabSummary, "shortcuts">;
 }): React.JSX.Element {
-  const resolved = useResolvedTabShortcuts(tab.shortcuts);
+  const { t } = useUiTranslation();
+  const resolved = useResolvedTabShortcuts(tab.shortcuts, t);
   return (
-    <ul className="space-y-2" aria-label="Keyboard shortcuts">
+    <ul
+      className="space-y-2"
+      aria-label={t("customTabs.customTabShortcuts.keyboardShortcuts", "Keyboard shortcuts")}
+    >
       {resolved.map(({ shortcut, takenBy }) => (
         <li key={shortcut.id} className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs font-medium leading-tight">{shortcut.description}</p>
             {takenBy ? (
               <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                Not available: Cadencr uses these keys for “{takenBy.description}”.
+                {t(
+                  "customTabs.customTabShortcuts.shortcutTaken",
+                  "Not available: Cadencr uses these keys for “{{shortcut}}”.",
+                  { shortcut: takenBy.description },
+                )}
               </p>
             ) : null}
           </div>

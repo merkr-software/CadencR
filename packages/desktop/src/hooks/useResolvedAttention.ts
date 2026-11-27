@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
@@ -108,9 +109,15 @@ export function useResolvedAttention(): ResolvedAttentionResult {
   });
   useEffect(() => {
     if (resolved.error) {
-      toast.error(apiErrorMessage(resolved.error, "Could not load conversations needing you"), {
-        id: ERROR_TOAST_ID,
-      });
+      toast.error(
+        apiErrorMessage(
+          resolved.error,
+          translateUi("sidebar.attention.loadError", "Could not load conversations needing you"),
+        ),
+        {
+          id: ERROR_TOAST_ID,
+        },
+      );
     }
   }, [resolved.error]);
   useClearGoneMarks(resolved.goneMarks);

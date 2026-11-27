@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useDeferredValue, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -80,9 +81,18 @@ export function useSidebarFilterMatches(
 
   useEffect(() => {
     if (!error) return;
-    toast.error(apiErrorMessage(error, "Failed to load conversations to filter"), {
-      id: "sidebar-filter-load-error",
-    });
+    toast.error(
+      apiErrorMessage(
+        error,
+        translateUi(
+          "sidebar.useSidebarFilterMatches.failedToLoadConversationsToFilter",
+          "Failed to load conversations to filter",
+        ),
+      ),
+      {
+        id: "sidebar-filter-load-error",
+      },
+    );
   }, [error]);
 
   // Typing stays responsive on large workspaces; matching catches up.

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Read-only preview of a PDF / Word / Excel / PowerPoint / CSV file. The
  * single surface both the Preview tab and the Editor (for binary document
@@ -11,7 +12,6 @@ import { lazy, memo, Suspense, type ComponentType, type ReactElement } from "rea
 import { useQuery } from "@tanstack/react-query";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
-  DOCUMENT_KIND_LABELS,
   getDocumentKind,
   readDocumentBytes,
   readDocumentQueryKey,
@@ -42,6 +42,7 @@ export const DocumentPreview = memo(function DocumentPreview({
   projectId,
   featureId,
 }: DocumentPreviewProps): ReactElement {
+  const { t } = useUiTranslation();
   const kind = getDocumentKind(filePath);
   const query = useQuery({
     queryKey: readDocumentQueryKey(projectId, featureId, filePath),
@@ -56,18 +57,48 @@ export const DocumentPreview = memo(function DocumentPreview({
   });
 
   if (kind === null) {
-    return <DocumentError message={`${getFileName(filePath)} is not a previewable document`} />;
+    return (
+      <DocumentError
+        message={t(
+          "workspace.editor.documentPreview.unsupported",
+          "{{file}} is not a previewable document",
+          { file: getFileName(filePath) },
+        )}
+      />
+    );
   }
-  const label = DOCUMENT_KIND_LABELS[kind];
+  const label = documentKindLabel(kind, t);
   if (query.error) {
-    return <DocumentError message={apiErrorMessage(query.error, `Could not read ${label}`)} />;
+    return (
+      <DocumentError
+        message={apiErrorMessage(
+          query.error,
+          t("workspace.editor.documentPreview.readFailed", "Could not read {{kind}}", {
+            kind: label,
+          }),
+        )}
+      />
+    );
   }
-  if (!query.data) return <DocumentLoading label={`Loading ${label}…`} />;
+  if (!query.data)
+    return (
+      <DocumentLoading
+        label={t("workspace.editor.documentPreview.loading", "Loading {{kind}}…", { kind: label })}
+      />
+    );
 
   const Renderer = RENDERERS[kind];
   return (
     <div className="flex h-full min-h-0 flex-col bg-muted/40" data-document-kind={kind}>
-      <Suspense fallback={<DocumentLoading label={`Loading ${label} viewer…`} />}>
+      <Suspense
+        fallback={
+          <DocumentLoading
+            label={t("workspace.editor.documentPreview.loadingViewer", "Loading {{kind}} viewer…", {
+              kind: label,
+            })}
+          />
+        }
+      >
         <Renderer
           data={query.data.bytes}
           formulas={query.data.formulas}
@@ -77,3 +108,18 @@ export const DocumentPreview = memo(function DocumentPreview({
     </div>
   );
 });
+
+function documentKindLabel(kind: DocumentKind, t: UiTranslator): string {
+  switch (kind) {
+    case "pdf":
+      return "PDF";
+    case "docx":
+      return t("workspace.editor.documentPreview.word", "Word document");
+    case "xlsx":
+      return t("workspace.editor.documentPreview.excel", "Excel workbook");
+    case "pptx":
+      return t("workspace.editor.documentPreview.powerpoint", "PowerPoint presentation");
+    case "csv":
+      return t("workspace.editor.documentPreview.csv", "CSV file");
+  }
+}

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * The branch panel's first row when the directory's checkout is not one of the
  * conversation's branches — the trunk, or a branch another conversation moved
@@ -21,6 +22,7 @@ export const UnlinkedCheckoutRow = memo(function UnlinkedCheckoutRow({
   featureId: number;
   name: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <li data-thread-checkout={name} className="flex flex-col gap-1 px-3 py-2">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -29,12 +31,15 @@ export const UnlinkedCheckoutRow = memo(function UnlinkedCheckoutRow({
           {name}
         </span>
         <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">
-          checked out
+          {t("workspace.git.unlinkedCheckoutRow.checkedOut", "checked out")}
         </span>
         {name !== DETACHED_HEAD && <LinkCheckoutButton featureId={featureId} name={name} />}
       </div>
       <p className="pl-5 text-[11px] text-muted-foreground">
-        Not one of this conversation's branches
+        {t(
+          "workspace.git.unlinkedCheckoutRow.notOneOfThisConversationSBranches",
+          "Not one of this conversation's branches",
+        )}
       </p>
     </li>
   );
@@ -47,8 +52,18 @@ function LinkCheckoutButton({
   featureId: number;
   name: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { mutate, isPending } = useLinkFeatureBranch({
-    mutation: { onError: (error) => toastError(error, "Failed to link the branch.") },
+    mutation: {
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "workspace.git.unlinkedCheckoutRow.failedToLinkTheBranch",
+            "Failed to link the branch.",
+          ),
+        ),
+    },
   });
   return (
     <Button
@@ -56,12 +71,16 @@ function LinkCheckoutButton({
       variant="ghost"
       size="xs"
       className="ml-auto h-5 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
-      aria-label={`Link ${name} to this conversation`}
+      aria-label={t(
+        "workspace.git.unlinkedCheckoutRow.linkBranchToThisConversation",
+        "Link {{branch}} to this conversation",
+        { branch: name },
+      )}
       disabled={isPending}
       onClick={() => mutate({ id: featureId, data: { branch: name } })}
     >
       {isPending ? <Loader2Icon className="animate-spin" /> : <LinkIcon />}
-      Link
+      {t("workspace.git.unlinkedCheckoutRow.link", "Link")}
     </Button>
   );
 }

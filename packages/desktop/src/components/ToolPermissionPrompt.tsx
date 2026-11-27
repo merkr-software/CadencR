@@ -1,3 +1,5 @@
+import { permissionOptionCopy } from "@/lib/permission-option-copy";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useScopedHotkeys } from "@/hooks/useScopedHotkeys";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { Button } from "@/components/ui/button";
@@ -179,7 +181,9 @@ function PermissionOptionButton({
   disabled,
   showSpinner,
 }: PermissionOptionButtonProps) {
+  const { t } = useUiTranslation();
   const shortcutId = shortcutIdForOption(option, options);
+  const copy = permissionOptionCopy(t, option);
   return (
     <button
       type="button"
@@ -195,10 +199,10 @@ function PermissionOptionButton({
     >
       <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
         {shortcutId && <PermissionShortcutBadge shortcutId={shortcutId} />}
-        {option.label}
+        {copy.label}
         {showSpinner && <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" />}
       </span>
-      <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>
+      <span className="mt-0.5 block text-xs text-muted-foreground">{copy.description}</span>
     </button>
   );
 }
@@ -218,6 +222,7 @@ function DenyFeedbackInput({
   disabled,
   showSpinner,
 }: DenyFeedbackInputProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="mt-2 flex items-center gap-2">
       <Input
@@ -226,7 +231,10 @@ function DenyFeedbackInput({
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.nativeEvent.isComposing) onSubmit();
         }}
-        placeholder="Reason for denying (optional)..."
+        placeholder={t(
+          "conversation.composer.toolPermissionPrompt.reasonForDenyingOptional",
+          "Reason for denying (optional)...",
+        )}
         className="h-8 border-border/50 bg-muted/40 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring/40"
         autoFocus
         disabled={disabled}
@@ -237,7 +245,7 @@ function DenyFeedbackInput({
         ) : (
           <SendIcon className="mr-1.5 size-3" />
         )}
-        Deny
+        {t("conversation.composer.toolPermissionPrompt.deny", "Deny")}
       </Button>
     </div>
   );

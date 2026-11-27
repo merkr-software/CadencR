@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactNode } from "react";
 import {
   BrainIcon,
@@ -59,7 +60,8 @@ export const CompactToolLine = memo(function CompactToolLine({
   streaming = false,
   reasonLine = true,
 }: CompactToolLineProps) {
-  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
+  const { t } = useUiTranslation();
+  const failure = useMemo(() => toolCallFailure(block, result, t), [block, result, t]);
   if (!hasCompactLine(block)) return null;
   const gated = shouldGateFullContent(block);
   if (block.type === "thinking") {
@@ -73,7 +75,7 @@ export const CompactToolLine = memo(function CompactToolLine({
       <BaseLine
         icon={BrainIcon}
         accent="thinking"
-        label="Thinking"
+        label={t("conversation.stream.compactToolLine.thinking", "Thinking")}
         detail={detail || undefined}
         prose
         live={streaming}
@@ -84,15 +86,19 @@ export const CompactToolLine = memo(function CompactToolLine({
     <BaseLine
       icon={WrenchIcon}
       accent="tool"
-      label={normalizeToolName(block.toolName ?? "Tool")}
+      label={
+        block.toolName !== undefined
+          ? normalizeToolName(block.toolName)
+          : t("conversation.stream.compactToolLine.tool", "Tool")
+      }
       failed={failure !== null}
     />
   ) : (
-    <ToolCallLine block={block} basePath={basePath} failed={failure !== null} />
+    <ToolCallLine block={block} basePath={basePath} failed={failure !== null} t={t} />
   );
   if (!failure) return call;
   return (
-    <FailedCall failure={failure} reasonLine={reasonLine}>
+    <FailedCall failure={failure} reasonLine={reasonLine} t={t}>
       {call}
     </FailedCall>
   );
@@ -102,21 +108,35 @@ interface ToolCallLineProps {
   block: AgentBlockData;
   basePath: string | undefined;
   failed: boolean;
+  t: UiTranslator;
 }
 
-function ToolCallLine({ block, basePath, failed }: ToolCallLineProps) {
-  const rawToolName = block.toolName ?? "Tool";
+function ToolCallLine({ block, basePath, failed, t }: ToolCallLineProps) {
+  const rawToolName = block.toolName ?? "";
   const skill = semanticSkillPresentation(rawToolName, block.toolArgs);
   if (skill) {
     return (
-      <BaseLine icon={WrenchIcon} accent="tool" label="Skill" detail={skill.name} failed={failed} />
+      <BaseLine
+        icon={WrenchIcon}
+        accent="tool"
+        label={t("conversation.stream.compactToolLine.skill", "Skill")}
+        detail={skill.name}
+        failed={failed}
+      />
     );
   }
   const toolName = normalizeToolName(rawToolName);
   // Branch before any parsing so each line shape only runs the helpers it
   // shows; the `useMemo`s stay hook-stable inside each branch component.
   if (toolName === "Bash") {
-    return <BashLine toolArgs={block.toolArgs} basePath={basePath} failed={failed} />;
+    return (
+      <BashLine
+        toolArgs={block.toolArgs}
+        basePath={basePath}
+        failed={failed}
+        label={t("conversation.stream.compactToolLine.bash", "Bash")}
+      />
+    );
   }
   if (isFileChangeTool(toolName)) {
     return (
@@ -131,10 +151,15 @@ function ToolCallLine({ block, basePath, failed }: ToolCallLineProps) {
   }
   return (
     <GenericToolLine
-      toolName={toolName}
+      toolName={
+        block.toolName !== undefined
+          ? toolName
+          : t("conversation.stream.compactToolLine.tool", "Tool")
+      }
       toolArgs={block.toolArgs}
       basePath={basePath}
       failed={failed}
+      t={t}
     />
   );
 }
@@ -145,13 +170,13 @@ interface ToolLineProps {
   failed: boolean;
 }
 
-function BashLine({ toolArgs, basePath, failed }: ToolLineProps) {
+function BashLine({ toolArgs, basePath, failed, label }: ToolLineProps & { label: string }) {
   const command = useMemo(
     () => oneLineShellCommand(extractBashCommand(toolArgs), basePath),
     [toolArgs, basePath],
   );
   return (
-    <BaseLine icon={TerminalIcon} accent="bash" label="Bash" detail={command} failed={failed} />
+    <BaseLine icon={TerminalIcon} accent="bash" label={label} detail={command} failed={failed} />
   );
 }
 
@@ -188,13 +213,14 @@ function GenericToolLine({
   toolArgs,
   basePath,
   failed,
-}: ToolLineProps & { toolName: string }) {
+  t,
+}: ToolLineProps & { toolName: string; t: UiTranslator }) {
   const presentation = useMemo(() => {
-    const mcp = parseMcpTool(toolName, toolArgs);
+    const mcp = parseMcpTool(toolName, toolArgs, t);
     if (mcp) return { label: mcp.label, detail: oneLineDetail(mcp.detail, undefined), mcp: true };
-    const detail = oneLineDetail(parseToolCall(toolName, toolArgs)?.detail, basePath);
+    const detail = oneLineDetail(parseToolCall(toolName, toolArgs, t)?.detail, basePath);
     return { label: toolName, detail, mcp: false };
-  }, [toolName, toolArgs, basePath]);
+  }, [toolName, toolArgs, basePath, t]);
   const subagent = isSubagentToolName(toolName);
   return (
     <BaseLine
@@ -266,6 +292,7 @@ interface FailedCallProps {
   failure: ToolCallFailure;
   reasonLine: boolean;
   children: ReactNode;
+  t: UiTranslator;
 }
 
 /**
@@ -274,11 +301,11 @@ interface FailedCallProps {
  * keeps the call line where a single 24px row centers it. Without the reason
  * line, the reason stays in the tooltip and for screen readers.
  */
-function FailedCall({ failure, reasonLine, children }: FailedCallProps) {
+function FailedCall({ failure, reasonLine, children, t }: FailedCallProps) {
   return (
     <span
       className={cn("flex min-w-0", reasonLine && "flex-col py-1")}
-      title={failure.reason ?? "Failed"}
+      title={failure.reason ?? t("common.failed", "Failed")}
     >
       {children}
       {/* `pl-[18px]` = icon (12px) + gap (6px): the reason hangs on the label column. */}
@@ -291,11 +318,13 @@ function FailedCall({ failure, reasonLine, children }: FailedCallProps) {
       >
         {failure.reason ? (
           <>
-            <span className="sr-only">Failed: </span>
+            <span className="sr-only">
+              {t("conversation.stream.compactToolLine.failed", "Failed:")}{" "}
+            </span>
             {failure.reason}
           </>
         ) : (
-          "Failed"
+          t("common.failed", "Failed")
         )}
       </span>
     </span>

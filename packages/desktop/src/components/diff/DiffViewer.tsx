@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import type { PrThreadLine, ReviewNavigationTarget } from "@/lib/pr-review-threads";
@@ -311,6 +312,7 @@ function DiffViewerImpl({
   selectedReviewThreadIds,
   onReviewThreadSelectedChange,
 }: DiffViewerProps) {
+  const { t } = useUiTranslation();
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = useGitPathEditorOpener(
     featureId,
@@ -332,11 +334,19 @@ function DiffViewerImpl({
 
   let content: ReactNode;
   if (data.isLoading) {
-    content = <DiffViewerMessage>Loading diff...</DiffViewerMessage>;
+    content = (
+      <DiffViewerMessage>
+        {t("workspace.git.diffViewer.loadingDiff", "Loading diff...")}
+      </DiffViewerMessage>
+    );
   } else if (data.errorMessage && data.changedFiles.length === 0) {
     content = <DiffViewerMessage error>{data.errorMessage}</DiffViewerMessage>;
   } else if (data.changedFiles.length === 0) {
-    content = <DiffViewerMessage>No changes detected</DiffViewerMessage>;
+    content = (
+      <DiffViewerMessage>
+        {t("workspace.git.diffViewer.noChangesDetected", "No changes detected")}
+      </DiffViewerMessage>
+    );
   } else {
     content = (
       <LoadedDiffViewer

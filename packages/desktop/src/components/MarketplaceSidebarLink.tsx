@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Blocks } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
@@ -10,16 +11,25 @@ import { cn } from "@/lib/utils";
  * a glance from anywhere in the app.
  */
 export const MarketplaceSidebarLink = memo(function MarketplaceSidebarLink(): ReactElement {
+  const { t } = useUiTranslation();
   const active = useRouterState({
     select: (state) => state.location.pathname.startsWith("/marketplace"),
   });
   const updates = useMarketplaceUpdateCount();
+  const marketplace = t("sidebar.marketplaceSidebarLink.marketplace", "Marketplace");
   return (
     <Link
       to="/marketplace"
       data-nav-item
       data-nav-type="marketplace"
-      title={updates ? `${updates} update${updates === 1 ? "" : "s"} available` : "Marketplace"}
+      title={
+        updates
+          ? t("sidebar.marketplaceSidebarLink.updatesAvailable", "{{count}} updates available", {
+              count: updates,
+              defaultValue_one: "{{count}} update available",
+            })
+          : marketplace
+      }
       className={cn(
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors",
         "focus-visible:bg-accent focus-visible:outline-none",
@@ -29,7 +39,7 @@ export const MarketplaceSidebarLink = memo(function MarketplaceSidebarLink(): Re
       )}
     >
       <Blocks className="size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">Marketplace</span>
+      <span className="min-w-0 flex-1 truncate">{marketplace}</span>
       {updates > 0 && (
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
           <span className="size-1.5 rounded-full bg-primary" />

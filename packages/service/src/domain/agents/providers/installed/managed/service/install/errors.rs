@@ -179,6 +179,9 @@ pub(super) fn append_context(error: AppError, context: String) -> AppError {
             code,
             message: value,
         } => AppError::coded(status, code, message(value)),
+        AppError::WithPublicDetails { error, details } => {
+            append_context(*error, context).with_public_details(details)
+        }
         AppError::ServiceUnavailable(value) => AppError::ServiceUnavailable(message(value)),
         AppError::NeovimSpawnError { detail } => AppError::NeovimSpawnError {
             detail: message(detail),

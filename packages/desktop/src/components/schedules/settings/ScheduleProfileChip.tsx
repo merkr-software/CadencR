@@ -11,6 +11,7 @@
  * This mirrors `useClaudeProfileSelection` on the session side: the schedule
  * pins a profile for its own runs and never touches the globally active one.
  */
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactElement } from "react";
 import { ClaudeProfileCombobox } from "@/components/agent-session/ClaudeProfileCombobox";
 import { useClaudeCodeProfiles, DEFAULT_CLAUDE_PROFILE_NAME } from "@/api/agentRuntime";
@@ -24,6 +25,7 @@ export function ScheduleProfileChip({
   onChange,
   runtime,
 }: ScheduleChipProps): ReactElement | null {
+  const { t } = useUiTranslation();
   const isClaude = runtime.providerId === PROVIDER_IDS.CLAUDE_CODE;
   const profiles = useClaudeCodeProfiles({ enabled: isClaude });
   if (!isClaude) return null;
@@ -43,7 +45,7 @@ export function ScheduleProfileChip({
       isError={profiles.isError}
       onChange={(profile) => onChange({ ...target, profile })}
       variant="instrument"
-      label="Profile"
+      label={t("conversation.stream.claudeProfileCombobox.profile", "Profile")}
     />
   );
 }

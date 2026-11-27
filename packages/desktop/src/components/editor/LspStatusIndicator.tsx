@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Compact LSP state pill rendered in the editor status bar, just before the
  * language name. Clicking opens a popover with the long-form description
@@ -40,57 +41,87 @@ interface StatusVisual {
   heading: string;
 }
 
-function visualFor(status: LspStatus): StatusVisual {
+function visualFor(status: LspStatus, t: UiTranslator): StatusVisual {
   switch (status) {
     case "ready":
-      return { icon: CircleCheck, tone: "text-emerald-500", heading: "Language server ready" };
+      return {
+        icon: CircleCheck,
+        tone: "text-emerald-500",
+        heading: t("workspace.editor.lspStatusIndicator.ready", "Language server ready"),
+      };
     case "starting":
       return {
         icon: Loader2,
         tone: "text-muted-foreground",
         spin: true,
-        heading: "Starting language server…",
+        heading: t("workspace.editor.lspStatusIndicator.starting", "Starting language server…"),
       };
     case "reconnecting":
       return {
         icon: Loader2,
         tone: "text-amber-500",
         spin: true,
-        heading: "Reconnecting to language server…",
+        heading: t(
+          "workspace.editor.lspStatusIndicator.reconnecting",
+          "Reconnecting to language server…",
+        ),
       };
     case "error":
-      return { icon: TriangleAlert, tone: "text-destructive", heading: "Language server failed" };
+      return {
+        icon: TriangleAlert,
+        tone: "text-destructive",
+        heading: t("workspace.editor.lspStatusIndicator.failed", "Language server failed"),
+      };
     case "unsupported":
       return {
         icon: CircleSlash,
         tone: "text-muted-foreground/60",
-        heading: "No language server",
+        heading: t("workspace.editor.lspStatusIndicator.unavailable", "No language server"),
       };
   }
 }
 
-function bodyFor(props: LspStatusIndicatorProps): string {
+function bodyFor(props: LspStatusIndicatorProps, t: UiTranslator): string {
   switch (props.status) {
     case "ready":
-      return `Cmd-click a symbol to jump to its definition (${props.languageId ?? "lsp"}).`;
+      return t(
+        "workspace.editor.lspStatusIndicator.readyDetails",
+        "Cmd-click a symbol to jump to its definition ({{language}}).",
+        { language: props.languageId ?? "lsp" },
+      );
     case "starting":
-      return "Resolving the binary, opening a WebSocket, and waiting for `initialize`.";
+      return t(
+        "workspace.editor.lspStatusIndicator.startingDetails",
+        "Resolving the binary, opening a WebSocket, and waiting for `initialize`.",
+      );
     case "reconnecting":
-      return "The connection dropped; reconnecting with backoff. Definitions resume once it's back.";
+      return t(
+        "workspace.editor.lspStatusIndicator.reconnectingDetails",
+        "The connection dropped; reconnecting with backoff. Definitions resume once it's back.",
+      );
     case "error":
       return (
         (props.errorMessage ??
-          "Could not start the language server. Check the toast for the install hint.") +
-        (props.onRetry ? " Click to retry." : "")
+          t(
+            "workspace.editor.lspStatusIndicator.failedDetails",
+            "Could not start the language server. Check the toast for the install hint.",
+          )) +
+        (props.onRetry
+          ? t("workspace.editor.lspStatusIndicator.retryHint", " Click to retry.")
+          : "")
       );
     case "unsupported":
-      return "This file extension isn't mapped to a language server in the catalog.";
+      return t(
+        "workspace.editor.lspStatusIndicator.unavailableDetails",
+        "This file extension isn't mapped to a language server in the catalog.",
+      );
   }
 }
 
 /** @public */
 export const LspStatusIndicator = memo(function LspStatusIndicator(props: LspStatusIndicatorProps) {
-  const visual = visualFor(props.status);
+  const { t } = useUiTranslation();
+  const visual = visualFor(props.status, t);
   const Icon = visual.icon;
   const canRetry = props.status === "error" && Boolean(props.onRetry);
   return (
@@ -115,7 +146,7 @@ export const LspStatusIndicator = memo(function LspStatusIndicator(props: LspSta
           />
           <div className="space-y-1">
             <p className="font-medium text-foreground">{visual.heading}</p>
-            <p className="text-muted-foreground break-words">{bodyFor(props)}</p>
+            <p className="text-muted-foreground break-words">{bodyFor(props, t)}</p>
             {canRetry && (
               <button
                 type="button"
@@ -123,7 +154,7 @@ export const LspStatusIndicator = memo(function LspStatusIndicator(props: LspSta
                 className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 mt-1 text-foreground hover:bg-accent transition-colors"
               >
                 <RefreshCw className="h-3 w-3" aria-hidden />
-                Retry
+                {t("workspace.editor.lspStatusIndicator.retry", "Retry")}
               </button>
             )}
           </div>

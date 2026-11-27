@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useMemo, type ReactElement } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FeatureStatus, useListProjects, useListFeatures, type Feature } from "../api/generated";
@@ -11,11 +12,6 @@ export const Route = createFileRoute("/")({
     return result;
   },
 });
-
-function getQueryErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.length > 0) return error.message;
-  return "Failed to load workspace data.";
-}
 
 function isRestorableFeature(feature: Feature): boolean {
   return feature.status !== FeatureStatus.archived;
@@ -55,32 +51,40 @@ function HomePageStatus({
   startupError,
   targetProjectId,
 }: HomePageStatusProps): ReactElement {
+  const { t } = useUiTranslation();
   if (projectsLoaded && targetProjectId != null && featuresLoaded && activeFeatureCount === 0) {
     return (
       <CenteredMessage
-        title="No features in this project yet"
-        detail="Use the + button in the sidebar to create a new feature"
+        title={t("home.emptyProject.title", "No features in this project yet")}
+        detail={t(
+          "home.emptyProject.hint",
+          "Use the + button in the sidebar to create a new feature",
+        )}
       />
     );
   }
   if (projectsLoaded && targetProjectId == null) {
     return (
       <CenteredMessage
-        title="No projects yet"
-        detail="Use the + button in the sidebar to add a project"
+        title={t("home.noProjects.title", "No projects yet")}
+        detail={t("home.noProjects.hint", "Use the + button in the sidebar to add a project")}
       />
     );
   }
   if (startupError) {
     return (
       <CenteredMessage
-        title="Failed to load workspace"
-        detail={getQueryErrorMessage(startupError)}
+        title={t("home.load.title", "Failed to load workspace")}
+        detail={
+          startupError instanceof Error && startupError.message
+            ? startupError.message
+            : t("home.load.detail", "Failed to load workspace data.")
+        }
         error
       />
     );
   }
-  return <CenteredMessage title="Loading..." />;
+  return <CenteredMessage title={t("home.loading", "Loading...")} />;
 }
 
 function HomePage() {

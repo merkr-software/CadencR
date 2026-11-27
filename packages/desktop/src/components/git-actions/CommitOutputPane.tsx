@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * Streaming bash terminal for the commit dialog.
  *
@@ -29,6 +30,7 @@ interface CommitOutputPaneProps {
 export const CommitOutputPane = memo(function CommitOutputPane({
   featureId,
 }: CommitOutputPaneProps): ReactElement | null {
+  const { t } = useUiTranslation();
   // Two primitive selectors isolate this feature's output and lifecycle.
   const text = useCommitOutputStore(selectCommitOutput(featureId));
   const status = useCommitOutputStore(selectCommitStatus(featureId));
@@ -64,7 +66,10 @@ export const CommitOutputPane = memo(function CommitOutputPane({
       runningFooter={
         <div className="mt-1 flex items-center gap-1.5 border-t border-zinc-800 pt-1 text-[11px] text-zinc-500">
           <Loader2 className="size-3 animate-spin" />
-          Pre-commit hooks are running — you can safely continue in the background.
+          {t(
+            "workspace.git.commitOutputPane.preCommitHooksAreRunningYouCan",
+            "Pre-commit hooks are running — you can safely continue in the background.",
+          )}
         </div>
       }
     />

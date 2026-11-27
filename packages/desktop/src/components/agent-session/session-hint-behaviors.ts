@@ -1,3 +1,6 @@
+import type { UiTranslator } from "@/lib/i18n/ui";
+import { SESSION_WORKSPACE_HINTS } from "./session-hint-workspace";
+
 /**
  * Static catalog of "Did you know?" behaviors surfaced on the new-session
  * empty state, paired dynamically with a random keyboard shortcut from
@@ -11,123 +14,286 @@
  *
  * Order is not significant; the consumer picks at random.
  */
-export const SESSION_HINT_BEHAVIORS: readonly string[] = [
-  "Cadencr wraps multiple AI coding agents — Claude Code, OpenCode, and Codex — behind a single workspace, so your shortcuts and layout stay the same when you swap providers.",
-  "Each feature can run on its own git worktree, letting different agents work on different branches without stepping on each other.",
-  "Plans must be approved before they execute. You can approve, request changes with feedback, or reject — the agent waits for your call.",
-  "Auto-scroll pauses the moment you scroll up to read older output, and a chip appears so you can snap back to the live tail.",
-  "Permission modes are per-agent: pick stricter guardrails for risky tasks and looser ones when you just want it to ship.",
-  "When an agent needs a decision, it asks a multiple-choice question inline — type the number, press Enter, or open the “Other…” field to write your own answer.",
-  "The Diff viewer borrows vim-style keys, so you can sweep through changes without leaving the keyboard.",
-  "You can mark files as viewed in the Diff viewer, the same way you would on a GitHub pull request — perfect for big reviews.",
-  "Diff comments queue up locally and are sent to the agent in one batch, so you can write a full review before triggering another turn.",
-  "The Editor tab is a real text editor with fuzzy file search and a togglable file explorer — handy for quick fixes without leaving Cadencr.",
-  "The Editor previews Markdown, HTML, SVG, and image files in place, so agent-generated docs and visual assets are easy to inspect without leaving the workspace.",
-  "The Terminal can be split horizontally or vertically, and you can hop between panes with the same arrow-based shortcut family used in the Editor.",
-  "The Unified Agents view shows every running agent across every feature on a single grid, so nothing slips off your radar.",
-  "You can pin an agent in the Unified Agents view to keep it at the top while you scan everything else.",
-  "Every agent surfaces live context-window usage, so you know when it’s time to compact instead of being surprised mid-turn.",
-  "The branch picker is a fast checkout: start typing a branch name and press Enter to switch — no terminal round-trip.",
-  "Before the first prompt, the worktree mode picker lets you choose a new branch, reuse an existing worktree, or defer a checkout until the session starts.",
-  "Commits, pushes, and pull requests each have a dedicated dialog, so the entire git flow lives next to the agent that produced it.",
-  "The Git tab has a commit graph, so you can see where the session branch sits before you review, push, or open a pull request.",
-  "The command palette is the fastest way to jump between features, projects, and actions — most things you can do via menu are there too.",
-  "Slash commands work in the prompt. Type `/` to discover what’s registered for the current project.",
-  "You can paste images directly into the prompt — screenshots, mockups, and diagrams attach inline without saving to disk first.",
-  "Prompt attachments are provider-aware: images, PDFs, and other files are sent in the shape each agent backend expects.",
-  "The thinking-effort chip lets you trade speed for depth on models that support reasoning, and the choice sticks per agent.",
-  "Unsupported thinking-effort choices are cleared automatically on models that do not accept them, avoiding a failed first turn.",
-  "The model picker groups providers and their models together, so swapping is a single keystroke instead of a settings hunt.",
-  "Claude Code profiles can be selected before the first turn, so Bedrock, Vertex, or local environment overrides are in place before the CLI starts.",
-  "Cadencr is provider-neutral: switching between Claude Code, OpenCode, and Codex preserves your workspace, history, and shortcuts.",
-  "Existing Claude Code, OpenCode, and Codex conversations can be imported, so older work can become part of your Cadencr workspace.",
-  "Need to bail out fast? One shortcut stops every running agent across every feature at once.",
-  "Content search runs inside the current feature’s working directory only — fast, focused, and never bleeds across projects.",
-  "In-conversation search finds text inside the current agent transcript, which is faster than scrolling when you remember what was said.",
-  "The sidebar can be toggled to give the agent stream more breathing room when you’re deep in a long turn.",
-  "The sidebar keeps pinned conversations in one global section, so the sessions you care about stay visible across projects.",
-  "Finished agents get an unread dot in the sidebar, making it easier to spot sessions that completed while you were elsewhere.",
-  "Shell and browser activity indicators in the sidebar show which features still have live terminals or Browser tabs open.",
-  "Zoom controls work app-wide, so you can scale the UI for shared screens or presentations without restarting.",
-  "You can rename a feature’s label inline so it shows up in the command palette under a name that actually means something.",
-  "Each feature has a settings popover for runtime, working directory, and permission defaults — change them without touching JSON.",
-  "Global and project settings are stored as readable JSON files, so configuration is easier to inspect, back up, and move between machines.",
-  "The keyboard shortcuts modal is searchable: try a description like “zoom”, a topic like “git”, or even the shortcut chord itself.",
-  "Agents can be collapsed or maximized inline, so you can park one mid-thought and bring another to full screen without losing state.",
-  "The sidebar shows status dots on every project and feature, so you can spot which agent is busy without opening anything.",
-  "Sessions are resumable — if an agent stops mid-task, a Resume button picks the conversation back up right where it left off.",
-  "Compaction now has its own in-progress state, so you can tell when a provider is shrinking context instead of assuming the agent is idle.",
-  "Tool-permission prompts can be granted just for this one request or for the rest of the session, so trust scales with familiarity.",
-  "Rejecting a plan isn't all-or-nothing — you can write feedback and send the agent back to revise instead of starting over.",
-  "Each feature can host multiple agents stacked vertically, so you can compare answers or hand off work between providers.",
-  "Project and workspace MCP tools let capable agents inspect nearby sessions, compare work, and search conversation history when you enable them.",
-  "The Diff viewer's file sidebar can collapse for a full-width review, then expand again when you need to jump between files.",
-  "From the Diff viewer you can open the focused file straight into the Editor tab to tweak it manually, without losing your scroll position.",
-  "Question drawers always include an “Other…” field — when the agent's multiple choices don't fit, you can type a free-text answer.",
-  "Every pane has a dedicated tab shortcut — Agent, Terminal, Git, and Editor — so swapping roles never needs the mouse.",
-  "The Editor handles multiple file tabs at once, with separate chords to step next, previous, and close — like a tiny IDE inside the IDE.",
-  "The Editor opens very large files in read-only mode, keeping multi-megabyte logs or generated files inspectable without freezing the workspace.",
-  "Modifier-click, references, symbols, and rename use LSP when available, turning the Editor into a lightweight navigation surface for real code.",
-  "The file tree uses lazy loading for large worktrees, so ignored or massive folders do not make opening the Editor feel heavy.",
-  "The file search trigger in the Editor header is the fastest way to jump to a path without expanding folders by hand.",
-  "Pane navigation is consistent everywhere: the same modifier + arrow keys move focus in the Editor, the Terminal, and the Unified Agents grid.",
-  "The Browser tab keeps localhost checks beside the agent, with console and network diagnostics tied to the same feature.",
-  "Browser tabs are scoped per feature, so opening test pages for one task does not leak into another session's workspace.",
-  "If browser MCP is enabled, agents can open local pages, inspect snapshots, and interact with the Browser tab under permission control.",
-  "Browser reload and page-zoom shortcuts work inside Cadencr, so web QA does not require jumping to an external browser.",
-  "Open Settings with one shortcut, edit what you need, and press Esc to drop straight back into the workspace.",
-  "Remote access lets a paired browser or PWA watch and steer the same local sessions when you are away from this computer.",
-  "Remote notifications can alert a paired device when a session finishes or needs attention.",
-  "Status colors are reserved across the whole app: green means ready, orange means in-progress, red means retry — they never mean anything else.",
-  "The keyboard-shortcuts reference is always one chord away, so you can look up a binding mid-stream without losing your place.",
-  "Archived features still live in the command palette — archive is a soft delete, so you can restore them later if you change your mind.",
-  "Archive and delete dialogs can kill feature terminals too, helping cleanup finish without stray shells still running in the background.",
-  "Scheduled messages can send later as long as Cadencr is running, which is handy after a build, deploy, or human waiting period.",
-  "You can run different agents on different providers at the same time — one feature on Claude Code, another on OpenCode — and the workspace stays consistent.",
-  "The Unified Agents grid lets you arrow-key between every active session across every feature, so a busy workspace stays scannable.",
-  "The Unified Agents filter supports `/exclude:` and per-card hide actions when one noisy session should disappear from the current scan.",
-  "The Unified Agents view can create a new session directly with a project picker, no sidebar detour required.",
-  "Swapping models mid-conversation doesn't reset the agent — the context stays, only the writer changes.",
-  "When the agent queues multiple questions in a row, the question drawer lets you walk through them with ← and → before submitting answers.",
-  "The branch chip doubles as a checkout: it shows the current branch and switches you to a new one in the same popover.",
-  "Custom actions show live output and can be stopped from the header, so long-running project scripts are easier to supervise.",
-  "Custom actions can run in a terminal split when you want the command output to stay visible beside the rest of the session.",
-  "Theme choices now include newer light and dark palettes like Frost, Monokai, Carbon Owl, and Paper Owl, while keeping the same layout.",
-  "Hover any message you sent and pick Rewind to roll the conversation back to that point — everything after it is undone, including the agent's edits.",
-  "Fork turns one of your earlier messages into a brand-new session, so you can explore a second approach without losing the original thread.",
-  "Every message has a Copy action that exports clean Markdown — handy for pasting an agent's reasoning into an issue or a PR description.",
-  "Select a range of the transcript and the context menu can export it as rich HTML — formatting intact when you paste it into an email.",
-  "Summary mode rewrites the stream as one compact line per turn, so a very long session stays scannable.",
-  "Type `@` in the prompt to search the working directory and drop a real file path in — no copying paths out of the file tree.",
-  "You can reference another conversation from the prompt, so an agent can be pointed at what a different session already figured out.",
-  "The Editor has an optional vim mode and an auto-save toggle, so it can behave like the editor you already have muscle memory for.",
-  "Unsent drafts are saved per conversation, so switching features mid-sentence and coming back later picks up exactly where you stopped typing.",
-  "Mermaid diagrams in an agent's Markdown render as real diagrams inline — ask for a flowchart and you get a flowchart, not a code fence.",
-  "Excalidraw files open on a real Excalidraw canvas inside the Editor tab, so agent-drawn diagrams stay editable.",
-  "Enable git blame in Settings and the Editor annotates the line under your cursor with its author, date, and commit summary as you move around.",
-  "Merge conflicts open in a dedicated resolver that lets you take either side or edit the merged result by hand, right inside Cadencr.",
-  "The Editor has a go-to-line panel and per-file language overrides, for the times syntax detection guesses wrong on an unusual extension.",
-  "The Editor splits into multiple panes, so a test file and the implementation can sit side by side while the agent works.",
-  "Language servers can be installed and managed from Settings — the status indicator in the Editor tells you which ones are actually running.",
-  "Type checker, linter, and formatter are configurable per project, and each one falls back to your global default when the project leaves it unset.",
-  "Turn on format-on-save and the configured formatter runs on every save, so agent-written code lands already matching your project style.",
-  "Custom models can be registered by hand, which is how self-hosted endpoints and proxies show up in the same picker as the built-in ones.",
-  "Star the models you use most and they float to the top of every model picker.",
-  "Cadencr detects the agent CLIs installed on your machine and shows the path and version of each one it found.",
-  "Desktop notifications can fire when a session finishes or needs an answer, so a long turn doesn't need babysitting.",
-  "Pairing a remote device is a QR scan, and you choose the transport: your LAN when you’re on the same network, a tunnel when you’re not.",
-  "The Git tab manages stashes end to end: create one from the current changes, then apply or drop it later without touching the terminal.",
-  "Files can be staged and unstaged individually from the Git tab's file list, so you can split an agent's work into several focused commits.",
-  "Update branch pulls the base branch in by rebase or merge, and a recovery banner walks you out of it if the operation stops on a conflict.",
-  "Pull request review threads are annotated straight onto the diff lines they were written about, so feedback and code stay together.",
-  "Pull request comments have their own filterable view, which beats scrolling a web page to find the one thread that still needs an answer.",
-  "Connect GitHub, GitLab, or Bitbucket in Settings → Git — or just opt into reusing the token from the `gh` / `glab` CLI you already authenticated.",
-  "If you continued a session in the provider's own CLI, “Sync from CLI” in the session info popover pulls those events back into Cadencr.",
-  "The session info popover copies a ready-to-paste command that resumes the exact same conversation in the provider's terminal CLI.",
-  "Custom actions can run on a schedule, so a nightly build, a lint sweep, or a dependency check happens without you starting it.",
-  "When one session spawns another, the sidebar nests the child under its parent automatically — a spike and its follow-up stay together without any filing on your part.",
-  "When an agent creates a feature for you, the message carries a badge that links straight back to the session that spawned it.",
-  "The file tree icon set is selectable, and animations can be turned off entirely if you prefer a completely still interface.",
-  "Agent to-do lists render as a live checklist, so a long multi-step task shows what's done and what's still queued.",
-  "Sub-agents render nested inside the parent turn, so you can follow what a spawned helper is doing without losing the main thread.",
-] as const;
+export const SESSION_HINT_BEHAVIORS: readonly ((t: UiTranslator) => string)[] = [
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.cadencrWrapsMultipleAiCodingAgentsClaude",
+      "Cadencr wraps multiple AI coding agents — Claude Code, OpenCode, and Codex — behind a single workspace, so your shortcuts and layout stay the same when you swap providers.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.eachFeatureCanRunOnItsOwn",
+      "Each feature can run on its own git worktree, letting different agents work on different branches without stepping on each other.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.plansMustBeApprovedBeforeTheyExecute",
+      "Plans must be approved before they execute. You can approve, request changes with feedback, or reject — the agent waits for your call.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.autoScrollPausesTheMomentYouScroll",
+      "Auto-scroll pauses the moment you scroll up to read older output, and a chip appears so you can snap back to the live tail.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.permissionModesArePerAgentPickStricter",
+      "Permission modes are per-agent: pick stricter guardrails for risky tasks and looser ones when you just want it to ship.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.whenAnAgentNeedsADecisionIt",
+      "When an agent needs a decision, it asks a multiple-choice question inline — type the number, press Enter, or open the “Other…” field to write your own answer.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theDiffViewerBorrowsVimStyleKeys",
+      "The Diff viewer borrows vim-style keys, so you can sweep through changes without leaving the keyboard.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.youCanMarkFilesAsViewedIn",
+      "You can mark files as viewed in the Diff viewer, the same way you would on a GitHub pull request — perfect for big reviews.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.diffCommentsQueueUpLocallyAndAre",
+      "Diff comments queue up locally and are sent to the agent in one batch, so you can write a full review before triggering another turn.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theEditorTabIsARealText",
+      "The Editor tab is a real text editor with fuzzy file search and a togglable file explorer — handy for quick fixes without leaving Cadencr.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theEditorPreviewsMarkdownHtmlSvgAnd",
+      "The Editor previews Markdown, HTML, SVG, and image files in place, so agent-generated docs and visual assets are easy to inspect without leaving the workspace.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theTerminalCanBeSplitHorizontallyOr",
+      "The Terminal can be split horizontally or vertically, and you can hop between panes with the same arrow-based shortcut family used in the Editor.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theUnifiedAgentsViewShowsEveryRunning",
+      "The Unified Agents view shows every running agent across every feature on a single grid, so nothing slips off your radar.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.youCanPinAnAgentInThe",
+      "You can pin an agent in the Unified Agents view to keep it at the top while you scan everything else.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.everyAgentSurfacesLiveContextWindowUsage",
+      "Every agent surfaces live context-window usage, so you know when it’s time to compact instead of being surprised mid-turn.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theBranchPickerIsAFastCheckout",
+      "The branch picker is a fast checkout: start typing a branch name and press Enter to switch — no terminal round-trip.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.beforeTheFirstPromptTheWorktreeMode",
+      "Before the first prompt, the worktree mode picker lets you choose a new branch, reuse an existing worktree, or defer a checkout until the session starts.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.commitsPushesAndPullRequestsEachHave",
+      "Commits, pushes, and pull requests each have a dedicated dialog, so the entire git flow lives next to the agent that produced it.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theGitTabHasACommitGraph",
+      "The Git tab has a commit graph, so you can see where the session branch sits before you review, push, or open a pull request.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theCommandPaletteIsTheFastestWay",
+      "The command palette is the fastest way to jump between features, projects, and actions — most things you can do via menu are there too.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.slashCommandsWorkInThePromptType",
+      "Slash commands work in the prompt. Type `/` to discover what’s registered for the current project.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.youCanPasteImagesDirectlyIntoThe",
+      "You can paste images directly into the prompt — screenshots, mockups, and diagrams attach inline without saving to disk first.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.promptAttachmentsAreProviderAwareImagesPdfs",
+      "Prompt attachments are provider-aware: images, PDFs, and other files are sent in the shape each agent backend expects.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theThinkingEffortChipLetsYouTrade",
+      "The thinking-effort chip lets you trade speed for depth on models that support reasoning, and the choice sticks per agent.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.unsupportedThinkingEffortChoicesAreClearedAutomatically",
+      "Unsupported thinking-effort choices are cleared automatically on models that do not accept them, avoiding a failed first turn.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theModelPickerGroupsProvidersAndTheir",
+      "The model picker groups providers and their models together, so swapping is a single keystroke instead of a settings hunt.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.claudeCodeProfilesCanBeSelectedBefore",
+      "Claude Code profiles can be selected before the first turn, so Bedrock, Vertex, or local environment overrides are in place before the CLI starts.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.cadencrIsProviderNeutralSwitchingBetweenClaude",
+      "Cadencr is provider-neutral: switching between Claude Code, OpenCode, and Codex preserves your workspace, history, and shortcuts.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.existingClaudeCodeOpencodeAndCodexConversations",
+      "Existing Claude Code, OpenCode, and Codex conversations can be imported, so older work can become part of your Cadencr workspace.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.needToBailOutFastOneShortcut",
+      "Need to bail out fast? One shortcut stops every running agent across every feature at once.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.contentSearchRunsInsideTheCurrentFeature",
+      "Content search runs inside the current feature’s working directory only — fast, focused, and never bleeds across projects.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.inConversationSearchFindsTextInsideThe",
+      "In-conversation search finds text inside the current agent transcript, which is faster than scrolling when you remember what was said.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theSidebarCanBeToggledToGive",
+      "The sidebar can be toggled to give the agent stream more breathing room when you’re deep in a long turn.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theSidebarKeepsPinnedConversationsInOne",
+      "The sidebar keeps pinned conversations in one global section, so the sessions you care about stay visible across projects.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.finishedAgentsGetAnUnreadDotIn",
+      "Finished agents get an unread dot in the sidebar, making it easier to spot sessions that completed while you were elsewhere.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.shellAndBrowserActivityIndicatorsInThe",
+      "Shell and browser activity indicators in the sidebar show which features still have live terminals or Browser tabs open.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.zoomControlsWorkAppWideSoYou",
+      "Zoom controls work app-wide, so you can scale the UI for shared screens or presentations without restarting.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.youCanRenameAFeatureSLabel",
+      "You can rename a feature’s label inline so it shows up in the command palette under a name that actually means something.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.eachFeatureHasASettingsPopoverFor",
+      "Each feature has a settings popover for runtime, working directory, and permission defaults — change them without touching JSON.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.globalAndProjectSettingsAreStoredAs",
+      "Global and project settings are stored as readable JSON files, so configuration is easier to inspect, back up, and move between machines.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theKeyboardShortcutsModalIsSearchableTry",
+      "The keyboard shortcuts modal is searchable: try a description like “zoom”, a topic like “git”, or even the shortcut chord itself.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.agentsCanBeCollapsedOrMaximizedInline",
+      "Agents can be collapsed or maximized inline, so you can park one mid-thought and bring another to full screen without losing state.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theSidebarShowsStatusDotsOnEvery",
+      "The sidebar shows status dots on every project and feature, so you can spot which agent is busy without opening anything.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.sessionsAreResumableIfAnAgentStops",
+      "Sessions are resumable — if an agent stops mid-task, a Resume button picks the conversation back up right where it left off.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.compactionNowHasItsOwnInProgress",
+      "Compaction now has its own in-progress state, so you can tell when a provider is shrinking context instead of assuming the agent is idle.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.toolPermissionPromptsCanBeGrantedJust",
+      "Tool-permission prompts can be granted just for this one request or for the rest of the session, so trust scales with familiarity.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.rejectingAPlanIsnTAllOr",
+      "Rejecting a plan isn't all-or-nothing — you can write feedback and send the agent back to revise instead of starting over.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.eachFeatureCanHostMultipleAgentsStacked",
+      "Each feature can host multiple agents stacked vertically, so you can compare answers or hand off work between providers.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.projectAndWorkspaceMcpToolsLetCapable",
+      "Project and workspace MCP tools let capable agents inspect nearby sessions, compare work, and search conversation history when you enable them.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theDiffViewerSFileSidebarCan",
+      "The Diff viewer's file sidebar can collapse for a full-width review, then expand again when you need to jump between files.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.fromTheDiffViewerYouCanOpen",
+      "From the Diff viewer you can open the focused file straight into the Editor tab to tweak it manually, without losing your scroll position.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.questionDrawersAlwaysIncludeAnOtherField",
+      "Question drawers always include an “Other…” field — when the agent's multiple choices don't fit, you can type a free-text answer.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.everyPaneHasADedicatedTabShortcut",
+      "Every pane has a dedicated tab shortcut — Agent, Terminal, Git, and Editor — so swapping roles never needs the mouse.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theEditorHandlesMultipleFileTabsAt",
+      "The Editor handles multiple file tabs at once, with separate chords to step next, previous, and close — like a tiny IDE inside the IDE.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.theEditorOpensVeryLargeFilesIn",
+      "The Editor opens very large files in read-only mode, keeping multi-megabyte logs or generated files inspectable without freezing the workspace.",
+    ),
+  (t) =>
+    t(
+      "conversation.stream.sessionTips.modifierClickReferencesSymbolsAndRenameUse",
+      "Modifier-click, references, symbols, and rename use LSP when available, turning the Editor into a lightweight navigation surface for real code.",
+    ),
+  ...SESSION_WORKSPACE_HINTS,
+];

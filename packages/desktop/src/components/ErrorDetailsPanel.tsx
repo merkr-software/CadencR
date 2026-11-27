@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { CopyIcon } from "lucide-react";
 import type { ReactElement } from "react";
 
@@ -10,6 +11,7 @@ interface ErrorDetailsPanelProps {
 }
 
 export function ErrorDetailsPanel({ details }: ErrorDetailsPanelProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <pre className="max-h-64 w-full max-w-lg overflow-auto rounded border bg-muted/40 p-2 text-xs text-foreground/80 whitespace-pre-wrap">
@@ -19,10 +21,12 @@ export function ErrorDetailsPanel({ details }: ErrorDetailsPanelProps): ReactEle
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void copyToClipboard(details, "Error details copied")}
+          onClick={() =>
+            void copyToClipboard(details, t("shell.errors.detailsCopied", "Error details copied"))
+          }
         >
           <CopyIcon className="size-4" />
-          Copy error details
+          {t("shell.errors.copyDetails", "Copy error details")}
         </Button>
         <ExportDiagnosticsButton />
       </div>

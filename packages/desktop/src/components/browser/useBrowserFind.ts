@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -86,11 +87,7 @@ export function useBrowserFind(activeTab: BrowserTabMetadata | null): BrowserFin
     if (!activeTabId || query.length === 0) {
       activeRequestRef.current = null;
       setFindState(EMPTY_FIND_STATE);
-      if (activeTabId) {
-        void desktopBridge.stopFindingInBrowserTab(activeTabId, false).catch((error: unknown) => {
-          showBrowserError(error, "Could not clear page search");
-        });
-      }
+      if (activeTabId) stopBrowserFind(activeTabId, false);
       return;
     }
     if (activeTabLoading) {
@@ -107,9 +104,7 @@ export function useBrowserFind(activeTab: BrowserTabMetadata | null): BrowserFin
     if (!activeTabId) return;
     return () => {
       if (activeRequestRef.current?.tabId === activeTabId) activeRequestRef.current = null;
-      void desktopBridge.stopFindingInBrowserTab(activeTabId, false).catch((error: unknown) => {
-        showBrowserError(error, "Could not clear page search");
-      });
+      stopBrowserFind(activeTabId, false);
     };
   }, [activeTabId]);
 
@@ -135,9 +130,7 @@ export function useBrowserFind(activeTab: BrowserTabMetadata | null): BrowserFin
     setOpen(false);
     setFindState(EMPTY_FIND_STATE);
     if (!tabId) return;
-    void desktopBridge.stopFindingInBrowserTab(tabId, true).catch((error: unknown) => {
-      showBrowserError(error, "Could not close page search");
-    });
+    stopBrowserFind(tabId, true);
   }, []);
   const next = useCallback((): void => runFind(query, true, false), [query, runFind]);
   const previous = useCallback((): void => runFind(query, false, false), [query, runFind]);
@@ -180,4 +173,21 @@ function useFindResultSubscription(
       });
     });
   }, [activeRequestRef, setFindState]);
+}
+
+function stopBrowserFind(tabId: string, keepSelection: boolean): void {
+  void desktopBridge.stopFindingInBrowserTab(tabId, keepSelection).catch((error: unknown) => {
+    showBrowserError(
+      error,
+      keepSelection
+        ? translateUi(
+            "workspace.tools.useBrowserFind.couldNotClosePageSearch",
+            "Could not close page search",
+          )
+        : translateUi(
+            "workspace.tools.useBrowserFind.couldNotClearPageSearch",
+            "Could not clear page search",
+          ),
+    );
+  });
 }

@@ -1,3 +1,4 @@
+import { EditorOperationError } from "./editor-error-message";
 import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { EditorView } from "@codemirror/view";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,8 +52,13 @@ export function useEditorWrite({
         const canWrite = () => {
           if (!latest.current.sync.conflictRef.current || overwrite) return true;
           if (quiet) return false;
-          throw new Error(
+          throw new EditorOperationError(
             "File changed on disk. Use the orange disk indicator to reload or explicitly overwrite it.",
+            (t) =>
+              t(
+                "workspace.editor.useEditorWrite.diskChanged",
+                "File changed on disk. Use the orange disk indicator to reload or explicitly overwrite it.",
+              ),
           );
         };
         if (!canWrite()) return null;
@@ -86,8 +92,13 @@ export function useEditorWrite({
       const result = await readFile(params);
       await queryClient.cancelQueries({ queryKey, exact: true });
       if (viewRef.current !== view || view.state.doc !== doc) {
-        throw new Error(
+        throw new EditorOperationError(
           "The buffer changed while reloading. Your edits were kept; reload again when ready.",
+          (t) =>
+            t(
+              "workspace.editor.useEditorWrite.bufferChanged",
+              "The buffer changed while reloading. Your edits were kept; reload again when ready.",
+            ),
         );
       }
       latest.current.sync.reload(result.content);

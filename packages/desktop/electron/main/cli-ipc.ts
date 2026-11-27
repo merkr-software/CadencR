@@ -5,6 +5,7 @@ import path from "node:path";
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 import type { CliRendererItem, CliInstallStatus } from "../../src/shared/cli-bridge";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import { MAC_BIN_DIR, type CliInstallContext } from "./cli-install-context";
 import { cliInstallStatus, installCli, refreshInstalledCli, uninstallCli } from "./cli-install";
 import { CliRequestQueue, handleCliArgv } from "./cli-request-queue";
@@ -32,8 +33,17 @@ function runPrivileged(script: string, args: readonly string[]): Promise<void> {
       reject(
         new Error(
           USER_CANCELED.test(detail)
-            ? "Installation cancelled: administrator access was not granted."
-            : `Administrator command failed: ${detail}`,
+            ? t(
+                "settings.general.commandLine.adminPermissionCancelled",
+                "Installation cancelled: administrator access was not granted.",
+              )
+            : t(
+                "settings.general.commandLine.adminCommandFailed",
+                "Administrator command failed: {{detail}}",
+                {
+                  detail,
+                },
+              ),
         ),
       );
     });
@@ -118,7 +128,12 @@ export function registerCliIpc({ getMainWindow }: CliIpcOptions): CliController 
         return await handleCliArgv(argv, queue);
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        queue.push({ kind: "error", message: `The cadencr command's request failed: ${detail}` });
+        queue.push({
+          kind: "error",
+          message: t("cli.request.failed", "The cadencr command's request failed: {{detail}}", {
+            detail,
+          }),
+        });
         return true;
       }
     },
@@ -128,7 +143,16 @@ export function registerCliIpc({ getMainWindow }: CliIpcOptions): CliController 
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         console.warn(`[cli] could not refresh the cadencr command: ${detail}`);
-        queue.push({ kind: "error", message: `Couldn't update the cadencr command: ${detail}` });
+        queue.push({
+          kind: "error",
+          message: t(
+            "cli.request.refreshFailed",
+            "Couldn't update the cadencr command: {{detail}}",
+            {
+              detail,
+            },
+          ),
+        });
       }
     },
   };

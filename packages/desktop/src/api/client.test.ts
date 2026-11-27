@@ -64,6 +64,7 @@ function bridgeWithRuntime(
   return {
     isElectron: true,
     runtimeConfig,
+    setInterfaceLanguage: vi.fn().mockResolvedValue(undefined),
     readFileBase64: vi.fn(),
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(),
@@ -133,11 +134,18 @@ describe("runtime config client", () => {
   it("never reads a sidecar bearer even if runtime data or env contains it", async () => {
     vi.stubEnv("VITE_API_TOKEN", "dev-token");
     const runtimeConfig = vi.fn(() =>
-      Promise.resolve({ baseUrl: "http://127.0.0.1:5005", authToken: null }),
+      Promise.resolve({
+        baseUrl: "http://127.0.0.1:5005",
+        preferredLanguages: ["fr", "en"],
+        authToken: "main-only",
+      }),
     );
     setDesktopBridgeOverrideForTests(bridgeWithRuntime(runtimeConfig));
 
-    expect(await preloadRuntimeConfig()).toEqual({ baseUrl: "http://127.0.0.1:5005" });
+    expect(await preloadRuntimeConfig()).toStrictEqual({
+      baseUrl: "http://127.0.0.1:5005",
+      preferredLanguages: ["fr", "en"],
+    });
 
     expect(resolveApiBaseUrlSync()).toBe("http://127.0.0.1:5005");
     expect(getAuthTokenSync()).toBeNull();
@@ -441,6 +449,18 @@ describe("workspace settings bulk cache", () => {
   function respond(config: InternalAxiosRequestConfig, data: unknown) {
     return { data, status: 200, statusText: "OK", headers: {}, config };
   }
+
+  it("checks the language invitation with the service even when bulk settings are cached", async () => {
+    await customInstance({
+      url: "/api/workspace/settings",
+      adapter: async (config) => respond(config, [{ key: "ui_language", value: "legacy-english" }]),
+    });
+    const fresh = vi.fn<AxiosAdapter>(async (config) => respond(config, { value: "de-DE" }));
+    await expect(
+      customInstance({ url: "/api/workspace/settings/ui_language", adapter: fresh }),
+    ).resolves.toEqual({ value: "de-DE" });
+    expect(fresh).toHaveBeenCalledOnce();
+  });
 
   it("never caches a bulk read that raced a settings write", async () => {
     let releaseStaleRead: () => void = () => undefined;

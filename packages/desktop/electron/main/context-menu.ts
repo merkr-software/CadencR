@@ -1,3 +1,5 @@
+import { editMenuLabels } from "./edit-menu-labels";
+import { translateUi } from "../../src/shared/ui-i18n";
 import {
   clipboard,
   Menu,
@@ -75,7 +77,7 @@ function pushLinkItems(
 ): void {
   if (link.scopeId != null) {
     items.push({
-      label: "Open Link in Cadencr Browser",
+      label: translateUi("native.context.linkInCadencr", "Open Link in Cadencr Browser"),
       click: () =>
         webContents.send("links:open-from-menu", {
           url: link.url,
@@ -87,7 +89,7 @@ function pushLinkItems(
   }
   items.push(
     {
-      label: "Open Link in Default Browser",
+      label: translateUi("native.context.linkInDefault", "Open Link in Default Browser"),
       click: () =>
         webContents.send("links:open-from-menu", {
           url: link.url,
@@ -96,7 +98,10 @@ function pushLinkItems(
           cookieMode: link.cookieMode,
         }),
     },
-    { label: "Copy Link", click: () => clipboard.writeText(link.url) },
+    {
+      label: translateUi("native.context.copyLink", "Copy Link"),
+      click: () => clipboard.writeText(link.url),
+    },
     { type: "separator" },
   );
 }
@@ -126,7 +131,10 @@ export function installContextMenu(window: BrowserWindow, webContents: WebConten
         });
       }
       if (params.dictionarySuggestions.length === 0) {
-        items.push({ label: "No suggestions", enabled: false });
+        items.push({
+          label: translateUi("native.context.noSuggestions", "No suggestions"),
+          enabled: false,
+        });
       }
       items.push({ type: "separator" });
     }
@@ -136,16 +144,23 @@ export function installContextMenu(window: BrowserWindow, webContents: WebConten
 
     if (params.mediaType === "image") {
       items.push(
-        { label: "Copy Image", click: () => webContents.copyImageAt(params.x, params.y) },
+        {
+          label: translateUi("native.context.copyImage", "Copy Image"),
+          click: () => webContents.copyImageAt(params.x, params.y),
+        },
         { type: "separator" },
       );
     }
 
     items.push(
-      { role: "cut", enabled: params.editFlags.canCut },
-      { role: "copy", enabled: params.editFlags.canCopy },
-      { role: "paste", enabled: params.editFlags.canPaste },
-      { role: "selectAll", enabled: params.editFlags.canSelectAll },
+      { role: "cut", label: editMenuLabels.cut(), enabled: params.editFlags.canCut },
+      { role: "copy", label: editMenuLabels.copy(), enabled: params.editFlags.canCopy },
+      { role: "paste", label: editMenuLabels.paste(), enabled: params.editFlags.canPaste },
+      {
+        role: "selectAll",
+        label: editMenuLabels.selectAll(),
+        enabled: params.editFlags.canSelectAll,
+      },
     );
 
     Menu.buildFromTemplate(items).popup({ window });

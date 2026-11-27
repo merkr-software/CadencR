@@ -12,7 +12,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::agents::providers::runtime_session_finished_text;
 use crate::error::AppError;
 
-use super::{prompt::title_from_response, runtime_failure};
+use super::{prompt::title_from_response, runtime_failure, with_naming_reason};
 
 const AUTO_NAME_DEADLINE: Duration = Duration::from_secs(30);
 const AUTO_NAME_CLOSE_DEADLINE: Duration = Duration::from_secs(15);
@@ -96,19 +96,24 @@ async fn wait_for_close(
     feature_id: i64,
     close: JoinHandle<Result<(), AppError>>,
 ) -> Result<(), AppError> {
-    let (status, message) = match timeout(AUTO_NAME_CLOSE_DEADLINE, close).await {
+    let (status, message, reason) = match timeout(AUTO_NAME_CLOSE_DEADLINE, close).await {
         Ok(Ok(result)) => return result,
         Ok(Err(_)) => (
             StatusCode::BAD_GATEWAY,
             "The auto-naming provider did not close cleanly. Try again.",
+            "close_failed",
         ),
         Err(_) => (
             StatusCode::GATEWAY_TIMEOUT,
             "The auto-naming provider did not close in time. Try again.",
+            "close_timeout",
         ),
     };
     warn!(feature_id, %status, "auto-name: runtime close did not finish");
-    Err(AppError::coded(status, "RUNTIME_CLOSE_FAILED", message))
+    Err(with_naming_reason(
+        AppError::coded(status, "RUNTIME_CLOSE_FAILED", message),
+        reason,
+    ))
 }
 
 async fn drain_text(
@@ -413,10 +418,9 @@ mod tests {
         assert_eq!(error.code(), "RUNTIME_CLOSE_FAILED");
         assert!(matches!(
             error,
-            AppError::Coded {
-                status: StatusCode::GATEWAY_TIMEOUT,
-                ..
-            }
+            AppError::WithPublicDetails { error, details }
+                if matches!(*error, AppError::Coded { status: StatusCode::GATEWAY_TIMEOUT, .. })
+                    && details["auto_name_reason"] == "close_timeout"
         ));
     }
 

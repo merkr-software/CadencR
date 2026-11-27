@@ -12,11 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { gitActionIcon } from "./GitActionPopover";
 import {
   GitActionPopoverContent,
-  REFRESHING_GIT_STATUS,
+  refreshingGitStatusLabel,
+  retryGitStatusLabel,
   type GitStatusRetry,
 } from "./GitActionPopoverContent";
 import {
@@ -67,7 +69,13 @@ function MobileGitActionControl({
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const active = activeGitActivity(activities);
+  const actionsLabel = checkedOut
+    ? t("workspace.git.gitActionControls.gitActionsOnBranch", "Git actions, on {{branch}}", {
+        branch: checkedOut,
+      })
+    : t("workspace.git.gitActionControls.gitActions", "Git actions");
   return (
     <div className="inline-flex items-center">
       {active && (
@@ -86,9 +94,8 @@ function MobileGitActionControl({
             className={cn(GIT_ACTION_BUTTON_CLASS, active ? "rounded-l-none px-1.5" : "min-w-0")}
             aria-label={
               active
-                ? "More git actions"
-                : (statusRetry.issue?.label ??
-                  (checkedOut ? `Git actions, on ${checkedOut}` : "Git actions"))
+                ? t("workspace.git.gitActionControls.moreGitActions", "More git actions")
+                : (statusRetry.issue?.label ?? actionsLabel)
             }
           >
             {active ? (
@@ -106,7 +113,9 @@ function MobileGitActionControl({
                     checkedOut && !statusRetry.issue && "font-mono",
                   )}
                 >
-                  {statusRetry.issue?.label ?? checkedOut ?? "Git"}
+                  {statusRetry.issue?.label ??
+                    checkedOut ??
+                    t("workspace.git.gitActionControls.git", "Git")}
                 </span>
               </>
             )}
@@ -137,6 +146,7 @@ function DesktopGitActionControl({
   onPopoverOpenChange,
   onAction,
 }: GitActionControlsProps): ReactElement {
+  const { t } = useUiTranslation();
   const gitActionsKeys = useShortcutKeys("git-actions");
   const active = activeGitActivity(activities);
   const primaryAction = active?.action ?? state.primary;
@@ -170,7 +180,7 @@ function DesktopGitActionControl({
           }
           title={
             statusRetry.issue
-              ? `${statusRetry.issue.detail}\nRetry Git status`
+              ? `${statusRetry.issue.detail}\n${retryGitStatusLabel(t)}`
               : primaryDisabled
                 ? (state.disabled.commit ?? state.label)
                 : state.label
@@ -185,18 +195,21 @@ function DesktopGitActionControl({
             )}
           />
           <span>
-            {retrying ? REFRESHING_GIT_STATUS : (statusRetry.issue?.label ?? state.label)}
+            {retrying ? refreshingGitStatusLabel(t) : (statusRetry.issue?.label ?? state.label)}
           </span>
         </Button>
       )}
       <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-        <ShortcutTooltip label="Git actions" keys={gitActionsKeys}>
+        <ShortcutTooltip
+          label={t("workspace.git.gitActionControls.gitActions", "Git actions")}
+          keys={gitActionsKeys}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="outline"
               size="xs"
               className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
-              aria-label="More git actions"
+              aria-label={t("workspace.git.gitActionControls.moreGitActions", "More git actions")}
             >
               <ChevronDown className="size-3.5" />
             </Button>
@@ -230,6 +243,7 @@ const GitActivityButton = memo(function GitActivityButton({
   className,
   onSelect,
 }: GitActivityButtonProps): ReactElement {
+  const { t } = useUiTranslation();
   const running = activity === "running";
   return (
     <Button
@@ -238,7 +252,7 @@ const GitActivityButton = memo(function GitActivityButton({
       className={cn(GIT_ACTION_BUTTON_CLASS, className)}
       onClick={() => onSelect(action)}
       aria-live="polite"
-      title={gitActivityHint(action, activity)}
+      title={gitActivityHint(action, activity, t)}
     >
       {running ? (
         <Loader2 className="size-3.5 animate-spin" />
@@ -246,7 +260,7 @@ const GitActivityButton = memo(function GitActivityButton({
         <CircleAlert className="size-3.5 text-destructive" />
       )}
       <span className={running ? undefined : "text-destructive"}>
-        {gitActivityLabel(action, activity)}
+        {gitActivityLabel(action, activity, t)}
       </span>
     </Button>
   );

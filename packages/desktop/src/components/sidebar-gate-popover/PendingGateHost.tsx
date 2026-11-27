@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, type ReactElement } from "react";
 import { toast } from "sonner";
 import { useSidebarAttention } from "@/components/SidebarAttentionProvider";
@@ -32,7 +33,13 @@ export function PendingGateHost({
     (featureId: number): void => {
       const feature = attentionFeature({ items, actions }, featureId);
       if (feature) navigate(feature);
-      else toast.error("Could not open the conversation: it is no longer in the sidebar");
+      else
+        toast.error(
+          translateUi(
+            "sidebar.pendingGateHost.couldNotOpenTheConversationIt",
+            "Could not open the conversation: it is no longer in the sidebar",
+          ),
+        );
     },
     [actions, items, navigate],
   );
@@ -50,7 +57,12 @@ function useAnswerNewestShortcut(): void {
   useGlobalShortcutById("answer-newest-request", (event) => {
     event.preventDefault();
     if (mode === "off") {
-      toast.message("Quick reply is off: change it in the sidebar's display options");
+      toast.message(
+        translateUi(
+          "sidebar.pendingGateHost.quickReplyIsOffChangeIt",
+          "Quick reply is off: change it in the sidebar's display options",
+        ),
+      );
       return;
     }
     const queued = new Set(queue);
@@ -59,7 +71,9 @@ function useAnswerNewestShortcut(): void {
       (entry) => queued.has(entry.featureId),
     );
     if (featureId == null) {
-      toast.message("No request to answer here");
+      toast.message(
+        translateUi("sidebar.pendingGateHost.noRequestToAnswerHere", "No request to answer here"),
+      );
       return;
     }
     openQuickReply(featureId);

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { useSidebarPreviewStore } from "@/stores/sidebar-preview-store";
  * so using it keeps the display options open.
  */
 export function SidebarSampleBanner(): ReactElement | null {
+  const { t } = useUiTranslation();
   const optionsOpen = useSidebarPreviewStore((state) => state.optionsOpen);
   const setShowMine = useSidebarPreviewStore((state) => state.setShowMine);
   const preview = useSidebarSamplePreview();
@@ -21,7 +23,9 @@ export function SidebarSampleBanner(): ReactElement | null {
     >
       <span aria-hidden className="mr-1 size-1.5 shrink-0 rounded-full bg-primary" />
       <span className="min-w-0 flex-1 truncate font-medium text-foreground/85">
-        {preview ? "Sample conversations" : "Your conversations"}
+        {preview
+          ? t("sidebar.sampleBanner.sampleConversations", "Sample conversations")
+          : t("sidebar.sampleBanner.yourConversations", "Your conversations")}
       </span>
       {preview && <SampleReplayButton onReplay={preview.replay} iconOnly />}
       <Button
@@ -30,7 +34,9 @@ export function SidebarSampleBanner(): ReactElement | null {
         className="text-muted-foreground hover:text-foreground"
         onClick={() => setShowMine(preview !== null)}
       >
-        {preview ? "Show mine" : "Show samples"}
+        {preview
+          ? t("sidebar.sampleBanner.showMine", "Show mine")
+          : t("sidebar.sampleBanner.showSamples", "Show samples")}
       </Button>
     </div>
   );
@@ -45,17 +51,21 @@ export function SampleReplayButton({
   /** Just the icon, where a line has no room for the word (the sidebar banner). */
   iconOnly?: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       variant="ghost"
       size={iconOnly ? "icon-xs" : "xs"}
-      aria-label={iconOnly ? "Replay" : undefined}
-      title="Play the samples' last changes again: rows flash, the newest request's popover opens"
+      aria-label={iconOnly ? t("sidebar.sampleBanner.replay", "Replay") : undefined}
+      title={t(
+        "sidebar.sampleBanner.playTheSamplesLastChangesAgain",
+        "Play the samples' last changes again: rows flash, the newest request's popover opens",
+      )}
       className="text-muted-foreground hover:text-foreground"
       onClick={onReplay}
     >
       <Play />
-      {!iconOnly && "Replay"}
+      {!iconOnly && t("sidebar.sampleBanner.replay", "Replay")}
     </Button>
   );
 }

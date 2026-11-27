@@ -1,3 +1,4 @@
+import { translateUi as t } from "@/lib/i18n/ui";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -11,16 +12,23 @@ import { showServiceStatus } from "./service-status-toast";
 export function ServiceStatusNotifier(): null {
   useEffect(() => {
     let alive = true;
-    const off = desktopBridge.onServiceStatus(showServiceStatus);
+    let receivedStatus = false;
+    const off = desktopBridge.onServiceStatus((status) => {
+      receivedStatus = true;
+      showServiceStatus(status);
+    });
     desktopBridge
       .serviceStatus()
       .then((status) => {
-        if (alive) showServiceStatus(status);
+        if (alive && !receivedStatus) showServiceStatus(status);
       })
       .catch((error: unknown) =>
-        toast.error("Could not read the state of Cadencr's service", {
-          description: error instanceof Error ? error.message : String(error),
-        }),
+        toast.error(
+          t("system.service.readFailed", "Could not read the state of Cadencr's service"),
+          {
+            description: error instanceof Error ? error.message : String(error),
+          },
+        ),
       );
     return () => {
       alive = false;

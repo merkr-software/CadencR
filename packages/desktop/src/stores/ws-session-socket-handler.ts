@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Socket `onMessage` dispatch for a session connection — the streaming hot path.
  *
@@ -11,7 +12,7 @@ import { type WsEnvelope, parseEnvelope } from "@/lib/ws-envelope";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { handleEnvelope } from "./ws-envelope-handler";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { appendErrorBlockPatch, makeErrorBlock } from "./ws-session-store-helpers";
+import { appendClientTranscriptErrorPatch, makeErrorBlock } from "./ws-session-store-helpers";
 import { updateSession } from "./ws-session-types";
 import { blocksPatchWithDerived } from "./ws-message-processing";
 import { bufferStreamDelta, flushStreamDeltas } from "./ws-delta-coalescer";
@@ -31,7 +32,13 @@ function isInitRefusal(ctx: StoreAccessors, sessionId: string, envelope: WsEnvel
 
 function initRefusalMessage(payload: unknown): string {
   const message = parseErrorPayload(payload)?.message;
-  return message ? `The session could not start: ${message}` : "The session could not start.";
+  return message
+    ? translateUi(
+        "conversation.connection.startFailedDetail",
+        "The session could not start: {{message}}",
+        { message },
+      )
+    : translateUi("conversation.connection.startFailed", "The session could not start.");
 }
 
 export interface SocketHandlerDeps {
@@ -68,11 +75,7 @@ export function handleSocketMessage(
       updateSession(
         ctx.get(),
         sessionId,
-        appendErrorBlockPatch(
-          session,
-          "A streamed update from the agent was unreadable and could not be displayed. The transcript above may be incomplete.",
-          { code: "UNPARSEABLE_ENVELOPE" },
-        ),
+        appendClientTranscriptErrorPatch(session, "UNPARSEABLE_ENVELOPE"),
       ),
     );
     return;
@@ -97,7 +100,9 @@ export function handleSocketMessage(
     const session = ctx.getSession(sessionId);
     const errorBlock = makeErrorBlock(
       session,
-      `Internal error: ${apiErrorMessage(err, "unknown")}`,
+      translateUi("conversation.stream.internalError", "Internal error: {{detail}}", {
+        detail: apiErrorMessage(err, translateUi("common.unknown", "unknown")),
+      }),
     );
     ctx.set(
       updateSession(

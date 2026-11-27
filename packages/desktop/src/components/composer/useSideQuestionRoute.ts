@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { type SideQuestionRequest, useAskSessionSideQuestion } from "@/api/generated";
@@ -43,9 +44,16 @@ export function useSideQuestionRoute(sessionId: number | undefined, featureId?: 
         const question = parseSideQuestion(text);
         if (question === null || sessionId == null) return send(text, attachments);
         const refusal = !question
-          ? `Type your question after /${SIDE_QUESTION_SKILL.name}.`
+          ? translateUi(
+              "conversation.composer.useSideQuestionRoute.missingQuestion",
+              "Type your question after /{{command}}.",
+              { command: SIDE_QUESTION_SKILL.name },
+            )
           : attachments?.length
-            ? "Images can't go to a side question. Remove them, or send them to the agent."
+            ? translateUi(
+                "conversation.composer.useSideQuestionRoute.imagesUnsupported",
+                "Images can't go to a side question. Remove them, or send them to the agent.",
+              )
             : null;
         if (refusal) {
           toast.error(refusal);
@@ -63,7 +71,15 @@ export function useSideQuestionRoute(sessionId: number | undefined, featureId?: 
             question,
           });
         } catch (error) {
-          toast.error(apiErrorMessage(error, "Couldn't start the side conversation"));
+          toast.error(
+            apiErrorMessage(
+              error,
+              translateUi(
+                "conversation.composer.useSideQuestionRoute.startFailed",
+                "Couldn't start the side conversation",
+              ),
+            ),
+          );
           throw error;
         }
       },

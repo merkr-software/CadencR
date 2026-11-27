@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useRef, useEffect, type ReactNode } from "react";
 import { CircleAlertIcon, TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,9 +34,6 @@ interface SlashCommandPopoverProps {
   maxHeight?: number;
 }
 
-const CADENCR_DISABLED_HINT =
-  "Enable the project and workspace MCP (Settings → MCP) to use Cadencr orchestration skills.";
-
 interface SlashCommandItemProps {
   listId: string;
   index: number;
@@ -68,13 +66,21 @@ const SlashCommandItem = memo(function SlashCommandItem({
   triggerChar,
   onSelect,
 }: SlashCommandItemProps) {
+  const { t } = useUiTranslation();
   return (
     <ComposerPopoverOption
       listId={listId}
       index={index}
       selected={selected}
       disabled={disabled}
-      title={disabled ? CADENCR_DISABLED_HINT : item.description || undefined}
+      title={
+        disabled
+          ? t(
+              "conversation.composer.slashCommandPopover.disabledHint",
+              "Enable the project and workspace MCP (Settings → MCP) to use Cadencr orchestration skills.",
+            )
+          : item.description || undefined
+      }
       onSelect={() => onSelect(item.name)}
     >
       <SlashCommandIcon kind={item.kind} selected={selected} />
@@ -110,10 +116,11 @@ const SlashCommandItem = memo(function SlashCommandItem({
   );
 });
 
-const GROUP_LABEL: Record<SlashCommandKind, string> = {
-  cadencr: "Cadencr orchestration",
-  skill: "Skills",
-  command: "Commands",
+const GROUP_LABEL: Record<SlashCommandKind, (t: UiTranslator) => string> = {
+  cadencr: (t) =>
+    t("conversation.composer.slashCommandPopover.orchestration", "Cadencr orchestration"),
+  skill: (t) => t("conversation.composer.slashCommandPopover.skills", "Skills"),
+  command: (t) => t("conversation.composer.slashCommandPopover.commands", "Commands"),
 };
 
 /** Display order of the groups when the list is unfiltered. */
@@ -149,6 +156,7 @@ export function SlashCommandPopover({
   cadencrDisabled = false,
   maxHeight,
 }: SlashCommandPopoverProps) {
+  const { t } = useUiTranslation();
   const listRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll selected item into view
@@ -176,10 +184,10 @@ export function SlashCommandPopover({
   const status = isLoading ? (
     <>
       <Loader2Icon className="size-3 animate-spin" />
-      Loading commands…
+      {t("conversation.composer.slashCommandPopover.loadingCommands", "Loading commands…")}
     </>
   ) : items.length === 0 && !error ? (
-    "No matching commands"
+    t("conversation.composer.slashCommandPopover.noCommands", "No matching commands")
   ) : null;
   const notice =
     error && !isLoading ? (
@@ -193,14 +201,14 @@ export function SlashCommandPopover({
     <ComposerPopover
       ref={listRef}
       listId={listId}
-      label={triggerChar === "$" ? "Skills" : "Commands"}
+      label={GROUP_LABEL[triggerChar === "$" ? "skill" : "command"](t)}
       maxHeight={maxHeight}
       status={status}
       notice={notice}
     >
       {runs && runs.length > 1
         ? runs.map((run) => (
-            <ComposerPopoverGroup key={run.kind} label={GROUP_LABEL[run.kind]}>
+            <ComposerPopoverGroup key={run.kind} label={GROUP_LABEL[run.kind](t)}>
               {items
                 .slice(run.start, run.end)
                 .map((item, offset) => renderItem(item, run.start + offset))}

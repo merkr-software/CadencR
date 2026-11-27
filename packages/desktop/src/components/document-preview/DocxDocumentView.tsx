@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi, type UiTranslator } from "@/lib/i18n/ui";
 /**
  * Word renderer: `@silurus/ooxml`'s DOCX engine (Rust/WASM parser, canvas
  * paint) laid out as a continuous, virtualized page view — real pagination,
@@ -16,7 +17,8 @@ import { PAGE_DESK } from "./office/page-desk";
 import { reportLateRenderError, useOfficeViewer } from "./office/useOfficeViewer";
 import type { DocumentRendererProps } from "./types";
 
-const FAILURE = "Could not render Word document";
+const renderFailure = () =>
+  translateUi("workspace.editor.docxDocumentView.renderFailed", "Could not render Word document");
 
 interface PageState {
   index: number;
@@ -24,13 +26,24 @@ interface PageState {
   complete: boolean;
 }
 
-function pageStatus(fileName: string, page: PageState | null): string {
+function pageStatus(fileName: string, page: PageState | null, t: UiTranslator): string {
   if (!page || page.total === 0) return fileName;
-  const total = page.complete ? String(page.total) : `${page.total}…`;
-  return `${fileName} · Page ${page.index + 1} of ${total}`;
+  const values = { file: fileName, index: page.index + 1, total: page.total };
+  return page.complete
+    ? t(
+        "workspace.editor.docxDocumentView.pageSummary",
+        "{{file}} · Page {{index, number}} of {{total, number}}",
+        values,
+      )
+    : t(
+        "workspace.editor.docxDocumentView.partialPageSummary",
+        "{{file}} · Page {{index, number}} of {{total, number}}…",
+        values,
+      );
 }
 
 export default function DocxDocumentView({ data, fileName }: DocumentRendererProps): ReactElement {
+  const { t } = useUiTranslation();
   const [page, setPage] = useState<PageState | null>(null);
   const create = useCallback(
     (container: HTMLElement, onScaleChange: (scale: number) => void) =>
@@ -40,20 +53,24 @@ export default function DocxDocumentView({ data, fileName }: DocumentRendererPro
         progressiveLayout: true,
         onVisiblePageChange: (index, total, complete) => setPage({ index, total, complete }),
         onScaleChange,
-        onError: reportLateRenderError(`docx-render:${fileName}`, FAILURE),
+        onError: reportLateRenderError(`docx-render:${fileName}`, renderFailure),
       }),
     [fileName],
   );
-  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create, FAILURE);
+  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create);
 
   return (
     <>
       <OfficeViewerFrame
         containerRef={containerRef}
         state={state}
-        loadingLabel="Laying out Word document…"
+        failureLabel={t(
+          "workspace.editor.docxDocumentView.renderFailed",
+          "Could not render Word document",
+        )}
+        loadingLabel={t("workspace.editor.docxDocumentView.loading", "Laying out Word document…")}
       />
-      <DocumentStatusBar status={pageStatus(fileName, page)}>
+      <DocumentStatusBar status={pageStatus(fileName, page, t)}>
         <DocumentZoomControls viewer={viewer} scale={scale} />
       </DocumentStatusBar>
     </>

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Noun describing a feature's live activity (running terminals and/or open
  * browser tabs) for the sidebar "Close …" action. Shared by the context-menu
@@ -13,17 +14,27 @@ export function closeFeatureActivityNoun(
   const hasBrowsers = browserCount > 0;
   const browserActivity =
     hasShells && hasBrowsers
-      ? "terminals & browsers"
+      ? translateUi("sidebar.activity.terminalsAndBrowsers", "terminals & browsers")
       : hasShells
-        ? shellCount === 1
-          ? "terminal"
-          : "terminals"
+        ? translateUi("sidebar.activity.terminals", "terminals", {
+            count: shellCount,
+            defaultValue_one: "terminal",
+          })
         : hasBrowsers
-          ? browserCount === 1
-            ? "browser tab"
-            : "browser tabs"
+          ? translateUi("sidebar.activity.browserTabs", "browser tabs", {
+              count: browserCount,
+              defaultValue_one: "browser tab",
+            })
           : "";
   if (downloadCount <= 0) return browserActivity;
-  const downloads = downloadCount === 1 ? "download" : "downloads";
-  return browserActivity ? `${browserActivity} & ${downloads}` : downloads;
+  const downloads = translateUi("sidebar.activity.downloads", "downloads", {
+    count: downloadCount,
+    defaultValue_one: "download",
+  });
+  return browserActivity
+    ? translateUi("sidebar.activity.withDownloads", "{{activity}} & {{downloads}}", {
+        activity: browserActivity,
+        downloads,
+      })
+    : downloads;
 }

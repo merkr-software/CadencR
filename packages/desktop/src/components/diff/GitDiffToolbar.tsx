@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,29 +20,38 @@ export const GitDiffToolbar = memo(function GitDiffToolbar({
   fileCount,
   isViewedPending = false,
 }: GitDiffToolbarProps): ReactElement {
+  const { t } = useUiTranslation();
   const showViewedProgress = viewedCount != null && fileCount != null;
   return (
     <div
       role="toolbar"
-      aria-label="Diff display"
+      aria-label={t("workspace.git.gitDiffToolbar.diffDisplay", "Diff display")}
       className="flex min-h-8 shrink-0 flex-wrap items-center justify-end gap-2 border-b border-border bg-card/40 px-3 py-1"
     >
       {showViewedProgress && (
         <span className="mr-auto text-xs text-muted-foreground" aria-live="polite">
-          {viewedCount}/{fileCount} viewed{isViewedPending ? " · Updating…" : ""}
+          {t(
+            "workspace.git.gitDiffToolbar.viewedFiles",
+            "{{viewed, number}}/{{total, number}} viewed",
+            {
+              viewed: viewedCount,
+              total: fileCount,
+            },
+          )}
+          {isViewedPending ? t("workspace.git.gitDiffToolbar.updating", " · Updating…") : ""}
         </span>
       )}
       <div className="inline-flex items-center rounded-md border border-border p-0.5">
         <ModeButton
           active={diffMode === "unified"}
           disabled={isPreferenceLoading}
-          label="Unified"
+          label={t("workspace.git.gitDiffToolbar.unified", "Unified")}
           onClick={() => onDiffModeChange("unified")}
         />
         <ModeButton
           active={diffMode === "split"}
           disabled={isPreferenceLoading}
-          label="Split"
+          label={t("workspace.git.gitDiffToolbar.split", "Split")}
           onClick={() => onDiffModeChange("split")}
         />
       </div>
@@ -50,7 +60,8 @@ export const GitDiffToolbar = memo(function GitDiffToolbar({
           className="inline-flex items-center gap-1 text-xs text-muted-foreground"
           role="status"
         >
-          <Loader2Icon className="size-3 animate-spin" aria-hidden /> Loading display…
+          <Loader2Icon className="size-3 animate-spin" aria-hidden />{" "}
+          {t("workspace.git.gitDiffToolbar.loadingDisplay", "Loading display…")}
         </span>
       )}
     </div>

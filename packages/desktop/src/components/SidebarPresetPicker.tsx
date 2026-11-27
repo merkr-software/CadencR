@@ -1,3 +1,4 @@
+import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { Check, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,6 +28,7 @@ export function SidebarPresetPicker({
   form: PresetForm;
   wide?: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { preset: base, changes } = form.nearest;
 
   const apply = (preset: SidebarPreset, title: string): void => {
@@ -36,9 +38,15 @@ export function SidebarPresetPicker({
     if (changes === 0) return;
     toast(title, {
       id: UNDO_TOAST_ID,
-      description: "It replaced your customized display options.",
+      description: t(
+        "sidebar.presetPicker.itReplacedYourCustomizedDisplayOptions",
+        "It replaced your customized display options.",
+      ),
       duration: 10_000,
-      action: { label: "Undo", onClick: () => form.restore(previous) },
+      action: {
+        label: t("sidebar.presetPicker.undo", "Undo"),
+        onClick: () => form.restore(previous),
+      },
     });
   };
 
@@ -47,7 +55,7 @@ export function SidebarPresetPicker({
       <div className="flex flex-col gap-2">
         <div
           role="radiogroup"
-          aria-label="Preset"
+          aria-label={t("sidebar.presetPicker.preset", "Preset")}
           className={cn("grid gap-2", wide ? "grid-cols-4 @max-xl:grid-cols-2" : "grid-cols-2")}
         >
           {SIDEBAR_PRESETS.map((preset) => (
@@ -60,7 +68,14 @@ export function SidebarPresetPicker({
                 data-preset-state={
                   preset.id !== base.id ? "idle" : changes > 0 ? "base" : "selected"
                 }
-                onClick={() => apply(preset, `${preset.label} applied`)}
+                onClick={() =>
+                  apply(
+                    preset,
+                    t("sidebar.presetPicker.applied", "{{preset}} applied", {
+                      preset: preset.label,
+                    }),
+                  )
+                }
                 className="group/preset relative flex min-w-0 flex-col gap-1.5 rounded-lg border border-border/60 p-1.5 text-left outline-none transition-colors hover:border-border hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/60 data-[preset-state=base]:border-dashed data-[preset-state=base]:border-primary/50 data-[preset-state=selected]:border-primary/70 data-[preset-state=selected]:bg-primary/[0.07]"
               >
                 <SidebarPresetSketch config={preset.config} className={wide ? "h-16" : "h-14"} />
@@ -80,7 +95,12 @@ export function SidebarPresetPicker({
         <PresetStatusLine
           preset={base}
           changes={changes}
-          onRevert={() => apply(base, `Back to ${base.label}`)}
+          onRevert={() =>
+            apply(
+              base,
+              t("sidebar.presetPicker.backToPreset", "Back to {{preset}}", { preset: base.label }),
+            )
+          }
         />
       </div>
     </TooltipProvider>
@@ -97,10 +117,16 @@ function PresetStatusLine({
   changes: number;
   onRevert: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (changes === 0) {
     return (
       <p className="px-0.5 text-[11px] leading-snug text-muted-foreground">
-        <span className="font-medium text-foreground/85">{preset.label}.</span> {preset.description}
+        <UiTrans
+          i18nKey="sidebar.presetPicker.selectedPreset"
+          defaults="<name>{{preset}}.</name> {{description}}"
+          values={{ preset: preset.label, description: preset.description }}
+          components={{ name: <span className="font-medium text-foreground/85" /> }}
+        />
       </p>
     );
   }
@@ -110,8 +136,17 @@ function PresetStatusLine({
       className="flex min-h-7 items-center gap-2 rounded-md border border-dashed border-primary/40 bg-primary/[0.05] py-0.5 pl-2 pr-0.5 text-[11px] text-muted-foreground"
     >
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-foreground/90">Custom</span> · {preset.label} with{" "}
-        {changes} {changes === 1 ? "change" : "changes"}
+        <UiTrans
+          i18nKey="sidebar.presetPicker.customPreset"
+          defaults={
+            changes === 1
+              ? "<custom>Custom</custom> · {{preset}} with {{count}} change"
+              : "<custom>Custom</custom> · {{preset}} with {{count}} changes"
+          }
+          count={changes}
+          values={{ preset: preset.label }}
+          components={{ custom: <span className="font-medium text-foreground/90" /> }}
+        />
       </span>
       <Button
         variant="ghost"
@@ -120,7 +155,7 @@ function PresetStatusLine({
         className="shrink-0 text-[11px] text-foreground/85"
       >
         <Undo2 />
-        Back to {preset.label}
+        {t("sidebar.presetPicker.backToPreset", "Back to {{preset}}", { preset: preset.label })}
       </Button>
     </div>
   );

@@ -1,6 +1,11 @@
 import type { AgentMessageOrigin } from "@/api/generated";
 import type { PromptDeliveryState } from "@/types/agent";
 
+/** Renderer metadata that follows local block copies and is omitted from serialization. */
+export const blockPreviewOmission = Symbol("blockPreviewOmission");
+/** The Bash preview may have clipped its command or metadata as well as its output. */
+export const bashPreviewMayOmitMetadata = Symbol("bashPreviewMayOmitMetadata");
+
 export type BlockType =
   | "text"
   | "code"
@@ -61,11 +66,14 @@ export interface AgentBlockData {
   truncatedContent?: boolean;
   /** UTF-8 size of the complete content behind a truncated server preview. */
   fullContentBytes?: number;
+  /** Client-only location of a marker we inserted or identified at hydration. */
+  [blockPreviewOmission]?: { content: string; start: number; end: number };
+  [bashPreviewMayOmitMetadata]?: true;
   /** Receipt state for local user prompt blocks when a runtime supports it. */
   promptDeliveryState?: PromptDeliveryState;
   /** For `error` blocks — machine-readable code from the backend. */
   errorCode?: string;
-  /** Provenance for machine-generated user messages. */
+  /** Provenance for machine-generated prompts and tool results. */
   origin?: AgentMessageOrigin | null;
   /** Keep compact-flow rows stable across a paginated history seam. */
   compactFlowBreakBefore?: true;

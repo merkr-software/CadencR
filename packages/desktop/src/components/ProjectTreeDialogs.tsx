@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImportConversationsDialog } from "./import/ImportConversationsDialog";
@@ -12,6 +13,7 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
 }: {
   controller: ProjectTreeController;
 }) {
+  const { t } = useUiTranslation();
   return (
     <>
       {controller.settingsProject && (
@@ -57,9 +59,14 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
         onOpenChange={(open) => {
           if (!open) controller.setArchiveSessionsProject(null);
         }}
-        title={`Archive all sessions in "${controller.archiveSessionsProject?.name}"?`}
-        description="This will archive every session in this project that is not pinned and not currently running. Archived sessions are hidden from the sidebar and this cannot be undone."
-        confirmText="Archive"
+        title={t("project.treeDialogs.archiveTitle", 'Archive all sessions in "{{name}}"?', {
+          name: controller.archiveSessionsProject?.name ?? "",
+        })}
+        description={t(
+          "project.treeDialogs.archiveDescription",
+          "This will archive every session in this project that is not pinned and not currently running. Archived sessions are hidden from the sidebar and this cannot be undone.",
+        )}
+        confirmText={t("common.archive", "Archive")}
         variant="destructive"
         busy={controller.mutations.archiveProjectSessions.isPending}
         onConfirm={async () => {
@@ -79,9 +86,14 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
         onOpenChange={(open) => {
           if (!open) controller.setDeleteProject(null);
         }}
-        title={`Delete "${controller.deleteProject?.name}"?`}
-        description="This will permanently delete the project and all its features, plans, sessions, and settings. This action cannot be undone."
-        confirmText="Delete"
+        title={t("project.treeDialogs.deleteTitle", 'Delete "{{name}}"?', {
+          name: controller.deleteProject?.name ?? "",
+        })}
+        description={t(
+          "project.treeDialogs.deleteDescription",
+          "This will permanently delete the project and all its features, plans, sessions, and settings. This action cannot be undone.",
+        )}
+        confirmText={t("common.delete", "Delete")}
         variant="destructive"
         onConfirm={() => {
           if (controller.deleteProject)

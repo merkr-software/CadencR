@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useBrowserMcpEnabled,
   useProjectMcpEnabled,
@@ -12,6 +13,7 @@ import { SettingsSwitchRow } from "./SettingsSwitchRow";
  * defaults to enabled and takes effect on the next agent turn.
  */
 export function McpToggleList(): React.JSX.Element {
+  const { t } = useUiTranslation();
   const browserMcp = useBrowserMcpEnabled();
   const projectMcp = useProjectMcpEnabled();
   const workspaceMcp = useWorkspaceMcpEnabled();
@@ -19,16 +21,22 @@ export function McpToggleList(): React.JSX.Element {
   return (
     <>
       <SettingsSwitchRow
-        label="Browser tools for agents"
-        description="Expose the cadencr-browser MCP so agents can open localhost pages, inspect the console and network, and drive the Browser tab. Takes effect on the next agent turn."
+        label={t("settings.mcp.browserTools", "Browser tools for agents")}
+        description={t(
+          "settings.mcp.browserToolsDescription",
+          "Expose the cadencr-browser MCP so agents can open localhost pages, inspect the console and network, and drive the Browser tab. Takes effect on the next agent turn.",
+        )}
         checked={browserMcp.enabled}
         onCheckedChange={browserMcp.setEnabled}
         disabled={browserMcp.isLoading}
         saving={browserMcp.isSaving}
       />
       <SettingsSwitchRow
-        label="Project coordination for agents"
-        description="Expose the cadencr-project MCP so agents can inspect, compare, spawn, and message sessions in the current project. Takes effect on the next agent turn."
+        label={t("settings.mcp.projectTools", "Project coordination for agents")}
+        description={t(
+          "settings.mcp.projectToolsDescription",
+          "Expose the cadencr-project MCP so agents can inspect, compare, spawn, and message sessions in the current project. Takes effect on the next agent turn.",
+        )}
         checked={projectMcp.enabled}
         onCheckedChange={projectMcp.setEnabled}
         disabled={projectMcp.isLoading}
@@ -36,8 +44,11 @@ export function McpToggleList(): React.JSX.Element {
         divided
       />
       <SettingsSwitchRow
-        label="Workspace memory for agents"
-        description="Expose the cadencr-workspace MCP so agents can search conversation history and message sessions across all Cadencr projects. Takes effect on the next agent turn."
+        label={t("settings.mcp.workspaceTools", "Workspace memory for agents")}
+        description={t(
+          "settings.mcp.workspaceToolsDescription",
+          "Expose the cadencr-workspace MCP so agents can search conversation history and message sessions across all Cadencr projects. Takes effect on the next agent turn.",
+        )}
         checked={workspaceMcp.enabled}
         onCheckedChange={workspaceMcp.setEnabled}
         disabled={workspaceMcp.isLoading}

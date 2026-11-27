@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { KeyboardEvent, RefObject } from "react";
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, X } from "lucide-react";
 import SearchToggleButton from "../SearchToggleButton";
@@ -29,6 +30,7 @@ export function SearchInputRow({
   errorTitle,
   muted,
 }: SearchInputRowProps) {
+  const { t } = useUiTranslation();
   return (
     <>
       <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -40,7 +42,7 @@ export function SearchInputRow({
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Find"
+        placeholder={t("workspace.editor.editorSearchInputs.find", "Find")}
         title={errorTitle ?? undefined}
         className={cn(
           "w-44 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70",
@@ -80,13 +82,18 @@ export function SearchPanelControls({
   onToggleRegex,
   onClose,
 }: SearchPanelControlsProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="flex items-center gap-0.5 border-l border-border/60 pl-1">
       <Button
         variant="ghost"
         size="icon-xs"
-        title={`Previous match (${PREVIOUS_MATCH_COMBO})`}
-        aria-label="Previous match"
+        title={t(
+          "workspace.editor.editorSearchInputs.previousMatchShortcut",
+          "Previous match ({{shortcut}})",
+          { shortcut: PREVIOUS_MATCH_COMBO },
+        )}
+        aria-label={t("workspace.editor.editorSearchInputs.previousMatch", "Previous match")}
         onClick={onPrev}
         disabled={disabled}
       >
@@ -95,8 +102,8 @@ export function SearchPanelControls({
       <Button
         variant="ghost"
         size="icon-xs"
-        title="Next match (Enter)"
-        aria-label="Next match"
+        title={t("workspace.editor.editorSearchInputs.nextMatchEnter", "Next match (Enter)")}
+        aria-label={t("workspace.editor.editorSearchInputs.nextMatch", "Next match")}
         onClick={onNext}
         disabled={disabled}
       >
@@ -105,20 +112,23 @@ export function SearchPanelControls({
       <SearchToggleButton
         active={caseSensitive}
         onToggle={onToggleCase}
-        title="Match case"
+        title={t("workspace.editor.editorSearchInputs.matchCase", "Match case")}
         icon={<CaseSensitive className="size-3.5" />}
       />
       <SearchToggleButton
         active={regex}
         onToggle={onToggleRegex}
-        title="Use regular expression"
+        title={t(
+          "workspace.editor.editorSearchInputs.useRegularExpression",
+          "Use regular expression",
+        )}
         icon={<Regex className="size-3.5" />}
       />
       <Button
         variant="ghost"
         size="icon-xs"
-        title="Close (Esc)"
-        aria-label="Close search"
+        title={t("workspace.editor.editorSearchInputs.closeEsc", "Close (Esc)")}
+        aria-label={t("workspace.editor.editorSearchInputs.closeSearch", "Close search")}
         onClick={onClose}
       >
         <X />

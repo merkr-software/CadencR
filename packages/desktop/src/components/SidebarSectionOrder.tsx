@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useRef, type ReactElement, type RefObject } from "react";
 import {
   ArrowDown,
@@ -17,8 +18,12 @@ import type { SidebarConfig, SidebarSectionId } from "@/lib/sidebar-config";
 import { shiftSection } from "@/lib/sidebar-sections";
 import { cn } from "@/lib/utils";
 
-export const SECTION_ORDER_DESCRIPTION =
-  "The order of the blocks and the project list, top to bottom. Drag a section here or by its header in the sidebar.";
+export function sectionOrderDescription(): string {
+  return translateUi(
+    "sidebar.displayOptions.sectionOrderDescription",
+    "The order of the blocks and the project list, top to bottom. Drag a section here or by its header in the sidebar.",
+  );
+}
 
 interface SectionMeta {
   label: string;
@@ -28,11 +33,39 @@ interface SectionMeta {
 }
 
 const SECTION_META: Record<SidebarSectionId, SectionMeta> = {
-  "for-me": { label: "For me", icon: InboxIcon, shownBy: "forMe" },
-  working: { label: "In progress", icon: LoaderIcon, shownBy: "workingBlock" },
-  recent: { label: "Recent", icon: HistoryIcon, shownBy: "recentBlock" },
-  pinned: { label: "Pinned", icon: PinIcon },
-  projects: { label: "Projects", icon: Folder },
+  "for-me": {
+    get label() {
+      return translateUi("sidebar.sectionOrder.forme.forMe.label", "For me");
+    },
+    icon: InboxIcon,
+    shownBy: "forMe",
+  },
+  working: {
+    get label() {
+      return translateUi("sidebar.sectionOrder.working.inProgress.label", "In progress");
+    },
+    icon: LoaderIcon,
+    shownBy: "workingBlock",
+  },
+  recent: {
+    get label() {
+      return translateUi("sidebar.sectionOrder.recent.recent.label", "Recent");
+    },
+    icon: HistoryIcon,
+    shownBy: "recentBlock",
+  },
+  pinned: {
+    get label() {
+      return translateUi("sidebar.sectionOrder.pinned.pinned.label", "Pinned");
+    },
+    icon: PinIcon,
+  },
+  projects: {
+    get label() {
+      return translateUi("sidebar.sectionOrder.projects.projects.label", "Projects");
+    },
+    icon: Folder,
+  },
 };
 
 /**
@@ -41,10 +74,11 @@ const SECTION_META: Record<SidebarSectionId, SectionMeta> = {
  * place, marked Off, so turning one back on puts it where it was.
  */
 export function SidebarSectionOrderList({ form }: { form: SidebarDisplayForm }): ReactElement {
+  const { t } = useUiTranslation();
   const order = form.config.sectionOrder;
   return (
     <ol
-      aria-label="Block order"
+      aria-label={t("sidebar.displayOptions.blockOrder", "Block order")}
       className="flex flex-col overflow-hidden rounded-md border border-border/60"
     >
       {order.map((id, index) => (
@@ -79,6 +113,7 @@ function SectionOrderItem({
   last: boolean;
   off: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { label, icon: Icon } = SECTION_META[id];
   const reorder = useSidebarSectionReorder(id);
   const setOrder = useSetSidebarSectionOrder();
@@ -97,15 +132,19 @@ function SectionOrderItem({
       <GripVertical aria-hidden className="size-3.5 shrink-0 cursor-grab text-muted-foreground" />
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className={cn("min-w-0 flex-1 truncate", off && "text-muted-foreground")}>{label}</span>
-      {off && <span className="shrink-0 text-[10px] text-muted-foreground">Off</span>}
+      {off && (
+        <span className="shrink-0 text-[10px] text-muted-foreground">
+          {t("sidebar.sectionOrder.off", "Off")}
+        </span>
+      )}
       <Button
         type="button"
         variant="ghost"
         size="icon-xs"
         ref={upRef}
         disabled={first}
-        aria-label={`Move ${label} up`}
-        title="Move up"
+        aria-label={t("sidebar.sectionOrder.moveBlockUp", "Move {{label}} up", { label })}
+        title={t("sidebar.sectionOrder.moveUp", "Move up")}
         onClick={() => move("up")}
       >
         <ArrowUp />
@@ -116,8 +155,8 @@ function SectionOrderItem({
         size="icon-xs"
         ref={downRef}
         disabled={last}
-        aria-label={`Move ${label} down`}
-        title="Move down"
+        aria-label={t("sidebar.sectionOrder.moveBlockDown", "Move {{label}} down", { label })}
+        title={t("sidebar.sectionOrder.moveDown", "Move down")}
         onClick={() => move("down")}
       >
         <ArrowDown />

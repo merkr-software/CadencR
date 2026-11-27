@@ -8,7 +8,7 @@
 
 import { applyBlockContentBudget } from "@/lib/block-content-budget";
 import { parseMessageBlocksPayload } from "./ws-envelope-payload";
-import { appendErrorBlockPatch } from "./ws-session-store-helpers";
+import { appendClientTranscriptErrorPatch } from "./ws-session-store-helpers";
 import {
   type BlockMutation,
   type StreamingState,
@@ -76,11 +76,7 @@ function surfaceMalformedMessage(ctx: StoreAccessors, sessionId: string, payload
     updateSession(
       ctx.get(),
       sessionId,
-      appendErrorBlockPatch(
-        session,
-        "A streamed update from the agent was malformed and could not be displayed. The transcript above may be incomplete.",
-        { code: "MALFORMED_MESSAGE" },
-      ),
+      appendClientTranscriptErrorPatch(session, "MALFORMED_MESSAGE"),
     ),
   );
 }

@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { ChevronDownIcon, ChevronRightIcon, StarIcon } from "lucide-react";
 import { CommandItem } from "@/components/ui/command";
 import { ProviderIcon } from "@/lib/provider-icons";
@@ -28,6 +29,7 @@ export function ProviderHeader({
   canCollapse: boolean;
   onCollapse: () => void;
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   const lockup = <ProviderLockup group={group} expanded showChevron={canCollapse} />;
   if (!canCollapse) {
     return <div className={HEADING_ROW_CLASS}>{lockup}</div>;
@@ -36,7 +38,11 @@ export function ProviderHeader({
   return (
     <button
       type="button"
-      aria-label={`Collapse ${group.heading}`}
+      aria-label={t(
+        "conversation.composer.runtimeModelPickerChrome.collapse",
+        "Collapse {{group}}",
+        { group: group.heading },
+      )}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onCollapse}
       className={cn(HEADING_ROW_CLASS, "cursor-default text-left hover:bg-accent/60")}
@@ -53,13 +59,18 @@ export function ProviderBrowseItem({
   group: ModelGroupSpec;
   onExpand: () => void;
 }): React.ReactElement {
-  const countLabel = modelCountLabel(group.entries.length);
+  const { t } = useUiTranslation();
+  const countLabel = modelCountLabel(t, group.entries.length);
   return (
     <CommandItem
       value={browseGroupValue(group.id)}
       keywords={[group.heading, group.providerId]}
       onSelect={onExpand}
-      aria-label={`${group.heading}, ${countLabel}`}
+      aria-label={t(
+        "conversation.composer.runtimeModelPickerChrome.groupCount",
+        "{{group}}, {{countLabel}}",
+        { group: group.heading, countLabel },
+      )}
       className={cn(
         HEADING_ROW_CLASS,
         PICKER_ITEM_CLASS,
@@ -80,14 +91,19 @@ export function VendorBrowseItem({
   vendor: VendorSection;
   onExpand: () => void;
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   const heading = vendor.heading ?? group.heading;
-  const countLabel = modelCountLabel(vendor.entries.length);
+  const countLabel = modelCountLabel(t, vendor.entries.length);
   return (
     <CommandItem
       value={browseGroupValue(vendor.id)}
       keywords={[group.heading, group.providerId, vendor.heading ?? "", vendor.vendorKey ?? ""]}
       onSelect={onExpand}
-      aria-label={`${heading}, ${countLabel}`}
+      aria-label={t(
+        "conversation.composer.runtimeModelPickerChrome.groupCount",
+        "{{group}}, {{countLabel}}",
+        { group: heading, countLabel },
+      )}
       className={cn(
         MODEL_INSET_CLASS,
         PICKER_ITEM_CLASS,
@@ -110,6 +126,7 @@ function ProviderLockup({
   expanded: boolean;
   showChevron: boolean;
 }): React.ReactElement {
+  const { t } = useUiTranslation();
   const Chevron = expanded ? ChevronDownIcon : ChevronRightIcon;
   return (
     <>
@@ -121,7 +138,7 @@ function ProviderLockup({
         {group.heading}
       </span>
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-        {modelCountLabel(group.entries.length)}
+        {modelCountLabel(t, group.entries.length)}
       </span>
       {showChevron ? <Chevron className="size-3 shrink-0 text-muted-foreground/70" /> : null}
     </>
@@ -137,8 +154,13 @@ function GroupMark({ group }: { group: ModelGroupSpec }): React.ReactElement {
   );
 }
 
-function modelCountLabel(count: number): string {
-  return count === 1 ? "1 model" : `${count} models`;
+function modelCountLabel(t: UiTranslator, count: number): string {
+  return t("conversation.composer.runtimeModelPickerChrome.modelCount", "{{count}} models", {
+    count,
+    defaultValue_zero: "{{count}} models",
+    defaultValue_one: "{{count}} model",
+    defaultValue_other: "{{count}} models",
+  });
 }
 
 /** cmdk uses `block: "nearest"`, which treats a row tucked under a sticky heading as visible. */

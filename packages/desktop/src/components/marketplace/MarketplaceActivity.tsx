@@ -1,57 +1,107 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CheckCircle2, CircleAlert, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { catalogSourceMissing, marketplaceError } from "@/lib/marketplace";
+import { managedThemeInventoryError } from "@/lib/theme-marketplace";
 import { useMarketplaceState } from "./MarketplaceContext";
+import { KINDS } from "./kinds";
 
-type Line = { tone: "error" | "info" | "done" | "busy"; text: string };
+type Line = { key: string; tone: "error" | "info" | "done" | "busy"; text: string };
 
 const ICONS = { error: CircleAlert, info: Info, done: CheckCircle2, busy: Loader2 } as const;
 
-function useActivityLines(): Line[] {
+function useActivityLines(t: UiTranslator): Line[] {
   const { providers, themes, tabs, lsps, catalogMissing } = useMarketplaceState();
   const lines: Line[] = [];
-  const error = (label: string, value: unknown) => {
-    const message = marketplaceError(value);
-    if (message) lines.push({ tone: "error", text: `${label}: ${message}` });
+  const diagnostic = (
+    key: string,
+    label: string,
+    message: string | null | undefined,
+    tone: "error" | "info" = "error",
+  ) => {
+    if (message)
+      lines.push({
+        key,
+        tone,
+        text: t("marketplace.activity.labeledError", "{{label}}: {{message}}", { label, message }),
+      });
   };
-  for (const [label, kind] of [
-    ["Providers", providers],
-    ["Themes", themes],
-    ["Custom tabs", tabs],
-    ["Language servers", lsps],
+  const error = (key: string, label: string, value: unknown) =>
+    diagnostic(key, label, marketplaceError(value, t));
+  for (const [key, state] of [
+    ["provider", providers],
+    ["theme", themes],
+    ["tab", tabs],
+    ["lsp", lsps],
   ] as const) {
-    if (kind.mutation.isPending)
-      lines.push({ tone: "busy", text: `Applying ${kind.mutation.variables?.id} change…` });
-    if (kind.notice) lines.push(kind.notice);
-    error(label, kind.mutation.error);
+    if (state.mutation.isPending)
+      lines.push({
+        key: `${key}-pending`,
+        tone: "busy",
+        text: t("marketplace.activity.applyingChange", "Applying {{id}} change…", {
+          id: state.mutation.variables?.id,
+        }),
+      });
+    if (state.notice)
+      lines.push({ key: `${key}-notice`, tone: state.notice.tone, text: state.notice.text(t) });
+    error(`${key}-mutation-error`, KINDS[key].plural(t), state.mutation.error);
   }
-  error("Provider catalog", providers.catalogQuery.error ?? providers.refresh.error);
-  error("Installed providers", providers.inventoryQuery.error);
-  error("Theme catalog", themes.catalog.error ?? themes.refresh.error);
-  error("Installed themes", themes.inventory.error ?? themes.recovery.error);
-  error("Language server catalog", lsps.catalog.error ?? lsps.refresh.error);
-  error("Installed language servers", lsps.inventory.error ?? lsps.recovery.error);
-  if (!catalogMissing && lsps.catalog.data?.error)
-    lines.push({ tone: "error", text: `Language server catalog: ${lsps.catalog.data.error}` });
-  error("Tab catalog", tabs.catalog.error ?? tabs.refresh.error);
-  error("Installed tabs", tabs.inventory.error ?? tabs.summaries.error ?? tabs.recovery.error);
-  // A build with no feed says so once, on the page itself, not as three notices.
-  if (!catalogMissing && tabs.catalog.data?.error)
-    lines.push({ tone: "info", text: `Tab catalog: ${tabs.catalog.data.error}` });
-  const providerCatalog = providers.catalogQuery.data;
-  if (providerCatalog?.error && !catalogMissing)
-    lines.push(
-      catalogSourceMissing(providerCatalog)
-        ? {
-            tone: "info",
-            text: "Providers are not available from a catalog in this build. Installed providers remain manageable.",
-          }
-        : { tone: "error", text: `Provider catalog: ${providerCatalog.error}` },
-    );
-  if (!catalogMissing && themes.catalog.data?.error)
-    lines.push({ tone: "info", text: `Theme catalog: ${themes.catalog.data.error}` });
-  const blocklist = providers.inventoryQuery.data?.blocklist;
-  if (blocklist?.error) lines.push({ tone: "error", text: `Blocklist: ${blocklist.error}` });
+  const providerLabel = t("marketplace.activity.providerCatalog", "Provider catalog");
+  const themeLabel = t("marketplace.activity.themeCatalog", "Theme catalog");
+  const lspLabel = t("marketplace.activity.lspCatalog", "Language server catalog");
+  const tabLabel = t("marketplace.activity.tabCatalog", "Tab catalog");
+  error(
+    "provider-catalog-error",
+    providerLabel,
+    providers.catalogQuery.error ?? providers.refresh.error,
+  );
+  error(
+    "provider-inventory-error",
+    t("marketplace.activity.installedProviders", "Installed providers"),
+    providers.inventoryQuery.error,
+  );
+  error("theme-catalog-error", themeLabel, themes.catalog.error ?? themes.refresh.error);
+  diagnostic(
+    "theme-inventory-error",
+    t("marketplace.activity.installedThemes", "Installed themes"),
+    themes.inventory.error
+      ? managedThemeInventoryError(themes.inventory.error, t)
+      : marketplaceError(themes.recovery.error, t),
+  );
+  error("lsp-catalog-error", lspLabel, lsps.catalog.error ?? lsps.refresh.error);
+  error(
+    "lsp-inventory-error",
+    t("marketplace.activity.installedLsps", "Installed language servers"),
+    lsps.inventory.error ?? lsps.recovery.error,
+  );
+  error("tab-catalog-error", tabLabel, tabs.catalog.error ?? tabs.refresh.error);
+  error(
+    "tab-inventory-error",
+    t("marketplace.activity.installedTabs", "Installed tabs"),
+    tabs.inventory.error ?? tabs.summaries.error ?? tabs.recovery.error,
+  );
+  // A build with no feed says so once, on the page itself.
+  if (!catalogMissing) {
+    diagnostic("lsp-catalog-diagnostic", lspLabel, lsps.catalog.data?.error);
+    diagnostic("tab-catalog-diagnostic", tabLabel, tabs.catalog.data?.error, "info");
+    diagnostic("theme-catalog-diagnostic", themeLabel, themes.catalog.data?.error, "info");
+    const providerCatalog = providers.catalogQuery.data;
+    if (providerCatalog?.error && catalogSourceMissing(providerCatalog))
+      lines.push({
+        key: "provider-catalog-diagnostic",
+        tone: "info",
+        text: t(
+          "marketplace.activity.providersNotAvailable",
+          "Providers are not available from a catalog in this build. Installed providers remain manageable.",
+        ),
+      });
+    else diagnostic("provider-catalog-diagnostic", providerLabel, providerCatalog?.error);
+  }
+  diagnostic(
+    "blocklist-diagnostic",
+    t("marketplace.activity.blocklist", "Blocklist"),
+    providers.inventoryQuery.data?.blocklist.error,
+  );
   return lines;
 }
 
@@ -60,8 +110,9 @@ function useActivityLines(): Line[] {
  * pending changes, confirmed results, and failures with their stable codes.
  */
 export function MarketplaceActivity(): React.JSX.Element | null {
+  const { t } = useUiTranslation();
   const { providers, themes, tabs, lsps } = useMarketplaceState();
-  const lines = useActivityLines();
+  const lines = useActivityLines(t);
   const queryFailed =
     providers.catalogQuery.isError ||
     providers.inventoryQuery.isError ||
@@ -82,7 +133,7 @@ export function MarketplaceActivity(): React.JSX.Element | null {
         const Icon = ICONS[line.tone];
         return (
           <p
-            key={`${line.tone}:${line.text}`}
+            key={line.key}
             role={line.tone === "error" ? "alert" : "status"}
             className={
               line.tone === "error"
@@ -124,7 +175,7 @@ export function MarketplaceActivity(): React.JSX.Element | null {
                 void lsps.inventory.refetch();
               }}
             >
-              Retry loading
+              {t("marketplace.marketplaceActivity.retryLoading", "Retry loading")}
             </Button>
           )}
           {themeStateFailed && (
@@ -134,7 +185,9 @@ export function MarketplaceActivity(): React.JSX.Element | null {
               disabled={themes.recovery.isPending || themes.mutation.isPending}
               onClick={() => themes.recovery.mutate()}
             >
-              {themes.recovery.isPending ? "Reloading theme state…" : "Reload theme state"}
+              {themes.recovery.isPending
+                ? t("marketplace.activity.reloadingThemeState", "Reloading theme state…")
+                : t("marketplace.activity.reloadThemeState", "Reload theme state")}
             </Button>
           )}
         </div>

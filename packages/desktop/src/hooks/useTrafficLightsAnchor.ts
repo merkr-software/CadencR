@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -23,7 +24,13 @@ function flush(): void {
   if (next === sent) return;
   sent = next;
   desktopBridge.setTrafficLightsCenter(next).catch((error: unknown) => {
-    toast.error(`Could not move the window controls: ${apiErrorMessage(error, String(error))}`);
+    toast.error(
+      translateUi(
+        "shell.window.controlsMoveError",
+        "Could not move the window controls: {{detail}}",
+        { detail: apiErrorMessage(error, String(error)) },
+      ),
+    );
   });
 }
 

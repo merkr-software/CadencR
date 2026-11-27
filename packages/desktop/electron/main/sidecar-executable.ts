@@ -1,3 +1,4 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import fs from "node:fs";
 import { errnoCode } from "./errno";
 
@@ -16,7 +17,13 @@ export function ensureLinuxSidecarExecutable(binary: string, platform: NodeJS.Pl
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to mark cadencr-service executable at ${binary}: ${message}`);
+    throw new Error(
+      t(
+        "system.service.executable",
+        "Failed to mark cadencr-service executable at {{binary}}: {{message}}",
+        { binary, message },
+      ),
+    );
   }
 }
 

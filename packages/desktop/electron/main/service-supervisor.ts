@@ -1,3 +1,5 @@
+import { isNewerDatabaseStartupFailure } from "./startup-recovery";
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import type { ServiceStatus } from "../../src/shared/service-status";
 import type { SidecarExit } from "./sidecar";
 
@@ -38,15 +40,16 @@ export function createServiceSupervisor(options: ServiceSupervisorOptions): Serv
     status: () => status,
     reportExit: (exit) => {
       if (!supervising) return;
-      set({ state: "down", detail: exit.detail || "The service stopped unexpectedly." });
+      set({ state: "down", detail: exit.detail });
     },
     restart: async () => {
-      if (!supervising) throw new Error("Cadencr is shutting down.");
+      if (!supervising)
+        throw new Error(t("system.service.shuttingDown", "Cadencr is shutting down."));
       if (status.state !== "down") {
         throw new Error(
           status.state === "restarting"
-            ? "The service is already restarting."
-            : "The service is already running.",
+            ? t("system.service.alreadyRestarting", "The service is already restarting.")
+            : t("system.service.alreadyRunning", "The service is already running."),
         );
       }
       set({ state: "restarting" });
@@ -56,7 +59,12 @@ export function createServiceSupervisor(options: ServiceSupervisorOptions): Serv
         // Published, not thrown: the window shows why from the status, and a
         // rejection on top would report the same failure a second time.
         const message = error instanceof Error ? error.message : String(error);
-        if (supervising) set({ state: "down", detail: message });
+        if (supervising)
+          set(
+            isNewerDatabaseStartupFailure(message)
+              ? { state: "down", reason: "newer-database", detail: message }
+              : { state: "down", detail: message },
+          );
         return;
       }
       if (supervising) set({ state: "running" });

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import type { UsageMetric } from "@/components/usage/usage-stats-model";
@@ -19,7 +20,10 @@ function writeMetric(metric: SessionUsageMetric): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, metric);
   } catch (error) {
-    const message = "Could not remember the chart measure. It resets on the next session.";
+    const message = translateUi(
+      "conversation.stream.sessionUsageMeasure.couldNotRememberTheChartMeasureIt",
+      "Could not remember the chart measure. It resets on the next session.",
+    );
     console.error(message, error);
     toast.error(message);
   }

@@ -88,8 +88,8 @@ const notification = {
   body: "Preview",
 };
 let controller: NotchController;
-const configure = (displayMode: NotchDisplayMode) =>
-  controller.configure({ enabled: true, prefs: { ...DEFAULT_NOTCH_PREFS, displayMode } });
+const configure = (displayMode: NotchDisplayMode, locale = "en") =>
+  controller.configure({ enabled: true, prefs: { ...DEFAULT_NOTCH_PREFS, displayMode }, locale });
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -110,6 +110,14 @@ afterEach(async () => {
 });
 
 describe("NotchController display lifecycle", () => {
+  it("leaves the island unavailable on Linux when configured with a different locale", async () => {
+    vi.stubGlobal("process", { ...process, platform: "linux" });
+    await configure("both", "fr-CA");
+    await expect(controller.capabilities()).resolves.toEqual({ supported: false, hardware: false });
+    expect(mock.windows).toHaveLength(0);
+    expect(mock.probe).not.toHaveBeenCalled();
+  });
+
   it("keeps the built-in island when adding both and removes only it for primary", async () => {
     await configure("builtin_always");
     const builtInWindow = mock.windows[0];
@@ -120,6 +128,19 @@ describe("NotchController display lifecycle", () => {
     expect(builtInWindow.destroyed).toBe(true);
     expect(mock.windows[1].destroyed).toBe(false);
     expect(mock.windows[1].bounds).toMatchObject({ x: 920, y: 0, width: 720 });
+  });
+
+  it("delivers the current locale to a starting island and updates an existing one", async () => {
+    await configure("both", "fr-CA");
+    const [builtInWindow, primaryWindow] = mock.windows;
+    expect(controller.markReady(builtInWindow.webContents.id).locale).toBe("fr-CA");
+
+    await configure("both", "en-GB");
+
+    expect(mock.windows).toHaveLength(2);
+    expect(builtInWindow.webContents.send).toHaveBeenCalledWith("notch:locale", "en-GB");
+    expect(primaryWindow.webContents.send).not.toHaveBeenCalledWith("notch:locale", "en-GB");
+    expect(controller.markReady(primaryWindow.webContents.id).locale).toBe("en-GB");
   });
 
   it("keeps a click on any island from activating the app", async () => {

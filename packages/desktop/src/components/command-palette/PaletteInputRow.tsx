@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { forwardRef, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { AtSignIcon, ChevronRightIcon, HashIcon, SearchIcon } from "lucide-react";
@@ -6,11 +7,16 @@ import { formatCombo, formatCompactCombo } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import { ComboCap } from "./PaletteText";
 
-export const MODE_LABEL: Record<PrefixMode, string> = {
-  commands: "Commands",
-  files: "Files",
-  messages: "Messages",
-};
+export function modeLabel(mode: PrefixMode, t: UiTranslator): string {
+  switch (mode) {
+    case "commands":
+      return t("palette.mode.commands", "Commands");
+    case "files":
+      return t("palette.mode.files", "Files");
+    case "messages":
+      return t("palette.mode.messages", "Messages");
+  }
+}
 
 export const MODE_ICON: Record<PrefixMode, ReactNode> = {
   commands: <ChevronRightIcon />,
@@ -18,17 +24,37 @@ export const MODE_ICON: Record<PrefixMode, ReactNode> = {
   messages: <HashIcon />,
 };
 
-const SCOPE_LABEL: Record<PaletteScope, string> = {
-  all: "Everything",
-  project: "This project",
-  active: "Active only",
-};
-
-const SCOPE_TITLE: Record<PaletteScope, string> = {
-  all: "Searching every conversation, archives included (ranked lower)",
-  project: "Searching this project's conversations only",
-  active: "Searching active conversations only, archives left out",
-};
+function scopeCopy(scope: PaletteScope, shortcut: string, t: UiTranslator) {
+  switch (scope) {
+    case "all":
+      return {
+        label: t("palette.scope.all.label", "Everything"),
+        title: t(
+          "palette.scope.all.hint",
+          "Searching every conversation, archives included (ranked lower) ({{shortcut}} to change)",
+          { shortcut },
+        ),
+      };
+    case "project":
+      return {
+        label: t("palette.scope.project.label", "This project"),
+        title: t(
+          "palette.scope.project.hint",
+          "Searching this project's conversations only ({{shortcut}} to change)",
+          { shortcut },
+        ),
+      };
+    case "active":
+      return {
+        label: t("palette.scope.active.label", "Active only"),
+        title: t(
+          "palette.scope.active.hint",
+          "Searching active conversations only, archives left out ({{shortcut}} to change)",
+          { shortcut },
+        ),
+      };
+  }
+}
 
 function ScopeButton({
   scope,
@@ -37,17 +63,19 @@ function ScopeButton({
   scope: PaletteScope;
   onCycle: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { keys } = useResolvedShortcut("palette-scope");
+  const { label, title } = scopeCopy(scope, formatCompactCombo(keys), t);
   return (
     <button
       type="button"
       tabIndex={-1}
       className="cp-scope"
       data-scope={scope}
-      title={`${SCOPE_TITLE[scope]} (${formatCompactCombo(keys)} to change)`}
+      title={title}
       onClick={onCycle}
     >
-      {SCOPE_LABEL[scope]}
+      {label}
       <ComboCap keys={formatCombo(keys)} />
     </button>
   );

@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -36,6 +37,7 @@ const PendingRequestLine = memo(function PendingRequestLine({
   featureId: number;
   fillsLine: boolean;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const enabled = useSidebarOption("pendingRequest");
   const { gate, isLoading, errorMessage } = useFeaturePendingGate({ featureId, enabled });
   if (!enabled) return null;
@@ -43,7 +45,7 @@ const PendingRequestLine = memo(function PendingRequestLine({
   if (errorMessage) {
     return (
       <span data-feature-pending-request="empty" title={errorMessage} className={LINE_CLASS}>
-        Request details unavailable
+        {t("sidebar.pendingRequestLine.requestDetailsUnavailable", "Request details unavailable")}
       </span>
     );
   }
@@ -52,7 +54,7 @@ const PendingRequestLine = memo(function PendingRequestLine({
   if (!gate || !prompt) {
     return fillsLine ? (
       <span data-feature-pending-request="empty" className={LINE_CLASS}>
-        Waiting for you
+        {t("sidebar.pendingRequestLine.waitingForYou", "Waiting for you")}
       </span>
     ) : null;
   }

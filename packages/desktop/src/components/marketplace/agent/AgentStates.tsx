@@ -1,6 +1,7 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { CircleAlert } from "lucide-react";
 import type { ExtensionCliError, ExtensionCliSummary } from "@/api/generated";
-import { cliLabel } from "@/lib/agent-extensions";
+import { cliLabel, type AgentExtensionKind } from "@/lib/agent-extensions";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { CheckCatalogButton, MarketplaceEmpty } from "../MarketplaceStates";
 
@@ -35,32 +36,50 @@ export function CliErrors({
 /** A failed listing request, with its message and a way to retry. */
 export function AgentLoadError({
   error,
-  what,
+  title,
   retrying,
   onRetry,
 }: {
   error: unknown;
-  what: string;
+  title: string;
   retrying: boolean;
   onRetry: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <MarketplaceEmpty
       icon={CircleAlert}
-      title={`Could not load ${what}`}
-      detail={apiErrorMessage(error, "The request failed.")}
-      action={<CheckCatalogButton refreshing={retrying} onRefresh={onRetry} label="Try again" />}
+      title={title}
+      detail={apiErrorMessage(
+        error,
+        t("marketplace.agent.agentStates.requestFailed", "The request failed."),
+      )}
+      action={
+        <CheckCatalogButton
+          refreshing={retrying}
+          onRefresh={onRetry}
+          label={t("marketplace.agent.agentStates.tryAgain", "Try again")}
+        />
+      }
     />
   );
 }
 
 /** No agent CLI on this computer can carry this kind. */
-export function NoCapableCli({ what }: { what: string }): React.JSX.Element {
+export function NoCapableCli({ kind }: { kind: AgentExtensionKind }): React.JSX.Element {
+  const { t } = useUiTranslation();
   return (
     <MarketplaceEmpty
       icon={CircleAlert}
-      title={`No agent CLI here can install ${what}`}
-      detail="Install Claude Code or the Codex CLI on this computer, then come back."
+      title={
+        kind === "skill"
+          ? t("marketplace.agent.agentStates.noSkillCli", "No agent CLI here can install skills")
+          : t("marketplace.agent.agentStates.noMcpCli", "No agent CLI here can install MCP servers")
+      }
+      detail={t(
+        "marketplace.agent.agentStates.installCliHint",
+        "Install Claude Code or the Codex CLI on this computer, then come back.",
+      )}
     />
   );
 }

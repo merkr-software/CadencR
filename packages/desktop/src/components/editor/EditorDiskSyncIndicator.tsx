@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useState } from "react";
 import { AlertCircleIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export const EditorDiskSyncIndicator = memo(function EditorDiskSyncIndicator({
 }: {
   sync: EditorDiskSyncState;
 }) {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   if (!sync.diskChanged && !open) return null;
   return (
@@ -33,18 +35,25 @@ export const EditorDiskSyncIndicator = memo(function EditorDiskSyncIndicator({
           variant="ghost"
           size="sm"
           className="h-5 gap-1 px-1 text-xs text-[var(--acc-orange)]"
-          title="File changed on disk. Your unsaved buffer is preserved; autosave is paused."
+          title={t(
+            "workspace.editor.diskSync.fileChangedOnDiskYourUnsavedBuffer",
+            "File changed on disk. Your unsaved buffer is preserved; autosave is paused.",
+          )}
         >
-          <AlertCircleIcon className="size-3" /> Disk changed
+          <AlertCircleIcon className="size-3" />{" "}
+          {t("workspace.editor.diskSync.diskChanged", "Disk changed")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>File changed on disk</DialogTitle>
+          <DialogTitle>
+            {t("workspace.editor.diskSync.fileChangedOnDisk", "File changed on disk")}
+          </DialogTitle>
           <DialogDescription>
-            Your buffer has been kept. Autosave is paused until you resolve the disk change. Reload
-            discards your unsaved edits and reads the latest file from disk. Overwrite saves your
-            buffer instead, replacing the disk version.
+            {t(
+              "workspace.editor.diskSync.yourBufferHasBeenKeptAutosaveIs",
+              "Your buffer has been kept. Autosave is paused until you resolve the disk change. Reload discards your unsaved edits and reads the latest file from disk. Overwrite saves your buffer instead, replacing the disk version.",
+            )}
           </DialogDescription>
         </DialogHeader>
         {sync.errorMessage && (
@@ -54,30 +63,31 @@ export const EditorDiskSyncIndicator = memo(function EditorDiskSyncIndicator({
         )}
         {sync.isSaving && (
           <p role="status" className="flex items-center gap-1 text-sm">
-            <Loader2Icon className="size-3 animate-spin" /> Synchronizing…
+            <Loader2Icon className="size-3 animate-spin" />{" "}
+            {t("workspace.editor.diskSync.synchronizing", "Synchronizing…")}
           </p>
         )}
         {!sync.diskChanged && !sync.isSaving && (
           <p role="status" className="text-sm">
-            Disk change resolved.
+            {t("workspace.editor.diskSync.diskChangeResolved", "Disk change resolved.")}
           </p>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
-            Keep editing
+            {t("workspace.editor.diskSync.keepEditing", "Keep editing")}
           </Button>
           <Button
             variant="outline"
             disabled={sync.isSaving || !sync.diskChanged}
             onClick={() => void sync.overwriteDisk()}
           >
-            Overwrite disk
+            {t("workspace.editor.diskSync.overwriteDisk", "Overwrite disk")}
           </Button>
           <Button
             disabled={sync.isSaving || !sync.diskChanged}
             onClick={() => void sync.reloadFromDisk()}
           >
-            Discard edits and reload
+            {t("workspace.editor.diskSync.discardEditsAndReload", "Discard edits and reload")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
 import { memo, useCallback, useEffect, useState } from "react";
@@ -53,6 +54,7 @@ function readDiffImage(request: DiffImageRequest, signal?: AbortSignal): Promise
 }
 
 const DiffImagePanel = memo(function DiffImagePanel(props: ImagePanelProps) {
+  const { t, i18n } = useUiTranslation();
   const { label, request, imagePath } = props;
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState<ImageDimensions | null>(null);
@@ -83,18 +85,24 @@ const DiffImagePanel = memo(function DiffImagePanel(props: ImagePanelProps) {
   }, []);
   const handleError = useCallback((): void => setDecodeError(true), []);
   const error = decodeError
-    ? "Failed to decode image"
+    ? t("workspace.git.diffImageView.failedToDecodeImage", "Failed to decode image")
     : query.error
-      ? apiErrorMessage(query.error, "Failed to load image")
+      ? apiErrorMessage(
+          query.error,
+          translateUi("workspace.git.diffImageView.failedToLoadImage", "Failed to load image"),
+        )
       : null;
 
   return (
-    <section className="min-w-0 bg-[var(--editor-bg)]" aria-label={`${label} image`}>
+    <section
+      className="min-w-0 bg-[var(--editor-bg)]"
+      aria-label={t("workspace.git.diffImageView.imagePanel", "{{label}} image", { label })}
+    >
       <div className="flex h-8 items-center justify-between border-b border-border px-3 font-mono text-xs">
         <span className="font-medium text-foreground">{label}</span>
         <span className="truncate pl-3 text-muted-foreground">
           {dimensions ? `${dimensions.width} × ${dimensions.height} · ` : ""}
-          {query.data ? formatBytes(query.data.size) : ""}
+          {query.data ? formatBytes(query.data.size, t) : ""}
         </span>
       </div>
       <div className="relative h-72 max-h-[50vh] min-h-40">
@@ -106,7 +114,10 @@ const DiffImagePanel = memo(function DiffImagePanel(props: ImagePanelProps) {
           <CheckerboardBackdrop className="flex items-center justify-center p-4">
             <img
               src={objectUrl}
-              alt={`${label} version of ${imagePath}`}
+              alt={t("workspace.git.diffImageView.imageVersion", "{{label}} version of {{path}}", {
+                label,
+                path: imagePath,
+              })}
               onLoad={handleLoad}
               onError={handleError}
               className="max-h-full max-w-full object-contain"
@@ -116,7 +127,11 @@ const DiffImagePanel = memo(function DiffImagePanel(props: ImagePanelProps) {
         ) : (
           <div className="flex h-full items-center justify-center">
             <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
-            <span className="sr-only">Loading {label.toLowerCase()} image…</span>
+            <span className="sr-only">
+              {t("workspace.git.diffImageView.loadingImage", "Loading {{label}} image…", {
+                label: label.toLocaleLowerCase(i18n.resolvedLanguage),
+              })}
+            </span>
           </div>
         )}
       </div>
@@ -125,6 +140,7 @@ const DiffImagePanel = memo(function DiffImagePanel(props: ImagePanelProps) {
 });
 
 function DiffImageViewImpl(props: DiffImageViewProps) {
+  const { t } = useUiTranslation();
   const changeType = deriveChangeTypeFromStatus(props.status);
   const isAdded = changeType === "new";
   const isDeleted = changeType === "deleted";
@@ -149,14 +165,22 @@ function DiffImageViewImpl(props: DiffImageViewProps) {
         <DiffImagePanel
           request={{ ...baseRequest, side: "old" }}
           imagePath={props.oldFilePath ?? props.filePath}
-          label={isDeleted ? "Deleted" : "Before"}
+          label={
+            isDeleted
+              ? t("workspace.git.diffImageView.deleted", "Deleted")
+              : t("workspace.git.diffImageView.before", "Before")
+          }
         />
       )}
       {!isDeleted && (
         <DiffImagePanel
           request={{ ...baseRequest, side: "new" }}
           imagePath={props.filePath}
-          label={isAdded ? "Added" : "After"}
+          label={
+            isAdded
+              ? t("workspace.git.diffImageView.added", "Added")
+              : t("workspace.git.diffImageView.after", "After")
+          }
         />
       )}
     </div>

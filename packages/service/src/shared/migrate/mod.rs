@@ -51,7 +51,7 @@ mod usage_token_schema_migration_tests;
 #[cfg(test)]
 mod user_message_count_migration_tests;
 mod version_guard;
-use crate::shared::startup_progress::emit_phase;
+use crate::shared::startup_progress::{emit_phase, run_phase, StartupStep};
 pub(crate) use backup_rotation::naming::source_database_file_name as backup_source_database_file_name;
 pub(crate) use support::table_exists;
 use support::{backup_database, has_pending_migrations};
@@ -129,13 +129,12 @@ pub async fn run_migrations(ctx: &MigrationContext<'_>) -> anyhow::Result<()> {
     checksum_repair::repair_known_sqlx_checksum_mismatches(ctx.pool, &migrator).await?;
     seed::repair_agent_messages_content_column(ctx.pool).await?;
     if has_pending {
-        let detail = if rebuilds_conversation_search {
-            "Rebuilding conversation search without bulky tool results. Conversation data is not being deleted."
+        let step = if rebuilds_conversation_search {
+            StartupStep::RebuildSearch
         } else {
-            "Applying database schema updates. Your conversations are preserved."
+            StartupStep::UpdateSchema
         };
-        crate::shared::startup_progress::run_phase("migrating", detail, migrator.run(ctx.pool))
-            .await?;
+        run_phase(step, migrator.run(ctx.pool)).await?;
     } else {
         migrator.run(ctx.pool).await?;
     }

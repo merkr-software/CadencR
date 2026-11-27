@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -124,6 +125,7 @@ function useCollapsedNodes(
 export function VirtualizedProjectFeatureList(
   props: VirtualizedProjectFeatureListProps,
 ): ReactElement {
+  const { t } = useUiTranslation();
   const [collapsed, toggleNode] = useCollapsedNodes(props);
   const entries = useMemo(
     () => buildEntries(props, collapsed),
@@ -146,7 +148,7 @@ export function VirtualizedProjectFeatureList(
       data-virtual-nav-list
       className="flex flex-col gap-0.5"
       role="list"
-      aria-label="Conversations"
+      aria-label={t("project.virtualizedProjectFeatureList.conversations", "Conversations")}
     >
       {list.scrollParent ? (
         <Virtuoso
@@ -161,7 +163,7 @@ export function VirtualizedProjectFeatureList(
           increaseViewportBy={144}
           itemContent={(index, entry) => (
             <div data-project-feature-index={index}>
-              {renderEntry(entry, props, collapsed, toggleNode)}
+              {renderEntry(entry, props, collapsed, toggleNode, t)}
             </div>
           )}
         />
@@ -175,6 +177,7 @@ function renderEntry(
   props: VirtualizedProjectFeatureListProps,
   collapsed: ReadonlySet<number>,
   toggleNode: (id: number) => void,
+  t: UiTranslator,
 ): ReactNode {
   if (entry.kind === "group") {
     return (
@@ -192,7 +195,12 @@ function renderEntry(
       size="icon-xs"
       className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
       aria-label={
-        collapsed.has(entry.feature.id) ? "Expand child sessions" : "Collapse child sessions"
+        collapsed.has(entry.feature.id)
+          ? t("project.virtualizedProjectFeatureList.expandChildSessions", "Expand child sessions")
+          : t(
+              "project.virtualizedProjectFeatureList.collapseChildSessions",
+              "Collapse child sessions",
+            )
       }
       onClick={(event) => {
         event.stopPropagation();

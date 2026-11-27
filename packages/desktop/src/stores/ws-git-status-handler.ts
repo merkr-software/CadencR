@@ -22,6 +22,7 @@ import {
 } from "@/api/generated";
 import { queryClient } from "@/lib/queryClient";
 import { WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
+import { translateUi } from "@/lib/i18n/ui";
 import { gitStatusSnapshotsEqual, useGitStatusStore } from "@/stores/useGitStatusStore";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";
@@ -164,7 +165,12 @@ function handleStatusEnvelope(
 function handlePrStatusEnvelope(payload: Record<string, unknown>): void {
   const snapshot = parsePrStatusSnapshot(payload);
   if (!snapshot) {
-    toast.error("Invalid pull request status update received.");
+    toast.error(
+      translateUi(
+        "workspace.git.wsGitStatusHandler.invalidPullRequestStatusUpdateReceived",
+        "Invalid pull request status update received.",
+      ),
+    );
     return;
   }
   const existing = usePrStatusStore.getState().byFeature[snapshot.feature_id];

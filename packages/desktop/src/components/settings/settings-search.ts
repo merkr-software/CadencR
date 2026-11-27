@@ -16,6 +16,7 @@ export interface SettingsSearchPageResult {
 
 export interface SettingsSearchGroupResult {
   label: string;
+  englishLabel?: string;
   pages: readonly SettingsSearchPageResult[];
 }
 
@@ -43,11 +44,18 @@ export function searchSettings(
   return groups
     .map((group) => ({
       label: group.label,
+      englishLabel: group.englishLabel,
       pages: group.pages.flatMap((page): SettingsSearchPageResult[] => {
-        const pageMatched = matchesAll(words, [page.label, ...(page.aliases ?? [])]);
+        const pageNames = [page.label, page.englishLabel ?? page.label];
+        const pageMatched = matchesAll(words, [...pageNames, ...(page.aliases ?? [])]);
         if (pageMatched) return [{ page, pageMatched, entries: [] }];
         const entries = page.entries.filter((entry) =>
-          matchesAll(words, [entry.label, page.label, ...(entry.keywords ?? [])]),
+          matchesAll(words, [
+            entry.label,
+            entry.englishLabel ?? entry.label,
+            ...pageNames,
+            ...(entry.keywords ?? []),
+          ]),
         );
         return entries.length > 0 ? [{ page, pageMatched, entries }] : [];
       }),

@@ -1,3 +1,4 @@
+import type { HistoryReadDetail } from "@/lib/history-read-error";
 /**
  * Types and helpers for WebSocket session state.
  */
@@ -31,11 +32,16 @@ import type { PersistenceStatus } from "./ws-persistence-status";
 
 export type { PermissionMode };
 
+export type SessionConfigError =
+  | { kind: "provider"; message: string }
+  | { kind: "timeout" }
+  | { kind: "invalid" };
+
 export interface SessionConfigState {
   sessionConfig: RuntimeSessionConfigSnapshot | null;
   sessionConfigLoading: boolean;
   sessionConfigSupported: boolean | null;
-  sessionConfigError: string | null;
+  sessionConfigError: SessionConfigError | null;
   pendingSessionConfigId: string | null;
 }
 
@@ -133,7 +139,7 @@ export function createStreamHealth(): StreamHealth {
 export interface HistoryLoadFailure {
   /** A reconnect retries the unread range of this session, keeping its loaded history. */
   resyncSessionDbId?: number;
-  message: string;
+  message: HistoryReadDetail;
   retrying: boolean;
 }
 

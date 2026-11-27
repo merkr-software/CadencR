@@ -2,6 +2,7 @@ import { memo, type ReactElement, type ReactNode } from "react";
 
 import type { UncommittedFile } from "@/api/generated";
 import { NumStat } from "@/components/NumStat";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 interface UncommittedFileRowProps {
@@ -18,6 +19,7 @@ export const UncommittedFileRow = memo(function UncommittedFileRow({
   labelFor,
   muted = false,
 }: UncommittedFileRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const className = cn(
     "flex-1 min-w-0 truncate font-mono text-sm",
     labelFor && "cursor-pointer",
@@ -47,7 +49,11 @@ export const UncommittedFileRow = memo(function UncommittedFileRow({
       <NumStat
         additions={file.additions}
         deletions={file.deletions}
-        notice={file.line_count_unavailable ? "Line count unavailable" : undefined}
+        notice={
+          file.line_count_unavailable
+            ? t("workspace.git.diff.lineCountUnavailable", "Line count unavailable")
+            : undefined
+        }
         className="shrink-0 text-xs"
       />
     </div>

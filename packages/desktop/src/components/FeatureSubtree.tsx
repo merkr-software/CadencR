@@ -3,6 +3,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import type { Feature } from "@/api/generated";
 import { descendantIdsOf, type FeatureTreeNode } from "@/lib/feature-hierarchy";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 /**
  * Renders one conversation row. `hiddenDescendantIds` is set when the row's
@@ -35,6 +36,7 @@ export function FeatureSubtree({
   onSetCollapsed: (featureId: number, collapsed: boolean) => void;
   depth?: number;
 }) {
+  const { t } = useUiTranslation();
   const expanded = !collapsedIds.has(node.feature.id);
   const hasChildren = node.children.length > 0;
   const featureId = node.feature.id;
@@ -52,7 +54,17 @@ export function FeatureSubtree({
           variant="ghost"
           size="icon-xs"
           className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
-          aria-label={expanded ? "Collapse child sessions" : "Expand child sessions"}
+          aria-label={
+            expanded
+              ? t(
+                  "project.virtualizedProjectFeatureList.collapseChildSessions",
+                  "Collapse child sessions",
+                )
+              : t(
+                  "project.virtualizedProjectFeatureList.expandChildSessions",
+                  "Expand child sessions",
+                )
+          }
           onClick={(event) => {
             event.stopPropagation();
             onSetCollapsed(featureId, expanded);
@@ -65,7 +77,7 @@ export function FeatureSubtree({
           )}
         </Button>
       ) : null,
-    [expanded, featureId, hasChildren, onSetCollapsed],
+    [expanded, featureId, hasChildren, onSetCollapsed, t],
   );
 
   return (

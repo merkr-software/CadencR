@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetFeatureRowSummaryQueryKey, useGetFeatureRowSummary } from "@/api/generated";
@@ -57,7 +58,13 @@ export function useFeatureRowSummary(
       return {
         preview: null,
         todos: null,
-        error: apiErrorMessage(error, "Couldn't load the row summary"),
+        error: apiErrorMessage(
+          error,
+          translateUi(
+            "sidebar.useFeatureRowSummary.couldnTLoadTheRowSummary",
+            "Couldn't load the row summary",
+          ),
+        ),
       };
     }
     if (!data) return undefined;

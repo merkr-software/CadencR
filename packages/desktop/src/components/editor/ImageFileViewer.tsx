@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 /**
  * In-editor viewer for image files (PNG/JPG/GIF/WebP/BMP/ICO/AVIF).
  * Renders the bitmap with a transparency checkerboard backdrop, plus a
@@ -228,6 +229,7 @@ function ImageViewerContent({
 }
 
 function ImageFileViewerImpl({ filePath, projectId, featureId }: ImageFileViewerProps) {
+  const { t } = useUiTranslation();
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [dimensions, setDimensions] = useState<ImageDimensions | null>(null);
   const [decodeError, setDecodeError] = useState<string | null>(null);
@@ -261,7 +263,10 @@ function ImageFileViewerImpl({ filePath, projectId, featureId }: ImageFileViewer
 
   useEffect(() => {
     if (!imageQuery.error) return;
-    const message = apiErrorMessage(imageQuery.error, "Failed to load image");
+    const message = apiErrorMessage(
+      imageQuery.error,
+      translateUi("workspace.editor.imageFileViewer.loadFailed", "Failed to load image"),
+    );
     // Sonner dedupes by `id`, so unrelated re-renders won't stack toasts.
     toast.error(message, { id: `image-viewer:${filePath}` });
   }, [filePath, imageQuery.error]);
@@ -272,7 +277,10 @@ function ImageFileViewerImpl({ filePath, projectId, featureId }: ImageFileViewer
   }, []);
 
   const handleImgError = useCallback(() => {
-    const message = "Failed to decode image";
+    const message = translateUi(
+      "workspace.editor.imageFileViewer.decodeFailed",
+      "Failed to decode image",
+    );
     setDecodeError(message);
     toast.error(message, { id: `image-viewer:${filePath}` });
   }, [filePath]);
@@ -287,11 +295,16 @@ function ImageFileViewerImpl({ filePath, projectId, featureId }: ImageFileViewer
   const view = userView ?? fitView;
   const statusParts: string[] = [fileNameLabel];
   if (dimensions) statusParts.push(`${dimensions.width} × ${dimensions.height}`);
-  if (fileSize !== null) statusParts.push(formatBytes(fileSize));
+  if (fileSize !== null) statusParts.push(formatBytes(fileSize, t));
   const zoomLabel = view ? `${Math.round(view.scale * 100)}%` : "—";
   const error =
     decodeError ??
-    (imageQuery.error ? apiErrorMessage(imageQuery.error, "Failed to load image") : null);
+    (imageQuery.error
+      ? apiErrorMessage(
+          imageQuery.error,
+          translateUi("workspace.editor.imageFileViewer.loadFailed", "Failed to load image"),
+        )
+      : null);
 
   return (
     <ImageViewerContent

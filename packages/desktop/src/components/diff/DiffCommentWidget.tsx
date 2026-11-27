@@ -1,9 +1,10 @@
+import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState } from "react";
-import { format } from "date-fns";
 import { Pencil, Trash2 } from "lucide-react";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseUTCDateTime } from "@/lib/date-utils";
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { cn } from "@/lib/utils";
 
 export interface DiffComment {
@@ -24,13 +25,14 @@ export function CommentForm({
   onSubmit,
   onClose,
   initialContent = "",
-  submitLabel = "Comment",
+  submitLabel,
 }: {
   onSubmit: (content: string) => void;
   onClose: () => void;
   initialContent?: string;
   submitLabel?: string;
 }) {
+  const { t } = useUiTranslation();
   const [content, setContent] = useState(initialContent);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isMobile = useIsMobile();
@@ -61,7 +63,7 @@ export function CommentForm({
       <textarea
         ref={textareaRef}
         className="block w-full resize-y border-0 bg-transparent px-3 py-2.5 font-sans text-sm !text-[var(--editor-fg)] placeholder-[var(--editor-comment)] focus:outline-none"
-        placeholder="Add a comment..."
+        placeholder={t("workspace.git.diffCommentWidget.addAComment", "Add a comment...")}
         rows={3}
         value={content}
         onChange={(e) => setContent(e.target.value)}
@@ -77,7 +79,11 @@ export function CommentForm({
             `mr-auto` keeps the action buttons right-aligned when it's hidden. */}
         {!isMobile && (
           <span className="mr-auto flex items-center gap-1.5 text-[11px] !text-[var(--editor-comment)]">
-            <KbdShortcut keys={["enter"]} variant="hint" /> to comment
+            <UiTrans
+              i18nKey="workspace.git.diffCommentWidget.commentShortcut"
+              defaults="<shortcut /> to comment"
+              components={{ shortcut: <KbdShortcut keys={["enter"]} variant="hint" /> }}
+            />
           </span>
         )}
         <div className="flex items-center gap-1.5">
@@ -85,14 +91,14 @@ export function CommentForm({
             className="rounded-md px-3 py-1.5 font-sans text-xs font-medium !text-[var(--editor-fg)] transition-colors hover:bg-[var(--editor-selection-bg)]"
             onClick={onClose}
           >
-            Cancel
+            {t("workspace.git.diffCommentWidget.cancel", "Cancel")}
           </button>
           <button
             className="rounded-md bg-[var(--editor-purple)] px-3 py-1.5 font-sans text-xs font-semibold text-[var(--editor-bg)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!trimmed}
             onClick={submit}
           >
-            {submitLabel}
+            {submitLabel ?? t("workspace.git.diffCommentWidget.comment", "Comment")}
           </button>
         </div>
       </div>
@@ -112,13 +118,14 @@ export function CommentDisplay({
   onEdit: (id: number, content: string) => void;
   onDelete: (id: number) => void;
 }) {
+  const { t, i18n } = useUiTranslation();
   const [isEditing, setIsEditing] = useState(false);
 
   if (isEditing) {
     return (
       <CommentForm
         initialContent={comment.content}
-        submitLabel="Update"
+        submitLabel={t("workspace.git.diffCommentWidget.update", "Update")}
         onSubmit={(content) => {
           onEdit(comment.id, content);
           setIsEditing(false);
@@ -138,14 +145,14 @@ export function CommentDisplay({
           <button
             className="rounded-md p-1.5 !text-[var(--editor-comment)] transition-colors hover:bg-[var(--editor-selection-bg)] hover:!text-[var(--editor-fg)]"
             onClick={() => setIsEditing(true)}
-            title="Edit comment"
+            title={t("workspace.git.diffCommentWidget.editComment", "Edit comment")}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             className="rounded-md p-1.5 !text-[var(--editor-comment)] transition-colors hover:bg-[var(--editor-selection-bg)] hover:!text-[var(--editor-red)]"
             onClick={() => onDelete(comment.id)}
-            title="Delete comment"
+            title={t("workspace.git.diffCommentWidget.deleteComment", "Delete comment")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -162,10 +169,17 @@ export function CommentDisplay({
                 : "bg-[var(--editor-selection-bg)] !text-[var(--editor-comment)]",
           )}
         >
-          {comment.status}
+          {comment.status === "pending"
+            ? t("workspace.git.diffCommentWidget.pending", "pending")
+            : comment.status === "sent"
+              ? t("workspace.git.diffCommentWidget.sent", "sent")
+              : t("workspace.git.diffCommentWidget.resolved", "resolved")}
         </span>
         <span className="!text-[var(--editor-comment)]">
-          {format(parseUTCDateTime(comment.created_at), "MMM d, yyyy h:mm a")}
+          {parseUTCDateTime(comment.created_at).toLocaleString(formattingLocale(i18n.language), {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}
         </span>
       </div>
     </div>

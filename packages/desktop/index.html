@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <!-- Without this, mobile browsers (remote access on a phone) use a ~980px
@@ -39,7 +39,14 @@
     <title>Cadencr</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div role="status" aria-label="Cadencr" class="grid h-dvh place-items-center">
+        <span
+          class="size-5 animate-spin rounded-full border-2 border-e-transparent"
+          aria-hidden="true"
+        ></span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

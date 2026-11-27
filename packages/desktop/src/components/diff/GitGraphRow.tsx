@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo, type ReactElement } from "react";
 import { ExternalLinkIcon, FileDiffIcon } from "lucide-react";
 import type { CommitRef } from "@/api/generated";
@@ -144,6 +145,7 @@ export const GitGraphRow = memo(function GitGraphRow({
   onOpenOnline,
   active = false,
 }: GitGraphRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const isMerge = commit.parents.length > 1;
   return (
     <ContextMenu>
@@ -184,7 +186,9 @@ export const GitGraphRow = memo(function GitGraphRow({
               {!commit.isPushed && (
                 // Collapses to its arrow in a narrow pane, still read aloud.
                 <NotPushedLabel>
-                  <span className="@max-[30rem]:sr-only">Not pushed</span>
+                  <span className="@max-[30rem]:sr-only">
+                    {t("workspace.git.gitGraphRow.notPushed", "Not pushed")}
+                  </span>
                 </NotPushedLabel>
               )}
             </button>
@@ -193,10 +197,10 @@ export const GitGraphRow = memo(function GitGraphRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuActionItem icon={FileDiffIcon} onSelect={() => onOpenCommit(commit.sha)}>
-          Show diff
+          {t("workspace.git.gitGraphRow.showDiff", "Show diff")}
         </ContextMenuActionItem>
         <ContextMenuActionItem icon={ExternalLinkIcon} onSelect={() => onOpenOnline(commit.sha)}>
-          Open commit online
+          {t("workspace.git.gitGraphRow.openCommitOnline", "Open commit online")}
         </ContextMenuActionItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -204,6 +208,7 @@ export const GitGraphRow = memo(function GitGraphRow({
 });
 
 function CommitMeta({ commit }: { commit: GitGraphRowData }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[11px] leading-[1.35] text-muted-foreground">
       <span className="shrink-0 font-mono">{commit.shortSha}</span>
@@ -212,12 +217,15 @@ function CommitMeta({ commit }: { commit: GitGraphRowData }): ReactElement {
           feature's own history it is nearly always the same person. */}
       <span className="min-w-0 truncate @max-[26rem]:hidden">{commit.author}</span>
       <MetaDot className="@max-[26rem]:hidden" />
-      <span className="shrink-0 tabular-nums">{formatRelativeDate(commit.date)}</span>
+      <span className="shrink-0 tabular-nums">{formatRelativeDate(commit.date, t)}</span>
       {commit.filesChanged > 0 && (
         <>
           <MetaDot />
           <span className="shrink-0 tabular-nums">
-            {commit.filesChanged} {commit.filesChanged === 1 ? "file" : "files"}
+            {commit.filesChanged}{" "}
+            {commit.filesChanged === 1
+              ? t("workspace.git.gitGraphRow.file", "file")
+              : t("workspace.git.gitGraphRow.files", "files")}
           </span>
           <NumStat
             additions={commit.additions}

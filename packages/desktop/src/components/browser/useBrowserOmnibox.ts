@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { desktopBridge, type BrowserTabMetadata } from "@/lib/desktop-bridge";
 import { buildOmniboxSuggestions, type BrowserOmniboxSuggestion } from "@/lib/browser-omnibox";
@@ -39,6 +40,7 @@ export interface BrowserOmniboxController {
 }
 
 export function useBrowserOmnibox(args: UseBrowserOmniboxArgs): BrowserOmniboxController {
+  const { t } = useUiTranslation();
   const query = useLocalSuggestionQuery(args.enabled, args.query);
   const bookmark = useActiveBookmark(args.activeTab);
   const actions = useLibraryActions(args.activeTab, bookmark);
@@ -55,6 +57,7 @@ export function useBrowserOmnibox(args: UseBrowserOmniboxArgs): BrowserOmniboxCo
     dismissBookmarkError();
     dismissActionError();
   }, [dismissActionError, dismissBookmarkError, dismissQueryError]);
+  const error = errorMessage(actions.error ?? bookmark.error ?? query.error, t);
   return useMemo(
     () => ({
       suggestions,
@@ -62,7 +65,7 @@ export function useBrowserOmnibox(args: UseBrowserOmniboxArgs): BrowserOmniboxCo
       isBookmarked: bookmark.value,
       mutationPending: bookmark.loading || actions.pending,
       historyCount: library.historyCount,
-      error: actions.error ?? bookmark.error ?? query.error,
+      error,
       dismissError,
       toggleBookmark: actions.toggleBookmark,
       removeHistoryEntry: actions.removeHistoryEntry,
@@ -70,16 +73,14 @@ export function useBrowserOmnibox(args: UseBrowserOmniboxArgs): BrowserOmniboxCo
     }),
     [
       actions.clearHistory,
-      actions.error,
       actions.pending,
       actions.removeHistoryEntry,
       actions.toggleBookmark,
-      bookmark.error,
       bookmark.loading,
       bookmark.value,
       dismissError,
       library.historyCount,
-      query.error,
+      error,
       query.pending,
       suggestions,
     ],
@@ -90,7 +91,7 @@ interface SuggestionQueryState {
   result: BrowserOmniboxQueryResult;
   resultQuery: string;
   pending: boolean;
-  error: string | null;
+  error: OmniboxError | null;
   dismissError: () => void;
 }
 
@@ -98,7 +99,7 @@ function useLocalSuggestionQuery(enabled: boolean, value: string): SuggestionQue
   const [result, setResult] = useState(EMPTY_RESULT);
   const [resultQuery, setResultQuery] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<OmniboxError | null>(null);
   const revision = useRef(0);
   const currentValue = useRef(value);
   currentValue.current = value;
@@ -113,8 +114,7 @@ function useLocalSuggestionQuery(enabled: boolean, value: string): SuggestionQue
       setResultQuery(query);
       setError(null);
     } catch (queryError) {
-      if (request === revision.current)
-        setError(errorMessage(queryError, "Could not load local Browser suggestions."));
+      if (request === revision.current) setError({ kind: "suggestions", cause: queryError });
     } finally {
       if (request === revision.current) setPending(false);
     }
@@ -147,7 +147,7 @@ interface BookmarkState {
   value: boolean;
   loading: boolean;
   identity: string | null;
-  error: string | null;
+  error: OmniboxError | null;
   dismissError: () => void;
   invalidateRead: () => void;
   setConfirmed: (identity: string, value: boolean) => void;
@@ -159,7 +159,7 @@ function useActiveBookmark(activeTab: BrowserTabMetadata | null): BookmarkState 
     null,
   );
   const [loadingIdentity, setLoadingIdentity] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<OmniboxError | null>(null);
   const revision = useRef(0);
   const activeUrl = activeTab?.url ?? null;
   const readBookmark = useCallback((): void => {
@@ -178,7 +178,7 @@ function useActiveBookmark(activeTab: BrowserTabMetadata | null): BookmarkState 
           setConfirmedState((current) =>
             current?.identity === identity ? current : { identity, value: false },
           );
-          setError(errorMessage(queryError, "Could not check this page's bookmark."));
+          setError({ kind: "bookmarkRead", cause: queryError });
         }
       })
       .finally(() => {
@@ -232,7 +232,7 @@ function useActiveBookmark(activeTab: BrowserTabMetadata | null): BookmarkState 
 
 interface LibraryActions {
   pending: boolean;
-  error: string | null;
+  error: OmniboxError | null;
   dismissError: () => void;
   toggleBookmark: () => Promise<void>;
   removeHistoryEntry: (id: string) => Promise<void>;
@@ -244,12 +244,12 @@ function useLibraryActions(
   bookmark: BookmarkState,
 ): LibraryActions {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<OmniboxError | null>(null);
   const inFlight = useRef(false);
   const activeIdentity = useRef(bookmark.identity);
   activeIdentity.current = bookmark.identity;
   const run = useCallback(
-    async (operation: () => Promise<void>, fallback: string): Promise<void> => {
+    async (operation: () => Promise<void>, kind: LibraryActionErrorKind): Promise<void> => {
       if (inFlight.current) return;
       inFlight.current = true;
       setPending(true);
@@ -257,7 +257,7 @@ function useLibraryActions(
         await operation();
         setError(null);
       } catch (actionError) {
-        setError(errorMessage(actionError, fallback));
+        setError({ kind, cause: actionError });
       } finally {
         inFlight.current = false;
         setPending(false);
@@ -274,20 +274,20 @@ function useLibraryActions(
     await run(async () => {
       const result = await desktopBridge.setBrowserBookmark(activeTab.id, nextValue);
       if (activeIdentity.current === identity) bookmark.setConfirmed(identity, result !== null);
-    }, "Could not update this bookmark.");
+    }, "bookmarkWrite");
   }, [activeTab, bookmark, run]);
   const removeHistoryEntry = useCallback(
     (id: string) =>
       run(async () => {
         await desktopBridge.removeBrowserHistoryEntry(id);
-      }, "Could not delete this history entry."),
+      }, "historyDelete"),
     [run],
   );
   const clearHistory = useCallback(
     () =>
       run(async () => {
         await desktopBridge.clearBrowserHistory();
-      }, "Could not clear Browser history."),
+      }, "historyClear"),
     [run],
   );
   const dismissError = useCallback(() => setError(null), []);
@@ -326,6 +326,42 @@ function bookmarkUrlKey(url: string): string {
   }
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+type LibraryActionErrorKind = "bookmarkWrite" | "historyDelete" | "historyClear";
+
+interface OmniboxError {
+  kind: "suggestions" | "bookmarkRead" | LibraryActionErrorKind;
+  cause: unknown;
+}
+
+function errorMessage(error: OmniboxError | null, t: UiTranslator): string | null {
+  if (!error) return null;
+  const { cause, kind } = error;
+  if (cause instanceof Error && cause.message) return cause.message;
+  switch (kind) {
+    case "suggestions":
+      return t(
+        "workspace.tools.useBrowserOmnibox.couldNotLoadLocalBrowserSuggestions",
+        "Could not load local Browser suggestions.",
+      );
+    case "bookmarkRead":
+      return t(
+        "workspace.tools.useBrowserOmnibox.couldNotCheckThisPageSBookmark",
+        "Could not check this page's bookmark.",
+      );
+    case "bookmarkWrite":
+      return t(
+        "workspace.tools.useBrowserOmnibox.couldNotUpdateThisBookmark",
+        "Could not update this bookmark.",
+      );
+    case "historyDelete":
+      return t(
+        "workspace.tools.useBrowserOmnibox.couldNotDeleteThisHistoryEntry",
+        "Could not delete this history entry.",
+      );
+    case "historyClear":
+      return t(
+        "workspace.tools.useBrowserOmnibox.couldNotClearBrowserHistory",
+        "Could not clear Browser history.",
+      );
+  }
 }

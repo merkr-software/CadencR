@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { type ReactNode } from "react";
 import { LoaderCircleIcon, PanelRightDashedIcon, TriangleAlertIcon } from "lucide-react";
 
@@ -22,6 +23,7 @@ const PULSE_DURATION_MS = 1_100;
  * change reads as the mode's doing rather than a glitch.
  */
 export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNode {
+  const { t } = useUiTranslation();
   const { active, isLoading, error, isSaving, setActive } = useAutoLayoutMode(featureId);
   const pulsedAt = useAutoLayoutStore((s) => s.pulsedAt[featureId] ?? 0);
   // The button remounts on every feature switch, undo or reset — and on the
@@ -43,17 +45,28 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
     { enabled: hotkeysEnabled },
   );
   const label = failed
-    ? `Auto layout unavailable: ${apiErrorMessage(error, "its setting could not be loaded")}`
+    ? t("workspace.tools.autoLayoutToggle.unavailable", "Auto layout unavailable: {{message}}", {
+        message: apiErrorMessage(
+          error,
+          t(
+            "workspace.tools.autoLayoutToggle.settingUnavailable",
+            "its setting could not be loaded",
+          ),
+        ),
+      })
     : active
-      ? "Auto layout on: opened pages split beside the agent"
-      : "Auto layout off";
+      ? t(
+          "workspace.tools.autoLayoutToggle.autoLayoutOnOpenedPagesSplitBeside",
+          "Auto layout on: opened pages split beside the agent",
+        )
+      : t("workspace.tools.autoLayoutToggle.autoLayoutOff", "Auto layout off");
 
   return (
     <ShortcutTooltip label={label} keys={formatCombo(keys)} alignRight>
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Auto layout"
+        aria-label={t("workspace.tools.autoLayoutToggle.autoLayout", "Auto layout")}
         aria-pressed={active}
         data-state={active ? "on" : "off"}
         disabled={busy}
@@ -69,7 +82,13 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
         {failed ? (
           <TriangleAlertIcon className="size-4 text-destructive" />
         ) : isSaving ? (
-          <LoaderCircleIcon className="size-4 animate-spin" aria-label="Saving auto layout" />
+          <LoaderCircleIcon
+            className="size-4 animate-spin"
+            aria-label={t(
+              "workspace.tools.autoLayoutToggle.savingAutoLayout",
+              "Saving auto layout",
+            )}
+          />
         ) : (
           <PanelRightDashedIcon className="size-4" />
         )}

@@ -1,3 +1,4 @@
+import { translateUi } from "../../../src/shared/ui-i18n";
 import {
   PLUGIN_TAB_ID_PATTERN,
   PLUGIN_TAB_INSTANCE_ID_PATTERN,
@@ -31,14 +32,16 @@ export const PLUGIN_TAB_PRIVILEGED_SCHEME: Electron.CustomScheme = {
 
 export function parsePluginId(value: unknown): string {
   if (typeof value !== "string" || !PLUGIN_TAB_ID_PATTERN.test(value)) {
-    throw new Error("Expected a custom tab id.");
+    throw new Error(translateUi("customTabs.native.invalidTabId", "Expected a custom tab id."));
   }
   return value;
 }
 
 export function parseInstanceId(value: unknown): string {
   if (typeof value !== "string" || !PLUGIN_TAB_INSTANCE_ID_PATTERN.test(value)) {
-    throw new Error("Expected a custom tab instance id.");
+    throw new Error(
+      translateUi("customTabs.native.invalidInstanceId", "Expected a custom tab instance id."),
+    );
   }
   return value;
 }

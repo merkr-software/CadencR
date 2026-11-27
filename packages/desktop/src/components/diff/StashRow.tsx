@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useCallback, useRef, useState, type ReactElement, type RefObject } from "react";
 import { ArchiveRestoreIcon, Loader2Icon, PackageOpenIcon, Trash2Icon } from "lucide-react";
 import { NumStat } from "@/components/NumStat";
@@ -11,7 +12,7 @@ import type {
   StashConflictOpenHandler,
   StashMutationOperation,
 } from "./stash-contracts";
-import type { StashMutationCoordinator } from "./useStashMutationCoordinator";
+import { stashRefPendingLabel, type StashMutationCoordinator } from "./useStashMutationCoordinator";
 import { useStashMutations } from "./useStashMutations";
 
 export const STASH_ROW_HEIGHT = 46;
@@ -37,6 +38,7 @@ export const StashRow = memo(function StashRow({
   coordinator,
   active = false,
 }: StashRowProps): ReactElement {
+  const { t } = useUiTranslation();
   const [dropConfirmationOpen, setDropConfirmationOpen] = useState(false);
   const dropButtonRef = useRef<HTMLButtonElement | null>(null);
   const actions = useStashMutations({
@@ -78,7 +80,10 @@ export const StashRow = memo(function StashRow({
         type="button"
         onClick={handleOpen}
         aria-current={active ? "true" : undefined}
-        aria-label={`Open ${stash.ref_name}: ${stash.message}`}
+        aria-label={t("workspace.git.stashRow.openRefMessage", "Open {{ref}}: {{message}}", {
+          ref: stash.ref_name,
+          message: stash.message,
+        })}
         className="flex min-w-0 flex-1 items-center px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <StashRowDetails stash={stash} />
@@ -95,7 +100,7 @@ export const StashRow = memo(function StashRow({
       />
 
       <span className="sr-only" aria-live="polite">
-        {actions.pendingOperation ? `${actions.pendingOperation} stash in progress` : ""}
+        {actions.pendingOperation ? stashProgressLabel(actions.pendingOperation, t) : ""}
       </span>
       <StashDropConfirmationDialog
         open={dropConfirmationOpen}
@@ -128,10 +133,15 @@ const StashRowActions = memo(function StashRowActions({
   onPop,
   onDropRequest,
 }: StashRowActionsProps): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="group"
-      aria-label={`Actions for ${stash.ref_name}: ${stash.message}`}
+      aria-label={t(
+        "workspace.git.stashRow.actionsForRefMessage",
+        "Actions for {{ref}}: {{message}}",
+        { ref: stash.ref_name, message: stash.message },
+      )}
       className="mr-1 flex shrink-0 items-center gap-0.5"
     >
       <StashInlineAction
@@ -175,11 +185,22 @@ const ACTION_ICONS = {
   drop: Trash2Icon,
 } as const;
 
-const ACTION_LABELS: Record<StashMutationOperation, string> = {
-  apply: "Apply",
-  pop: "Pop",
-  drop: "Drop",
-};
+function stashActionLabel(
+  operation: StashMutationOperation,
+  ref: string,
+  pending: boolean,
+  t: UiTranslator,
+): string {
+  if (pending) return stashRefPendingLabel(operation, ref, t);
+  switch (operation) {
+    case "apply":
+      return t("workspace.git.stashRow.applyRef", "Apply {{ref}}", { ref });
+    case "pop":
+      return t("workspace.git.stashRow.popRef", "Pop {{ref}}", { ref });
+    case "drop":
+      return t("workspace.git.stashRow.dropRef", "Drop {{ref}}", { ref });
+  }
+}
 
 const ACTION_CLASS_NAMES: Record<StashMutationOperation, string> = {
   apply: "text-[var(--acc-green)] hover:bg-[var(--acc-green)]/15 hover:text-[var(--acc-green)]",
@@ -195,8 +216,8 @@ const StashInlineAction = memo(function StashInlineAction({
   onClick,
   buttonRef,
 }: StashInlineActionProps): ReactElement {
+  const { t } = useUiTranslation();
   const Icon = ACTION_ICONS[operation];
-  const label = ACTION_LABELS[operation];
   const isPending = pendingOperation === operation;
   const disabled = pendingOperation !== null || blockedReason !== null;
 
@@ -208,12 +229,16 @@ const StashInlineAction = memo(function StashInlineAction({
       size="xs"
       disabled={disabled}
       onClick={onClick}
-      aria-label={isPending ? `${label} ${stashRef} in progress` : `${label} ${stashRef}`}
-      title={blockedReason ?? `${label} ${stashRef}`}
+      aria-label={stashActionLabel(operation, stashRef, isPending, t)}
+      title={blockedReason ?? stashActionLabel(operation, stashRef, false, t)}
       className={cn("h-7 px-1.5 text-[10px] disabled:opacity-40", ACTION_CLASS_NAMES[operation])}
     >
       {isPending ? <Loader2Icon className="size-3 animate-spin" /> : <Icon className="size-3" />}
-      {label}
+      {operation === "apply"
+        ? t("workspace.git.stashRow.apply", "Apply")
+        : operation === "pop"
+          ? t("workspace.git.stashRow.pop", "Pop")
+          : t("workspace.git.stashRow.drop", "Drop")}
     </Button>
   );
 });
@@ -223,6 +248,7 @@ const StashRowDetails = memo(function StashRowDetails({
 }: {
   stash: StashEntry;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-1">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -230,10 +256,13 @@ const StashRowDetails = memo(function StashRowDetails({
         <span className="min-w-0 truncate text-xs text-foreground">{stash.message}</span>
       </div>
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <span className="shrink-0">{formatRelativeDate(stash.date)}</span>
+        <span className="shrink-0">{formatRelativeDate(stash.date, t)}</span>
         <span aria-hidden>·</span>
         <span className="shrink-0">
-          {stash.files_changed} {stash.files_changed === 1 ? "file" : "files"}
+          {stash.files_changed}{" "}
+          {stash.files_changed === 1
+            ? t("workspace.git.stashRow.file", "file")
+            : t("workspace.git.stashRow.files", "files")}
         </span>
         <NumStat
           additions={stash.additions}
@@ -244,3 +273,14 @@ const StashRowDetails = memo(function StashRowDetails({
     </div>
   );
 });
+
+function stashProgressLabel(operation: StashMutationOperation, t: UiTranslator): string {
+  switch (operation) {
+    case "apply":
+      return t("workspace.git.stashRow.applyStashPending", "apply stash in progress");
+    case "pop":
+      return t("workspace.git.stashRow.popStashPending", "pop stash in progress");
+    case "drop":
+      return t("workspace.git.stashRow.dropStashPending", "drop stash in progress");
+  }
+}

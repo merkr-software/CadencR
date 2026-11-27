@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { ChevronUp, ListPlus, Timer } from "lucide-react";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
 import {
@@ -34,12 +35,16 @@ export function AutoMessageMenu({
   className,
   onQueue,
 }: AutoMessageMenuProps) {
+  const { t } = useUiTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Message send options"
+          aria-label={t(
+            "conversation.composer.autoMessageMenu.messageSendOptions",
+            "Message send options",
+          )}
           data-composer-action-compact
           disabled={disabled}
           className={cn(
@@ -52,12 +57,12 @@ export function AutoMessageMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="end" className="min-w-44">
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Send options
+          {t("conversation.composer.autoMessageMenu.sendOptions", "Send options")}
         </DropdownMenuLabel>
         {onQueue && (
           <DropdownMenuItem onSelect={onQueue} disabled={disabled}>
             <ListPlus />
-            Queue after this turn
+            {t("conversation.composer.autoMessageMenu.queueAfterTurn", "Queue after this turn")}
             <span className="ml-auto">
               <ResolvedShortcutHint shortcutId="agent-send" />
             </span>
@@ -66,7 +71,7 @@ export function AutoMessageMenu({
         {requestSchedule && (
           <DropdownMenuItem onSelect={requestSchedule} disabled={scheduleDisabled}>
             <Timer />
-            Schedule for later…
+            {t("conversation.composer.autoMessageMenu.scheduleLater", "Schedule for later…")}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

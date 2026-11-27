@@ -4,9 +4,15 @@ import path from "node:path";
 import { app } from "electron";
 import { z } from "zod";
 import { isPersistentProfileId } from "./browser-profiles";
+import {
+  BrowserScopeAggregateFailure,
+  BrowserScopeFailure,
+  browserErrorMessage,
+} from "./browser-scope-failure";
 
 export interface RestorableBrowserTab {
   title: string;
+  defaultTitle?: true;
   url: string;
   sessionProfileId: string;
   pinned: boolean;
@@ -32,6 +38,7 @@ const MAX_URL_LENGTH = 4096;
 const persistedTabSchema = z
   .object({
     title: z.string(),
+    defaultTitle: z.literal(true).optional(),
     url: z.string(),
     sessionProfileId: z.string(),
     pinned: z.boolean(),
@@ -51,8 +58,10 @@ const persistedTabSchema = z
       context.addIssue({ code: "custom", message: "Invalid restorable Browser URL." });
       return z.NEVER;
     }
+    const title = tab.title.replace(/\s+/g, " ").trim();
     return {
-      title: safeTitle(tab.title),
+      title: (title || "New tab").slice(0, MAX_TITLE_LENGTH),
+      ...(tab.defaultTitle || !title ? { defaultTitle: true as const } : {}),
       url,
       sessionProfileId: tab.sessionProfileId,
       pinned: tab.pinned,
@@ -143,7 +152,7 @@ export class BrowserTabSessionStore {
     try {
       const stat = await fs.stat(this.filePath);
       if (stat.size > MAX_FILE_BYTES) {
-        throw new Error("Saved Browser tabs exceed their storage limit.");
+        throw storageLimitError();
       }
       content = await fs.readFile(this.filePath, "utf8");
     } catch (error) {
@@ -154,9 +163,7 @@ export class BrowserTabSessionStore {
     try {
       parsed = JSON.parse(content);
     } catch (error) {
-      throw new Error("Saved Browser tabs could not be read because the data is corrupt.", {
-        cause: error,
-      });
+      throw new BrowserScopeFailure({ kind: "tabSession", reason: "corrupt" }, { cause: error });
     }
     return parseData(parsed);
   }
@@ -164,7 +171,7 @@ export class BrowserTabSessionStore {
   private async write(data: PersistedBrowserTabs): Promise<void> {
     const serialized = JSON.stringify(data);
     if (Buffer.byteLength(serialized, "utf8") > MAX_FILE_BYTES) {
-      throw new Error("Saved Browser tabs exceed their storage limit.");
+      throw storageLimitError();
     }
     const directory = path.dirname(this.filePath);
     const temporary = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -176,9 +183,13 @@ export class BrowserTabSessionStore {
       try {
         await fs.rm(temporary, { force: true });
       } catch (cleanupError) {
-        throw new AggregateError(
+        throw new BrowserScopeAggregateFailure(
+          {
+            kind: "tabSession",
+            reason: "cleanupFailed",
+            diagnostics: [browserErrorMessage(error), browserErrorMessage(cleanupError)],
+          },
           [error, cleanupError],
-          "Saved Browser tabs write and cleanup failed.",
         );
       }
       throw error;
@@ -215,14 +226,9 @@ function safeRestorableUrl(value: string): string | null {
   return sanitized;
 }
 
-function safeTitle(value: string): string {
-  const title = value.replace(/\s+/g, " ").trim();
-  return (title || "New tab").slice(0, MAX_TITLE_LENGTH);
-}
-
 function assertStructuralBounds(data: PersistedBrowserTabs): void {
   if (Object.keys(data.scopes).length > MAX_SCOPES) {
-    throw new Error("Saved Browser tabs contain too many scopes.");
+    throw new BrowserScopeFailure({ kind: "tabSession", reason: "scopeLimit" });
   }
 }
 
@@ -248,7 +254,11 @@ function cloneScope(scope: RestorableBrowserScope): RestorableBrowserScope {
 }
 
 function invalidData(): Error {
-  return new Error("Saved Browser tabs could not be read because the data is invalid.");
+  return new BrowserScopeFailure({ kind: "tabSession", reason: "invalid" });
+}
+
+function storageLimitError(): Error {
+  return new BrowserScopeFailure({ kind: "tabSession", reason: "storageLimit" });
 }
 
 function isMissingFile(error: unknown): boolean {

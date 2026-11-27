@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBlock } from "../api/generated";
 import type { AgentBlockData } from "@/types/agent-block";
+import { shouldGateFullContent } from "@/lib/agent-block-content";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import {
   applyToolCallUpdates,
@@ -55,13 +56,25 @@ describe("serverBlocksToAgentBlocks", () => {
     expect(block.content).toBe("hello");
     expect(block.truncatedContent).toBe(false);
   });
+
+  it("protects a Bash wire preview when the original size is unknown", () => {
+    const content = JSON.stringify({ command: "printf […]", output: "a bounded tail" });
+    const [block] = serverBlocksToAgentBlocks([
+      serverBlock({ type: "tool_call", toolName: "Bash", content, truncatedContent: true }),
+    ]);
+    expect(shouldGateFullContent(block)).toBe(true);
+    expect(block.content).toBe(content);
+  });
 });
 
 describe("mergeIncrementalBlocks", () => {
   // Boundary-merged text accumulates across every incremental fetch, so the
   // budget has to hold on the concatenation, not just on each arriving block.
   it("bounds text merged across fetches and flags it", () => {
-    const acc = session([{ id: "msg-1", type: "text", content: "a".repeat(OVER_BUDGET / 2) }]);
+    const literal = "… content truncated …";
+    const acc = session([
+      { id: "msg-1", type: "text", content: literal + "a".repeat(OVER_BUDGET / 2) },
+    ]);
     mergeIncrementalBlocks(acc, [
       { id: "msg-2", type: "text", content: "b".repeat(OVER_BUDGET), parentToolUseId: null },
     ] as AgentBlockData[]);
@@ -69,6 +82,8 @@ describe("mergeIncrementalBlocks", () => {
     expect(acc.blocks).toHaveLength(1);
     expect(acc.blocks[0].content.length).toBeLessThan(OVER_BUDGET);
     expect(acc.blocks[0].truncatedContent).toBe(true);
+    expect(acc.blocks[0].content).toContain(TRUNCATION_NOTICE);
+    expect(acc.blocks[0].content.split(literal)).toHaveLength(2);
   });
 
   it("merges normally without flagging anything under budget", () => {

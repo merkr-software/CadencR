@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getReadFileQueryKey, useWriteFile } from "@/api/generated";
@@ -82,7 +83,10 @@ export function useExcalidrawSave({
     try {
       await write();
     } catch (err) {
-      toastError(err, "Failed to save drawing");
+      toastError(
+        err,
+        translateUi("workspace.editor.useExcalidrawSave.saveFailed", "Failed to save drawing"),
+      );
     }
   }, [write]);
 
@@ -94,7 +98,13 @@ export function useExcalidrawSave({
       if (autoSavedTimerRef.current) clearTimeout(autoSavedTimerRef.current);
       autoSavedTimerRef.current = setTimeout(() => setAutoSavedVisible(false), 1500);
     } catch (err) {
-      toastError(err, "Failed to auto-save drawing");
+      toastError(
+        err,
+        translateUi(
+          "workspace.editor.useExcalidrawSave.autoSaveFailed",
+          "Failed to auto-save drawing",
+        ),
+      );
     }
   }, [write]);
 

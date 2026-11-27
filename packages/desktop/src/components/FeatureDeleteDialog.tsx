@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { toast } from "sonner";
 import { useKillTerminalSessions, type Feature } from "@/api/generated";
@@ -28,6 +29,7 @@ export function FeatureDeleteDialog({
   onOpenChange,
   onDelete,
 }: FeatureDeleteDialogProps): ReactElement {
+  const { t } = useUiTranslation();
   const killTerminals = useKillTerminalSessions();
   const killState = useKillTerminalsState(open, feature);
 
@@ -39,9 +41,25 @@ export function FeatureDeleteDialog({
     if (!killState.killTerminals) return;
     const kill = killTerminals.mutateAsync({ params: { feature_id: featureId } });
     toast.promise(kill, {
-      loading: "Killing terminals…",
-      success: (res) => `Killed ${res.killed} terminal${res.killed === 1 ? "" : "s"}.`,
-      error: (err) => apiErrorMessage(err, "Failed to kill terminals"),
+      loading: translateUi(
+        "conversation.featureDeleteDialog.killingTerminals",
+        "Killing terminals…",
+      ),
+      success: (res) =>
+        translateUi("conversation.featureDeleteDialog.killedTerminals", {
+          count: res.killed,
+          defaultValue_zero: "Killed {{count}} terminals.",
+          defaultValue_one: "Killed {{count}} terminal.",
+          defaultValue_other: "Killed {{count}} terminals.",
+        }),
+      error: (err) =>
+        apiErrorMessage(
+          err,
+          translateUi(
+            "conversation.featureDeleteDialog.failedToKillTerminals",
+            "Failed to kill terminals",
+          ),
+        ),
     });
   };
 
@@ -61,8 +79,10 @@ export function FeatureDeleteDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>{deleteFeatureDialogTitle(feature)}</DialogTitle>
-          <DialogDescription>This cannot be undone.</DialogDescription>
+          <DialogTitle>{deleteFeatureDialogTitle(feature, t)}</DialogTitle>
+          <DialogDescription>
+            {t("conversation.featureDeleteDialog.thisCannotBeUndone", "This cannot be undone.")}
+          </DialogDescription>
         </DialogHeader>
 
         {killState.liveTerminalCount > 0 && (
@@ -75,10 +95,10 @@ export function FeatureDeleteDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("conversation.featureDeleteDialog.cancel", "Cancel")}
           </Button>
           <Button variant="destructive" onClick={confirm}>
-            Delete
+            {t("conversation.featureDeleteDialog.delete", "Delete")}
           </Button>
         </DialogFooter>
       </DialogContent>

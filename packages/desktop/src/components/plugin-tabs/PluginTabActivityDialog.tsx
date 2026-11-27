@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
@@ -24,7 +25,7 @@ import {
 import { PluginTabAccessBadge } from "./PluginTabAccess";
 import { ActivitySection, BackendPanel, CommandList } from "./PluginTabActivitySections";
 import { PluginTabIcon } from "./PluginTabIcon";
-import { ACCESS_LEVEL_COPY, backendBinaries } from "./plugin-tab-access";
+import { accessLevelCopy, backendBinaries } from "./plugin-tab-access";
 
 /** Refetch while open: commands and the backend move on their own. */
 const REFRESH_MS = 2000;
@@ -45,6 +46,7 @@ export const PluginTabActivityDialog = memo(function PluginTabActivityDialog({
   featureId: number;
   summary: PluginTabSummary;
 }): ReactNode {
+  const { t } = useUiTranslation();
   const open = usePluginTabRuntimeStore((state) => state.activityOpen === instanceId);
   if (!open) return null;
   return (
@@ -55,12 +57,17 @@ export const PluginTabActivityDialog = memo(function PluginTabActivityDialog({
             <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-foreground">
               <PluginTabIcon svg={summary.icon_svg} />
             </span>
-            <DialogTitle className="text-base font-semibold">{summary.name} activity</DialogTitle>
+            <DialogTitle className="text-base font-semibold">
+              {t("customTabs.activity.title", "{{name}} activity", { name: summary.name })}
+            </DialogTitle>
             <PluginTabAccessBadge level={summary.access_level} />
           </div>
           <DialogDescription className="text-xs">
-            {ACCESS_LEVEL_COPY[summary.access_level].summary} Shown for this conversation since
-            Cadencr started.
+            {accessLevelCopy(summary.access_level, t).summary}{" "}
+            {t(
+              "customTabs.activity.conversationScope",
+              "Shown for this conversation since Cadencr started.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <ActivityBody featureId={featureId} summary={summary} />
@@ -76,6 +83,7 @@ function ActivityBody({
   featureId: number;
   summary: PluginTabSummary;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const queryClient = useQueryClient();
   const params = { feature_id: featureId };
   const activity = usePluginTabActivity(summary.id, params, {
@@ -87,33 +95,42 @@ function ActivityBody({
         queryClient.invalidateQueries({
           queryKey: getPluginTabActivityQueryKey(summary.id, params),
         }),
-      onError: (error) => toastError(error, "The backend could not be stopped"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi("customTabs.activity.stopError", "The backend could not be stopped"),
+        ),
     },
   });
   if (activity.isPending) {
     return (
       <p role="status" className="flex items-center gap-2 px-6 py-6 text-xs text-muted-foreground">
         <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
-        Loading activity…
+        {t("customTabs.pluginTabActivityDialog.loadingActivity", "Loading activity…")}
       </p>
     );
   }
   if (activity.isError) {
     return (
       <p role="alert" className="px-6 py-6 text-xs text-destructive">
-        {apiErrorMessage(activity.error, "The tab's activity could not be loaded")}
+        {apiErrorMessage(
+          activity.error,
+          t("customTabs.activity.loadError", "The tab's activity could not be loaded"),
+        )}
       </p>
     );
   }
   return (
     <div className="max-h-[calc(var(--app-vh)*0.6)] space-y-5 overflow-y-auto px-6 py-4">
       {summary.commands.length > 0 ? (
-        <ActivitySection title="Commands">
+        <ActivitySection title={t("customTabs.pluginTabActivityDialog.commands", "Commands")}>
           <CommandList records={activity.data.commands} />
         </ActivitySection>
       ) : null}
       {summary.backend ? (
-        <ActivitySection title="Native backend">
+        <ActivitySection
+          title={t("customTabs.pluginTabActivityDialog.nativeBackend", "Native backend")}
+        >
           <p className="break-all font-mono text-[11.5px] text-muted-foreground">
             {backendBinaries(summary.backend)}
           </p>

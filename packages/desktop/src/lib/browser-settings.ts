@@ -1,3 +1,4 @@
+import { type UiTranslator } from "@/lib/i18n/ui";
 import { EyeOff, Globe, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useSetting } from "@/hooks/useSetting";
@@ -49,8 +50,8 @@ export function browserSearchUrl(engine: BrowserSearchEngine, query: string): st
 
 export interface BrowserModeOption {
   value: CookieMode;
-  label: string;
-  description: string;
+  label: (t: UiTranslator) => string;
+  description: (t: UiTranslator) => string;
   icon: LucideIcon;
   /** CSS variable for the icon's accent color. */
   iconColorVar: string;
@@ -59,17 +60,23 @@ export interface BrowserModeOption {
 export const BROWSER_MODE_OPTIONS: readonly BrowserModeOption[] = [
   {
     value: "normal",
-    label: "Normal",
-    description:
-      "Reuses a persistent profile. Cookies and logins are kept on disk and shared between sessions.",
+    label: (t) => t("workspace.tools.browserSettings.normal", "Normal"),
+    description: (t) =>
+      t(
+        "workspace.tools.browserSettings.normalDescription",
+        "Reuses a persistent profile. Cookies and logins are kept on disk and shared between sessions.",
+      ),
     icon: Globe,
     iconColorVar: "var(--acc-blue)",
   },
   {
     value: "private",
-    label: "Private",
-    description:
-      "Ephemeral in-memory session. Cookies and storage are discarded when the tab closes.",
+    label: (t) => t("workspace.tools.browserSettings.private", "Private"),
+    description: (t) =>
+      t(
+        "workspace.tools.browserSettings.privateDescription",
+        "Ephemeral in-memory session. Cookies and storage are discarded when the tab closes.",
+      ),
     icon: EyeOff,
     iconColorVar: "var(--muted-foreground)",
   },

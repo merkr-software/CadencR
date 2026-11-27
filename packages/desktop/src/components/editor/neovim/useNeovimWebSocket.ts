@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -71,9 +72,16 @@ function handleMessage(
       optionsRef.current.onError(message.message);
       break;
     case "input_error":
-      toast.error(`Neovim input was not delivered: ${message.message}`, {
-        id: INPUT_ERROR_TOAST_ID,
-      });
+      toast.error(
+        translateUi(
+          "workspace.editor.useNeovimWebSocket.deliveryFailed",
+          "Neovim input was not delivered: {{error}}",
+          { error: message.message },
+        ),
+        {
+          id: INPUT_ERROR_TOAST_ID,
+        },
+      );
       break;
   }
 }
@@ -87,9 +95,15 @@ function useNeovimWriter(
       const connection = connRef.current;
       const text = decoder.decode(bytes);
       if (!connection || !connection.sendJson({ type: "write", data: text })) {
-        toast.error("Neovim disconnected — your input was dropped. Reconnecting…", {
-          id: WRITE_DROPPED_TOAST_ID,
-        });
+        toast.error(
+          translateUi(
+            "workspace.editor.useNeovimWebSocket.inputDropped",
+            "Neovim disconnected — your input was dropped. Reconnecting…",
+          ),
+          {
+            id: WRITE_DROPPED_TOAST_ID,
+          },
+        );
         optionsRef.current.onError("Write dropped: connection is not open");
       }
     },
@@ -147,7 +161,7 @@ export function useNeovimWebSocket(options: UseNeovimWebSocketOptions): UseNeovi
         if (intentional || generation !== generationRef.current) return;
         useConnectionStatusStore
           .getState()
-          .reportSource(reconnectKey, "reconnecting", "Neovim WebSocket error");
+          .reportSource(reconnectKey, "reconnecting", { kind: "neovimSocketError" });
       },
       onClose: (intentional) => {
         if (generation !== generationRef.current) return;
@@ -159,7 +173,7 @@ export function useNeovimWebSocket(options: UseNeovimWebSocketOptions): UseNeovi
         // could not be started; the user should see that, not "Reconnecting…".
         useConnectionStatusStore
           .getState()
-          .reportSource(reconnectKey, "reconnecting", "Neovim WebSocket dropped");
+          .reportSource(reconnectKey, "reconnecting", { kind: "neovimSocketDropped" });
         scheduleReconnect(reconnectKey, doConnect);
       },
     });

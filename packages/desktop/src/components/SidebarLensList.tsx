@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   memo,
   useCallback,
@@ -65,6 +66,7 @@ function buildEntries(
  * conversation work as in a project's list.
  */
 export function SidebarLensList(props: SidebarLensListProps): ReactElement {
+  const { t } = useUiTranslation();
   const { groups, showHeaders, activeFeatureId, activity } = props;
   const folded = useSidebarLensStore((state) => state.folded);
   const toggleGroup = useSidebarLensStore((state) => state.toggleGroup);
@@ -111,7 +113,10 @@ export function SidebarLensList(props: SidebarLensListProps): ReactElement {
 
   if (entries.length === 0) {
     return props.isPending ? (
-      <Skeleton aria-label="Loading conversations" className="mx-1.5 my-1 h-5" />
+      <Skeleton
+        aria-label={t("sidebar.lensList.loadingConversations", "Loading conversations")}
+        className="mx-1.5 my-1 h-5"
+      />
     ) : (
       <p className="px-2 py-4 text-center text-xs text-muted-foreground">{props.emptyText}</p>
     );
@@ -122,7 +127,7 @@ export function SidebarLensList(props: SidebarLensListProps): ReactElement {
       data-virtual-nav-list
       data-sidebar-lens-list
       role="list"
-      aria-label="Conversations"
+      aria-label={t("sidebar.lensList.conversations", "Conversations")}
       className="flex min-w-0 flex-col"
     >
       {sticky && list.scrollParent && (

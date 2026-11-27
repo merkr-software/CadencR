@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useMemo } from "react";
 import { AgentBlock } from "../AgentBlock";
 import type { AgentBlockData } from "@/types/agent-block";
@@ -29,9 +30,10 @@ interface AgentStreamItemProps {
  * (`TurnSummaryDivider`), and a model switch gets its own divider row.
  */
 function UserHeader({ createdAt }: { createdAt: string }) {
+  const { t } = useUiTranslation();
   return (
     <div className="mb-0.5 text-right text-xs text-muted-foreground/60">
-      <span className="font-medium">User</span>
+      <span className="font-medium">{t("conversation.stream.agentStreamItem.user", "User")}</span>
       {` · ${formatStreamTimestamp(createdAt)}`}
     </div>
   );

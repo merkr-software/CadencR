@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useMemo, type ReactElement } from "react";
 import { useListProjects, type Project } from "@/api/generated";
 import { SidebarLensList } from "@/components/SidebarLensList";
@@ -24,6 +25,7 @@ export function SidebarCrossProjectList({
   activeFeatureId: number | null;
   onSelectFeature: (featureId: number) => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { features, activity, context, isPending } = useCrossProjectConversations("sidebar");
   const sort = useSidebarOption("conversationSort");
   const manualOrder = useManualConversationOrder();
@@ -47,7 +49,12 @@ export function SidebarCrossProjectList({
         activity={activity}
         isPending={isPending}
         emptyText={
-          mode.kind === "view" ? "No conversation matches this view" : "No conversations yet"
+          mode.kind === "view"
+            ? t(
+                "sidebar.crossProjectList.noConversationMatchesThisView",
+                "No conversation matches this view",
+              )
+            : t("sidebar.crossProjectList.noConversationsYet", "No conversations yet")
         }
         activeFeatureId={activeFeatureId}
         onSelectFeature={onSelectFeature}

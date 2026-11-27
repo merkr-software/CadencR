@@ -1,3 +1,4 @@
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef, useState, type ReactElement } from "react";
 import { AlertTriangle, Check, ChevronDown } from "lucide-react";
 import {
@@ -9,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
-  MODE_RISK_LABEL,
+  type ModeRisk,
   findProviderMode,
   getVisibleModes,
   type ProviderMode,
@@ -48,12 +49,13 @@ export const ModeControl = memo(function ModeControl({
   incompatibleReason,
   showShortcut = true,
 }: ModeControlProps): ReactElement | null {
+  const { t, i18n } = useUiTranslation();
   const visible = getVisibleModes(providerId, enabledOptInModes ?? [], providerModes);
   const active =
     permissionMode && visible.length >= 2
       ? (findProviderMode(providerId, permissionMode, providerModes) ?? visible[0])
       : null;
-  const announcement = useModeAnnouncement(active);
+  const announcement = useModeAnnouncement(active, providerId, i18n.language, t);
   const cycleKeys = useShortcutKeys("agent-permission-mode");
   if (!active || !onSelect) return null;
 
@@ -70,7 +72,15 @@ export const ModeControl = memo(function ModeControl({
             data-composer-mode
             data-risk={active.risk}
             key={announcement.flashKey}
-            aria-label={`Mode: ${active.label}. ${MODE_RISK_LABEL[active.risk]}. ${active.description}`}
+            aria-label={t(
+              "conversation.composer.modeControl.accessibleMode",
+              "Mode: {{label}}. {{risk}}. {{description}}",
+              {
+                label: active.label,
+                risk: modeRiskLabel(t, active.risk),
+                description: active.description,
+              },
+            )}
             className={cn(
               "composer-instrument min-w-0 gap-1.5",
               announcement.flashKey && "composer-mode-flash",
@@ -90,7 +100,7 @@ export const ModeControl = memo(function ModeControl({
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="w-72 p-1">
           <DropdownMenuLabel className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-            Autonomy
+            {t("conversation.composer.modeControl.autonomy", "Autonomy")}
             {showShortcut && <KbdShortcut keys={cycleKeys} scope="agent" />}
           </DropdownMenuLabel>
           {visible.map((mode) => (
@@ -103,7 +113,7 @@ export const ModeControl = memo(function ModeControl({
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[13px] font-medium">{mode.label}</span>
                 <span className="text-xs text-muted-foreground">
-                  {MODE_RISK_LABEL[mode.risk]} · {mode.description}
+                  {modeRiskLabel(t, mode.risk)} · {mode.description}
                 </span>
               </span>
               {mode.id === active.id && <Check className="mt-0.5 size-3.5 shrink-0" />}
@@ -124,25 +134,52 @@ export const ModeControl = memo(function ModeControl({
   );
 });
 
+function modeRiskLabel(t: UiTranslator, risk: ModeRisk): string {
+  switch (risk) {
+    case "read":
+      return t("conversation.composer.modeControl.read", "Read-only");
+    case "ask":
+      return t("conversation.composer.modeControl.ask", "Asks before acting");
+    case "edits":
+      return t("conversation.composer.modeControl.edits", "Edits without asking");
+    case "auto":
+      return t("conversation.composer.modeControl.auto", "Acts on its own");
+    case "bypass":
+      return t("conversation.composer.modeControl.bypass", "No guardrails");
+  }
+}
+
 /**
  * Tracks mode changes after mount: a key that restarts the flash animation
  * and a sentence for the live region. The first render announces nothing.
  */
-function useModeAnnouncement(active: ProviderMode | null): { flashKey: number; text: string } {
-  const previous = useRef<string | null>(null);
-  const [state, setState] = useState({ flashKey: 0, text: "" });
-  const activeId = active?.id ?? null;
+function useModeAnnouncement(
+  active: ProviderMode | null,
+  providerId: string | undefined,
+  language: string,
+  t: UiTranslator,
+): { flashKey: number; text: string } {
+  const modeId = active?.id;
   const label = active?.label;
   const risk = active?.risk;
+  const previous = useRef({ modeId, providerId, language });
+  const [state, setState] = useState({ flashKey: 0, text: "" });
   useEffect(() => {
-    if (activeId === null) return;
-    if (previous.current !== null && previous.current !== activeId && label && risk) {
-      setState((current) => ({
-        flashKey: current.flashKey + 1,
-        text: `Mode changed to ${label}: ${MODE_RISK_LABEL[risk]}`,
-      }));
+    const last = previous.current;
+    previous.current = { modeId, providerId, language };
+    if (last.providerId !== providerId || last.language !== language || !modeId) {
+      setState((current) => (current.text ? { ...current, text: "" } : current));
+    } else if (last.modeId && last.modeId !== modeId && label && risk) {
+      const text = t(
+        "conversation.composer.modeControl.changed",
+        "Mode changed to {{label}}: {{risk}}",
+        {
+          label,
+          risk: modeRiskLabel(t, risk),
+        },
+      );
+      setState((current) => ({ flashKey: current.flashKey + 1, text }));
     }
-    previous.current = activeId;
-  }, [activeId, label, risk]);
+  }, [modeId, providerId, language, label, risk, t]);
   return state;
 }

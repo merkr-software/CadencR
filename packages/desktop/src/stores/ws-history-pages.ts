@@ -1,9 +1,8 @@
+import { HistoryReadError } from "@/lib/history-read-error";
 import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { AGENT_STATE_OLDER_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import type { AgentBlockData } from "@/types/agent-block";
-
-const MISSING_SESSION = "The service didn't return this conversation's history.";
 
 /**
  * A page of a session's saved history. Pages are kept inside the gap they
@@ -35,7 +34,7 @@ export async function fetchOlderPage(
     ...(sinceId === null ? {} : { since: JSON.stringify({ [sessionDbId]: sinceId }) }),
   });
   const session = data.sessions.find((s) => s.sessionDbId === sessionDbId);
-  if (!session) throw new Error(MISSING_SESSION);
+  if (!session) throw new HistoryReadError("missing");
   const oldest = session.oldestMessageId ?? null;
   // No more rows in the bounded range: all of it came back.
   const exhausted = sinceId === null ? -Infinity : sinceId + 1;
@@ -65,7 +64,7 @@ export async function fetchNewerPage(
     ...(untilId === null ? {} : { until: JSON.stringify({ [sessionDbId]: untilId }) }),
   });
   const session = data.sessions.find((s) => s.sessionDbId === sessionDbId);
-  if (!session) throw new Error(MISSING_SESSION);
+  if (!session) throw new HistoryReadError("missing");
   const exhausted = untilId === null ? Infinity : untilId - 1;
   return {
     blocks: serverBlocksToAgentBlocks(session.blocks as never[]),

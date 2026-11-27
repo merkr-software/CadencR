@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowUpRightIcon, Loader2Icon } from "lucide-react";
 import { ProjectBadge } from "@/components/ProjectBadge";
@@ -149,6 +150,7 @@ function ConversationReferenceLink({
   routing: LinkRouting | null;
   children: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [isOpening, setIsOpening] = useState(false);
   return (
     <>
@@ -168,7 +170,10 @@ function ConversationReferenceLink({
         {isOpening && (
           <Loader2Icon
             className="ml-1 inline size-3 animate-spin"
-            aria-label="Opening conversation"
+            aria-label={t(
+              "conversation.stream.markdownLink.openingConversation",
+              "Opening conversation",
+            )}
           />
         )}
       </a>

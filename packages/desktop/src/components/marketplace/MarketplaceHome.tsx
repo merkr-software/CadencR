@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 // Design contract and anatomy: DESIGN.md › Marketplace.
 import { useEffect, useMemo, useState } from "react";
 import { Blocks, Search } from "lucide-react";
@@ -5,13 +6,18 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
-import { matchesListing, spotlightListings } from "@/lib/marketplace-listings";
+import {
+  matchesListing,
+  spotlightListings,
+  type MarketplaceListing,
+} from "@/lib/marketplace-listings";
 import { isStandalone } from "@/lib/marketplace-plugin-listings";
 import { sidebarFilterTerms } from "@/lib/sidebar-filter";
 import { cn } from "@/lib/utils";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceActivity } from "./MarketplaceActivity";
 import { MarketplaceTrustNotice } from "./MarketplaceTrustNotice";
+import { KIND_ORDER, KINDS } from "./kinds";
 import type { KindFilter } from "./MarketplaceDiscover";
 import { CheckCatalogButton, MarketplaceSkeleton } from "./MarketplaceStates";
 import { DiscoverView, LibraryView } from "./MarketplaceViews";
@@ -54,10 +60,7 @@ export function MarketplaceHome({
 }: MarketplaceHomeProps): React.JSX.Element {
   const state = useMarketplaceState();
   const [scrollParent, setScrollParent] = useState<HTMLElement | null>(null);
-  const searched = useMemo(() => {
-    const terms = sidebarFilterTerms(query);
-    return state.browsable.filter((listing) => matchesListing(listing, terms));
-  }, [state.browsable, query]);
+  const searched = useSearchedListings(state.browsable, query);
   // Plugin members are browsed through their plugin (one tile, one update) but
   // stay listed in Installed, where each says which plugin it is part of.
   const standalone = useMemo(() => state.browsable.filter(isStandalone), [state.browsable]);
@@ -95,16 +98,8 @@ export function MarketplaceHome({
         query={query}
         onChange={onChange}
         counts={summary}
-        summary={
-          state.loading
-            ? "Loading the verified catalog…"
-            : [
-                `${summary.inCatalog} plugins`,
-                publishedAt && `catalog published ${formatAgo(publishedAt)}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-        }
+        catalogLoading={state.loading}
+        publishedAt={publishedAt}
         refreshing={refreshing}
         onRefresh={refresh}
       />
@@ -149,20 +144,72 @@ export function MarketplaceHome({
   );
 }
 
+function useSearchedListings(listings: MarketplaceListing[], query: string) {
+  const { t } = useUiTranslation();
+  return useMemo(() => {
+    const terms = sidebarFilterTerms(query);
+    if (!terms.length) return listings;
+    const kindLabels = new Map(
+      [...KIND_ORDER, "plugin" as const].map((kind) => [
+        kind,
+        [KINDS[kind].label(t), KINDS[kind].plural(t)],
+      ]),
+    );
+    return listings.filter((listing) =>
+      matchesListing(
+        listing,
+        terms,
+        [listing.kind, ...listing.contributes].flatMap((kind) => kindLabels.get(kind) ?? []),
+      ),
+    );
+  }, [listings, query, t]);
+}
+
+function CatalogSummary({
+  count,
+  loading,
+  publishedAt,
+}: {
+  count: number;
+  loading: boolean;
+  publishedAt: string | null;
+}): React.JSX.Element {
+  const { t } = useUiTranslation();
+  const summary = loading
+    ? t("marketplace.marketplaceHome.catalogLoading", "Loading the verified catalog…")
+    : [
+        t("marketplace.marketplaceHome.catalogCount", "{{count}} plugins", {
+          count,
+          defaultValue_zero: "{{count}} plugins",
+          defaultValue_one: "{{count}} plugin",
+        }),
+        publishedAt &&
+          t("marketplace.marketplaceHome.catalogPublished", "catalog published {{published}}", {
+            published: formatAgo(publishedAt),
+          }),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+  return <p className="truncate text-xs text-muted-foreground">{summary}</p>;
+}
+
 function MarketplaceHeader({
   view,
   query,
   onChange,
   counts,
-  summary,
+  catalogLoading,
+  publishedAt,
   refreshing,
   onRefresh,
 }: Pick<MarketplaceHomeProps, "view" | "query" | "onChange"> & {
-  counts: { installed: number; updates: number };
-  summary: string;
+  counts: { installed: number; updates: number; inCatalog: number };
+  catalogLoading: boolean;
+  publishedAt: string | null;
   refreshing: boolean;
   onRefresh: () => void;
 }): React.JSX.Element {
+  const { t } = useUiTranslation();
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <header className="titlebar-drag flex shrink-0 flex-col gap-3 border-b border-border/60 px-5 pt-4">
@@ -170,13 +217,23 @@ function MarketplaceHeader({
         <SidebarCollapsedChrome visible={collapsed} onExpand={() => setCollapsed(false)} />
         <Blocks aria-hidden="true" className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold leading-tight">Marketplace</h1>
-          <p className="truncate text-xs text-muted-foreground">{summary}</p>
+          <h1 className="text-base font-semibold leading-tight">
+            {t("marketplace.marketplaceHome.marketplace", "Marketplace")}
+          </h1>
+          <CatalogSummary
+            count={counts.inCatalog}
+            loading={catalogLoading}
+            publishedAt={publishedAt}
+          />
         </div>
         <CheckCatalogButton
           refreshing={refreshing}
           onRefresh={onRefresh}
-          label={<span className="hidden sm:inline">Check for updates</span>}
+          label={
+            <span className="hidden sm:inline">
+              {t("marketplace.marketplaceHome.checkForUpdates", "Check for updates")}
+            </span>
+          }
         />
       </div>
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -187,13 +244,20 @@ function MarketplaceHeader({
           }}
           className="min-w-0"
         >
-          <TabsList aria-label="Marketplace views" className="h-9 w-auto border-b-0">
-            <TabsTrigger value="discover">Discover</TabsTrigger>
+          <TabsList
+            aria-label={t("marketplace.marketplaceHome.marketplaceViews", "Marketplace views")}
+            className="h-9 w-auto border-b-0"
+          >
+            <TabsTrigger value="discover">
+              {t("marketplace.marketplaceHome.discover", "Discover")}
+            </TabsTrigger>
             <TabsTrigger value="installed">
-              Installed <Count value={counts.installed} />
+              {t("marketplace.marketplaceHome.installed", "Installed")}{" "}
+              <Count value={counts.installed} />
             </TabsTrigger>
             <TabsTrigger value="updates">
-              Updates <Count value={counts.updates} highlight={counts.updates > 0} />
+              {t("marketplace.marketplaceHome.updates", "Updates")}{" "}
+              <Count value={counts.updates} highlight={counts.updates > 0} />
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -211,6 +275,7 @@ function SearchField({
   query,
   onChange,
 }: Pick<MarketplaceHomeProps, "query" | "onChange">): React.JSX.Element {
+  const { t } = useUiTranslation();
   const [draft, setDraft] = useState(query);
   useEffect(() => setDraft(query), [query]);
   useEffect(() => {
@@ -225,8 +290,11 @@ function SearchField({
         className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
       />
       <Input
-        aria-label="Search the marketplace"
-        placeholder="Search plugins, skills, MCP servers…"
+        aria-label={t("marketplace.marketplaceHome.searchTheMarketplace", "Search the marketplace")}
+        placeholder={t(
+          "marketplace.marketplaceHome.searchPluginsSkillsMcpServers",
+          "Search plugins, skills, MCP servers…",
+        )}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         className="h-8 pl-8 text-[13px]"

@@ -1,3 +1,5 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +12,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBanner";
-import { formatExactNumber } from "@/components/usage/usage-chart-palette";
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 
 /**
  * Shown when the backend reports that at least one usage data operation failed.
@@ -25,6 +27,7 @@ export function UsageRecordingWarning({
 }: {
   issue: UsageRecordingIssue | null | undefined;
 }): React.JSX.Element | null {
+  const { t, i18n } = useUiTranslation();
   const queryClient = useQueryClient();
   const { mutate: dismiss, isPending } = useDismissUsageRecordingIssue({
     mutation: {
@@ -32,9 +35,21 @@ export function UsageRecordingWarning({
         void queryClient.invalidateQueries({ queryKey: getGetUsageStatsQueryKey() });
       },
       onError: (error) => {
-        toast.error("Could not dismiss the usage data warning", {
-          description: apiErrorMessage(error, "The service did not accept the request."),
-        });
+        toast.error(
+          translateUi(
+            "system.usage.dismissWarningError",
+            "Could not dismiss the usage data warning",
+          ),
+          {
+            description: apiErrorMessage(
+              error,
+              translateUi(
+                "system.usage.dismissRejected",
+                "The service did not accept the request.",
+              ),
+            ),
+          },
+        );
       },
     },
   });
@@ -46,9 +61,19 @@ export function UsageRecordingWarning({
       <AlertTriangle aria-hidden className="mt-px size-3.5 shrink-0 text-[var(--acc-orange)]" />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-xs text-foreground">
-          {issue.failures === 1
-            ? "A usage data error occurred, so these totals may be incomplete."
-            : `${formatExactNumber(issue.failures)} usage data errors occurred, so these totals may be incomplete.`}
+          {t(
+            "system.usage.dataIncomplete",
+            "{{formattedCount}} usage data errors occurred, so these totals may be incomplete.",
+            {
+              count: issue.failures,
+              formattedCount: formatExactNumber(issue.failures, formattingLocale(i18n.language)),
+              defaultValue_zero:
+                "{{formattedCount}} usage data errors occurred, so these totals may be incomplete.",
+              defaultValue_one: "A usage data error occurred, so these totals may be incomplete.",
+              defaultValue_other:
+                "{{formattedCount}} usage data errors occurred, so these totals may be incomplete.",
+            },
+          )}
         </p>
         <p className="break-words text-[11px] text-muted-foreground">{issue.last_error}</p>
       </div>
@@ -60,7 +85,7 @@ export function UsageRecordingWarning({
         onClick={() => dismiss()}
       >
         {isPending ? <Loader2 aria-hidden className="size-3 animate-spin" /> : null}
-        Dismiss
+        {t("common.dismiss", "Dismiss")}
       </Button>
     </div>
   );

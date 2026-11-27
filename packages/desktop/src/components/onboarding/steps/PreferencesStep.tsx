@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactNode } from "react";
 import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
 import { AgentSummaryModeToggle } from "@/components/settings/AgentSummaryModeToggle";
@@ -17,6 +18,7 @@ export function PreferencesStep({
   onBack,
   onSkipStep,
 }: OnboardingStepProps) {
+  const { t } = useUiTranslation();
   return (
     <form
       onSubmit={(e) => {
@@ -26,16 +28,23 @@ export function PreferencesStep({
       className="flex flex-col gap-6"
     >
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold tracking-tight">Tune your workspace</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.preferences.title", "Tune your workspace")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Sensible defaults are already selected — adjust anything you like, or skip and change it
-          later in Settings. Changes save automatically.
+          {t(
+            "onboarding.preferences.description",
+            "Sensible defaults are already selected — adjust anything you like, or skip and change it later in Settings. Changes save automatically.",
+          )}
         </p>
       </header>
 
       <PreferenceGroup
-        title="Agent output"
-        description="How much of each agent turn you see in the stream."
+        title={t("onboarding.preferences.agentOutput", "Agent output")}
+        description={t(
+          "onboarding.preferences.agentOutputDescription",
+          "How much of each agent turn you see in the stream.",
+        )}
       >
         <AgentVerbositySettings />
         <div className="overflow-hidden rounded-[10px] border border-border bg-card">
@@ -44,8 +53,11 @@ export function PreferencesStep({
       </PreferenceGroup>
 
       <PreferenceGroup
-        title="Agent tools (MCP)"
-        description="Built-in tool servers Cadencr exposes to your agents."
+        title={t("onboarding.preferences.agentTools", "Agent tools (MCP)")}
+        description={t(
+          "onboarding.preferences.agentToolsDescription",
+          "Built-in tool servers Cadencr exposes to your agents.",
+        )}
       >
         <div className="overflow-hidden rounded-[10px] border border-border bg-card">
           <McpToggleList />
@@ -53,7 +65,7 @@ export function PreferencesStep({
       </PreferenceGroup>
 
       <OnboardingFooter
-        primaryLabel="Continue"
+        primaryLabel={t("common.continue", "Continue")}
         primaryDisabled={isPersisting}
         onBack={onBack}
         onSkipStep={onSkipStep}

@@ -9,14 +9,16 @@ import { browsableListings } from "@/lib/marketplace-platform";
 import { listingIndex } from "@/lib/marketplace-plugin-listings";
 import { catalogSourceMissing, usableCatalog } from "@/lib/marketplace";
 import { usableThemeCatalog } from "@/lib/theme-marketplace";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 /**
  * A plugin install walking its members: the member in flight, or the one it
  * stopped at and why. Cleared once every member is confirmed.
  */
-export type PluginRun =
-  | { key: string; status: "running"; member: string; step: number; total: number }
-  | { key: string; status: "failed"; member: string; message: string };
+export type PluginRun = { key: string; member: Pick<MarketplaceListing, "name" | "kind"> } & (
+  | { status: "running"; step: number; total: number }
+  | { status: "failed"; error: unknown }
+);
 
 interface MarketplaceState {
   lsps: ReturnType<typeof useLspMarketplace>;
@@ -148,8 +150,9 @@ export function useMarketplaceState(): MarketplaceState {
 }
 
 function useListings(sources: Parameters<typeof buildListings>[0]) {
+  const { t } = useUiTranslation();
   return useMemo(
-    () => buildListings(sources),
+    () => buildListings(sources, t),
     [
       sources.lspCatalog,
       sources.lspInventory,
@@ -161,6 +164,7 @@ function useListings(sources: Parameters<typeof buildListings>[0]) {
       sources.tabCatalog,
       sources.tabInventory,
       sources.tabSummaries,
+      t,
     ],
   );
 }

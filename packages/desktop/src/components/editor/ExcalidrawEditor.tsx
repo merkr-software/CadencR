@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * In-editor canvas editor for `.excalidraw` scene files. Instead of showing
  * the raw JSON in CodeMirror, this mounts the embedded Excalidraw component so
@@ -189,6 +190,7 @@ function ExcalidrawEditorView({
   onApi,
   onChange,
 }: ExcalidrawEditorViewProps) {
+  const { t } = useUiTranslation();
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 min-h-0 relative">
@@ -206,7 +208,9 @@ function ExcalidrawEditorView({
       </div>
       <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-card text-xs text-muted-foreground shrink-0">
         <span className="truncate">{displayGitPath(fileName)}</span>
-        {autoSavedVisible ? <span>Auto-saved</span> : null}
+        {autoSavedVisible ? (
+          <span>{t("workspace.editor.excalidrawEditor.autoSaved", "Auto-saved")}</span>
+        ) : null}
       </div>
     </div>
   );

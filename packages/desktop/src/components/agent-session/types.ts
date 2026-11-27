@@ -30,11 +30,13 @@ import type { TurnClock } from "@/lib/turn-clock";
 import type { RuntimeSelection } from "@/shared/models";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 
+import type { SessionConfigError } from "@/stores/ws-session-types";
+
 export interface SessionConfigControls {
   config: RuntimeSessionConfigSnapshot | null;
   loading: boolean;
   supported: boolean | null;
-  error: string | null;
+  error: SessionConfigError | null;
   pendingId: string | null;
   onRefresh: () => void;
   onChange: (configId: string, value: RuntimeSessionConfigValue) => void;

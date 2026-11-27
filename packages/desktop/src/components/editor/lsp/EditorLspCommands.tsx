@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 /**
  * Mounts the editor's LSP navigation/refactor commands and their UI:
  * find-references (Shift+F12), rename (F2), document-symbol outline
@@ -113,19 +114,32 @@ export function EditorLspCommands({
 
   const runFindReferences = useCallback((): void => {
     if (!canFindReferences(view)) {
-      toast.info("This language server doesn't support find references.");
+      toast.info(
+        translateUi(
+          "workspace.editor.lspCommands.unsupported",
+          "This language server doesn't support find references.",
+        ),
+      );
       return;
     }
     void findReferences(view)
       .then((locs) => {
         if (locs.length === 0) {
-          toast.info("No references found.");
+          toast.info(
+            translateUi("workspace.editor.lspCommands.noReferences", "No references found."),
+          );
           return;
         }
         setReferences(locs);
       })
       .catch((err: unknown) => {
-        toast.error(`Find references failed: ${apiErrorMessage(err, String(err))}`);
+        toast.error(
+          translateUi(
+            "workspace.editor.lspCommands.referencesFailed",
+            "Find references failed: {{error}}",
+            { error: apiErrorMessage(err, String(err)) },
+          ),
+        );
       });
   }, [view]);
 

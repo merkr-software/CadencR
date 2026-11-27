@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { createPermissionActions } from "./ws-session-permission-actions";
 import { create, type StateCreator, type StoreApi } from "zustand";
 import {
@@ -213,7 +214,11 @@ function createPromptActions(
     deliverPrompt(sessionId, text, options: PromptDispatchOptions = {}) {
       // Queueing onto a missing entry is a no-op, so nothing would settle it.
       if (!get().sessions[sessionId]) {
-        return Promise.reject(new Error("The session is not connected."));
+        return Promise.reject(
+          new Error(
+            translateUi("conversation.connection.disconnected", "The session is not connected."),
+          ),
+        );
       }
       const pendingKey = dispatchPrompt(ctx, presentation, sessionId, text, options);
       return pendingKey

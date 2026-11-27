@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { forwardRef } from "react";
 import { useTerminalCoreInstanceController } from "./useTerminalCoreInstanceController";
 import type {
@@ -14,6 +15,7 @@ export const TerminalCoreInstance = forwardRef<
   TerminalCoreInstanceHandle,
   TerminalCoreInstanceProps
 >(function TerminalCoreInstance(props, ref) {
+  const { t } = useUiTranslation();
   const { hostRef, status, isLoading, error } = useTerminalCoreInstanceController(props, ref);
 
   return (
@@ -33,7 +35,9 @@ export const TerminalCoreInstance = forwardRef<
             ready. */}
       {status === "error" && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-sm text-red-500">{error ?? "Terminal error"}</p>
+          <p className="text-sm text-red-500">
+            {error ?? t("workspace.tools.terminalCoreInstance.terminalError", "Terminal error")}
+          </p>
         </div>
       )}
       {(status === "loading" || isLoading) && (

@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/api-errors";
@@ -118,8 +119,6 @@ function useActiveMarkIndex(
   return activeIndex;
 }
 
-const MISSING_PROMPT = "That message is no longer in the conversation.";
-
 /**
  * Jumps to a prompt. One still in unloaded history is marked pending while its
  * turn loads; the jump runs once the prompt has a row.
@@ -170,9 +169,26 @@ function useJumpToMark(
       setPending(key);
       loadPromptTurn(messageDbId).then(
         (found) => {
-          if (!found) fail(() => toast.error(MISSING_PROMPT));
+          if (!found)
+            fail(() =>
+              toast.error(
+                translateUi(
+                  "conversation.stream.useMessageNavigator.thatMessageIsNoLongerInThe",
+                  "That message is no longer in the conversation.",
+                ),
+              ),
+            );
         },
-        (error: unknown) => fail(() => toastError(error, "Could not load that message")),
+        (error: unknown) =>
+          fail(() =>
+            toastError(
+              error,
+              translateUi(
+                "conversation.stream.useMessageNavigator.couldNotLoadThatMessage",
+                "Could not load that message",
+              ),
+            ),
+          ),
       );
     },
     [loadPromptTurn, setPending],

@@ -1,3 +1,6 @@
+import { formattingLocale } from "@/lib/i18n/formatting-locale";
+import { formatExactNumber } from "@/lib/format-number";
+import { translateUi, useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { LoaderCircle, Play } from "lucide-react";
 import {
   ArchivedCleanupRunStatus,
@@ -38,6 +41,7 @@ const DAYS_SAVE_DEBOUNCE_MS = 500;
  * exposed as switches: there is no reason anyone would turn them off.
  */
 export function StorageSection(): React.JSX.Element {
+  const { t } = useUiTranslation();
   // Storage policy changes take effect only after the backend confirms them;
   // the days field marks its unsaved draft with a spinner until then.
   const enabledSetting = useSetting(ENABLED_KEY);
@@ -52,20 +56,26 @@ export function StorageSection(): React.JSX.Element {
 
   return (
     <SettingsPageSection pageId="storage">
-      <SettingsGroup title="Archived features">
+      <SettingsGroup title={t("system.storageSection.archivedFeatures", "Archived features")}>
         <SettingsSwitchRow
           label={
             <span className="inline-flex items-center gap-1.5">
-              Compact archived features
+              {t("system.storage.compactArchived", "Compact archived features")}
               {enabledSetting.isSaving && (
                 <LoaderCircle
-                  aria-label="Saving storage policy"
+                  aria-label={t(
+                    "system.storageSection.savingStoragePolicy",
+                    "Saving storage policy",
+                  )}
                   className="size-3.5 animate-spin"
                 />
               )}
             </span>
           }
-          description="Shorten long Bash output once an archived thread has been quiet for the period below. The feature, its sessions and the conversation are kept: no rows are deleted, and what you and the agent wrote is never touched."
+          description={t(
+            "system.storageSection.shortenLongBashOutputOnceAnArchived",
+            "Shorten long Bash output once an archived thread has been quiet for the period below. The feature, its sessions and the conversation are kept: no rows are deleted, and what you and the agent wrote is never touched.",
+          )}
           checked={enabled}
           onCheckedChange={(checked) => enabledSetting.setValue(checked ? "true" : "false")}
           disabled={enabledSetting.isLoading || enabledSetting.isSaving}
@@ -73,8 +83,11 @@ export function StorageSection(): React.JSX.Element {
         <SettingsRow
           divided
           align="start"
-          label="Wait before compacting"
-          description="How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock."
+          label={t("system.storageSection.waitBeforeCompacting", "Wait before compacting")}
+          description={t(
+            "system.storageSection.howLongAnArchivedFeatureMustRemain",
+            "How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock.",
+          )}
           control={
             <RetentionDaysControl
               setting={daysSetting}
@@ -85,8 +98,11 @@ export function StorageSection(): React.JSX.Element {
         <SettingsRow
           divided
           align="start"
-          label="Run cleanup now"
-          description="Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply."
+          label={t("system.storageSection.runCleanupNow", "Run cleanup now")}
+          description={t(
+            "system.storageSection.checkEligibleArchivedConversationsImmediatelyInsteadOf",
+            "Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply.",
+          )}
           control={<ManualCleanupControl enabled={enabled} settingsBusy={settingsBusy} />}
         />
       </SettingsGroup>
@@ -101,16 +117,26 @@ function ManualCleanupControl({
   enabled: boolean;
   settingsBusy: boolean;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
   const maintenanceRunning = useStorageMaintenanceStore((state) => {
     const phase = state.status?.phase;
     return phase === "started" || phase === "progress";
   });
   const runCleanup = useRunArchivedCleanup({
     mutation: {
-      onError: (error) => toastError(error, "Could not start archived conversation cleanup"),
+      onError: (error) =>
+        toastError(
+          error,
+          translateUi(
+            "system.storage.cleanupError",
+            "Could not start archived conversation cleanup",
+          ),
+        ),
     },
   });
-  const runMessage = runCleanup.data ? runResultMessage(runCleanup.data) : null;
+  const runMessage = runCleanup.data
+    ? runResultMessage(t, runCleanup.data, formattingLocale(i18n.language))
+    : null;
 
   return (
     <div className="flex max-w-52 flex-col items-end gap-1.5">
@@ -126,7 +152,9 @@ function ManualCleanupControl({
         ) : (
           <Play aria-hidden className="size-3.5" />
         )}
-        {maintenanceRunning ? "Cleanup running" : "Run now"}
+        {maintenanceRunning
+          ? t("system.storage.cleanupRunning", "Cleanup running")
+          : t("system.storage.runNow", "Run now")}
       </Button>
       {runMessage && (
         <p aria-live="polite" className="text-right text-[11px] text-muted-foreground">
@@ -137,14 +165,31 @@ function ManualCleanupControl({
   );
 }
 
-function runResultMessage(response: ArchivedCleanupRunResponse): string {
+function runResultMessage(
+  t: UiTranslator,
+  response: ArchivedCleanupRunResponse,
+  locale: string,
+): string {
   switch (response.status) {
     case ArchivedCleanupRunStatus.started:
-      return `Cleanup started for ${response.eligible_features} archived conversation${response.eligible_features === 1 ? "" : "s"}. Progress appears above Settings.`;
+      return t(
+        "system.storage.cleanupStarted",
+        "Cleanup started for {{formattedCount}} archived conversations. Progress appears above Settings.",
+        {
+          count: response.eligible_features,
+          formattedCount: formatExactNumber(response.eligible_features, locale),
+          defaultValue_zero:
+            "Cleanup started for {{formattedCount}} archived conversations. Progress appears above Settings.",
+          defaultValue_one:
+            "Cleanup started for {{formattedCount}} archived conversation. Progress appears above Settings.",
+          defaultValue_other:
+            "Cleanup started for {{formattedCount}} archived conversations. Progress appears above Settings.",
+        },
+      );
     case ArchivedCleanupRunStatus.already_running:
-      return "Storage maintenance is already running.";
+      return t("system.storage.alreadyRunning", "Storage maintenance is already running.");
     case ArchivedCleanupRunStatus.nothing_due:
-      return "No archived conversations currently need cleanup.";
+      return t("system.storage.nothingDue", "No archived conversations currently need cleanup.");
   }
 }
 
@@ -160,6 +205,7 @@ function RetentionDaysControl({
   setting: SettingDraft;
   disabled: boolean;
 }): React.JSX.Element {
+  const { t, i18n } = useUiTranslation();
   const shown = setting.draft ?? setting.value;
   const days = clampDays(shown === null ? DEFAULT_DAYS : Number.parseInt(shown, 10));
 
@@ -167,19 +213,33 @@ function RetentionDaysControl({
     <div className="flex items-center gap-2">
       <Input
         type="number"
+        lang={formattingLocale(i18n.language)}
         min={MIN_DAYS}
         max={MAX_DAYS}
         disabled={disabled}
         value={days}
-        aria-label="Days before an archived feature is compacted"
+        aria-label={t(
+          "system.storageSection.daysBeforeAnArchivedFeatureIsCompacted",
+          "Days before an archived feature is compacted",
+        )}
         onChange={(event) =>
           setting.setDraft(String(clampDays(Number.parseInt(event.target.value, 10))))
         }
         className="h-7 w-16 text-center disabled:opacity-50"
       />
-      <span className="text-xs text-muted-foreground">days</span>
+      <span className="text-xs text-muted-foreground">
+        {t("system.storage.retentionDays", "days", {
+          count: days,
+          defaultValue_zero: "days",
+          defaultValue_one: "day",
+          defaultValue_other: "days",
+        })}
+      </span>
       {setting.isSaving && (
-        <LoaderCircle aria-label="Saving retention window" className="size-3.5 animate-spin" />
+        <LoaderCircle
+          aria-label={t("system.storageSection.savingRetentionWindow", "Saving retention window")}
+          className="size-3.5 animate-spin"
+        />
       )}
     </div>
   );

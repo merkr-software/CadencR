@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 /**
  * PowerPoint renderer: `@silurus/ooxml`'s PPTX engine (Rust/WASM parser,
  * canvas paint) as a continuous, virtualized slide column — themes, preset
@@ -15,11 +16,16 @@ import { PAGE_DESK } from "./office/page-desk";
 import { reportLateRenderError, useOfficeViewer } from "./office/useOfficeViewer";
 import type { DocumentRendererProps } from "./types";
 
-const FAILURE = "Could not render PowerPoint presentation";
+const renderFailure = () =>
+  translateUi(
+    "workspace.editor.pptxDocumentView.renderFailed",
+    "Could not render PowerPoint presentation",
+  );
 const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp", "PageUp"]);
 const NEXT_KEYS = new Set(["ArrowRight", "ArrowDown", "PageDown"]);
 
 export default function PptxDocumentView({ data, fileName }: DocumentRendererProps): ReactElement {
+  const { t } = useUiTranslation();
   const [slide, setSlide] = useState({ index: 0, total: 0 });
   const create = useCallback(
     (container: HTMLElement, onScaleChange: (scale: number) => void) =>
@@ -29,11 +35,11 @@ export default function PptxDocumentView({ data, fileName }: DocumentRendererPro
         progressiveLayout: true,
         onVisibleSlideChange: (index, total) => setSlide({ index, total }),
         onScaleChange,
-        onError: reportLateRenderError(`pptx-render:${fileName}`, FAILURE),
+        onError: reportLateRenderError(`pptx-render:${fileName}`, renderFailure),
       }),
     [fileName],
   );
-  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create, FAILURE);
+  const { containerRef, state, viewer, scale } = useOfficeViewer(data, create);
   useEffect(() => {
     if (!viewer) return;
     setSlide({ index: viewer.topVisibleSlide, total: viewer.slideCount });
@@ -60,26 +66,36 @@ export default function PptxDocumentView({ data, fileName }: DocumentRendererPro
   );
 
   const status =
-    slide.total > 0 ? `${fileName} · Slide ${slide.index + 1} of ${slide.total}` : fileName;
+    slide.total > 0
+      ? t(
+          "workspace.editor.pptxDocumentView.slideSummary",
+          "{{file}} · Slide {{index, number}} of {{total, number}}",
+          { file: fileName, index: slide.index + 1, total: slide.total },
+        )
+      : fileName;
   return (
     <>
       <OfficeViewerFrame
         containerRef={containerRef}
         state={state}
-        loadingLabel="Laying out slides…"
+        failureLabel={t(
+          "workspace.editor.pptxDocumentView.renderFailed",
+          "Could not render PowerPoint presentation",
+        )}
+        loadingLabel={t("workspace.editor.pptxDocumentView.loading", "Laying out slides…")}
         onKeyDown={onKeyDown}
       />
       <DocumentStatusBar status={status}>
         <DocumentZoomControls viewer={viewer} scale={scale} fit="page">
           <DocumentToolButton
-            label="Previous slide"
+            label={t("workspace.editor.pptxDocumentView.previousSlide", "Previous slide")}
             disabled={slide.index === 0}
             onClick={() => goTo(slide.index - 1)}
           >
             <ChevronLeftIcon />
           </DocumentToolButton>
           <DocumentToolButton
-            label="Next slide"
+            label={t("workspace.editor.pptxDocumentView.nextSlide", "Next slide")}
             disabled={slide.index >= slide.total - 1}
             onClick={() => goTo(slide.index + 1)}
           >

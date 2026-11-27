@@ -1,3 +1,4 @@
+import { translateUi } from "@/lib/i18n/ui";
 import { memo, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -46,10 +47,19 @@ export const PluginTabShortcutRelay = memo(function PluginTabShortcutRelay(): nu
       altKeys ? { keys, altKeys } : { keys },
     );
     desktopBridge.pluginTabs.setAppShortcuts(bindings).catch((error: unknown) =>
-      toast.error("Custom tabs may keep Cadencr's shortcuts while focused", {
-        id: "plugin-tab-shortcuts",
-        description: apiErrorMessage(error, "The desktop shell did not answer"),
-      }),
+      toast.error(
+        translateUi(
+          "customTabs.shortcutRelay.activationError",
+          "Custom tabs may keep Cadencr's shortcuts while focused",
+        ),
+        {
+          id: "plugin-tab-shortcuts",
+          description: apiErrorMessage(
+            error,
+            translateUi("customTabs.guest.shellError", "The desktop shell did not answer"),
+          ),
+        },
+      ),
     );
   }, [desktop, overrides]);
 

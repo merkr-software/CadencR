@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
 import { AgentBlock } from "./AgentBlock";
+import { CompactToolLine } from "./agent-session/CompactToolLine";
 import { buildToolResultMap } from "@/lib/tool-results";
+import { changeUiLanguage } from "@/shared/ui-i18n";
 import type { AgentBlockData } from "@/types/agent-block";
 
 /**
@@ -100,4 +102,40 @@ describe("AgentBlock failed generic tool calls", () => {
 
     expect(container.firstChild).toBeNull();
   });
+
+  it.each(["Read", "AskUserQuestion"])(
+    "localizes a generated %s interruption and leaves identical provider and user text intact",
+    async (name) => {
+      const phrase = "Stopped: Cadencr quit before this finished.";
+      const tool = call(name, {});
+      const providerResult = result(tool, phrase, true);
+      const generated: AgentBlockData = {
+        ...providerResult,
+        origin: { originKind: "system_generated", note: "tool_interrupted_by_quit" },
+      };
+
+      await changeUiLanguage("fr-FR");
+      try {
+        render(
+          <>
+            <AgentBlock block={tool} toolResultMap={buildToolResultMap([generated])} />
+            <CompactToolLine block={tool} result={generated} />
+            <AgentBlock block={tool} toolResultMap={buildToolResultMap([providerResult])} />
+            <AgentBlock
+              block={{ id: "user", type: "user_message", content: phrase }}
+              contentMode="preview"
+            />
+          </>,
+        );
+
+        expect(
+          screen.getAllByText(/^Arrêté\s+: Cadencr a été fermé avant la fin de l’opération\.$/u),
+        ).toHaveLength(2);
+        expect(screen.getAllByText(phrase)).toHaveLength(2);
+        expect(generated.content).toBe(phrase);
+      } finally {
+        await act(async () => changeUiLanguage("en-US"));
+      }
+    },
+  );
 });

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_BROWSER_RESPONSIVE_STATE } from "../../src/shared/browser-responsive";
+import { translateUi } from "../../src/shared/ui-i18n";
+import { browserTabSaveFailure, type BrowserScopeFailure } from "./browser-scope-failure";
 import type { ManagedTab } from "./browser-tab-events";
 import { BrowserTabPersistenceController } from "./browser-tab-persistence-controller";
 import {
@@ -9,7 +11,6 @@ import {
 } from "./browser-tab-session-store";
 import type { BrowserTabSessionStore } from "./browser-tab-session-store";
 import {
-  browserTabErrorMessage,
   insertOrderedTab,
   isPersistableLiveTab,
   isPersistentMetadata,
@@ -37,7 +38,7 @@ export class BrowserTabWorkspaceController {
 
   constructor(
     store: BrowserTabSessionStore,
-    private readonly reportError: (message: string, scopeId: number) => void,
+    private readonly reportError: (error: BrowserScopeFailure, scopeId: number) => void,
   ) {
     this.persistence = new BrowserTabPersistenceController(store, reportError);
   }
@@ -111,7 +112,11 @@ export class BrowserTabWorkspaceController {
     }
     if (this.persistableItems(scopeId, liveTabs).length >= MAX_RESTORABLE_TABS_PER_SCOPE) {
       throw new Error(
-        `Normal Browser tabs are limited to ${MAX_RESTORABLE_TABS_PER_SCOPE} per feature.`,
+        translateUi(
+          "workspace.browser.tab.limit",
+          "Normal Browser tabs are limited to {{count}} per feature.",
+          { count: MAX_RESTORABLE_TABS_PER_SCOPE },
+        ),
       );
     }
   }
@@ -260,7 +265,7 @@ export class BrowserTabWorkspaceController {
     try {
       this.persistence.schedule(scopeId, this.persistableScope(scopeId, liveTabs, activeId));
     } catch (error) {
-      this.reportError(`Could not save Browser tabs: ${browserTabErrorMessage(error)}`, scopeId);
+      this.reportError(browserTabSaveFailure(error), scopeId);
     }
   }
 
@@ -335,6 +340,7 @@ export class BrowserTabWorkspaceController {
       metadata: {
         id,
         title: saved.title,
+        defaultTitle: saved.defaultTitle,
         url: saved.url,
         loading: false,
         canGoBack: false,
@@ -362,7 +368,11 @@ export class BrowserTabWorkspaceController {
     if (tabsWithIds.length === 0) return null;
     if (tabsWithIds.length > MAX_RESTORABLE_TABS_PER_SCOPE) {
       throw new Error(
-        `Normal Browser tabs are limited to ${MAX_RESTORABLE_TABS_PER_SCOPE} per feature.`,
+        translateUi(
+          "workspace.browser.tab.limit",
+          "Normal Browser tabs are limited to {{count}} per feature.",
+          { count: MAX_RESTORABLE_TABS_PER_SCOPE },
+        ),
       );
     }
     const selectedId = tabsWithIds.some(({ id }) => id === activeId)

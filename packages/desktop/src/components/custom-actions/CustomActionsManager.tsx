@@ -1,3 +1,4 @@
+import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { useState, type ReactElement } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +32,7 @@ export function moveId(ids: readonly number[], id: number, toIndex: number): num
  * actions first, then the global ones, each in this order.
  */
 export function CustomActionsManager(props: ManagerScope): ReactElement {
+  const { t } = useUiTranslation();
   const projectId = props.scope === "project" ? props.projectId : null;
   const query = useListCustomActions(projectId == null ? {} : { project_id: projectId });
   const actions = (query.data ?? []).filter((action) => action.scope === props.scope);
@@ -45,11 +47,18 @@ export function CustomActionsManager(props: ManagerScope): ReactElement {
   const openEditor = (action?: CustomAction): void =>
     useCustomActionsUiStore.getState().openEditor({ action, projectId, defaultScope: props.scope });
 
-  if (query.isPending) return <LoadingRow label="Loading actions…" />;
+  if (query.isPending)
+    return (
+      <LoadingRow
+        label={t("customActions.customActionsManager.loadingActions", "Loading actions…")}
+      />
+    );
   if (query.isError) {
     return (
       <ErrorRow
-        label={`Could not load actions: ${apiErrorMessage(query.error, "unknown error")}`}
+        label={t("customActions.manager.loadFailed", "Could not load actions: {{error}}", {
+          error: apiErrorMessage(query.error, t("common.unknownError", "Unknown error")),
+        })}
       />
     );
   }
@@ -58,12 +67,18 @@ export function CustomActionsManager(props: ManagerScope): ReactElement {
       {actions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {props.scope === "global"
-            ? "No action is shared by every project yet."
-            : "This project has no actions of its own yet."}
+            ? t("customActions.manager.globalEmpty", "No action is shared by every project yet.")
+            : t(
+                "customActions.manager.projectEmpty",
+                "This project has no actions of its own yet.",
+              )}
         </p>
       ) : (
         <ol
-          aria-label="Actions, in header order"
+          aria-label={t(
+            "customActions.customActionsManager.actionsInHeaderOrder",
+            "Actions, in header order",
+          )}
           className="divide-y divide-border rounded-md border"
         >
           {actions.map((action, index) => (
@@ -89,11 +104,12 @@ export function CustomActionsManager(props: ManagerScope): ReactElement {
       <div className="flex items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => openEditor()}>
           <PlusIcon />
-          New action
+          {t("customActions.new", "New action")}
         </Button>
         {reorder.isPending && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2Icon className="size-3 animate-spin" aria-hidden /> Saving order…
+            <Loader2Icon className="size-3 animate-spin" aria-hidden />{" "}
+            {t("customActions.customActionsManager.savingOrder", "Saving order…")}
           </span>
         )}
       </div>
@@ -108,7 +124,13 @@ function useReorderInList() {
     mutation: {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListCustomActionsQueryKey() }),
       onError: (error) =>
-        toast.error(`Could not reorder actions: ${apiErrorMessage(error, "unknown error")}`),
+        toast.error(
+          translateUi(
+            "customActions.manager.reorderFailed",
+            "Could not reorder actions: {{error}}",
+            { error: apiErrorMessage(error, translateUi("common.unknownError", "Unknown error")) },
+          ),
+        ),
     },
   });
   return {

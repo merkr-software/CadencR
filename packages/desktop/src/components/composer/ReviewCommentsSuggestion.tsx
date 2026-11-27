@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
 import { MessageSquareCode, Plus } from "lucide-react";
 import { useListDiffComments } from "@/api/generated";
@@ -17,6 +18,7 @@ import { useComposerContext } from "./ComposerContext";
  * only once that message is sent (see `settleSentReviewComments`).
  */
 export function ReviewCommentsSuggestion(): ReactElement | null {
+  const { t } = useUiTranslation();
   const { featureId } = useComposerContext();
   const key = composerKeyFor(featureId);
   const attached = useComposerContextItems(key).some((item) => item.kind === "review");
@@ -48,10 +50,14 @@ export function ReviewCommentsSuggestion(): ReactElement | null {
       className="inline-flex h-7 items-center gap-1.5 rounded-md border border-dashed border-border px-2 text-[12px] text-muted-foreground transition-colors hover:border-solid hover:bg-muted/60 hover:text-foreground"
     >
       <MessageSquareCode className="size-3.5" />
-      {pending.length} review {pending.length === 1 ? "comment" : "comments"}
+      {t("conversation.composer.reviewCommentsSuggestion.commentCount", {
+        count: pending.length,
+        defaultValue_one: "{{count}} review comment",
+        defaultValue_other: "{{count}} review comments",
+      })}
       <span className="inline-flex items-center gap-0.5 font-medium text-foreground/90">
         <Plus className="size-3" />
-        Attach
+        {t("conversation.composer.reviewCommentsSuggestion.attach", "Attach")}
       </span>
     </button>
   );

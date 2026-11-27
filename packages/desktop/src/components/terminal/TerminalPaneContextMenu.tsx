@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -40,6 +41,7 @@ function TerminalContextMenuContent({
   menu: MenuPosition;
   runAction: (action: () => void) => void;
 }): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <div
       role="menu"
@@ -55,14 +57,14 @@ function TerminalContextMenuContent({
         shortcutId="terminal-split-h"
         onSelect={() => runAction(() => onSplit(paneId, "horizontal"))}
       >
-        Split horizontally
+        {t("workspace.tools.terminalPaneContextMenu.splitHorizontally", "Split horizontally")}
       </ContextMenuActionButton>
       <ContextMenuActionButton
         icon={SplitSquareVerticalIcon}
         shortcutId="terminal-split-v"
         onSelect={() => runAction(() => onSplit(paneId, "vertical"))}
       >
-        Split vertically
+        {t("workspace.tools.terminalPaneContextMenu.splitVertically", "Split vertically")}
       </ContextMenuActionButton>
       <ContextMenuActionButton
         icon={XIcon}
@@ -70,7 +72,7 @@ function TerminalContextMenuContent({
         disabled={!canClose}
         onSelect={() => runAction(() => onClose(paneId))}
       >
-        Close
+        {t("workspace.tools.terminalPaneContextMenu.close", "Close")}
       </ContextMenuActionButton>
       <div role="separator" className="-mx-1 my-1 h-px bg-border" />
       <ContextMenuActionButton
@@ -78,14 +80,14 @@ function TerminalContextMenuContent({
         shortcutKeys={["mod", "v"]}
         onSelect={() => runAction(() => onPaste(paneId))}
       >
-        Paste
+        {t("workspace.tools.terminalPaneContextMenu.paste", "Paste")}
       </ContextMenuActionButton>
       <ContextMenuActionButton
         icon={ClipboardCopyIcon}
         shortcutKeys={["mod", "c"]}
         onSelect={() => runAction(() => onCopy(paneId))}
       >
-        Copy
+        {t("workspace.tools.terminalPaneContextMenu.copy", "Copy")}
       </ContextMenuActionButton>
     </div>
   );

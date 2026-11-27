@@ -2,13 +2,28 @@
 
 use sqlx::SqliteConnection;
 
-/// Result written for a tool call the restart killed, so the transcript shows
-/// it ended instead of "Running…" forever.
-pub(super) const INTERRUPTED_TOOL_RESULT: &str =
-    "Interrupted: Cadencr restarted before this finished.";
-/// The same, for a turn the user stopped by quitting Cadencr.
-pub(super) const QUIT_TOOL_RESULT: &str = "Stopped: Cadencr quit before this finished.";
-pub(super) const STOP_TOOL_RESULT: &str = "Stopped by the user.";
+/// The Cadencr-generated result of a tool call cut off before it finished.
+pub(super) enum ToolInterruption {
+    Restart,
+    Quit,
+    UserStop,
+}
+
+impl ToolInterruption {
+    fn result_and_origin_note(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Restart => (
+                "Interrupted: Cadencr restarted before this finished.",
+                "tool_interrupted_by_restart",
+            ),
+            Self::Quit => (
+                "Stopped: Cadencr quit before this finished.",
+                "tool_interrupted_by_quit",
+            ),
+            Self::UserStop => ("Stopped by the user.", "tool_interrupted_by_user"),
+        }
+    }
+}
 
 pub(super) async fn insert_marker(
     conn: &mut SqliteConnection,
@@ -36,8 +51,9 @@ const LEGACY_OPENCODE_STATUS_KEY: &str = "__opencode_status";
 pub(super) async fn close_running_tool_calls(
     connection: &mut SqliteConnection,
     session_id: i64,
-    result: &str,
+    interruption: ToolInterruption,
 ) -> Result<u64, sqlx::Error> {
+    let (result, origin_note) = interruption.result_and_origin_note();
     let calls: Vec<(String, Option<String>, String)> = sqlx::query_as(
         "SELECT c.tool_use_id, c.parent_tool_use_id, c.content
          FROM agent_messages c
@@ -58,15 +74,23 @@ pub(super) async fn close_running_tool_calls(
         if !shows_as_running(&tool_args) {
             continue;
         }
-        sqlx::query(
+        let message_id: i64 = sqlx::query_scalar(
             "INSERT INTO agent_messages
              (session_id, role, content, message_type, tool_use_id, parent_tool_use_id)
-             VALUES (?, 'tool', ?, 'tool_error', ?, ?)",
+             VALUES (?, 'tool', ?, 'tool_error', ?, ?) RETURNING id",
         )
         .bind(session_id)
         .bind(result)
         .bind(tool_use_id)
         .bind(parent_tool_use_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        sqlx::query(
+            "INSERT INTO agent_message_origins (message_id, origin_kind, note)
+             VALUES (?, 'system_generated', ?)",
+        )
+        .bind(message_id)
+        .bind(origin_note)
         .execute(&mut *connection)
         .await?;
         closed += 1;
@@ -136,24 +160,34 @@ mod tests {
 
         let mut connection = pool.acquire().await.unwrap();
         assert_eq!(
-            close_running_tool_calls(&mut connection, session_id, INTERRUPTED_TOOL_RESULT)
+            close_running_tool_calls(&mut connection, session_id, ToolInterruption::Restart)
                 .await
                 .unwrap(),
             1
         );
         assert_eq!(
-            close_running_tool_calls(&mut connection, session_id, INTERRUPTED_TOOL_RESULT)
+            close_running_tool_calls(&mut connection, session_id, ToolInterruption::Restart)
                 .await
                 .unwrap(),
             0
         );
 
-        let closed: Vec<(String, String)> = sqlx::query_as(
-            "SELECT tool_use_id, content FROM agent_messages WHERE message_type = 'tool_error'",
+        let closed: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT m.tool_use_id, m.content, o.origin_kind, o.note FROM agent_messages m
+             JOIN agent_message_origins o ON o.message_id = m.id
+             WHERE m.message_type = 'tool_error'",
         )
         .fetch_all(&pool)
         .await
         .unwrap();
-        assert_eq!(closed, vec![("cut".into(), INTERRUPTED_TOOL_RESULT.into())]);
+        assert_eq!(
+            closed,
+            vec![(
+                "cut".into(),
+                "Interrupted: Cadencr restarted before this finished.".into(),
+                "system_generated".into(),
+                "tool_interrupted_by_restart".into(),
+            )]
+        );
     }
 }

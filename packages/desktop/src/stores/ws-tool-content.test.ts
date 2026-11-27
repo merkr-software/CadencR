@@ -107,6 +107,12 @@ describe("latestValidJsonSnapshot", () => {
   // leaves the caller on its previous snapshot, which is stale but never wrong.
   it("refuses to guess once the accumulator has been clamped", () => {
     const clamped = `{"file_path":"/a.ts","edits":\n\n${TRUNCATION_NOTICE}\n\n{"new_string":"tail"}`;
-    expect(latestValidJsonSnapshot(clamped)).toBeUndefined();
+    expect(latestValidJsonSnapshot(clamped, true)).toBeUndefined();
+  });
+
+  it("recovers valid args when a payload contains the marker literally", () => {
+    const first = JSON.stringify({ command: `printf '%s' '${TRUNCATION_NOTICE}'` });
+    const second = JSON.stringify({ command: "pwd" });
+    expect(latestValidJsonSnapshot(first + second)).toBe(second);
   });
 });

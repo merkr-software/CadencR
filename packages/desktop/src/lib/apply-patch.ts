@@ -12,6 +12,8 @@ export interface ApplyPatchPreview {
   filePath: string;
   oldContent: string;
   newContent: string;
+  /** Set only for a placeholder supplied by Cadencr, never for literal patch content. */
+  emptyFileAction?: "created" | "deleted";
 }
 
 const PATCH_TEXT_KEYS = ["patch_text", "patchText", "input"] as const;
@@ -165,6 +167,7 @@ function previewFromChange(change: ApplyPatchChange): ApplyPatchPreview | null {
       filePath: change.moveTo ?? change.filePath,
       oldContent: "",
       newContent: addedContent || CREATED_FILE_PLACEHOLDER,
+      emptyFileAction: addedContent ? undefined : "created",
     };
   }
   if (change.kind === "delete") {
@@ -172,6 +175,7 @@ function previewFromChange(change: ApplyPatchChange): ApplyPatchPreview | null {
     return {
       filePath: change.filePath,
       oldContent: removedContent || DELETED_FILE_PLACEHOLDER,
+      emptyFileAction: removedContent ? undefined : "deleted",
       newContent: "",
     };
   }

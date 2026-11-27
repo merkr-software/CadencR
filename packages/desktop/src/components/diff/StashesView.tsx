@@ -1,3 +1,4 @@
+import { useUiTranslation, translateUi } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useState, type ReactElement, type RefObject } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Loader2Icon, ArchiveIcon } from "lucide-react";
@@ -35,6 +36,7 @@ export const StashesView = memo(function StashesView({
   onOpenConflict,
   registerNavigationAdapter,
 }: StashesViewProps): ReactElement {
+  const { t } = useUiTranslation();
   const [openedStash, setOpenedStash] = useState<StashEntry | null>(null);
   const handleCloseStash = useCallback((): void => setOpenedStash(null), []);
   const contextOpenConflict = useOpenDiffInEditor();
@@ -98,7 +100,7 @@ export const StashesView = memo(function StashesView({
       <GitRevisionDiffView
         featureId={featureId}
         revision={openedStash.sha}
-        backLabel="Stashes"
+        backLabel={t("workspace.git.stashesView.stashes", "Stashes")}
         label={openedStash.ref_name}
         message={openedStash.message}
         onBack={handleCloseStash}
@@ -137,18 +139,22 @@ function StashListBody({
   viewportRef: RefObject<HTMLDivElement | null>;
   virtuosoRef: RefObject<VirtuosoHandle | null>;
 }): ReactElement {
+  const { t } = useUiTranslation();
   if (isLoading && stashes.length === 0) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2Icon className="size-4 animate-spin" />
-        Loading stashes…
+        {t("workspace.git.stashesView.loadingStashes", "Loading stashes…")}
       </div>
     );
   }
   if (isError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">
-        {apiErrorMessage(error, "Could not load stashes")}
+        {apiErrorMessage(
+          error,
+          translateUi("workspace.git.stashesView.couldNotLoadStashes", "Could not load stashes"),
+        )}
       </div>
     );
   }
@@ -156,7 +162,7 @@ function StashListBody({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
         <ArchiveIcon className="size-5" />
-        No stashes.
+        {t("workspace.git.stashesView.noStashes", "No stashes.")}
       </div>
     );
   }
