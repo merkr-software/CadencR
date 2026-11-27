@@ -71,6 +71,14 @@ export interface AcpAgentEntry {
   license?: string;
   name: string;
   repository?: string;
+  /**
+   * Tool names this agent uses to dispatch a sub-agent (its carrier tool,
+   * e.g. `agents.spawn`). The host maps these onto the canonical `Agent`
+   * carrier for sub-agent tracking. Qualified names match exactly. A
+   * short name such as `spawn` also matches the last segment of a
+   * qualified tool name. This is a CadencR extension to the registry schema.
+   */
+  subagent_tool_names?: string[];
   version: string;
   website?: string;
   [key: string]: unknown;

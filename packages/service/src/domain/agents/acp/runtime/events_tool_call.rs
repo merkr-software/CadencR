@@ -7,7 +7,8 @@ use super::events_tool_call_parent::parent_tool_use_id;
 use super::provider_hooks::AcpProviderHooks;
 use super::stream_events::stream_start_event;
 use crate::domain::agents::adapter::{
-    RuntimeContentBlock, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata,
+    is_subagent_tool_name, RuntimeContentBlock, RuntimeEvent, RuntimeEventKind,
+    RuntimeEventMetadata,
 };
 use serde_json::Value;
 pub struct MappedUpdate {
@@ -29,12 +30,19 @@ pub fn map_tool_call_start(
         };
     };
     let tool_name = resolve_tool_name(body, hooks);
+    // Only the stream block uses the canonical carrier name. Provider hooks
+    // and tool calls indexed for later updates keep the provider's tool name.
+    let carrier_alias = if is_subagent_tool_name(&tool_name) {
+        None
+    } else {
+        hooks.subagent_carrier_alias(&tool_name)
+    };
     let raw = body
         .get("rawInput")
         .filter(|v| !is_empty_value(v))
         .or_else(|| body.get("toolInput").filter(|v| !is_empty_value(v)))
         .cloned()
-        .or_else(|| derive_input_from_content(&tool_name, body))
+        .or_else(|| derive_input_from_content(carrier_alias.as_deref().unwrap_or(&tool_name), body))
         .unwrap_or(Value::Null);
     let is_empty_raw = is_empty_value(&raw);
     if tool_name == "TodoWrite" && indexer.has_plan_todowrite_emitted() && is_empty_raw {
@@ -62,7 +70,7 @@ pub fn map_tool_call_start(
     let index = indexer.index_for_tool(tool_call_id);
     let block = RuntimeContentBlock::ToolUse {
         id: tool_call_id.to_string(),
-        name: tool_name,
+        name: carrier_alias.unwrap_or(tool_name),
         input,
     };
     let event = stream_start_event(
@@ -86,13 +94,18 @@ mod tests {
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::adapter::{
         RuntimeContentBlock, RuntimeEventMetadata, RuntimePermissionMode, RuntimeStreamEvent,
+        RuntimeSubagentStatus,
     };
+    use crate::domain::subagents::tracker::SubagentTracker;
     use serde_json::{json, Value};
     struct PlainHooks;
     #[async_trait::async_trait]
     impl AcpProviderHooks for PlainHooks {
         fn normalize_tool_name(&self, raw: &str) -> String {
             raw.to_string()
+        }
+        fn subagent_carrier_alias(&self, raw: &str) -> Option<String> {
+            (raw == "agents.spawn").then(|| "Agent".to_string())
         }
         fn normalize_tool_input(&self, _tool_name: &str, input: Value) -> Value {
             input
@@ -127,6 +140,48 @@ mod tests {
             ..RuntimeEventMetadata::default()
         }
     }
+    #[test]
+    fn declared_carrier_launches_with_initial_input_and_settles_without_result() {
+        let mut indexer = EventIndexer::default();
+        let mut tracker = SubagentTracker::default();
+        let started = map_tool_call_start(
+            &json!({
+                "toolCallId": "spawn-1",
+                "parentToolCallId": "parent-1",
+                "name": "agents.spawn",
+                "kind": "other",
+                "rawInput": { "prompt": "Inspect the logs", "agent_type": "reviewer" }
+            }),
+            &mut indexer,
+            metadata(),
+            &PlainHooks,
+        );
+        let changes = tracker.observe(&started.events[0]);
+        assert_eq!(changes.len(), 1);
+        let launch = &changes[0];
+        assert_eq!(launch.tool_use_id, "spawn-1");
+        assert_eq!(launch.parent_tool_use_id.as_deref(), Some("parent-1"));
+        assert_eq!(launch.patch.status, Some(RuntimeSubagentStatus::Running));
+        assert_eq!(launch.patch.prompt.as_deref(), Some("Inspect the logs"));
+        assert_eq!(launch.patch.agent_type.as_deref(), Some("reviewer"));
+        assert_eq!(indexer.tool_name_for("spawn-1"), Some("agents.spawn"));
+
+        let completed = map_tool_call_update(
+            &json!({ "toolCallId": "spawn-1", "status": "completed" }),
+            &mut indexer,
+            metadata(),
+            &PlainHooks,
+        );
+        let changes = tracker.observe(&completed.events[0]);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].tool_use_id, "spawn-1");
+        assert_eq!(
+            changes[0].patch.status,
+            Some(RuntimeSubagentStatus::Completed)
+        );
+        assert!(tracker.live_tool_use_ids().is_empty());
+    }
+
     #[test]
     fn execute_kind_maps_cursor_command_title_to_bash_tool_use() {
         let mut idx = EventIndexer::default();

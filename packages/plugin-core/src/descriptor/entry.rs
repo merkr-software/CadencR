@@ -28,9 +28,9 @@ pub struct AcpAgentEntry {
     pub authors: Vec<String>,
     /// Tool names this agent uses to dispatch a sub-agent (its carrier tool,
     /// e.g. `agents.spawn`). The host maps these onto the canonical `Agent`
-    /// carrier so sub-agent lifecycle updates are tracked without
-    /// provider-specific code. CadencR extension, not part of the upstream
-    /// registry schema.
+    /// carrier for sub-agent tracking. Qualified names match exactly. A
+    /// short name such as `spawn` also matches the last segment of a
+    /// qualified tool name. This is a CadencR extension to the registry schema.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagent_tool_names: Vec<String>,
     #[serde(

@@ -264,15 +264,14 @@ impl AcpProviderHooks for InstalledAcpHooks {
     }
 }
 
-/// A declared carrier name matches the raw ACP tool name exactly, or by its
-/// last dot-separated segment so a qualified wire name (`agents.spawn`)
-/// matches a short declaration (`spawn`).
+/// A qualified declaration matches exactly. A short declaration (`spawn`)
+/// also matches the last segment of a qualified wire name (`agents.spawn`).
 fn carrier_name_matches(declared: &str, raw: &str) -> bool {
     declared == raw
-        || declared
-            .rsplit('.')
-            .next()
-            .is_some_and(|declared_tail| declared_tail == raw.rsplit('.').next().unwrap_or(raw))
+        || (!declared.contains('.')
+            && raw
+                .rsplit_once('.')
+                .is_some_and(|(_, tail)| tail == declared))
 }
 
 #[cfg(test)]
@@ -299,6 +298,8 @@ mod tests {
             Some("Agent".to_string())
         );
         assert_eq!(carrier.subagent_carrier_alias("bash"), None);
+        assert_eq!(carrier.subagent_carrier_alias("unrelated.spawn"), None);
+        assert_eq!(carrier.subagent_carrier_alias("spawn"), None);
         // Permission identity is untouched: normalize_tool_name stays identity.
         assert_eq!(carrier.normalize_tool_name("agents.spawn"), "agents.spawn");
 
