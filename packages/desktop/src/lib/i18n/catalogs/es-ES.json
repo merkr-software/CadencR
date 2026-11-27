@@ -5838,6 +5838,11 @@
         "title": "Algo ha salido mal"
       },
       "language": {
+        "upgrade": {
+          "title": "¿Cambiar a {{language}}?",
+          "description": "Es el idioma de tu sistema. Puedes cambiar el idioma de la interfaz en cualquier momento en Ajustes → General.",
+          "keep": "Mantener el inglés"
+        },
         "loadError": "No se ha podido cargar el idioma de la interfaz",
         "nativeError": "No se ha podido cambiar el idioma del menú nativo"
       },

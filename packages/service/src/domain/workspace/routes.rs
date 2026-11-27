@@ -80,10 +80,13 @@ pub async fn set_setting_handler(
             "unknown workspace settings key: {key}"
         )));
     }
-    service::set_setting(&state.write_pool, &key, &body.value).await?;
-    Ok(Json(SettingValueResponse {
-        value: Some(body.value),
-    }))
+    let value = if let Some(expected) = body.expected_value {
+        settings_store::global_set_if_current(key, expected, body.value).await?
+    } else {
+        service::set_setting(&state.write_pool, &key, &body.value).await?;
+        Some(body.value)
+    };
+    Ok(Json(SettingValueResponse { value }))
 }
 
 #[utoipa::path(put, path = "/api/workspace/settings", request_body = SetSettingsBatchRequest, responses((status = 200, body = Vec<Setting>)))]

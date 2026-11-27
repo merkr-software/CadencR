@@ -1,12 +1,14 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useSyncExternalStore,
   useState,
   type ReactNode,
 } from "react";
+import { useIsRestoring } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { getRuntimeConfigSync } from "@/api/client";
 import { useGetWorkspaceSetting } from "@/api/generated";
@@ -14,8 +16,10 @@ import { toastError } from "@/lib/api-errors";
 import { uiI18n, useUiTranslation } from "./ui";
 import {
   catalogLanguage,
+  DEFAULT_LANGUAGE,
   languagePreference,
   LANGUAGE_SETTING,
+  LEGACY_ENGLISH,
   subscribeToBrowserLanguage,
   type Language,
 } from "./languages";
@@ -25,6 +29,7 @@ import { readSystemLocale, syncNativeLanguage } from "./renderer-language";
 interface LanguageSettingState {
   preference: Language | "system";
   system: Language;
+  suggestedLanguage: Language | undefined;
   loading: boolean;
   applying: boolean;
   error: unknown;
@@ -49,27 +54,51 @@ function subscribeToLanguageChange(notify: () => void) {
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const systemLocale = useSyncExternalStore(subscribeToLanguageChange, readSystemLocale);
   const system = catalogLanguage(systemLocale);
-  const { data, isPending, error } = useGetWorkspaceSetting(LANGUAGE_SETTING);
+  const restoring = useIsRestoring();
+  const { data, isPending, isFetchedAfterMount, fetchStatus, error, refetch } =
+    useGetWorkspaceSetting(LANGUAGE_SETTING, {
+      query: {
+        // An old cached invitation must not override a choice saved while this window was closed.
+        refetchOnMount: (query) => (query.state.data?.value === LEGACY_ENGLISH ? "always" : true),
+      },
+    });
   const { i18n } = useUiTranslation();
   const preference = languagePreference(data?.value);
+  const preferenceLoaded = data !== undefined;
+  const [verifiedLegacy, setVerifiedLegacy] = useState(false);
+  useEffect(() => {
+    if (!restoring && isFetchedAfterMount && fetchStatus === "idle" && !error) {
+      setVerifiedLegacy(data?.value === LEGACY_ENGLISH);
+    }
+  }, [restoring, isFetchedAfterMount, fetchStatus, error, data?.value]);
+  const suggestedLanguage =
+    verifiedLegacy && !error && data?.value === LEGACY_ENGLISH && system !== DEFAULT_LANGUAGE
+      ? system
+      : undefined;
   const locale = preference === "system" ? systemLocale : preference;
   const [failure, setFailure] = useState<{ locale: string; error: Error }>();
   const [attempt, setAttempt] = useState(0);
   const loadError = failure?.locale === locale ? failure.error : undefined;
-  const applying = i18n.language !== locale && !loadError;
+  const applying = preferenceLoaded && i18n.language !== locale && !loadError;
   const state = useMemo(
     () => ({
       preference,
       system,
+      suggestedLanguage,
       loading: isPending,
       applying,
       error,
       loadError,
-      retry: () => setAttempt((n) => n + 1),
+      retry: () => {
+        if (error) void refetch();
+        else setAttempt((n) => n + 1);
+      },
     }),
-    [preference, system, isPending, applying, error, loadError],
+    [preference, system, suggestedLanguage, isPending, applying, error, loadError, refetch],
   );
   useLayoutEffect(() => {
+    // Keep the current language until we know whether this is an existing installation.
+    if (!preferenceLoaded) return;
     let current = true;
     setFailure(undefined);
     void applyRendererLanguage(locale).then(
@@ -87,7 +116,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return () => {
       current = false;
     };
-  }, [locale, attempt]);
+  }, [preferenceLoaded, locale, attempt]);
 
   return (
     <SettingContext.Provider value={state}>

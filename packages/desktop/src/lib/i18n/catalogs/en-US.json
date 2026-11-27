@@ -6,6 +6,11 @@
   "ui": {
     "shell": {
       "language": {
+        "upgrade": {
+          "title": "Switch to {{language}}?",
+          "description": "This is your system language. You can change the interface language anytime in Settings → General.",
+          "keep": "Keep English"
+        },
         "loadError": "Could not load the interface language",
         "nativeError": "Could not update the native menu language"
       },

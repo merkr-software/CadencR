@@ -6,6 +6,7 @@ import Axios, {
 } from "axios";
 import type { RuntimeConfig } from "@/lib/desktop-bridge-types";
 import type { ConnectionReason } from "@/lib/connection-reason";
+import { LANGUAGE_SETTING } from "@/lib/i18n/languages";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
@@ -187,7 +188,8 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
     }
   }
   const workspaceSettingKey = workspaceSingleSettingKey(finalConfig);
-  if (workspaceSettingKey) {
+  // The single language read also resolves the one-time upgrade invitation.
+  if (workspaceSettingKey && workspaceSettingKey !== LANGUAGE_SETTING) {
     const cachedSetting = await workspaceSettingFromBulkRequest(workspaceSettingKey);
     if (cachedSetting !== undefined) return cachedSetting as T;
   }

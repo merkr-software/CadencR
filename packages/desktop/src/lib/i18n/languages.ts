@@ -1,5 +1,6 @@
 export const LANGUAGE_SETTING = "ui_language";
 export const DEFAULT_LANGUAGE = "en-US";
+export const LEGACY_ENGLISH = "legacy-english";
 
 export const languageOptions = {
   "en-US": { name: "English", region: "United States", flag: "us" },
@@ -47,6 +48,7 @@ export function catalogLanguage(locale: string): Language {
 }
 
 export function languagePreference(value: string | null | undefined): Language | "system" {
+  if (value === LEGACY_ENGLISH) return DEFAULT_LANGUAGE;
   const locale = supportedLocale(value);
   return locale ? catalogLanguage(locale) : "system";
 }

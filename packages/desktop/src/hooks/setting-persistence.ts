@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   getGetWorkspaceSettingQueryKey,
   setWorkspaceSetting,
+  type SetSettingRequest,
   type SettingValueResponse,
 } from "@/api/generated";
 import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
@@ -15,6 +16,7 @@ import { translateUi } from "@/lib/i18n/ui";
  * writes nothing.
  */
 export type SettingUpdate = (confirmed: string | null | undefined) => string | null;
+export type SettingWrite = string | SettingUpdate | SetSettingRequest;
 
 // Writes to one key go out one at a time, so the backend and the cache see them
 // in the order they were made. Per QueryClient, without retaining any.
@@ -26,13 +28,13 @@ const listeners = new Set<() => void>();
  * The single write path for workspace settings. The cache only moves to the
  * value the backend answered with (no optimistic updates); a failure toasts,
  * leaves the confirmed value in place and re-reads it, in case the write landed
- * before the failure. Resolves true when the backend holds the value (or there
- * was nothing to write), false when the write failed. Never rejects.
+ * before the failure. Conditional writes also return the confirmed value to
+ * the cache on a mismatch. Resolves false on request failure. Never rejects.
  */
 export function writeSetting(
   queryClient: QueryClient,
   key: string,
-  next: string | SettingUpdate,
+  next: SettingWrite,
 ): Promise<boolean> {
   let queue = queues.get(queryClient);
   if (!queue) {
@@ -54,12 +56,15 @@ export function writeSetting(
 async function sendSetting(
   queryClient: QueryClient,
   key: string,
-  next: string | SettingUpdate,
+  next: SettingWrite,
 ): Promise<boolean> {
   try {
-    const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
-    if (value === null) return true;
-    const saved = await setWorkspaceSetting(key, { value });
+    const update = typeof next === "function" ? next(readConfirmedSetting(queryClient, key)) : next;
+    if (update === null) return true;
+    const saved = await setWorkspaceSetting(
+      key,
+      typeof update === "string" ? { value: update } : update,
+    );
     // A read started before this write can still return the old value. Discard
     // it before publishing the confirmed value to the open settings UI.
     const single = { queryKey: getGetWorkspaceSettingQueryKey(key), exact: true };

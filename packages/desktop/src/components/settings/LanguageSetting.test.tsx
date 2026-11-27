@@ -148,3 +148,26 @@ it("can retry a saved preference that could not load at startup", async () => {
     failure.mockRestore();
   }
 });
+
+it("can retry an unreadable preference on a non-English device", async () => {
+  const languages = vi.spyOn(navigator, "languages", "get").mockReturnValue(["fr-FR"]);
+  const url = API_BASE_URL + "/api/workspace/settings/ui_language";
+  server.use(
+    http.get(url, () => HttpResponse.json({ error: "Unreadable settings" }, { status: 500 })),
+  );
+  try {
+    const { user } = render(
+      <LanguageProvider>
+        <LanguageSetting />
+      </LanguageProvider>,
+    );
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(screen.getByRole("combobox")).toHaveAttribute("aria-busy", "false");
+    server.use(http.get(url, () => HttpResponse.json({ value: "fr-FR" })));
+    await user.click(retry);
+    expect(await screen.findByText("Langue")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  } finally {
+    languages.mockRestore();
+  }
+});

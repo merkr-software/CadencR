@@ -1,12 +1,11 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { useId, useState } from "react";
+import { useId } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useSettingWriter } from "@/hooks/useSetting";
 import { Button } from "@/components/ui/button";
-import { loadUiCatalog } from "@/shared/ui-i18n";
-import { apiErrorMessage, toastError } from "@/lib/api-errors";
-import { languageOptions, LANGUAGE_SETTING } from "@/lib/i18n/languages";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { languageOptions, languagePreference } from "@/lib/i18n/languages";
+import { useSaveInterfaceLanguage } from "@/lib/i18n/useSaveInterfaceLanguage";
 import { useLanguageSettingState } from "@/lib/i18n/LanguageProvider";
 import {
   Select,
@@ -38,19 +37,7 @@ export function LanguageSetting() {
   const { t: tLanguage, i18n } = useTranslation("language");
   const { preference, system, loading, applying, error, loadError, retry } =
     useLanguageSettingState();
-  const { setValue, isSaving } = useSettingWriter(LANGUAGE_SETTING);
-  const [preparing, setPreparing] = useState(false);
-  async function selectLanguage(value: string) {
-    setPreparing(true);
-    try {
-      await loadUiCatalog(value === "system" ? system : value);
-      await setValue(value);
-    } catch (cause) {
-      toastError(cause, "");
-    } finally {
-      setPreparing(false);
-    }
-  }
+  const { save, busy: saving } = useSaveInterfaceLanguage(system);
   if (loading) {
     return (
       <div
@@ -70,7 +57,7 @@ export function LanguageSetting() {
   ) : (
     loadError?.message
   );
-  const busy = preparing || isSaving || applying;
+  const busy = saving || applying;
   return (
     <div lang={i18n.resolvedLanguage}>
       <SettingsRow
@@ -79,14 +66,14 @@ export function LanguageSetting() {
         description={description}
         control={
           <>
-            {loadError && (
+            {(Boolean(error) || loadError) && (
               <Button variant="outline" size="sm" onClick={retry}>
                 {t("common.retry", "Retry")}
               </Button>
             )}
             <Select
               value={preference}
-              onValueChange={selectLanguage}
+              onValueChange={(value) => void save(languagePreference(value))}
               disabled={busy || Boolean(error)}
             >
               <SelectTrigger id={id} size="sm" aria-busy={busy}>

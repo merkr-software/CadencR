@@ -5741,6 +5741,11 @@
         "title": "Irgendetwas ging schief"
       },
       "language": {
+        "upgrade": {
+          "title": "Zu {{language}} wechseln?",
+          "description": "Das ist die Sprache deines Systems. Du kannst die Sprache der Oberfläche jederzeit unter Einstellungen → Allgemein ändern.",
+          "keep": "Englisch beibehalten"
+        },
         "loadError": "Die Oberflächensprache konnte nicht geladen werden",
         "nativeError": "konnte die native Menüsprache nicht aktualisieren"
       },

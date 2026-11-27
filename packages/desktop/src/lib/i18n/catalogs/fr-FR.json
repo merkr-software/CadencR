@@ -5838,6 +5838,11 @@
         "title": "Quelque chose s'est mal passé"
       },
       "language": {
+        "upgrade": {
+          "title": "Passer à la langue « {{language}} » ?",
+          "description": "C’est la langue de votre système. Vous pouvez changer la langue de l’interface à tout moment dans Paramètres → Général.",
+          "keep": "Garder l’anglais"
+        },
         "loadError": "Impossible de charger la langue de l’interface",
         "nativeError": "Impossible de mettre à jour la langue du menu natif"
       },

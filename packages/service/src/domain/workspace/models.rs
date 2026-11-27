@@ -20,6 +20,8 @@ pub struct ModelSettings {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetSettingRequest {
     pub value: String,
+    /// When provided, replace only this stored scalar. The response always contains the current value.
+    pub expected_value: Option<String>,
 }
 
 /// Several workspace keys written in one atomic pass. A `null` value removes the

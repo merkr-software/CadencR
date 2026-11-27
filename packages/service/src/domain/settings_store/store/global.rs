@@ -64,6 +64,43 @@ pub async fn global_set(key: &str, value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Compare and replace in the same transaction as the settings-file write.
+pub async fn global_set_if_current(
+    key: String,
+    expected: String,
+    value: String,
+) -> Result<Option<String>, AppError> {
+    let path = global_path();
+    let changed = super::update_document_locked(
+        &path,
+        super::ReadPolicy::Strict,
+        "conditional workspace setting",
+        {
+            let key = key.clone();
+            move |doc| {
+                let matches = doc.get(&key).is_some_and(|current| match current {
+                    serde_json::Value::String(text) => text == &expected,
+                    serde_json::Value::Bool(flag) => {
+                        expected == if *flag { "true" } else { "false" }
+                    }
+                    serde_json::Value::Number(number) => number.to_string() == expected,
+                    _ => false,
+                });
+                let changed = matches && expected != value;
+                if changed {
+                    doc.insert(key, value.into());
+                }
+                Ok((changed, changed))
+            }
+        },
+    )
+    .await?;
+    if changed == Some(true) {
+        super::super::generation::bump_global();
+    }
+    read_key(&path, Scope::Workspace, &key)
+}
+
 /// The global document's path and validated scalar values (plus warnings).
 pub fn global_map() -> Result<SettingsMap, AppError> {
     let path = global_path();

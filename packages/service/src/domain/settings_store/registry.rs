@@ -130,7 +130,8 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "notch_default_applied"
         | "claude_bypass_permissions_enabled"
         | "codex_full_access_enabled"
-        | "onboarding_intro_shown" => SettingSpec::new(BOOL, Some("false")),
+        | "onboarding_intro_shown"
+        | "ui_language_initialized" => SettingSpec::new(BOOL, Some("false")),
         // These default on.
         "editor_auto_save"
         | "sidebar_provider_logos"
@@ -141,9 +142,7 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "project_mcp_enabled"
         | "agent_restart_resume_enabled" => SettingSpec::new(BOOL, Some("true")),
         "ui_language" => SettingSpec::new(
-            ValueKind::Enum(&[
-                "system", "en-US", "es-ES", "de-DE", "ja-JP", "fr-FR", "pt-BR", "en", "fr",
-            ]),
+            ValueKind::Enum(super::interface_language::VALUES),
             Some("system"),
         ),
         "workspace_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
@@ -228,6 +227,7 @@ mod tests {
         ] {
             assert!(spec.is_valid(value));
         }
+        assert!(spec.is_valid("legacy-english"));
         assert!(!spec.is_valid("unavailable"));
     }
 

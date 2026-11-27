@@ -6969,6 +6969,11 @@ export interface SetScheduleEnabledRequest {
 }
 
 export interface SetSettingRequest {
+  /**
+   * When provided, replace only this stored scalar. The response always contains the current value.
+   * @nullable
+   */
+  expected_value?: string | null;
   value: string;
 }
 

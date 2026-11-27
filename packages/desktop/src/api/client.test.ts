@@ -450,6 +450,18 @@ describe("workspace settings bulk cache", () => {
     return { data, status: 200, statusText: "OK", headers: {}, config };
   }
 
+  it("checks the language invitation with the service even when bulk settings are cached", async () => {
+    await customInstance({
+      url: "/api/workspace/settings",
+      adapter: async (config) => respond(config, [{ key: "ui_language", value: "legacy-english" }]),
+    });
+    const fresh = vi.fn<AxiosAdapter>(async (config) => respond(config, { value: "de-DE" }));
+    await expect(
+      customInstance({ url: "/api/workspace/settings/ui_language", adapter: fresh }),
+    ).resolves.toEqual({ value: "de-DE" });
+    expect(fresh).toHaveBeenCalledOnce();
+  });
+
   it("never caches a bulk read that raced a settings write", async () => {
     let releaseStaleRead: () => void = () => undefined;
     const staleRead: AxiosAdapter = (config) =>

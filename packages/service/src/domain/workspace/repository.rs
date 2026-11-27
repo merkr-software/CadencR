@@ -28,9 +28,13 @@ fn provider_keys() -> [(&'static str, String); 2] {
 
 /// A settings file that cannot be read is an error, not "unset": the caller
 /// would otherwise act on a default the user may have changed (re-opening
-/// onboarding, for one). A missing file still reads as unset.
+/// onboarding, for one). The interface language initializes its upgrade state on first read.
 pub async fn get_setting(_pool: &SqlitePool, key: &str) -> Result<Option<String>, AppError> {
-    crate::domain::settings_store::global_read(key)
+    use crate::domain::settings_store;
+    if key == "ui_language" {
+        return settings_store::interface_language_preference().await;
+    }
+    settings_store::global_read(key)
 }
 
 /// A switch that is on when absent. Read failures must reach the caller.
@@ -247,6 +251,20 @@ mod tests {
             .await
             .unwrap();
         assert!(!second); // skipped
+    }
+
+    #[tokio::test]
+    async fn language_read_retries_initialization_after_the_settings_file_is_repaired() {
+        use crate::domain::settings_store::{file, global_dir, paths};
+        let pool = setup_test_db().await;
+        let path = paths::global_file(&global_dir());
+        file::write_atomic(&path, "invalid json").unwrap();
+        assert!(get_setting(&pool, "ui_language").await.is_err());
+        file::write_atomic(&path, r#"{"onboarding_step":"completed"}"#).unwrap();
+        assert_eq!(
+            get_setting(&pool, "ui_language").await.unwrap().as_deref(),
+            Some("legacy-english")
+        );
     }
 
     #[tokio::test]
