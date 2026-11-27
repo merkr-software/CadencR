@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light dark;
+  font: 14px system-ui;
+  color: var(--cadencr-foreground);
+  background: var(--cadencr-background);
+}
+body {
+  margin: 0;
+}
+main {
+  padding: 12px;
+}
+h1 {
+  font-size: 17px;
+}
+button,
+input {
+  font: inherit;
+  color: inherit;
+  background: var(--cadencr-card);
+  border: 1px solid var(--cadencr-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+pre {
+  white-space: pre-wrap;
+}
+#error {
+  color: var(--cadencr-destructive);
+}

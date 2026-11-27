@@ -26,6 +26,7 @@ use crate::app_state::AppState;
 use crate::error::AppError;
 use crate::remote::RemoteContext;
 
+mod backend;
 mod emitter;
 mod outbound;
 mod session_stream;
@@ -39,13 +40,14 @@ pub const SOCKET_PATH: &str = "/api/plugin-tabs/ws";
 /// `Sec-WebSocket-Protocol` entry carrying the grant token.
 pub const PROTOCOL_PREFIX: &str = "cadencr-plugin.";
 
-/// The client only ever sends tiny subscribe/unsubscribe frames.
-const MAX_INBOUND_BYTES: usize = 16 * 1024;
+/// Native requests allow 1 MiB of params plus their envelope.
+const MAX_INBOUND_BYTES: usize = 1024 * 1024 + 4096;
 
 /// Inbound budget: subscribing can compute a git status, so a guest cannot
 /// spin on it. Past it, frames are dropped unread (one error per window), and
 /// a client over budget this many windows in a row is disconnected.
 const MAX_INBOUND_PER_SECOND: u32 = 20;
+const MAX_BACKEND_PER_SECOND: u32 = 200;
 const MAX_WINDOWS_OVER_BUDGET: u32 = 5;
 
 /// Events queued for a peer before its subscriptions start dropping and
@@ -59,7 +61,7 @@ const CLOSE_GRACE: Duration = Duration::from_secs(1);
 pub fn topic_scopes() -> Vec<(&'static str, super::policy::Scope)> {
     topics::Topic::ALL
         .into_iter()
-        .map(|topic| (topic.name(), topic.scope()))
+        .filter_map(|topic| topic.scope().map(|scope| (topic.name(), scope)))
         .collect()
 }
 
@@ -119,6 +121,8 @@ async fn run(socket: WebSocket, state: AppState, grant: Grant) {
     };
     tokio::pin!(expiry);
     let mut budget = InboundBudget::new();
+    let mut backend_budget = InboundBudget::new();
+    backend_budget.limit = MAX_BACKEND_PER_SECOND;
     let mut writer_done = false;
     let close = loop {
         tokio::select! {
@@ -130,7 +134,9 @@ async fn run(socket: WebSocket, state: AppState, grant: Grant) {
                 break None;
             }
             inbound = stream.next() => match inbound {
-                Some(Ok(Message::Text(text))) => match budget.admit(Instant::now()) {
+                Some(Ok(Message::Text(text))) => match if backend_request(&text) {
+                    backend_budget.admit(Instant::now())
+                } else { budget.admit(Instant::now()) } {
                     // A slow subscribe (git status, tree walk) still yields to
                     // revocation and expiry.
                     Admit::Yes => tokio::select! {
@@ -138,7 +144,7 @@ async fn run(socket: WebSocket, state: AppState, grant: Grant) {
                         () = grant.revoked.cancelled() => break Some("grant revoked"),
                         () = &mut expiry => break Some("grant expired"),
                     },
-                    Admit::RejectOnce => subscriptions.rate_limited(),
+                    Admit::RejectOnce => subscriptions.rate_limited(&text),
                     Admit::Drop => {}
                     Admit::Close => break Some("too many plugin socket messages"),
                 },
@@ -190,6 +196,7 @@ enum Admit {
 }
 
 struct InboundBudget {
+    limit: u32,
     window: Instant,
     count: u32,
     windows_over: u32,
@@ -198,6 +205,7 @@ struct InboundBudget {
 impl InboundBudget {
     fn new() -> Self {
         Self {
+            limit: MAX_INBOUND_PER_SECOND,
             window: Instant::now(),
             count: 0,
             windows_over: 0,
@@ -206,22 +214,33 @@ impl InboundBudget {
 
     fn admit(&mut self, now: Instant) -> Admit {
         if now.duration_since(self.window) >= Duration::from_secs(1) {
-            let was_over = self.count > MAX_INBOUND_PER_SECOND;
+            let was_over = self.count > self.limit;
             self.windows_over = if was_over { self.windows_over + 1 } else { 0 };
             self.window = now;
             self.count = 0;
         }
         self.count += 1;
-        if self.count <= MAX_INBOUND_PER_SECOND {
+        if self.count <= self.limit {
             Admit::Yes
         } else if self.windows_over >= MAX_WINDOWS_OVER_BUDGET {
             Admit::Close
-        } else if self.count == MAX_INBOUND_PER_SECOND + 1 {
+        } else if self.count == self.limit + 1 {
             Admit::RejectOnce
         } else {
             Admit::Drop
         }
     }
+}
+
+/// Borrow the head only: native calls have a separate bounded input budget.
+fn backend_request(text: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Head<'a> {
+        domain: &'a str,
+        action: &'a str,
+    }
+    serde_json::from_str::<Head<'_>>(text)
+        .is_ok_and(|head| head.domain == "plugin" && head.action == "backend.request")
 }
 
 #[cfg(test)]

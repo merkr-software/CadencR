@@ -12,11 +12,9 @@ import {
 import { useSystemAppearance } from "@/hooks/useSystemAppearance";
 import { useTheme } from "@/hooks/useTheme";
 import { apiErrorMessage } from "@/lib/api-errors";
-import { showBuiltinTab } from "@/lib/plugin-tabs/builtin-fallback";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { userThemeId, userThemeLabel } from "@/lib/themes/user-theme";
-import { DEFAULT_PANE_ID } from "@/stores/editor-helpers";
-import { useEditorStore } from "@/stores/editor-store";
+import { useEditorFileNavigator } from "@/hooks/useOpenEditorFile";
 import { LAYOUT_STATE_KEY, serializeCurrentLayoutState } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { THEME_FILE_NAME, themeLayoutState } from "./theme-workspace";
@@ -43,6 +41,7 @@ export interface OpenThemeProject {
 
 export function useOpenThemeProject(): OpenThemeProject {
   const navigate = useNavigate();
+  const openFile = useEditorFileNavigator();
   const queryClient = useQueryClient();
   const workspace = useThemeWorkspace();
   const wear = useWearTheme();
@@ -62,8 +61,7 @@ export function useOpenThemeProject(): OpenThemeProject {
           if (opened.created) await arrangePanes(opened.feature_id);
           // Every open, not only the first: editor tabs live for the session,
           // and "edit this theme" has to put the theme in front of the user.
-          showBuiltinTab(opened.feature_id, "editor");
-          useEditorStore.getState().openFile(opened.feature_id, DEFAULT_PANE_ID, THEME_FILE_NAME);
+          openFile(opened.feature_id, { path: THEME_FILE_NAME });
           // The project may have just been created; the sidebar is showing a
           // list that predates it.
           await invalidateByUrlPrefix(queryClient, ["/api/projects", "/api/features"]);
@@ -80,7 +78,7 @@ export function useOpenThemeProject(): OpenThemeProject {
         })
         .finally(() => setOpeningId(null));
     },
-    [arrangePanes, mutateAsync, navigate, queryClient, wear],
+    [arrangePanes, mutateAsync, navigate, openFile, queryClient, wear],
   );
 
   return useMemo(() => ({ open, openingId }), [open, openingId]);

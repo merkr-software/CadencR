@@ -13,6 +13,7 @@ export interface PluginTabGuestHooks {
   crashed: (detail: string) => void;
   /** A key pressed in the guest; `true` takes it from the page (a shortcut). */
   keyDown: (input: PluginTabKeyInput) => boolean;
+  focusChanged?: (focused: boolean) => void;
 }
 
 export interface PluginTabGuestOptions {
@@ -145,6 +146,12 @@ export function createPluginTabGuest(
   installNavigationGuards(wc, pluginId);
   installShortcutRelay(wc, hooks);
   const fail = installLoadEvents(wc, hooks, isLive);
+  wc.on("focus", () => {
+    if (live) hooks.focusChanged?.(wc.isFocused());
+  });
+  wc.on("blur", () => {
+    if (live) hooks.focusChanged?.(false);
+  });
   wc.on("render-process-gone", (_event, details) => {
     if (live) hooks.crashed(details.reason);
   });

@@ -1,4 +1,4 @@
-# Custom tab backend protocol — version 1
+# Custom tab backend protocol — versions 1 and 2
 
 > **Status:** normative. This document is the contract between Cadencr (the
 > _host_) and the native backend of a custom tab (the _backend_). Anything
@@ -14,12 +14,13 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 ## 1. Overview
 
 A custom tab may ship one native executable per platform. Cadencr starts it
-— once per tab and conversation, on the first `backend.request` — and talks
+— once per tab and conversation, on the first `backend.request` or v2
+subscription — and talks
 to it over its standard streams:
 
 ```
 host  ──stdin──▶  backend     hello, then requests
-host  ◀─stdout──  backend     ready, then responses
+host  ◀─stdout──  backend     ready, then responses (and events in v2)
 host  ◀─stderr──  backend     free-form log
 ```
 
@@ -54,6 +55,8 @@ The tab's `tab.json` declares the backend:
 - `protocol` (integer, required) is the protocol version the backend speaks.
   The host sends this version in `hello` and requires the same in `ready`. A
   host refuses a manifest naming a version it does not implement.
+  Use `1` for requests/responses only or `2` for unsolicited events too.
+  There is no automatic upgrade or downgrade: a v2 plugin requires a v2 host.
 - `binary` (object, required) maps a platform key to a path. v1 platform keys:
   `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`. A tab MAY omit
   platforms; its backend is then unavailable there. Paths are relative to the
@@ -109,6 +112,9 @@ A backend MUST NOT depend on any other inherited variable being present.
   stdout. The host drops a longer line (noting it in the log); its request is
   then never answered and times out. A first line over the limit fails the
   handshake (§4.2).
+- **v2 events have a smaller limit: 64 KiB** (65 536 bytes), including the
+  serialized envelope and JSON escaping, excluding the `\n`. A producer
+  MUST split a larger update into several events.
 - Host lines: `hello` is small; a `request` line carries `params` of at most
   1 MiB of JSON and a `method` of 1–128 characters. A backend SHOULD accept
   input lines of up to 4 MiB.
@@ -214,7 +220,8 @@ The backend's answer to `hello`: it is initialised and accepts requests.
 - A first line that is not `ready`, or a `ready` with another `protocol`: the
   host stops the backend and fails with `PLUGIN_BACKEND_PROTOCOL_MISMATCH`.
   This is deterministic, so the host does not keep retrying the same binary.
-- `ready` is sent once. After it, every stdout line is a `response`.
+- `ready` is sent once. After it, every stdout line is a `response` in v1,
+  or a `response` / `event` in v2. No event may precede `ready`.
 
 ### 4.3 `request` (host → backend)
 
@@ -285,9 +292,44 @@ exactly one of `result` and `error`):
 - otherwise the result is `result`, `null` when absent;
 - a response whose `id` matches no waiting request (unknown, or already timed
   out) is discarded;
-- any other stdout line after `ready` is ignored and noted in the log.
+- in v1, any other stdout line after `ready` is ignored and noted in the log;
+  in v2, `event` lines follow §4.5 independently of pending request ids.
 
 The tab's UI receives `{result}` or `{error: {code, message}}` as is.
+
+### 4.5 `event` (backend → host, v2 only)
+
+An unsolicited update; it may be sent between responses, including when
+there is no pending request. It MUST NOT be sent during a protocol-v1 run.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `type` | `"event"` | yes | |
+| `topic` | string | yes | Plugin-defined name, 1–128 UTF-8 bytes, no Unicode control characters. |
+| `payload` | any JSON | yes | Opaque plugin-defined data, including `null`. |
+
+```json
+{"type":"event","topic":"timer.tick","payload":{"tick":42}}
+```
+
+- The host MUST validate the complete line against the 64 KiB limit, the
+  topic constraints and the presence of `payload`. Unknown fields are ignored.
+- Events and responses share one output stream. Their lines MUST remain
+  atomic across threads. Ordering is the order of complete stdout lines;
+  responses remain correlated by their own ids.
+- Events are notifications, not calls: they have no request id or response.
+  The native envelope carries no Cadencr sequence, process id or scope.
+  The authenticated host relay owns that metadata; the backend MUST NOT
+  invent host identity or authorization information.
+- The host treats topics and payloads as opaque. Topics do not name Cadencr
+  API resources or add permission scopes.
+- A backend MUST keep its own queues bounded. The Rust SDK's synchronous
+  `EventEmitter` shares the response writer, adding no event queue; a full
+  host pipe blocks publishing. Run producers off request-reading threads.
+- A producer MUST handle publication errors. Invalid or oversized events
+  are not written by the SDK; output failure means the producer should stop.
+- stdin closure still terminates the process within §6's grace period,
+  even while a producer is active or blocked writing.
 
 ## 5. Concurrency and timeouts
 
@@ -377,6 +419,10 @@ Backends choose their own codes. These have a fixed meaning:
 | `INTERNAL_ERROR` | backend | The backend failed unexpectedly (e.g. a crash caught in a handler). |
 | `RESPONSE_TOO_LARGE` | backend | The result does not fit in one 4 MiB line. |
 | `BUSY` | backend | No room to queue the request; retry later. The Rust SDK answers it once 64 requests wait for a worker, rather than stop reading stdin. |
+| `EVENTS_UNSUPPORTED` | SDK publisher | The run uses v1; emitting an event requires v2. |
+| `INVALID_EVENT` | SDK validator/publisher | Malformed event or invalid topic. |
+| `EVENT_TOO_LARGE` | SDK validator/publisher | Serialized event exceeds 64 KiB. |
+| `OUTPUT_ERROR` | SDK publisher | Output is closed or writing failed; stop the producer. |
 | `BACKEND_ERROR` | host | Substituted when a backend error has no `code`. |
 
 Codes starting with `PLUGIN_` (and `MANAGED_TAB_`) are reserved for the
@@ -427,7 +473,12 @@ A backend MUST NOT exit because of one bad line. After `ready`:
   and keeps the version.
 - The host sends the manifest's `backend.protocol` and refuses versions it
   does not implement; a backend refuses (§4.1) versions it does not speak.
-  There is no negotiation in v1.
+  There is no negotiation in v1 or v2. A multi-version backend MUST echo
+  the requested version, and MUST NOT emit v2 events in a v1 run.
+- v2 requires hosts to recognize and relay unsolicited events rather than
+  ignore them as v1 hosts do. All v1 message shapes and request semantics
+  stay unchanged. `cadencr-tab-backend` accepts both versions; its existing
+  `PROTOCOL_VERSION` constant and conformance default stay at `1`.
 
 ## 12. Conformance
 
@@ -440,7 +491,12 @@ that the **first** stdout line is `ready` with that version within 5 s (the
 host's rule, §4.2), an error response with the same id for an unknown
 method, survival of malformed lines, two concurrent requests both answered,
 a clean exit with status 0 within 2 s of stdin closing, and that stdout
-carried only protocol messages. stderr is read to its end, however long its
+carried only protocol messages. In a v2 run, valid events are checked and
+discarded by the conformance reader without accumulating an event inbox;
+invalid topics, missing payloads and oversized events fail `stdout_clean`.
+Events in a v1 run also fail it. Reader queues and unclaimed replies are
+bounded so a streaming producer cannot grow memory without limit.
+stderr is read to its end, however long its
 lines. `cadencr plugin validate --kind tab` runs it on this platform's
 binary, and fails outright (`TAB_BACKEND_BINARY_REFUSED`) when that binary is
 there but the host would refuse it (script, wrong format or CPU, unsigned

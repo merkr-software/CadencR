@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Example editor</title>
+  </head>
+  <body>
+    <main>
+      <h1>Example editor</h1>
+      <p id="status" role="status">Connecting…</p>
+      <p id="error" role="alert"></p>
+      <p>Surface: <output id="surface">—</output></p>
+      <p>Visibility: <output id="visible">—</output> · Focus: <output id="focused">—</output></p>
+      <p>Appearance: <output id="appearance">—</output></p>
+      <label>Path <input id="path" value="src/example.ts" /></label>
+      <button id="open" disabled>Open at line 12</button>
+      <button id="snapshot" disabled>Read snapshot</button>
+      <pre id="result">No file opened</pre>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

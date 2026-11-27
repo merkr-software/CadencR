@@ -12,11 +12,10 @@ import {
 } from "lucide-react";
 import SearchToggleButton from "./SearchToggleButton";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useSetting } from "@/hooks/useSetting";
 import { useContentSearch, type ContentSearchParams } from "@/api/generated";
 import { SkippedLargeFilesNotice, TruncatedFooter } from "./ContentSearchNotices";
 import { groupByFile, type FileGroupData } from "./contentSearchGroups";
-import { useEditorState } from "@/hooks/useEditorState";
+import { useOpenEditorFile } from "@/hooks/useOpenEditorFile";
 import { SearchIcon } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -140,9 +139,7 @@ function useContentSearchResults({
   open,
   projectId,
 }: ContentSearchDialogProps & { filters: ReturnType<typeof useContentSearchFilters> }) {
-  const { activePaneId, openFile } = useEditorState(featureId);
-  const { value: maxTabsSetting } = useSetting("editor_max_tabs");
-  const maxTabs = parseInt(maxTabsSetting ?? "10", 10);
+  const openFile = useOpenEditorFile(featureId);
   const searchParams: ContentSearchParams = useMemo(
     () => ({
       project_id: projectId,
@@ -167,11 +164,11 @@ function useContentSearchResults({
   const searching = isFetching && hasQuery;
   const handleSelect = useCallback(
     (filePath: string, lineNumber?: number): void => {
-      openFile(activePaneId ?? "main", filePath, maxTabs, lineNumber);
+      openFile(filePath, lineNumber);
       onResultOpen?.();
       onOpenChange(false);
     },
-    [openFile, activePaneId, maxTabs, onResultOpen, onOpenChange],
+    [openFile, onResultOpen, onOpenChange],
   );
   const grouped = useMemo(() => groupByFile(data?.matches ?? []), [data?.matches]);
   const computeItemKey = useCallback((_: number, group: FileGroupData) => group.path, []);

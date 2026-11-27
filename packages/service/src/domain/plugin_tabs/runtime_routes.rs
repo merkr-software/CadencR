@@ -152,7 +152,7 @@ async fn reusable_backend(state: &AppState, principal: &PluginPrincipal) -> Opti
     still_valid.then_some(running)
 }
 
-async fn backend_launch(
+pub(super) async fn backend_launch(
     state: &AppState,
     principal: &PluginPrincipal,
 ) -> Result<BackendLaunch, AppError> {

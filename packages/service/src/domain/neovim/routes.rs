@@ -2,7 +2,10 @@ use std::num::ParseIntError;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::{routing::post, Json, Router};
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 
 use crate::app_state::AppState;
 use crate::error::AppError;
@@ -86,6 +89,11 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/features/{feature_id}/neovim/open",
             post(open_file_route),
+        )
+        .route(
+            "/api/neovim/migration",
+            get(super::migration::migration_status_route)
+                .post(super::migration::migrate_to_plugin_route),
         )
 }
 

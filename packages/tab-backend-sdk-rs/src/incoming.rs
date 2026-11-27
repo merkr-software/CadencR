@@ -3,7 +3,7 @@
 use serde_json::{Map, Value};
 
 use crate::error::{codes, Error};
-use crate::protocol::{Hello, Request, RequestId, PROTOCOL_VERSION};
+use crate::protocol::{Hello, Request, RequestId, SUPPORTED_PROTOCOL_VERSIONS};
 use crate::server::ServeError;
 
 pub(crate) enum Incoming {
@@ -61,7 +61,10 @@ pub(crate) fn hello(line: &[u8]) -> Result<Hello, ServeError> {
         )));
     }
     let protocol = value.get("protocol").cloned().unwrap_or(Value::Null);
-    if protocol != PROTOCOL_VERSION {
+    if !SUPPORTED_PROTOCOL_VERSIONS
+        .iter()
+        .any(|version| protocol == *version)
+    {
         return Err(ServeError::ProtocolMismatch { host: protocol });
     }
     serde_json::from_value(value).map_err(|error| ServeError::InvalidHello(error.to_string()))
@@ -112,9 +115,11 @@ mod tests {
             Err(ServeError::NotHello(_))
         ));
         valid["protocol"] = json!(2);
+        assert!(hello(&line(valid.clone())).is_ok());
+        valid["protocol"] = json!(3);
         assert!(matches!(
             hello(&line(valid.clone())),
-            Err(ServeError::ProtocolMismatch { host }) if host == json!(2)
+            Err(ServeError::ProtocolMismatch { host }) if host == json!(3)
         ));
         valid["protocol"] = json!(1);
         valid["api"] = json!(null);

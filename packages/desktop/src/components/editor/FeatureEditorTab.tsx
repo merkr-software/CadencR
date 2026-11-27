@@ -1,13 +1,4 @@
-import {
-  memo,
-  useRef,
-  useState,
-  useCallback,
-  useMemo,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
-import type { EditorView } from "@codemirror/view";
+import { memo, useState, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useAddSelectionToPrompt } from "./useAddSelectionToPrompt";
 import { useScopedGlobalShortcutById, useScopedShortcut } from "@/hooks/useShortcut";
 import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
@@ -16,6 +7,7 @@ import { useEditorStore } from "@/stores/editor-store";
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
 import {
   getFocusedTab,
+  isTabVisible,
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
@@ -39,7 +31,13 @@ import {
 } from "./useAutoConflictResolution";
 import { EditorLeaveDialog } from "./EditorLeaveDialog";
 import { useFeatureEditorEffects } from "./useFeatureEditorEffects";
-import { focusNeovimEditor } from "./neovim/focusNeovimEditor";
+import { useEditorBackend } from "@/hooks/useEditorBackend";
+import type { EditorTarget } from "@/lib/editors/editor-registry";
+import { rememberFeatureProject } from "@/lib/plugin-tabs/feature-projects";
+import { useEffect } from "react";
+import { useEditorFocusState } from "./useEditorFocusState";
+import { SelectedEditorSurface } from "./SelectedEditorSurface";
+import { rememberEditorSurface } from "@/lib/editors/editor-navigation-store";
 
 interface FeatureEditorTabProps {
   featureId: number;
@@ -55,47 +53,6 @@ export interface FeatureEditorTabHandle {
 }
 
 const EDITOR_SIDEBAR_COLLAPSED_SETTING = "editor_sidebar_collapsed";
-
-function useEditorFocusState(featureId: number, activePaneId: string, isEditorFocused: boolean) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const editorViewsRef = useRef<Map<string, EditorView>>(new Map());
-  const focusActiveEditor = useCallback((): void => {
-    const editor = editorViewsRef.current.get(activePaneId);
-    if (editor) editor.focus();
-    else focusNeovimEditor(featureId);
-  }, [activePaneId, featureId]);
-  const shouldRestoreEditorFocus = useCallback((): boolean => {
-    const active = document.activeElement;
-    return !(active instanceof HTMLElement && rootRef.current?.contains(active));
-  }, []);
-  const handleEditorViewChange = useCallback(
-    (paneId: string, view: EditorView | null): void => {
-      if (!view) {
-        editorViewsRef.current.delete(paneId);
-        return;
-      }
-      editorViewsRef.current.set(paneId, view);
-      if (isEditorFocused && paneId === activePaneId && shouldRestoreEditorFocus()) {
-        requestAnimationFrame(() => view.focus());
-      }
-    },
-    [activePaneId, isEditorFocused, shouldRestoreEditorFocus],
-  );
-  const getActiveView = useCallback(
-    () => editorViewsRef.current.get(activePaneId) ?? null,
-    [activePaneId],
-  );
-  return useMemo(
-    () => ({
-      focusActiveEditor,
-      getActiveView,
-      handleEditorViewChange,
-      rootRef,
-      shouldRestoreEditorFocus,
-    }),
-    [focusActiveEditor, getActiveView, handleEditorViewChange, shouldRestoreEditorFocus],
-  );
-}
 
 type EditorFocusState = ReturnType<typeof useEditorFocusState>;
 
@@ -216,9 +173,20 @@ const FeatureEditorTab = memo(
   forwardRef<FeatureEditorTabHandle, FeatureEditorTabProps>(function FeatureEditorTab(props, ref) {
     const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? props.featureId;
     const editor = useEditorState(props.featureId);
+    const target = useEditorBackend(props.featureId, props.projectId);
+    useEffect(
+      () => rememberFeatureProject(props.featureId, props.projectId),
+      [props.featureId, props.projectId],
+    );
+    useEffect(() => {
+      if (target.kind === "plugin") rememberEditorSurface(props.featureId, target.id);
+    }, [props.featureId, target.kind, target.id]);
     const navigatePane = useEditorStore((state) => state.navigatePane);
     const layoutEditorFocused = useFeatureLayoutStore(
       (state) => getFocusedTab(selectFeatureLayout(layoutFeatureId)(state)) === "editor",
+    );
+    const visible = useFeatureLayoutStore((state) =>
+      isTabVisible(selectFeatureLayout(layoutFeatureId)(state), "editor"),
     );
     const isEditorFocused = props.focusedOverride ?? layoutEditorFocused;
     const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -227,7 +195,12 @@ const FeatureEditorTab = memo(
     );
     useFileWatcher(props.projectId, props.featureId);
     const confirmedConflicts = useConfirmedConflictPaths(props.featureId);
-    const focus = useEditorFocusState(props.featureId, editor.activePaneId, isEditorFocused);
+    const focus = useEditorFocusState(
+      props.featureId,
+      editor.activePaneId,
+      isEditorFocused,
+      target,
+    );
     const leave = useEditorLeaveGuard(ref, editor.panes, focus);
     const handleToggleSidebar = useCallback(() => {
       // The file tree's visibility is this view's own state; the setting only
@@ -271,6 +244,8 @@ const FeatureEditorTab = memo(
         setFileSearchOpen={setFileSearchOpen}
         isWorktree={isWorktree}
         handleToggleSidebar={handleToggleSidebar}
+        target={target}
+        visible={visible}
       />
     );
   }),
@@ -286,6 +261,8 @@ function FeatureEditorView({
   setFileSearchOpen,
   isWorktree,
   handleToggleSidebar,
+  target,
+  visible,
 }: {
   props: FeatureEditorTabProps;
   editor: ReturnType<typeof useEditorState>;
@@ -296,6 +273,8 @@ function FeatureEditorView({
   setFileSearchOpen: (open: boolean) => void;
   isWorktree: boolean;
   handleToggleSidebar: () => void;
+  target: EditorTarget;
+  visible: boolean;
 }) {
   const openFileSearch = useCallback(() => setFileSearchOpen(true), [setFileSearchOpen]);
   const sidebar = useMemo(
@@ -315,14 +294,30 @@ function FeatureEditorView({
   );
   const editorPane = useMemo(
     () => (
-      <EditorSplitTree
-        node={editor.splitTree}
+      <SelectedEditorSurface
         featureId={props.featureId}
         projectId={props.projectId}
-        onEditorViewChange={focus.handleEditorViewChange}
-      />
+        projectPath={props.projectPath}
+        target={target}
+        visible={visible}
+      >
+        <EditorSplitTree
+          node={editor.splitTree}
+          featureId={props.featureId}
+          projectId={props.projectId}
+          onEditorViewChange={focus.handleEditorViewChange}
+        />
+      </SelectedEditorSurface>
     ),
-    [editor.splitTree, focus.handleEditorViewChange, props.featureId, props.projectId],
+    [
+      editor.splitTree,
+      focus.handleEditorViewChange,
+      props.featureId,
+      props.projectId,
+      props.projectPath,
+      target,
+      visible,
+    ],
   );
   return (
     <ConfirmedConflictPathsProvider conflicts={confirmedConflicts}>

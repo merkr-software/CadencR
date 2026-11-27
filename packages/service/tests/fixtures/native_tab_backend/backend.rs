@@ -262,6 +262,22 @@ fn answer(hello: &Json, request: &Json) {
     let params = request.get("params").clone();
     let respond = |result: Json| send(&object(vec![("type", text("response")), ("id", id.clone()), ("result", result)]));
     match request.get("method").str() {
+        "emit" => {
+            send(&object(vec![
+                ("type", text("event")), ("topic", text("clock.tick")),
+                ("payload", params.clone()), ("run_id", text("forged")),
+                ("seq", Json::Number("999".into())),
+            ]));
+            respond(params);
+        }
+        "invalid_event" => {
+            send(&object(vec![("type", text("event")), ("topic", text("")), ("payload", Json::Null)]));
+            respond(Json::Null);
+        }
+        "slow" => {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            respond(Json::Null);
+        }
         "echo" => respond(params),
         "context" => respond(object(vec![
             ("feature_id", hello.get("feature_id").clone()),
@@ -332,6 +348,7 @@ fn main() {
         "silent" | "chatty" => {}
         "early" => return,
         "future" => ready(2),
+        "events" => ready(2),
         "deaf" => {
             // The pid is whole and on disk before `ready`: a test that reads
             // it once its first request is over must not race this process.

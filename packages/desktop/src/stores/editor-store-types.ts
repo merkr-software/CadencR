@@ -20,6 +20,7 @@ export interface EditorTab {
   cursorPosition: { line: number; col: number };
   /** When set, the editor scrolls to this line on next load and clears it. */
   pendingGoToLine?: number;
+  pendingGoToColumn?: number;
   isArtifact?: boolean;
   artifactFeatureId?: number;
   artifactPhaseSlug?: string;
@@ -80,6 +81,7 @@ export interface EditorStore {
     filePath: string,
     maxTabs?: number,
     goToLine?: number,
+    goToColumn?: number,
   ) => void;
   /**
    * Open a new empty "untitled" scratch tab. Used by CMD+N before the

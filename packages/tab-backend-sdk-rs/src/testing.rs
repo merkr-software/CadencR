@@ -30,8 +30,8 @@ use serde_json::{json, Value};
 
 use crate::context::Handler;
 use crate::protocol::{
-    ApiInfo, BackendMessage, ErrorBody, Hello, HostMessage, PluginInfo, Ready, RequestId, Response,
-    PROTOCOL_VERSION,
+    ApiInfo, BackendMessage, ErrorBody, Event, Hello, HostMessage, PluginInfo, Ready, RequestId,
+    Response, PROTOCOL_VERSION,
 };
 use crate::server::{lock, run, Config, Pool, ServeError};
 
@@ -173,6 +173,17 @@ impl Transcript {
     /// Every response, in the order they were written.
     pub fn responses(&self) -> Vec<Response> {
         self.written_responses().cloned().collect()
+    }
+
+    /// Every unsolicited event, in the order they were written.
+    pub fn events(&self) -> Vec<Event> {
+        self.messages
+            .iter()
+            .filter_map(|message| match message {
+                Some(BackendMessage::Event(event)) => Some(event.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The response to the request with the string id `id`.

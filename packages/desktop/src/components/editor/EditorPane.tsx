@@ -10,9 +10,6 @@ import EditorSubTabs from "./EditorSubTabs";
 import { copyFilePath } from "./copyFilePath";
 import { clearPaneSearch } from "./editor-search/search-cache";
 import { useActiveConflict } from "./useAutoConflictResolution";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useVimModeLevel } from "@/hooks/useVimModeLevel";
-import NeovimMobileFallback from "./neovim/NeovimMobileFallback";
 
 const CodeMirrorEditor = lazy(() => import("./CodeMirrorEditor"));
 const ConflictResolverEditor = lazy(() => import("./ConflictResolverEditor"));
@@ -26,7 +23,6 @@ const DocumentPreview = lazy(() =>
     default: module.DocumentPreview,
   })),
 );
-const NeovimPane = lazy(() => import("./neovim/NeovimPane"));
 
 interface EditorPaneProps {
   featureId: number;
@@ -212,10 +208,7 @@ export default function EditorPane({
   const activeConflict = useActiveConflict(activeFilePath, activeFileIsDirty);
   const setActivePane = useEditorStore((s) => s.setActivePane);
   const openUntitledBuffer = useEditorStore((s) => s.openUntitledBuffer);
-  const vimModeLevel = useVimModeLevel();
-  const isMobile = useIsMobile();
-  const isFullNeovim = vimModeLevel === "2" && !isMobile;
-  const isFocusedPane = activePaneId === paneId && !isFullNeovim;
+  const isFocusedPane = activePaneId === paneId;
   const controls = useEditorPaneControls({
     activeFilePath,
     featureId,
@@ -230,31 +223,22 @@ export default function EditorPane({
         if (!isActive) setActivePane(featureId, paneId);
       }}
     >
-      {isFullNeovim ? (
-        <Suspense fallback={suspenseFallback}>
-          <NeovimPane featureId={featureId} />
-        </Suspense>
-      ) : (
-        <>
-          {vimModeLevel === "2" && isMobile && <NeovimMobileFallback />}
-          <EditorSubTabs featureId={featureId} paneId={paneId} projectId={projectId} />
-          <div className="flex-1 overflow-hidden">
-            {activeFilePath ? (
-              <EditorPaneContent
-                activeConflict={activeConflict}
-                activeFilePath={activeFilePath}
-                controls={controls}
-                featureId={featureId}
-                onEditorViewChange={onEditorViewChange}
-                paneId={paneId}
-                projectId={projectId}
-              />
-            ) : (
-              <EditorEmptyState />
-            )}
-          </div>
-        </>
-      )}
+      <EditorSubTabs featureId={featureId} paneId={paneId} projectId={projectId} />
+      <div className="flex-1 overflow-hidden">
+        {activeFilePath ? (
+          <EditorPaneContent
+            activeConflict={activeConflict}
+            activeFilePath={activeFilePath}
+            controls={controls}
+            featureId={featureId}
+            onEditorViewChange={onEditorViewChange}
+            paneId={paneId}
+            projectId={projectId}
+          />
+        ) : (
+          <EditorEmptyState />
+        )}
+      </div>
     </div>
   );
 }

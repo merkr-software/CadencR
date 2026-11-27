@@ -78,7 +78,13 @@ pub fn run(binary: &Path, options: &Options) -> Report {
         Ok(state_dir) => state_dir,
         Err(error) => return not_started(format!("cannot create a state directory: {error}")),
     };
-    let mut backend = match Backend::spawn(binary, &options.args, &cwd) {
+    let mut backend = match Backend::spawn()
+        .binary(binary)
+        .args(&options.args)
+        .cwd(&cwd)
+        .protocol(options.protocol)
+        .call()
+    {
         Ok(backend) => backend,
         Err(error) => return not_started(format!("cannot start {}: {error}", binary.display())),
     };

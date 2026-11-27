@@ -50,7 +50,9 @@ describe("PluginTabShortcutRelay", () => {
     const bindings = mock.bridge.setAppShortcuts.mock.calls[0]?.[0] ?? [];
     expect(bindings).toContainEqual({ keys: ["mod", "k"] });
     const fields = new Set(bindings.flatMap((binding) => Object.keys(binding)));
-    expect([...fields].every((field) => field === "keys" || field === "altKeys")).toBe(true);
+    expect(
+      [...fields].every((field) => field === "keys" || field === "altKeys" || field === "surface"),
+    ).toBe(true);
   });
 
   it("runs a shortcut pressed in a focused tab through the usual handlers, on any layout", () => {

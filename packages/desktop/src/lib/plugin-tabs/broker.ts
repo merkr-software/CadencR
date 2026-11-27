@@ -5,19 +5,24 @@ import {
   isGuestToHost,
   negotiateApiVersion,
   type EventMap,
+  type EditorAppearance,
+  type SurfaceIdentity,
   type EventName,
   type GuestToHost,
   type HelloResult,
   type HostToGuest,
   type TabContext,
   type ThemeSnapshot,
+  type StreamEnvelope,
+  type WireError,
+  type BackendRequestResult,
 } from "@cadencr/tab-sdk/protocol";
 import { z } from "zod";
 
-import { BackendFailureWatch, type BackendFailureDeps } from "./broker-backend-failures";
+import { BackendFailureWatch } from "./broker-backend-failures";
 import { BrokerError, badRequest, toWireError } from "./broker-errors";
-import { GrantHolder, type GrantDeps } from "./broker-grant";
-import { createPluginHttp, type FetchLike } from "./broker-http";
+import { GrantHolder } from "./broker-grant";
+import { createPluginHttp } from "./broker-http";
 import { DATA_METHODS } from "./broker-methods-data";
 import { RUN_METHODS } from "./broker-methods-run";
 import { UI_METHODS } from "./broker-methods-ui";
@@ -28,29 +33,15 @@ import {
   type MethodOutcome,
   type PluginIdentity,
 } from "./broker-runtime";
-import { PluginStreamSocket, type SocketFactory } from "./broker-streams";
+import { PluginStreamSocket } from "./broker-streams";
+import { backendEventPayload } from "./broker-stream-messages";
+import { NativeDelivery } from "./broker-native-delivery";
 import { subscribePluginTabPorts } from "./port-registry";
 import { releasePluginTabInstance, setPluginTabBadge } from "./runtime-store";
 import { currentPluginTabTheme, subscribePluginTabTheme } from "./theme-sync";
 
-export interface PluginTabBrokerOptions {
-  instanceId: string;
-  featureId: number;
-  plugin: PluginIdentity;
-  context: TabContext;
-  visible: boolean;
-}
-
-/** Seams for tests; production uses the real service, socket and theme. */
-export interface PluginTabBrokerDeps {
-  grant?: GrantDeps;
-  backendFailures?: BackendFailureDeps;
-  fetch?: FetchLike;
-  socket?: SocketFactory;
-  theme?: () => ThemeSnapshot;
-  /** Whether to listen for ports posted to `window` (default true). */
-  windowPorts?: boolean;
-}
+import type { PluginTabBrokerOptions, PluginTabBrokerDeps } from "./broker-options";
+export type { PluginTabBrokerOptions, PluginTabBrokerDeps } from "./broker-options";
 
 const helloSchema = z.object({
   sdkVersion: z.string(),
@@ -73,7 +64,11 @@ export class PluginTabBroker {
   private context: TabContext;
   private contextKey: string;
   private visible: boolean;
+  private focused = false;
+  private readonly surface: SurfaceIdentity;
+  private appearance: EditorAppearance | undefined;
   private disposed = false;
+  private connected = false;
   private readonly runtime: BrokerRuntime;
   private readonly methods: ReadonlyMap<string, MethodHandler>;
   private readonly theme: () => ThemeSnapshot;
@@ -81,10 +76,17 @@ export class PluginTabBroker {
   /** Tells the user when the backend can't run at all; the page still gets the error. */
   private readonly backendFailures: BackendFailureWatch;
 
-  constructor(options: PluginTabBrokerOptions, deps: PluginTabBrokerDeps = {}) {
+  constructor(
+    options: PluginTabBrokerOptions,
+    private readonly deps: PluginTabBrokerDeps = {},
+  ) {
     this.context = options.context;
     this.contextKey = JSON.stringify(options.context);
     this.visible = options.visible;
+    this.surface = options.surface ?? { kind: "tab", instanceId: options.instanceId };
+    if (this.surface.instanceId !== options.instanceId)
+      throw new Error("Surface identity mismatch");
+    this.appearance = options.appearance;
     this.theme = deps.theme ?? currentPluginTabTheme;
     this.backendFailures = new BackendFailureWatch(options.instanceId, deps.backendFailures);
     const grant = new GrantHolder(options.plugin.id, options.featureId, deps.grant);
@@ -92,10 +94,12 @@ export class PluginTabBroker {
       instanceId: options.instanceId,
       grant,
       sink: {
-        event: (subscriptionId, seq, data) =>
-          this.emit("stream.event", { subscriptionId, seq, data }),
-        resync: (subscriptionId) => this.emit("stream.resync", { subscriptionId }),
-        error: (subscriptionId, error) => this.emit("stream.error", { subscriptionId, error }),
+        event: (subscriptionId, seq, data) => this.streamEvent(subscriptionId, seq, data),
+        resync: (subscriptionId) => {
+          if (subscriptionId.startsWith("b")) this.runtime.nativeDelivery.resync(subscriptionId);
+          else this.emit("stream.resync", { subscriptionId });
+        },
+        error: (subscriptionId, error) => this.streamError(subscriptionId, error),
       },
       createSocket: deps.socket,
     });
@@ -105,6 +109,7 @@ export class PluginTabBroker {
       grant,
       http: createPluginHttp(grant, deps.fetch),
       streams,
+      nativeDelivery: new NativeDelivery((name, payload) => this.emit(name, payload)),
     };
     // A Map, not an object: a guest naming `constructor` or `toString` must
     // not reach an Object.prototype function.
@@ -128,7 +133,18 @@ export class PluginTabBroker {
     return this.runtime.instanceId;
   }
 
-  /** Adopt the guest's newest port; the previous one (a reloaded page) is closed. */
+  async requestBackend(method: string, params: unknown): Promise<BackendRequestResult> {
+    if (this.disposed || !this.connected) throw new Error("The plugin surface is unavailable.");
+    const outcome = await RUN_METHODS["backend.request"]!({ method, params }, this.runtime);
+    return outcome.result as BackendRequestResult;
+  }
+
+  private setConnected(connected: boolean): void {
+    if (this.connected === connected) return;
+    this.connected = connected;
+    this.deps.connectionChanged?.(connected);
+  }
+
   attachPort(port: MessagePort): void {
     if (this.disposed) {
       port.close();
@@ -137,13 +153,13 @@ export class PluginTabBroker {
     this.detachPort();
     // A new port is a new page: the previous page's subscriptions are dead.
     this.runtime.streams.reset();
+    this.runtime.nativeDelivery.reset();
     this.port = port;
     port.onmessage = (event: MessageEvent) => {
       if (this.port === port) void this.handleMessage(port, event.data);
     };
   }
 
-  /** Name/version/origins/levels after a manifest change (hot reload). */
   setPlugin(plugin: PluginIdentity): void {
     this.runtime.plugin = plugin;
   }
@@ -158,9 +174,27 @@ export class PluginTabBroker {
   }
 
   setVisible(visible: boolean): void {
+    if (!visible) this.setFocused(false);
     if (visible === this.visible) return;
     this.visible = visible;
     this.emit("visibility.changed", { visible });
+  }
+
+  setFocused(focused: boolean): void {
+    const active = focused && this.visible;
+    if (this.focused === active) return;
+    this.focused = active;
+    this.emit("focus.changed", { focused: active });
+  }
+
+  setEditorAppearance(appearance: EditorAppearance): void {
+    if (
+      this.appearance?.fontFamily === appearance.fontFamily &&
+      this.appearance.fontSize === appearance.fontSize
+    )
+      return;
+    this.appearance = appearance;
+    this.emit("editor.appearance.changed", { appearance });
   }
 
   /** One of the tab's active shortcuts was pressed while it had focus. */
@@ -182,8 +216,10 @@ export class PluginTabBroker {
    */
   suspend(): void {
     if (this.disposed) return;
+    this.setFocused(false);
     this.detachPort();
     this.runtime.streams.reset();
+    this.runtime.nativeDelivery.reset();
     this.runtime.grant.release();
   }
 
@@ -193,6 +229,7 @@ export class PluginTabBroker {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.detachPort();
     this.runtime.streams.dispose();
+    this.runtime.nativeDelivery.reset();
     this.runtime.grant.dispose();
     this.backendFailures.dispose();
     releasePluginTabInstance(this.instanceId);
@@ -200,6 +237,7 @@ export class PluginTabBroker {
   }
 
   private detachPort(): void {
+    this.setConnected(false);
     const previous = this.port;
     this.port = null;
     if (!previous) return;
@@ -217,6 +255,7 @@ export class PluginTabBroker {
         { v: PROTOCOL_VERSION, kind: "response", id: data.id, result: outcome.result },
         outcome.transfer,
       );
+      if (data.method === "hello" && this.port === port && !this.disposed) this.setConnected(true);
     } catch (error) {
       if (data.method === "backend.request" && !this.disposed) {
         this.backendFailures.failed(this.runtime.plugin.name, error);
@@ -257,6 +296,9 @@ export class PluginTabBroker {
       capabilities: await this.capabilities(),
       // A page recreated while hidden (a rebuild) gets no visibility change.
       visible: this.visible,
+      surface: this.surface,
+      focused: this.focused,
+      editorAppearance: this.appearance,
       shortcuts: [...this.runtime.plugin.shortcuts],
     };
     return { result };
@@ -270,14 +312,28 @@ export class PluginTabBroker {
       "net.fetch": plugin.allowedOrigins.length > 0,
       "exec.run": plugin.hasCommands,
       "backend.request": plugin.hasBackend,
+      "backend.subscribe": plugin.backendProtocol === 2,
+      "backend.unsubscribe": plugin.backendProtocol === 2,
+      "backend.ack": plugin.backendProtocol === 2,
     };
     const methods = METHOD_NAMES.filter((method) => declared[method] ?? true);
     try {
-      return [...methods, ...(await this.runtime.grant.get()).scopes];
+      return [
+        ...methods,
+        "surface.identity",
+        "surface.focus",
+        ...(this.appearance ? ["editor.appearance"] : []),
+        ...(await this.runtime.grant.get()).scopes,
+      ];
     } catch {
       // No grant (the tab is off for this project): the handshake still
       // succeeds, and each API call reports the actual refusal.
-      return methods;
+      return [
+        ...methods,
+        "surface.identity",
+        "surface.focus",
+        ...(this.appearance ? ["editor.appearance"] : []),
+      ];
     }
   }
 
@@ -289,6 +345,7 @@ export class PluginTabBroker {
           params,
           "streams.subscribe",
         );
+        if (topic === "backend.events") throw badRequest("Native events require backend.subscribe");
         return { result: { subscriptionId: await runtime.streams.subscribe(topic, topicParams) } };
       },
       "streams.unsubscribe": async (params, runtime) => {
@@ -297,6 +354,8 @@ export class PluginTabBroker {
           params,
           "streams.unsubscribe",
         );
+        if (subscriptionId.startsWith("b"))
+          throw badRequest("Native subscriptions require backend.unsubscribe");
         runtime.streams.unsubscribe(subscriptionId);
         return { result: null };
       },
@@ -305,6 +364,32 @@ export class PluginTabBroker {
 
   private emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     if (this.port) this.post(this.port, { v: PROTOCOL_VERSION, kind: "event", event, payload });
+  }
+
+  private streamEvent(subscriptionId: string, seq: number, data: StreamEnvelope): void {
+    if (!subscriptionId.startsWith("b")) {
+      this.emit("stream.event", { subscriptionId, seq, data });
+      return;
+    }
+    const parsed = backendEventPayload.safeParse(data.payload);
+    if (!parsed.success) {
+      this.streamError(subscriptionId, { code: "HOST_ERROR", message: "Invalid backend event" });
+      return;
+    }
+    const event = parsed.data;
+    this.runtime.nativeDelivery.event({
+      subscriptionId,
+      seq,
+      topic: event.topic,
+      runId: event.run_id,
+      processSeq: event.seq,
+      payload: event.payload,
+    });
+  }
+
+  private streamError(subscriptionId: string, error: WireError): void {
+    if (subscriptionId.startsWith("b")) this.runtime.nativeDelivery.error(subscriptionId, error);
+    else this.emit("stream.error", { subscriptionId, error });
   }
 
   private post(port: MessagePort, message: HostToGuest, transfer?: Transferable[]): void {

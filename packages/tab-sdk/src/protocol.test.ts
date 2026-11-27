@@ -43,6 +43,11 @@ describe("protocol", () => {
       { v: 1, kind: "response", id: "1", error: "boom" },
       event("theme.changed", {}),
       event("visibility.changed", { visible: "yes" }),
+      event("focus.changed", { focused: "yes" }),
+      event("editor.appearance.changed", { appearance: { fontFamily: "Mono", fontSize: -1 } }),
+      event("editor.appearance.changed", {
+        appearance: { fontFamily: "Mono", fontSize: Infinity },
+      }),
       event("stream.event", { subscriptionId: "s", seq: "1", data: { domain: "g", action: "a" } }),
       event("stream.error", { subscriptionId: "s", error: {} }),
       event("context.changed", { context: { project: {} } }),

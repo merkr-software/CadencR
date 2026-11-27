@@ -52,6 +52,21 @@ afterEach(() => {
 });
 
 describe("PluginStreamSocket", () => {
+  it("sends backend calls on the authenticated socket and never replays them", async () => {
+    const { sockets, streams } = setup();
+    const call = streams.backendRequest({ method: "increment", params: null }, 500);
+    await until(() => sockets.length === 1);
+    const socket = sockets[0]!;
+    socket.open();
+    await until(() => socket.sent.length === 1);
+    const request = socket.lastRequest();
+    expect(request).toMatchObject({ action: "backend.request", payload: { method: "increment" } });
+    socket.drop();
+    await expect(call).rejects.toMatchObject({ code: "DISCONNECTED" });
+    expect(sockets).toHaveLength(1);
+    streams.dispose();
+  });
+
   it("subscribes over the plugin socket and forwards events under a local id", async () => {
     const { sockets, sink, streams } = setup();
     const subscribing = streams.subscribe("git.status");
@@ -217,6 +232,96 @@ describe("PluginStreamSocket", () => {
     await settle();
     sockets[1]!.acceptSubscribe("git.status", "srv-1");
     await expect(second).resolves.toEqual(expect.any(String));
+    streams.dispose();
+  });
+
+  it("times out an unopened connection and lets the next subscription open a fresh one", async () => {
+    vi.useFakeTimers();
+    const { sockets, streams } = setup();
+    const first = streams.subscribe("git.status");
+    const failed = expect(first).rejects.toMatchObject({ code: "TIMEOUT" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+    expect(sockets[0]!.readyState).toBe(3);
+
+    const second = streams.subscribe("git.status");
+    await settle();
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    await settle();
+    sockets[1]!.acceptSubscribe("git.status", "srv-1");
+    await expect(second).resolves.toEqual(expect.any(String));
+    streams.dispose();
+  });
+
+  it("does not open the old page's socket when its grant arrives after a reset", async () => {
+    const { sockets, streams, grant } = setup();
+    let resolveToken: (token: string) => void = () => undefined;
+    vi.spyOn(grant, "token").mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveToken = resolve;
+      }),
+    );
+    const first = streams.backendRequest({ method: "increment" }, 500);
+    const failed = expect(first).rejects.toMatchObject({ code: "DISCONNECTED" });
+    streams.reset();
+    resolveToken("old-page");
+    await failed;
+    expect(sockets).toHaveLength(0);
+    streams.dispose();
+  });
+
+  it("preserves a backend subscription when its first rebind drops before acknowledgement", async () => {
+    vi.useFakeTimers();
+    const { sockets, sink, streams } = setup();
+    const first = streams.subscribe("clock.tick", {}, true);
+    await settle();
+    sockets[0]!.open();
+    await settle();
+    sockets[0]!.acceptSubscribe("clock.tick", "srv-1");
+    const localId = await first;
+    expect(localId).toMatch(/^b/);
+    sockets[0]!.receive({
+      id: crypto.randomUUID(),
+      domain: "plugin",
+      action: "event",
+      payload: {
+        subscription_id: "srv-1",
+        seq: 2,
+        envelope: { domain: "backend", action: "event", payload: { tick: 2 } },
+      },
+    });
+
+    sockets[0]!.drop(1008);
+    await vi.advanceTimersByTimeAsync(1_100);
+    sockets[1]!.open();
+    await settle();
+    expect(sockets[1]!.subscribes()).toHaveLength(1);
+    sockets[1]!.drop(1008);
+    await settle();
+    await vi.advanceTimersByTimeAsync(2_100);
+    sockets[2]!.open();
+    await settle();
+    sockets[2]!.acceptSubscribe("clock.tick", "srv-3");
+    await settle();
+    expect(sink.error).not.toHaveBeenCalled();
+    expect(sink.resync).toHaveBeenCalledExactlyOnceWith(localId);
+    sockets[2]!.receive({
+      id: crypto.randomUUID(),
+      domain: "plugin",
+      action: "event",
+      payload: {
+        subscription_id: "srv-3",
+        seq: 1,
+        envelope: { domain: "backend", action: "event", payload: { tick: 3 } },
+      },
+    });
+    expect(sink.event).toHaveBeenLastCalledWith(localId, 3, {
+      domain: "backend",
+      action: "event",
+      payload: { tick: 3 },
+    });
     streams.dispose();
   });
 

@@ -1,15 +1,13 @@
-import { memo, useMemo, useState, type ReactElement } from "react";
+import { memo, useState, type ReactElement } from "react";
 import type { TabContext } from "@cadencr/tab-sdk/protocol";
 
 import type { PluginTabSummary } from "@/api/generated";
 import { pluginTabsAvailable } from "@/lib/plugin-tabs/availability";
-import type { PluginIdentity } from "@/lib/plugin-tabs/broker-runtime";
 import { pluginTabInstanceId } from "@/lib/plugin-tabs/instance-id";
 import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import { useOpenCustomTabProject } from "@/components/settings/custom-tabs/useOpenCustomTabProject";
 import { useWorkspaceActive } from "@/components/workspace-pool/workspace-activity";
 import { useDocumentVisible } from "@/hooks/useDocumentVisible";
-import type { PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
 import type { TabKind } from "@/stores/feature-layout-schema";
 import {
   isTabVisible,
@@ -21,6 +19,7 @@ import { PluginTabActivityDialog } from "./PluginTabActivityDialog";
 import { PluginTabExternalOpenDialog } from "./PluginTabExternalOpenDialog";
 import { PluginTabOverlay, type PluginTabOverlayState } from "./PluginTabOverlay";
 import { backendPlatforms, backendUnavailableHere } from "./plugin-tab-access";
+import { usePluginIdentity } from "../plugin-surfaces/usePluginIdentity";
 import { usePluginTabGuest, type GuestPhase } from "./usePluginTabGuest";
 import { useActiveTabShortcuts } from "./useTabShortcuts";
 import { usePluginTabNavigation } from "./usePluginTabNavigation";
@@ -143,31 +142,3 @@ export const PluginTabView = memo(function PluginTabView({
     </div>
   );
 });
-
-/** Identity-stable while the fields the broker uses are unchanged. */
-function usePluginIdentity(
-  summary: PluginTabSummary,
-  shortcuts: readonly PluginTabOwnShortcut[],
-): PluginIdentity {
-  const { id, name } = summary;
-  const version = summary.version ?? "0.0.0";
-  const origins = summary.network.allowed_origins.join("\n");
-  const hasCommands = summary.commands.length > 0;
-  const hasBackend = summary.backend != null;
-  return useMemo(
-    () => ({
-      id,
-      name,
-      version,
-      allowedOrigins: lines(origins),
-      hasCommands,
-      hasBackend,
-      shortcuts: shortcuts.map((shortcut) => shortcut.id),
-    }),
-    [id, name, origins, version, hasCommands, hasBackend, shortcuts],
-  );
-}
-
-function lines(joined: string): string[] {
-  return joined === "" ? [] : joined.split("\n");
-}

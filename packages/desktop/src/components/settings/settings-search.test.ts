@@ -23,8 +23,8 @@ describe("searchSettings", () => {
   });
 
   it("finds a setting by its label or keywords, case- and accent-blind", () => {
-    expect(flatten("VIM")).toEqual(["editor", "editor/Vim mode"]);
-    expect(flatten("néovim")).toEqual(["editor", "editor/Vim mode"]);
+    expect(flatten("VIM")).toEqual(["editor", "editor/Editor backend", "editor/Vim motions"]);
+    expect(flatten("néovim")).toEqual(["editor", "editor/Editor backend"]);
     expect(flatten("bitbucket")).toEqual(["git", "git/Remote connections"]);
   });
 
@@ -33,7 +33,11 @@ describe("searchSettings", () => {
   });
 
   it("lets a page's name narrow its settings", () => {
-    expect(flatten("editor vim")).toEqual(["editor", "editor/Vim mode"]);
+    expect(flatten("editor vim")).toEqual([
+      "editor",
+      "editor/Editor backend",
+      "editor/Vim motions",
+    ]);
     expect(flatten("cli providers")).toContain("providers/Provider versions & updates");
   });
 

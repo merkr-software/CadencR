@@ -1,0 +1,26 @@
+body {
+  background: var(--cadencr-background, #131416);
+  color: var(--cadencr-foreground, #eff0f2);
+  font-family: system-ui, sans-serif;
+  margin: 0;
+}
+main {
+  margin: 24px;
+  max-width: 640px;
+}
+output {
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+button {
+  background: var(--cadencr-primary, #2db47d);
+  border: 0;
+  border-radius: 6px;
+  color: #131416;
+  cursor: pointer;
+  padding: 8px 12px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

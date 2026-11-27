@@ -74,9 +74,9 @@ describe("CadencrProvider", () => {
       host.pressShortcut("refresh");
       host.pressShortcut("next");
       host.pressShortcut("refresh");
-      await flush();
     });
-    expect(screen.getByTestId("count").textContent).toBe("2");
+    // Port delivery is asynchronous: poll instead of assuming a fixed delay.
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("2"));
   });
 
   it("renders errorFallback when the connection fails", async () => {
