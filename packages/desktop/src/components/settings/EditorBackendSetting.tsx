@@ -134,9 +134,9 @@ export function EditorBackendSetting() {
           The editor choice could not be loaded.
         </p>
       )}
-      {setting.isSaving && (
+      {(setting.isSaving || switching) && (
         <p role="status" className="text-xs text-muted-foreground">
-          Saving editor choice…
+          {switching ? "Switching to the Neovim plugin…" : "Saving editor choice…"}
         </p>
       )}
       <RadioCardGroup

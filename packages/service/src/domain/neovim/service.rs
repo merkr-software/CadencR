@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use portable_pty::CommandBuilder;
 use sqlx::SqlitePool;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
+use crate::domain::settings_store;
 use crate::domain::terminal::cwd::resolve_cwd;
 use crate::domain::terminal::service::{PtyKind, PtyManager};
 use crate::error::AppError;
@@ -13,6 +14,7 @@ use crate::error::AppError;
 #[cfg(test)]
 use nvim_rs::rpc::handler::Dummy;
 
+use super::migration::{EDITOR_BACKEND_KEY, NEOVIM_PLUGIN_EDITOR_ID};
 use super::protocol::NeovimStartResponse;
 
 mod file;
@@ -39,7 +41,8 @@ pub struct NeovimManager {
     processes: Arc<Mutex<HashMap<i64, NeovimHandle>>>,
     /// Serializes the spawn sequence across features so Cadencr never triggers
     /// two simultaneous first-time plugin installs into the same shared
-    /// plugin directory.
+    /// plugin directory. Also keeps the migration check and settings write
+    /// ordered against startup.
     spawn_lock: Arc<Mutex<()>>,
     pty_manager: PtyManager,
     /// Resolves each feature's worktree path before spawning, so plugins that
@@ -73,12 +76,21 @@ impl NeovimManager {
             return Ok(());
         }
 
-        let _spawn_guard = self.spawn_lock.lock().await;
+        let _spawn_guard = self.lock_startup().await;
 
         // Re-check under the lock: another task may have spawned this feature
         // while we waited.
         if self.is_running(feature_id).await {
             return Ok(());
+        }
+        if settings_store::global_get(EDITOR_BACKEND_KEY).as_deref()
+            == Some(NEOVIM_PLUGIN_EDITOR_ID)
+        {
+            return Err(AppError::coded(
+                axum::http::StatusCode::CONFLICT,
+                "NEOVIM_EDITOR_MIGRATED",
+                "select Full Neovim in editor settings to start a built-in Neovim session",
+            ));
         }
 
         let socket_dir = tempfile::tempdir().map_err(|e| AppError::NeovimSpawnError {
@@ -186,6 +198,10 @@ impl NeovimManager {
 
     pub(crate) async fn is_running(&self, feature_id: i64) -> bool {
         self.processes.lock().await.contains_key(&feature_id)
+    }
+
+    pub(super) async fn lock_startup(&self) -> OwnedMutexGuard<()> {
+        self.spawn_lock.clone().lock_owned().await
     }
 
     /// Feature ids with a Neovim process registered right now, sorted. The

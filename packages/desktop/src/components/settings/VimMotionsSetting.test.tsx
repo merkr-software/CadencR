@@ -24,7 +24,9 @@ describe("Vim motions remain independent of editor identity", () => {
       }),
     );
     const { user } = render(<VimMotionsSetting />);
-    await user.click(screen.getByRole("switch"));
+    const motions = screen.getByRole("switch");
+    expect(motions).not.toBeChecked();
+    await user.click(motions);
     expect(mocks.persist).toHaveBeenCalledExactlyOnceWith({
       key: "editor_backend",
       data: { value: "neovim" },
@@ -35,12 +37,13 @@ describe("Vim motions remain independent of editor identity", () => {
     await waitFor(() =>
       expect(mocks.persist).toHaveBeenCalledWith({
         key: "editor_vim_mode_level",
-        data: { value: "0" },
+        data: { value: "1" },
       }),
     );
   });
   it("never changes an explicitly selected plugin", async () => {
     mocks.backend = "plugin:example";
+    mocks.vim = "1";
     const { user } = render(<VimMotionsSetting />);
     await user.click(screen.getByRole("switch"));
     await waitFor(() =>
@@ -49,6 +52,11 @@ describe("Vim motions remain independent of editor identity", () => {
         data: { value: "0" },
       }),
     );
+  });
+  it("shows CodeMirror motions as disabled for the legacy full Neovim level", () => {
+    mocks.backend = "codemirror";
+    render(<VimMotionsSetting />);
+    expect(screen.getByRole("switch")).not.toBeChecked();
   });
   it("leaves both settings unchanged when pinning the legacy choice fails", async () => {
     mocks.persist.mockRejectedValueOnce(new Error("Unavailable"));

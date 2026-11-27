@@ -1,6 +1,5 @@
 //! Progressive migration from the built-in full Neovim editor to the
-//! standalone `neovim` plugin (plan: `docs/plans/2026-11-04-generic-plugin-backends-neovim.md`,
-//! commit 6).
+//! standalone `neovim` plugin.
 //!
 //! The built-in editor stays available during the coexistence period. The
 //! migration only writes `editor_backend = "plugin:neovim"` once the plugin is
@@ -21,6 +20,8 @@ use crate::domain::plugin_tabs::summary;
 use crate::domain::settings_allowlist;
 use crate::domain::settings_store;
 use crate::error::AppError;
+
+use super::service::NeovimManager;
 
 /// The standalone plugin this migration targets.
 pub const NEOVIM_PLUGIN_ID: &str = "neovim";
@@ -241,9 +242,17 @@ pub async fn migrate_to_plugin_route(
     State(state): State<AppState>,
 ) -> Result<Json<NeovimMigrationResponse>, AppError> {
     let gate = load_gate(&state).await?;
-    let sessions_running = state.neovim_manager.running_features().await;
+    migrate_to_plugin(&state.neovim_manager, &gate).await
+}
+
+async fn migrate_to_plugin(
+    neovim: &NeovimManager,
+    gate: &PluginGate,
+) -> Result<Json<NeovimMigrationResponse>, AppError> {
+    let startup_guard = neovim.lock_startup().await;
+    let sessions_running = neovim.running_features().await;
     let current = current_backend().await;
-    match decide(&gate, &sessions_running, current.as_deref())? {
+    match decide(gate, &sessions_running, current.as_deref())? {
         Decision::AlreadyMigrated => Ok(Json(NeovimMigrationResponse {
             migrated: false,
             editor_backend: current.unwrap_or_else(|| NEOVIM_PLUGIN_EDITOR_ID.to_string()),
@@ -252,7 +261,14 @@ pub async fn migrate_to_plugin_route(
             debug_assert!(settings_allowlist::is_workspace_key_allowed(
                 EDITOR_BACKEND_KEY
             ));
-            settings_store::global_set(EDITOR_BACKEND_KEY, NEOVIM_PLUGIN_EDITOR_ID).await?;
+            // Keep startup blocked until the write completes, even if the
+            // request is cancelled while settings_store writes to disk.
+            tokio::spawn(async move {
+                let _startup_guard = startup_guard;
+                settings_store::global_set(EDITOR_BACKEND_KEY, NEOVIM_PLUGIN_EDITOR_ID).await
+            })
+            .await
+            .map_err(|error| AppError::internal(format!("Neovim migration failed: {error}")))??;
             tracing::info!(
                 plugin = NEOVIM_PLUGIN_ID,
                 key = EDITOR_BACKEND_KEY,
@@ -352,6 +368,24 @@ mod tests {
     fn running_builtin_sessions_block_the_migration() {
         let error = decide(&ready(), &[3, 9], None).unwrap_err();
         assert_eq!(code(&error), "NEOVIM_SESSIONS_RUNNING");
+    }
+
+    #[tokio::test]
+    async fn migration_waits_for_startup_and_blocks_a_queued_start() {
+        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+        let manager = NeovimManager::new(crate::domain::terminal::service::PtyManager::new(), pool);
+        let startup = manager.lock_startup().await;
+        let gate = ready();
+        let mut migration = std::pin::pin!(migrate_to_plugin(&manager, &gate));
+        let mut start = std::pin::pin!(manager.ensure_started(7));
+        assert!(futures::poll!(migration.as_mut()).is_pending());
+        assert!(futures::poll!(start.as_mut()).is_pending());
+        drop(startup);
+
+        let (migration, start) = tokio::join!(migration, start);
+        assert!(migration.unwrap().migrated);
+        assert_eq!(code(&start.unwrap_err()), "NEOVIM_EDITOR_MIGRATED");
+        assert!(manager.running_features().await.is_empty());
     }
 
     #[test]

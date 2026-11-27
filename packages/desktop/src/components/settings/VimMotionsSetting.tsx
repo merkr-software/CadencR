@@ -8,7 +8,7 @@ import {
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { EDITOR_BACKEND_KEY, resolveEditorId } from "@/lib/editors/editor-registry";
-import { EDITOR_VIM_MODE_LEVEL_KEY, parseVimModeLevel } from "@/lib/vim-mode-level";
+import { EDITOR_VIM_MODE_LEVEL_KEY } from "@/lib/vim-mode-level";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 
 export function VimMotionsSetting() {
@@ -50,7 +50,7 @@ export function VimMotionsSetting() {
               ? "Saving Vim motions…"
               : "Use modal editing in CodeMirror, independently of the selected editor."
       }
-      checked={parseVimModeLevel(vim.data?.value) !== "0"}
+      checked={vim.data?.value === "1"}
       disabled={saving || loading || backend.isError || vim.isError}
       onCheckedChange={change}
       divided

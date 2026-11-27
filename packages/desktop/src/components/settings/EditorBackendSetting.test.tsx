@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   vim: "0",
   persist: vi.fn(),
   migrate: vi.fn(),
+  switching: false,
 }));
 const { showError } = vi.hoisted(() => ({ showError: vi.fn() }));
 const editor = pluginTabSummary({
@@ -50,7 +51,7 @@ vi.mock("@/api/generated", async (original) => {
       isError: false,
     }),
     setWorkspaceSetting: mocks.persist,
-    useMigrateToPluginRoute: () => ({ mutateAsync: mocks.migrate, isPending: false }),
+    useMigrateToPluginRoute: () => ({ mutateAsync: mocks.migrate, isPending: mocks.switching }),
   };
 });
 vi.mock("sonner", () => ({ toast: { error: showError } }));
@@ -65,6 +66,7 @@ beforeEach(() => {
   mocks.mobile = false;
   mocks.backend = "codemirror";
   mocks.vim = "0";
+  mocks.switching = false;
   mocks.persist.mockImplementation(async (_key: string, data: { value: string }) => data);
   mocks.migrate.mockResolvedValue({ migrated: true, editor_backend: "plugin:neovim" });
 });
@@ -122,6 +124,14 @@ describe("editor backend choices", () => {
       expect(showError).toHaveBeenCalledWith("built-in Neovim sessions are still running"),
     );
     expect(mocks.persist).not.toHaveBeenCalled();
+  });
+
+  it("shows progress while the guarded migration is pending", () => {
+    mocks.desktop = true;
+    mocks.switching = true;
+    render(<EditorBackendSetting />);
+    expect(screen.getByRole("status")).toHaveTextContent("Switching to the Neovim plugin…");
+    expect(screen.getByRole("radio", { name: /Full Neovim/ })).toBeDisabled();
   });
 
   it.each([
