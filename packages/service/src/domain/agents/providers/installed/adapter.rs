@@ -355,6 +355,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             .exclude_launcher_ports(integration.exclude_launcher_ports)
             .prompt_capabilities(self.prompt_capabilities.clone())
             .slash_commands(self.slash_commands())
+            .subagent_tool_names(self.installation.agent().subagent_tool_names.clone())
             .build();
         let args = [
             OsString::from("run"),

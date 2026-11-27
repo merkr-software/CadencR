@@ -26,6 +26,13 @@ pub struct AcpAgentEntry {
     pub website: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authors: Vec<String>,
+    /// Tool names this agent uses to dispatch a sub-agent (its carrier tool,
+    /// e.g. `agents.spawn`). The host maps these onto the canonical `Agent`
+    /// carrier for sub-agent tracking. Qualified names match exactly. A
+    /// short name such as `spawn` also matches the last segment of a
+    /// qualified tool name. This is a CadencR extension to the registry schema.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagent_tool_names: Vec<String>,
     #[serde(
         default,
         deserialize_with = "deserialize_non_null_option",
@@ -98,6 +105,17 @@ mod tests {
             .validate_registry_entry()
             .expect_err("invalid archive URI should be rejected");
         assert!(error.message.contains("archive"), "{}", error.message);
+    }
+
+    #[test]
+    fn subagent_tool_names_default_empty_and_parse() {
+        let entry: AcpAgentEntry = serde_json::from_value(valid_agent()).unwrap();
+        assert!(entry.subagent_tool_names.is_empty());
+
+        let mut agent = valid_agent();
+        agent["subagent_tool_names"] = json!(["agents.spawn", "spawn"]);
+        let entry: AcpAgentEntry = serde_json::from_value(agent).unwrap();
+        assert_eq!(entry.subagent_tool_names, ["agents.spawn", "spawn"]);
     }
 
     #[test]
