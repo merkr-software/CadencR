@@ -1,6 +1,9 @@
 import type { ThemeDefinition } from "./types";
 import { CADENCR_THEME_LOGOS } from "./logos";
 import { frostTexture } from "./frost-texture";
+import { FROST_GRAIN, FROST_TEXTURE_MATERIAL } from "./texture-material";
+
+const MATERIAL = FROST_TEXTURE_MATERIAL.light;
 
 /**
  * Frost Light — the bright counterpart to Frost Dark: classic white-glass
@@ -27,12 +30,12 @@ export const FROST_LIGHT_THEME: ThemeDefinition = {
     texture: frostTexture({
       base: "oklch(0.974 0.014 250)",
       halos: [
-        "oklch(0.79 0.16 245 / 0.7)",
-        "oklch(0.81 0.15 300 / 0.6)",
-        "oklch(0.83 0.14 200 / 0.6)",
+        `oklch(0.79 0.16 245 / ${MATERIAL.haloAlphas[0]})`,
+        `oklch(0.81 0.15 300 / ${MATERIAL.haloAlphas[1]})`,
+        `oklch(0.83 0.14 200 / ${MATERIAL.haloAlphas[2]})`,
       ],
-      haloOpacity: 0.68,
-      grain: { color: "oklch(0.72 0.03 265)", opacity: 0.19, blend: "multiply" },
+      haloOpacity: MATERIAL.haloOpacity,
+      grain: { color: FROST_GRAIN.color, opacity: 0.19, blend: "multiply" },
     }),
   },
   swatch: {

@@ -56,6 +56,10 @@ vi.mock("@/components/Sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar">Sidebar</div>,
 }));
 
+vi.mock("@/components/theme/ThemeSync", () => ({
+  ThemeSync: () => <div data-testid="theme-sync" />,
+}));
+
 vi.mock("@/components/CommandPalette", () => ({
   CommandPalette: ({ open }: { open: boolean }) =>
     open ? <div data-testid="command-palette">CommandPalette</div> : null,
@@ -95,6 +99,11 @@ function RootLayout() {
 describe("__root route (RootLayout)", () => {
   beforeEach(() => {
     mocks.mockNavigate.mockClear();
+  });
+
+  it("mounts theme synchronization exactly once", () => {
+    render(<RootLayout />);
+    expect(screen.getAllByTestId("theme-sync")).toHaveLength(1);
   });
 
   it("renders sidebar", () => {

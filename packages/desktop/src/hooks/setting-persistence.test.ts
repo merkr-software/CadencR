@@ -8,24 +8,34 @@ import { isSettingSaving, readConfirmedSetting, writeSetting } from "./setting-p
 interface PendingWrite {
   url: string;
   value: string;
-  resolve: () => void;
+  resolve: (response?: unknown) => void;
   reject: (error: unknown) => void;
 }
 
 const pending: PendingWrite[] = [];
 const toastError = vi.fn();
+let serverValue: string | null = null;
+let readError: Error | null = null;
 
 vi.mock("@/api/client", () => ({
-  customInstance: (config: AxiosRequestConfig) =>
-    new Promise((resolve, reject) => {
+  customInstance: (config: AxiosRequestConfig) => {
+    if (config.method === "GET") {
+      if (readError) return Promise.reject(readError);
+      return Promise.resolve({ value: serverValue });
+    }
+    return new Promise((resolve, reject) => {
       const { value } = config.data as { value: string };
       pending.push({
         url: config.url ?? "",
         value,
-        resolve: () => resolve({ value }),
+        resolve: (response: unknown = { value }) => {
+          serverValue = value;
+          resolve(response);
+        },
         reject,
       });
-    }),
+    });
+  },
 }));
 
 vi.mock("sonner", () => ({ toast: { error: (message: string) => toastError(message) } }));
@@ -42,6 +52,8 @@ describe("writeSetting", () => {
   beforeEach(() => {
     pending.length = 0;
     toastError.mockClear();
+    serverValue = null;
+    readError = null;
   });
 
   it("moves the cache only once the backend confirms", async () => {
@@ -64,9 +76,24 @@ describe("writeSetting", () => {
     expect(isSettingSaving("k")).toBe(false);
   });
 
+  it("reconciles an invalid write response before using the saved value", async () => {
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(getGetWorkspaceSettingQueryKey("k"), { value: "old" });
+    const write = writeSetting(queryClient, "k", "new");
+    await settle();
+    pending[0]!.resolve({ value: 42 });
+
+    await expect(write).resolves.toBe(false);
+    expect(toastError).toHaveBeenCalledWith(
+      'Could not save setting "k": Invalid workspace setting response',
+    );
+    expect(cached(queryClient, "k")).toEqual({ value: "new" });
+  });
+
   it("keeps the confirmed value and says why when the write fails", async () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(getGetWorkspaceSettingQueryKey("k"), { value: "old" });
+    serverValue = "old";
 
     const write = writeSetting(queryClient, "k", "new");
     await settle();
@@ -112,6 +139,28 @@ describe("writeSetting", () => {
 
     await expect(second).resolves.toBe(false);
     expect(cached(queryClient, "k")).toEqual({ value: "b" });
+  });
+
+  it("sends nothing after a failed write until a re-read succeeds", async () => {
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(getGetWorkspaceSettingQueryKey("k"), { value: "a" });
+    serverValue = "a";
+
+    const first = writeSetting(queryClient, "k", "b");
+    await settle();
+    readError = new Error("service unavailable");
+    pending[0]!.reject(new Error("boom"));
+    await expect(first).resolves.toBe(false);
+
+    const second = writeSetting(queryClient, "k", "c");
+    await expect(second).resolves.toBe(false);
+    expect(pending).toHaveLength(1);
+
+    readError = null;
+    const third = writeSetting(queryClient, "k", "d");
+    await vi.waitFor(() => expect(pending.map((write) => write.value)).toEqual(["b", "d"]));
+    pending[1]!.resolve();
+    await expect(third).resolves.toBe(true);
   });
 
   it("sends nothing when the update has nothing to write", async () => {

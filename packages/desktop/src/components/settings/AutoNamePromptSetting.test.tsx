@@ -19,6 +19,7 @@ const setValue = vi.fn<Setting["setValue"]>().mockResolvedValue(true);
 function mockSetting(value: string | null): void {
   vi.mocked(useSetting).mockReturnValue({
     value,
+    error: null,
     setValue,
     isLoading: false,
     isFetched: true,

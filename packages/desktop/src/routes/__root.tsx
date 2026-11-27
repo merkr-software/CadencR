@@ -14,6 +14,7 @@ import { RootOverlays } from "@/components/RootOverlays";
 import { SidebarContext } from "@/components/SidebarContext";
 import { SuspendedBanner } from "@/components/SuspendedBanner";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
+import { ThemeSync } from "@/components/theme/ThemeSync";
 import UniversalContextMenu from "@/components/UniversalContextMenu";
 import {
   LastScreenTracker,
@@ -50,6 +51,7 @@ const RootHosts = memo(function RootHosts() {
       <CliRequestBridge />
       <CustomActionEditorHost />
       <RunVariablesDialogHost />
+      <ThemeSync />
     </>
   );
 });

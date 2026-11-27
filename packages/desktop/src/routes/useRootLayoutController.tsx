@@ -24,7 +24,6 @@ import { usePowerEvents } from "@/hooks/usePowerEvents";
 import { useRemotePairingToast } from "@/hooks/useRemotePairingToast";
 import { useRemoteSleepGuard } from "@/hooks/useRemoteSleepGuard";
 import { useGlobalShortcutById, useShortcut } from "@/hooks/useShortcut";
-import { useThemeSync } from "@/hooks/useTheme";
 import { useRouteFeatureIds } from "@/hooks/useRouteFeatureIds";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
 import { useAppZoom } from "@/hooks/useZoom";
@@ -51,7 +50,6 @@ import { type SidebarController, useSidebarController } from "./useSidebarContro
 
 function useRootEnvironment(isMobile: boolean) {
   useRemotePairingToast();
-  useThemeSync();
   useConnectionWatchdog();
   usePowerEvents();
   usePowerBusySignal();

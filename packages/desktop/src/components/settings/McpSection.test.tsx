@@ -26,6 +26,7 @@ describe("McpSection", () => {
     setValueByKey.clear();
     vi.mocked(useSetting).mockImplementation((key: string) => ({
       value: null,
+      error: null,
       setValue: settingSetter(key),
       isLoading: false,
       isFetched: true,

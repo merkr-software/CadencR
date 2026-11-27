@@ -1,12 +1,31 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { z } from "zod";
 import {
   getGetWorkspaceSettingQueryKey,
+  getWorkspaceSetting,
   setWorkspaceSetting,
   type SettingValueResponse,
 } from "@/api/generated";
 import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
 import { apiErrorMessage } from "@/lib/api-errors";
+
+const settingValueResponseSchema: z.ZodType<SettingValueResponse> = z.object({
+  value: z.string().nullable().optional(),
+});
+
+function parseSettingResponse(response: unknown): SettingValueResponse {
+  const parsed = settingValueResponseSchema.safeParse(response);
+  if (!parsed.success) throw new Error("Invalid workspace setting response");
+  return parsed.data;
+}
+
+export async function fetchWorkspaceSetting(
+  key: string,
+  signal?: AbortSignal,
+): Promise<SettingValueResponse> {
+  return parseSettingResponse(await getWorkspaceSetting(key, signal));
+}
 
 /**
  * Computes the value to write from the setting's confirmed value at the moment
@@ -15,37 +34,54 @@ import { apiErrorMessage } from "@/lib/api-errors";
  */
 export type SettingUpdate = (confirmed: string | null | undefined) => string | null;
 
+interface SettingQueue {
+  /** The last write queued for a key, so the next one waits for it. */
+  writes: Map<string, Promise<boolean>>;
+  /**
+   * Keys whose last write failed without a confirmed outcome: the cached value
+   * may predate a write the backend committed, so no update may merge into it
+   * until a read succeeds.
+   */
+  unreconciled: Set<string>;
+}
+
 // Writes to one key go out one at a time, so the backend and the cache see them
 // in the order they were made. Per QueryClient, without retaining any.
-const queues = new WeakMap<QueryClient, Map<string, Promise<boolean>>>();
+const queues = new WeakMap<QueryClient, SettingQueue>();
 const inFlight = new Map<string, number>();
 const listeners = new Set<() => void>();
+
+function queueFor(queryClient: QueryClient): SettingQueue {
+  let queue = queues.get(queryClient);
+  if (!queue) {
+    queue = { writes: new Map(), unreconciled: new Set() };
+    queues.set(queryClient, queue);
+  }
+  return queue;
+}
 
 /**
  * The single write path for workspace settings. The cache only moves to the
  * value the backend answered with (no optimistic updates); a failure toasts,
  * leaves the confirmed value in place and re-reads it, in case the write landed
- * before the failure. Resolves true when the backend holds the value (or there
- * was nothing to write), false when the write failed. Never rejects.
+ * before the failure. The next write to that key waits for that re-read and
+ * does not go out if it failed. Resolves true when the backend holds the value
+ * (or there was nothing to write), false when the write failed. Never rejects.
  */
 export function writeSetting(
   queryClient: QueryClient,
   key: string,
   next: string | SettingUpdate,
 ): Promise<boolean> {
-  let queue = queues.get(queryClient);
-  if (!queue) {
-    queue = new Map();
-    queues.set(queryClient, queue);
-  }
-  const previous = queue.get(key) ?? Promise.resolve(true);
+  const queue = queueFor(queryClient);
+  const previous = queue.writes.get(key) ?? Promise.resolve(true);
   changeInFlight(key, 1);
   const task = previous
-    .then(() => sendSetting(queryClient, key, next))
+    .then(() => sendSetting(queryClient, key, next, queue))
     .finally(() => changeInFlight(key, -1));
-  queue.set(key, task);
+  queue.writes.set(key, task);
   void task.then(() => {
-    if (queue.get(key) === task) queue.delete(key);
+    if (queue.writes.get(key) === task) queue.writes.delete(key);
   });
   return task;
 }
@@ -54,18 +90,55 @@ async function sendSetting(
   queryClient: QueryClient,
   key: string,
   next: string | SettingUpdate,
+  queue: SettingQueue,
 ): Promise<boolean> {
+  if (queue.unreconciled.has(key) && !(await reconcileConfirmedSetting(queryClient, key))) {
+    return false;
+  }
+  queue.unreconciled.delete(key);
   try {
     const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
     if (value === null) return true;
-    const saved = await setWorkspaceSetting(key, { value });
+    const saved = parseSettingResponse(await setWorkspaceSetting(key, { value }));
+    // A read begun before the write could replace its confirmed value.
+    await queryClient.cancelQueries({ queryKey: getGetWorkspaceSettingQueryKey(key), exact: true });
     seedConfirmedSetting(queryClient, key, saved.value ?? null);
     return true;
   } catch (error: unknown) {
     toast.error(`Could not save setting "${key}": ${apiErrorMessage(error, "Unknown error")}`);
-    // Not awaited: callers fall back to the confirmed value at once; a failed
-    // refetch leaves that value in place and shows on the query itself.
-    void queryClient.invalidateQueries({ queryKey: getGetWorkspaceSettingQueryKey(key) });
+    queue.unreconciled.add(key);
+    // Awaited: the next write must not merge into a value that may predate this
+    // one. A failed read leaves the key unreconciled, so the next write reads
+    // again before it sends anything.
+    if (await reconcileConfirmedSetting(queryClient, key)) queue.unreconciled.delete(key);
+    return false;
+  }
+}
+
+/**
+ * Re-reads the confirmed value after a write whose outcome is unknown, so the
+ * next update cannot merge into a value that predates it. Resolves false when
+ * the read failed, leaving the key unreconciled.
+ */
+async function reconcileConfirmedSetting(queryClient: QueryClient, key: string): Promise<boolean> {
+  const queryKey = getGetWorkspaceSettingQueryKey(key);
+  try {
+    // A read already in flight may have captured the value before the write.
+    await queryClient.cancelQueries({ queryKey, exact: true });
+    const fresh = await queryClient.fetchQuery({
+      queryKey,
+      // The queue needs this read even if the last settings observer unmounts.
+      queryFn: ({ signal }) => fetchWorkspaceSetting(key, signal),
+      staleTime: 0,
+      retry: false,
+      networkMode: "always",
+    });
+    seedConfirmedSetting(queryClient, key, fresh.value ?? null);
+    return true;
+  } catch (error: unknown) {
+    toast.error(
+      `Could not reload setting "${key}" after a failed save: ${apiErrorMessage(error, "Unknown error")}`,
+    );
     return false;
   }
 }

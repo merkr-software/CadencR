@@ -1,6 +1,9 @@
 import type { ThemeDefinition } from "./types";
 import { CADENCR_THEME_LOGOS } from "./logos";
 import { frostTexture } from "./frost-texture";
+import { FROST_GRAIN, FROST_TEXTURE_MATERIAL } from "./texture-material";
+
+const MATERIAL = FROST_TEXTURE_MATERIAL.dark;
 
 /**
  * Frost Dark — a luminous glassmorphic dark theme: translucent frosted panels
@@ -25,12 +28,12 @@ export const FROST_DARK_THEME: ThemeDefinition = {
     texture: frostTexture({
       base: "oklch(0.165 0.018 262)",
       halos: [
-        "oklch(0.6 0.12 230 / 0.55)",
-        "oklch(0.56 0.11 285 / 0.46)",
-        "oklch(0.62 0.1 200 / 0.46)",
+        `oklch(0.6 0.12 230 / ${MATERIAL.haloAlphas[0]})`,
+        `oklch(0.56 0.11 285 / ${MATERIAL.haloAlphas[1]})`,
+        `oklch(0.62 0.1 200 / ${MATERIAL.haloAlphas[2]})`,
       ],
-      haloOpacity: 0.56,
-      grain: { color: "oklch(0.72 0.03 265)", opacity: 0.36, blend: "screen" },
+      haloOpacity: MATERIAL.haloOpacity,
+      grain: { color: FROST_GRAIN.color, opacity: 0.36, blend: "screen" },
     }),
   },
   swatch: {
