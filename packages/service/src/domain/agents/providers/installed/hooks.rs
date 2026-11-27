@@ -148,14 +148,14 @@ impl AcpProviderHooks for InstalledAcpHooks {
     }
 
     fn normalize_tool_name(&self, raw: &str) -> String {
-        if self
-            .subagent_tool_names
-            .iter()
-            .any(|declared| carrier_name_matches(declared, raw))
-        {
-            return "Agent".to_string();
-        }
         raw.to_string()
+    }
+
+    fn subagent_carrier_alias(&self, raw_tool_name: &str) -> Option<String> {
+        self.subagent_tool_names
+            .iter()
+            .any(|declared| carrier_name_matches(declared, raw_tool_name))
+            .then(|| "Agent".to_string())
     }
 
     fn normalize_tool_input(&self, _tool_name: &str, input: Value) -> Value {
@@ -289,18 +289,31 @@ mod tests {
     }
 
     #[test]
-    fn declared_carrier_tool_names_map_onto_the_agent_carrier() {
+    fn declared_carrier_tool_names_alias_the_agent_carrier_only_for_subagents() {
         let carrier = InstalledAcpHooks::builder()
             .model_config_id("model-picker".to_string())
-            .subagent_tool_names(vec!["agents.spawn".to_string(), "spawn".to_string()])
+            .subagent_tool_names(vec!["agents.spawn".to_string()])
             .build();
-        assert_eq!(carrier.normalize_tool_name("agents.spawn"), "Agent");
-        assert_eq!(carrier.normalize_tool_name("spawn"), "Agent");
-        assert_eq!(carrier.normalize_tool_name("bash"), "bash");
-        assert_eq!(carrier.normalize_tool_name("Task"), "Task");
+        assert_eq!(
+            carrier.subagent_carrier_alias("agents.spawn"),
+            Some("Agent".to_string())
+        );
+        assert_eq!(carrier.subagent_carrier_alias("bash"), None);
+        // Permission identity is untouched: normalize_tool_name stays identity.
+        assert_eq!(carrier.normalize_tool_name("agents.spawn"), "agents.spawn");
+
+        // Last-segment matching: a short declaration matches a qualified wire name.
+        let short = InstalledAcpHooks::builder()
+            .model_config_id("model-picker".to_string())
+            .subagent_tool_names(vec!["spawn".to_string()])
+            .build();
+        assert_eq!(
+            short.subagent_carrier_alias("agents.spawn"),
+            Some("Agent".to_string())
+        );
 
         let plain = hooks("model-picker");
-        assert_eq!(plain.normalize_tool_name("agents.spawn"), "agents.spawn");
+        assert_eq!(plain.subagent_carrier_alias("agents.spawn"), None);
     }
 
     #[test]

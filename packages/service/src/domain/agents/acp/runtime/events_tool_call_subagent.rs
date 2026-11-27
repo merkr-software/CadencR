@@ -30,7 +30,7 @@ pub(super) fn carrier_input_update(
     body: &Value,
     hooks: &dyn AcpProviderHooks,
 ) -> Option<RuntimeSubagentUpdate> {
-    if !is_subagent_tool_name(tool_name) {
+    if !is_carrier(tool_name, hooks) {
         return None;
     }
     let input = body
@@ -59,11 +59,12 @@ pub(super) struct TerminalToolCall<'a> {
 /// appended unchanged.
 pub(super) fn settle_carrier(
     call: &TerminalToolCall<'_>,
+    hooks: &dyn AcpProviderHooks,
     indexer: &mut EventIndexer,
     provider_events: Vec<RuntimeEvent>,
     events: &mut Vec<RuntimeEvent>,
 ) {
-    let mut updates: Vec<RuntimeSubagentUpdate> = terminal_update(call).into_iter().collect();
+    let mut updates: Vec<RuntimeSubagentUpdate> = terminal_update(call, hooks).into_iter().collect();
     let mut passthrough = Vec::with_capacity(provider_events.len());
     for event in provider_events {
         if event.is_subagent_signal_only() {
@@ -87,8 +88,14 @@ pub(super) fn settle_carrier(
     events.extend(passthrough);
 }
 
-fn terminal_update(call: &TerminalToolCall<'_>) -> Option<RuntimeSubagentUpdate> {
-    if !is_subagent_tool_name(call.tool_name) {
+/// A carrier is a canonical `Task`/`Agent` tool call, or a tool the
+/// provider's hooks declare as its sub-agent dispatch alias.
+fn is_carrier(tool_name: &str, hooks: &dyn AcpProviderHooks) -> bool {
+    is_subagent_tool_name(tool_name) || hooks.subagent_carrier_alias(tool_name).is_some()
+}
+
+fn terminal_update(call: &TerminalToolCall<'_>, hooks: &dyn AcpProviderHooks) -> Option<RuntimeSubagentUpdate> {
+    if !is_carrier(call.tool_name, hooks) {
         return None;
     }
     let patch = match call.status {
@@ -231,6 +238,7 @@ mod tests {
                 &json!({ "toolCallId": "agent-1" }),
                 "completed",
             ),
+            &StandardAcpHooks,
             &mut EventIndexer::default(),
             Vec::new(),
             &mut events,
@@ -256,6 +264,7 @@ mod tests {
         let mut events = vec![stop()];
         settle_carrier(
             &call("call_task", "Task", &body, "failed"),
+            &StandardAcpHooks,
             &mut EventIndexer::default(),
             Vec::new(),
             &mut events,
@@ -298,6 +307,7 @@ mod tests {
                 &json!({ "rawOutput": { "error": "quota" } }),
                 "completed",
             ),
+            &StandardAcpHooks,
             &mut EventIndexer::default(),
             vec![provider, text],
             &mut events,
@@ -323,6 +333,7 @@ mod tests {
         let body = json!({ "rawOutput": { "error": "Tool execution aborted" } });
         settle_carrier(
             &call("call_task", "Task", &body, "failed"),
+            &StandardAcpHooks,
             &mut indexer,
             Vec::new(),
             &mut events,
@@ -337,6 +348,7 @@ mod tests {
         let mut events = vec![stop()];
         settle_carrier(
             &call("bash-1", "Bash", &json!({}), "failed"),
+            &StandardAcpHooks,
             &mut EventIndexer::default(),
             Vec::new(),
             &mut events,

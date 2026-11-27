@@ -46,6 +46,15 @@ pub trait AcpProviderHooks: Send + Sync {
     /// canonical Cadencr Pascal-case tool name.
     fn normalize_tool_name(&self, raw: &str) -> String;
 
+    /// Provider-declared sub-agent carrier alias: when the raw ACP tool name
+    /// is this provider's dispatch tool, classify it as the canonical
+    /// `Agent` carrier for sub-agent tracking only. Permission dispatch
+    /// keeps using `normalize_tool_name`, so each concrete tool retains its
+    /// own permission identity.
+    fn subagent_carrier_alias(&self, _raw_tool_name: &str) -> Option<String> {
+        None
+    }
+
     /// Massage the tool input JSON for a known tool (e.g. rewriting OpenCode's
     /// `oldText`/`newText` into `old_string`/`new_string`).
     fn normalize_tool_input(&self, tool_name: &str, input: Value) -> Value;

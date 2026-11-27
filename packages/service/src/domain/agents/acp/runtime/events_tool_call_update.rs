@@ -122,7 +122,7 @@ fn push_terminal_events(
         metadata,
         indexer,
     );
-    settle_carrier(call, indexer, extra, events);
+    settle_carrier(call, hooks, indexer, extra, events);
 }
 #[cfg(test)]
 mod tests {
