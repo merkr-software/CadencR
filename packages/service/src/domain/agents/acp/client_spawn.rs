@@ -299,10 +299,8 @@ fn spawn_reaper(
         let pid = child.id();
         let status = tokio::select! {
             status = child.wait() => {
-                if let Err(error) = process_tree.cleanup_after_exit(pid).await {
-                    tracing::warn!(%error, "failed to clean up ACP descendant processes");
-                }
-                status
+                let cleanup = process_tree.cleanup_after_exit(pid).await;
+                status.and_then(|status| cleanup.map(|()| status))
             },
             _ = &mut kill_rx => process_tree
                 .terminate(&mut child, Duration::from_secs(1))
@@ -318,7 +316,7 @@ fn spawn_reaper(
                 exit_signal(&status),
             ),
             Err(error) => {
-                tracing::warn!(%error, "failed to reap ACP process");
+                tracing::warn!(%error, "failed to finish ACP process cleanup");
                 send_process_exited(&events, &exit_sent, &server_responders, None, None);
             }
         }

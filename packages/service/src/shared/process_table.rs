@@ -64,15 +64,23 @@ pub async fn start_time(pid: u32) -> Option<String> {
     }
 }
 
-/// Whether a process that has not exited is still in the group `pgid`
-/// (macOS). `proc_listpgrppids` still lists a member that exited and awaits
-/// reaping, which `proc_pidinfo` then reports as gone: such a member is
-/// dead, as is one a reused pid moved out of the group since the listing.
-/// A process that joins the group (`setpgid`) after the listing is missed;
-/// Cadencr never moves a process into an existing group.
+/// Whether macOS can still see a member of `pgid` when sending signals.
 #[cfg(target_os = "macos")]
 pub(crate) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
-    platform::group_has_live_member(pgid)
+    platform::group_has_live_member(pgid, false)
+}
+
+/// Whether a member of `pgid` still needs to finish exiting.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) fn group_has_unfinished_member(pgid: i32) -> io::Result<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        platform::group_has_live_member(pgid, true)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        platform::group_has_live_member(pgid)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -101,14 +109,15 @@ mod platform {
 
     /// `None` when the process is gone or belongs to another user (EPERM).
     fn pid_cwd(pid: i32) -> io::Result<Option<PathBuf>> {
-        let info: libc::proc_vnodepathinfo = match read_pid_info(pid, libc::PROC_PIDVNODEPATHINFO) {
-            Ok(Some(info)) => info,
-            Ok(None) => return Ok(None),
-            Err(error) if matches!(error.raw_os_error(), Some(libc::EPERM | libc::EACCES)) => {
-                return Ok(None)
-            }
-            Err(error) => return Err(error),
-        };
+        let info: libc::proc_vnodepathinfo =
+            match read_pid_info(pid, libc::PROC_PIDVNODEPATHINFO, 0) {
+                Ok(Some(info)) => info,
+                Ok(None) => return Ok(None),
+                Err(error) if matches!(error.raw_os_error(), Some(libc::EPERM | libc::EACCES)) => {
+                    return Ok(None)
+                }
+                Err(error) => return Err(error),
+            };
         let raw_len = size_of_val(&info.pvi_cdir.vip_path);
         // SAFETY: `vip_path` is a contiguous `[[c_char; 32]; 32]` (MAXPATHLEN = 1024)
         // populated as a NUL-terminated path by `proc_pidinfo`.
@@ -147,10 +156,13 @@ mod platform {
         ))
     }
 
-    pub(super) fn group_has_live_member(pgid: i32) -> io::Result<bool> {
+    pub(super) fn group_has_live_member(pgid: i32, include_exiting: bool) -> io::Result<bool> {
+        // XNU hides exiting processes from regular PID lookups before it closes
+        // their files. A nonzero argument lets us check whether they reached SZOMB.
+        let arg = u64::from(include_exiting);
         for pid in group_pids(pgid)? {
             let info: Option<libc::proc_bsdshortinfo> =
-                read_pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO)?;
+                read_pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO, arg)?;
             let live_member = info.is_some_and(|info| {
                 i32::try_from(info.pbsi_pgid) == Ok(pgid) && info.pbsi_status != libc::SZOMB
             });
@@ -217,18 +229,21 @@ mod platform {
     /// One `proc_pidinfo` flavor, `None` when the process is gone or the
     /// flavor is refused for it.
     fn pid_info<T: Copy>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
-        read_pid_info(pid, flavor).ok().flatten()
+        read_pid_info(pid, flavor, 0).ok().flatten()
     }
 
-    /// One `proc_pidinfo` flavor, `None` only when the process is gone
-    /// (ESRCH, which an exited, unreaped process answers too).
-    fn read_pid_info<T: Copy>(pid: libc::c_int, flavor: libc::c_int) -> io::Result<Option<T>> {
+    /// One `proc_pidinfo` flavor, `None` when the kernel returns ESRCH.
+    fn read_pid_info<T: Copy>(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        arg: u64,
+    ) -> io::Result<Option<T>> {
         let size = libc::c_int::try_from(size_of::<T>()).map_err(io::Error::other)?;
         // SAFETY: the proc_* info structs are plain integers, valid zeroed.
         let mut info: T = unsafe { std::mem::zeroed() };
         // SAFETY: `info` is `size` writable bytes.
         let written = unsafe {
-            libc::proc_pidinfo(pid, flavor, 0, std::ptr::from_mut(&mut info).cast(), size)
+            libc::proc_pidinfo(pid, flavor, arg, std::ptr::from_mut(&mut info).cast(), size)
         };
         if written == size {
             return Ok(Some(info));
@@ -245,70 +260,8 @@ mod platform {
 }
 
 #[cfg(target_os = "linux")]
-mod platform {
-    use std::collections::HashMap;
-    use std::io;
-    use std::path::PathBuf;
-
-    use super::{stat_fields, without_deleted_marker, ProcessLinks};
-
-    pub(super) fn cwds(pids: &[i32]) -> io::Result<HashMap<i32, PathBuf>> {
-        let mut out = HashMap::new();
-        for &pid in pids {
-            if pid <= 0 || out.contains_key(&pid) {
-                continue;
-            }
-            match std::fs::read_link(format!("/proc/{pid}/cwd")) {
-                Ok(path) => {
-                    out.insert(pid, without_deleted_marker(path, |path| path.exists()));
-                }
-                // Exited (ENOENT, or ESRCH while it is torn down) or another
-                // user's process (EACCES).
-                Err(error)
-                    if matches!(
-                        error.raw_os_error(),
-                        Some(libc::ENOENT | libc::ESRCH | libc::EACCES)
-                    ) => {}
-                Err(error) => {
-                    return Err(io::Error::new(
-                        error.kind(),
-                        format!("read /proc/{pid}/cwd: {error}"),
-                    ))
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    pub(super) fn links() -> io::Result<HashMap<i32, ProcessLinks>> {
-        let mut links = HashMap::new();
-        for entry in std::fs::read_dir("/proc")? {
-            let entry = entry?;
-            let Some(pid) = entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse().ok())
-            else {
-                continue;
-            };
-            // Unreadable once the process has exited: not in the table.
-            let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
-                continue;
-            };
-            if let Some(found) = super::stat_links(&stat) {
-                links.insert(pid, found);
-            }
-        }
-        Ok(links)
-    }
-
-    /// The kernel's tick count, which `ps -o lstart` would round through the
-    /// wall clock (and can shift by a second between calls).
-    pub(super) fn start_time(pid: u32) -> Option<String> {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        stat_fields(&stat)?.nth(22 - 3).map(str::to_string)
-    }
-}
+#[path = "process_table/linux.rs"]
+mod platform;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod platform {
@@ -352,43 +305,9 @@ fn without_deleted_marker(path: PathBuf, exists: impl Fn(&std::path::Path) -> bo
     }
 }
 
-/// Fields 3 onward of `/proc/<pid>/stat`. The command name (field 2) is in
-/// parentheses and may itself contain spaces and parentheses, so fields are
-/// counted from the last `)`.
-#[cfg(any(target_os = "linux", test))]
-fn stat_fields(stat: &str) -> Option<std::str::SplitWhitespace<'_>> {
-    stat.rsplit_once(')')
-        .map(|(_, fields)| fields.split_whitespace())
-}
-
-/// Fields 4 (parent) and 5 (process group).
-#[cfg(any(target_os = "linux", test))]
-fn stat_links(stat: &str) -> Option<ProcessLinks> {
-    let mut fields = stat_fields(stat)?.skip(1);
-    Some(ProcessLinks {
-        ppid: fields.next()?.parse().ok()?,
-        pgid: fields.next()?.parse().ok()?,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stat_fields_are_read_past_a_command_name_with_spaces() {
-        let stat = "4242 (my (odd) cmd) S 1 4242 4242 0 -1 4194560 120 0 0 0 1 2 0 0 \
-                    20 0 1 0 987654 1000 10";
-        assert_eq!(
-            stat_links(stat),
-            Some(ProcessLinks {
-                ppid: 1,
-                pgid: 4242
-            })
-        );
-        assert_eq!(stat_fields(stat).unwrap().nth(22 - 3), Some("987654"));
-        assert_eq!(stat_links("garbage"), None);
-    }
 
     #[test]
     fn the_deleted_marker_is_stripped_unless_the_literal_directory_exists() {
@@ -417,28 +336,6 @@ mod tests {
             std::fs::canonicalize(&found[&this]).unwrap(),
             std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap()
         );
-    }
-
-    /// A process whose directory was removed keeps that path, as on macOS.
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn a_removed_cwd_reads_as_its_last_path_on_linux() {
-        let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join("gone");
-        std::fs::create_dir(&dir).unwrap();
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .current_dir(&dir)
-            .spawn()
-            .unwrap();
-        std::fs::remove_dir(&dir).unwrap();
-        let pid = i32::try_from(child.id()).unwrap();
-
-        let found = cwds(&[pid]).await;
-        child.kill().unwrap();
-        child.wait().unwrap();
-
-        assert_eq!(found.unwrap().get(&pid), Some(&dir));
     }
 
     /// A failed listing used to read as an empty group, so a group that

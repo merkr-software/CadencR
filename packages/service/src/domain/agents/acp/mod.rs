@@ -21,6 +21,8 @@ pub mod error;
 pub mod event_hub;
 pub mod incoming;
 pub(crate) mod process_tree;
+#[cfg(windows)]
+mod process_tree_windows;
 pub mod runtime;
 pub mod types;
 pub mod wire_transform;
