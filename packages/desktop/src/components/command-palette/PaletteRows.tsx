@@ -1,18 +1,11 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
-import {
-  ArchiveIcon,
-  MessageCircleQuestionIcon,
-  PinIcon,
-  ShieldAlertIcon,
-  UserIcon,
-} from "lucide-react";
+import { PinIcon, UserIcon } from "lucide-react";
 import { Command as CommandPrimitive } from "cmdk";
 import { AgentIcon } from "@/components/AgentIcon";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { nextActionVerb } from "@/components/SidebarNextActionLine";
-import { StatusShape } from "@/components/StatusShape";
-import { PENDING_KIND_TEXT_CLASS, triggerPendingKind } from "@/components/sidebar-pending-gate";
+import { ConversationStatus, usePendingKind } from "@/components/ConversationStatus";
 import { FileSymbolIcon } from "@/components/editor/file-icons";
 import { parseUTCDateTime } from "@/lib/date-utils";
 import type { NextActionKind } from "@/lib/next-actions";
@@ -24,61 +17,13 @@ import type {
   PaletteEntry,
   ProjectEntry,
 } from "@/lib/command-palette/palette-types";
-import type { AttentionState } from "@/lib/sidebar-attention";
 import { formatSidebarRelativeTime } from "@/lib/sidebar-time";
 import { cn } from "@/lib/utils";
-import { useFeatureStatus } from "@/stores/session-status-selectors";
-import type { PendingKind } from "@/types/agent";
 import { HighlightedText, PaletteKeys, positionsToRanges, SnippetText } from "./PaletteText";
 
 function relativeTime(value: string, now: number): string {
   const date = parseUTCDateTime(value);
   return Number.isNaN(date.getTime()) ? "" : formatSidebarRelativeTime(date, now);
-}
-
-/** What a waiting conversation asks, from its live status (no request lookup). */
-function usePendingKind(featureId: number): PendingKind {
-  return triggerPendingKind(useFeatureStatus(featureId).kind, null);
-}
-
-/** The sidebar's status shapes; a pending request is its shield or question mark (answered once opened). */
-export function ConversationStatus({
-  featureId,
-  state,
-  archived,
-}: {
-  featureId: number;
-  state: AttentionState;
-  archived: boolean;
-}): ReactElement {
-  const { t } = useUiTranslation();
-  if (archived && state === "idle") {
-    return (
-      <ArchiveIcon
-        aria-label={t("palette.status.archived", "Archived")}
-        className="size-3 text-muted-foreground"
-      />
-    );
-  }
-  if (state === "waiting") return <WaitingGlyph featureId={featureId} />;
-  return <StatusShape state={state} />;
-}
-
-function WaitingGlyph({ featureId }: { featureId: number }): ReactElement {
-  const { t } = useUiTranslation();
-  const kind = usePendingKind(featureId);
-  const className = cn("size-3.5", PENDING_KIND_TEXT_CLASS[kind]);
-  return kind === "question" ? (
-    <MessageCircleQuestionIcon
-      aria-label={t("palette.status.question", "Asks a question")}
-      className={className}
-    />
-  ) : (
-    <ShieldAlertIcon
-      aria-label={t("palette.status.permission", "Asks for permission")}
-      className={className}
-    />
-  );
 }
 
 function NextActionVerb({

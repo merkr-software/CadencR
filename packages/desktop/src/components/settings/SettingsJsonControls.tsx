@@ -70,17 +70,18 @@ function SettingsJsonControls({
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center justify-between gap-2">
+      {/* On a phone the path takes the full width and the buttons go under it. */}
+      <div className="flex items-center justify-between gap-2 phone:flex-col phone:items-stretch">
         <div className="min-w-0">
           <div className="text-sm font-medium">
             {t("settings.general.json.file", "Configuration file")}
           </div>
-          <p className="truncate text-xs text-muted-foreground">
+          <p className="truncate text-xs text-muted-foreground phone:break-all phone:whitespace-normal">
             {path ??
               t("settings.general.json.description", "Edit these settings directly as JSON.")}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 phone:[&>*]:min-h-11 phone:[&>*]:flex-1">
           <Button
             variant="outline"
             size="sm"

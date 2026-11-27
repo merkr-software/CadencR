@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import { getListProjectsQueryKey, type Project } from "@/api/generated";
+import { prefetchAgentSession } from "@/components/lazy/agent-session-chunk";
 import { requestWorkspacePrewarm } from "@/components/workspace-pool/workspace-prewarm";
 import { preloadConversation } from "@/lib/conversation-preload";
 import { queryClient } from "@/lib/queryClient";
 import { idleCallbacksAvailable, scheduleIdle } from "@/lib/schedule-idle";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
+import { ROW_SWIPE_INTENT_PX, ROW_SWIPE_TRAY_SELECTOR } from "@/hooks/useRowSwipe";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 /** A sidebar row that opens a conversation (`ProjectFeatureRow`, `PinnedConversationRow`). */
@@ -19,6 +21,17 @@ export const SWEEP_MAX_ROWS = 30;
 export const IDLE_SNAPSHOT_REFRESH_MS = 4 * 60_000;
 /** A press is about to become a click: any snapshot older than this is refetched. */
 export const PRESS_SNAPSHOT_REFRESH_MS = 1_000;
+
+/**
+ * A press about to open a conversation: its snapshot is refreshed when older
+ * than `PRESS_SNAPSHOT_REFRESH_MS`, and the conversation view's chunk is
+ * fetched (the phone layout boots without it). For the sidebar rows here and
+ * the phone inbox's cards.
+ */
+export function preloadPressedConversation(featureId: number): void {
+  void prefetchAgentSession();
+  void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+}
 
 function rowFeatureId(row: Element): number | null {
   const featureId = Number(row.getAttribute("data-nav-id"));
@@ -61,12 +74,32 @@ function prewarmPressedRow(row: Element, featureId: number): void {
 }
 
 /**
+ * A touch on a row that swipes (`useRowSwipe`) may be a swipe rather than a
+ * tap: its preload waits for the finger to lift where it went down. A swipe
+ * or a scroll (cancelled pointer) drops it.
+ */
+function preloadOnTap(press: PointerEvent, featureId: number): void {
+  const settle = (event: PointerEvent): void => {
+    if (event.pointerId !== press.pointerId) return;
+    document.removeEventListener("pointerup", settle, true);
+    document.removeEventListener("pointercancel", settle, true);
+    const moved = Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY);
+    if (event.type === "pointerup" && moved < ROW_SWIPE_INTENT_PX) {
+      preloadPressedConversation(featureId);
+    }
+  };
+  document.addEventListener("pointerup", settle, true);
+  document.addEventListener("pointercancel", settle, true);
+}
+
+/**
  * A press on a sidebar row. A plain primary mouse press mounts the row's
  * workspace and refreshes its snapshot (once the workspace hydrated it the
  * refresh skips the history request by itself; without one, the request starts
  * and the mounting workspace's loader shares it). A touch or pen press only
- * preloads: a touch scroll starts on a row too. Any other mouse press does
- * nothing: hovering the row already preloaded it.
+ * preloads: a touch scroll starts on a row too. On a row that swipes it waits
+ * for a tap, and a press in the row's swipe tray runs an action, never opens
+ * it. Any other mouse press does nothing: hovering the row already preloaded it.
  */
 function onRowPress(event: PointerEvent): void {
   if (!(event.target instanceof Element)) return;
@@ -74,12 +107,14 @@ function onRowPress(event: PointerEvent): void {
   const featureId = row ? rowFeatureId(row) : null;
   if (row === null || featureId === null) return;
   if (event.pointerType !== "mouse") {
-    void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+    if (event.target.closest(ROW_SWIPE_TRAY_SELECTOR) !== null) return;
+    if (row.hasAttribute("data-row-swipe-row")) preloadOnTap(event, featureId);
+    else preloadPressedConversation(featureId);
     return;
   }
   if (!opensConversation(event, row)) return;
   prewarmPressedRow(row, featureId);
-  void preloadConversation(featureId, PRESS_SNAPSHOT_REFRESH_MS);
+  preloadPressedConversation(featureId);
 }
 
 function runningFeatureIds(): Set<number> {

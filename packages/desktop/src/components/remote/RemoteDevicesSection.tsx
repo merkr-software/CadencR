@@ -4,7 +4,7 @@ import type { RemoteDevice, RemoteStatus } from "@/api/generated";
 import { formattingLocale } from "@/lib/i18n/formatting-locale";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useRemoteStore } from "@/stores/remote-store";
-import { formatRemoteAge } from "./remote-ui";
+import { deviceLabel, formatRemoteAge } from "./remote-ui";
 
 /**
  * Paired devices with a per-row Revoke. Revoking sets `revoked_at`, force-closes
@@ -33,7 +33,7 @@ export function RemoteDevicesSection({ status }: { status: RemoteStatus }): Reac
 function DeviceRow({ device }: { device: RemoteDevice }): ReactElement {
   const { t, i18n } = useUiTranslation();
   const locale = formattingLocale(i18n.language);
-  const label = device.label ?? t("remote.devices.unnamed", "Remote device");
+  const label = deviceLabel(device, t);
   const revokeDevice = useRemoteStore((s) => s.revokeDevice);
   const [revoking, setRevoking] = useState(false);
 

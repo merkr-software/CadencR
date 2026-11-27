@@ -45,6 +45,8 @@ function ThemeDrawerImpl(): React.JSX.Element | null {
   useEffect(() => {
     if (!isOpen) return;
     function onKeyDown(e: KeyboardEvent): void {
+      // Something in front (a loading dialog's overlay) already took this Escape.
+      if (e.defaultPrevented) return;
       if (e.key === "Escape") {
         e.preventDefault();
         close();

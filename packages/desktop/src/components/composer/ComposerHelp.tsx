@@ -1,20 +1,32 @@
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import type { ReactElement } from "react";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut } from "@/components/KbdShortcut";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 
 /** A literal trigger, or a registry shortcut shown as currently bound (`twice`: pressed twice). */
 type HelpKey = readonly string[] | { shortcut: ShortcutId; twice?: boolean };
 
-const ROWS: ReadonlyArray<readonly [string, HelpKey, (t: UiTranslator) => string]> = [
-  ["file", ["@"], (t) => t("conversation.composer.composerHelp.file", "Attach a file or folder")],
+/** `typed`: the row's trigger is characters any keyboard types, so it stays on touch. */
+const ROWS: ReadonlyArray<readonly [string, HelpKey, (t: UiTranslator) => string, "typed"?]> = [
+  [
+    "file",
+    ["@"],
+    (t) => t("conversation.composer.composerHelp.file", "Attach a file or folder"),
+    "typed",
+  ],
   [
     "conversation",
     ["@@"],
     (t) => t("conversation.composer.composerHelp.conversation", "Reference another conversation"),
+    "typed",
   ],
-  ["command", ["/"], (t) => t("conversation.composer.composerHelp.command", "Commands and skills")],
+  [
+    "command",
+    ["/"],
+    (t) => t("conversation.composer.composerHelp.command", "Commands and skills"),
+    "typed",
+  ],
   [
     "side",
     ["/cadencr:side"],
@@ -23,11 +35,13 @@ const ROWS: ReadonlyArray<readonly [string, HelpKey, (t: UiTranslator) => string
         "conversation.composer.composerHelp.side",
         "Ask on the side — the agent is not interrupted",
       ),
+    "typed",
   ],
   [
     "shell",
     ["!"],
     (t) => t("conversation.composer.composerHelp.shell", "Run a shell command yourself"),
+    "typed",
   ],
   [
     "send",
@@ -80,7 +94,10 @@ const ROWS: ReadonlyArray<readonly [string, HelpKey, (t: UiTranslator) => string
   ],
 ];
 
-/** The composer's grammar, one screen: what each trigger and key does. */
+/**
+ * The composer's grammar, one screen: what each trigger and key does. A touch
+ * pointer keeps the typed triggers and drops the key rows (`data-kbd-hint`).
+ */
 export function ComposerHelp(): ReactElement {
   const { t } = useUiTranslation();
   return (
@@ -89,10 +106,10 @@ export function ComposerHelp(): ReactElement {
         {t("conversation.composer.composerHelp.composerKeysSyntax", "Composer keys & syntax")}
       </p>
       <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5 text-xs">
-        {ROWS.map(([id, key, label]) => (
-          <div key={id} className="contents">
+        {ROWS.map(([id, key, label, typed]) => (
+          <div key={id} {...(typed ? undefined : KBD_HINT_PROPS)} className="contents">
             <dt>
-              <HelpKeys value={key} />
+              <HelpKeys value={key} typed={typed === "typed"} />
             </dt>
             <dd className="text-muted-foreground">{label(t)}</dd>
           </div>
@@ -102,9 +119,9 @@ export function ComposerHelp(): ReactElement {
   );
 }
 
-function HelpKeys({ value }: { value: HelpKey }): ReactElement {
+function HelpKeys({ value, typed }: { value: HelpKey; typed: boolean }): ReactElement {
   if ("shortcut" in value) return <BoundKeys {...value} />;
-  return <KbdShortcut keys={[...value]} variant="hint" />;
+  return <KbdShortcut keys={[...value]} variant="hint" persistent={typed} />;
 }
 
 function BoundKeys({ shortcut, twice }: { shortcut: ShortcutId; twice?: boolean }): ReactElement {

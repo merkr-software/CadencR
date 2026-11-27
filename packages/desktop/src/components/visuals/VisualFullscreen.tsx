@@ -6,11 +6,16 @@ import { FullscreenDialog } from "@/components/FullscreenDialog";
 import { isLargeCodeBlock } from "@/components/markdown/LargeCodeBlock";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { VisualSource } from "@/components/visuals/VisualChrome";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import { VisualLoading } from "@/components/visuals/VisualStatus";
 import { cn } from "@/lib/utils";
 import { useVisualFullscreenStore, type FullscreenVisual } from "@/stores/visual-fullscreen-store";
 
+// The highlighted source (highlight.js) loads the first time it is shown.
+const VisualSource = lazyChunk(() =>
+  import("@/components/visuals/VisualChrome").then((module) => module.VisualSource),
+);
 const VegaLiteChart = lazy(() => import("@/components/visuals/VegaLiteChart"));
 const HtmlVisual = lazy(() => import("@/components/visuals/HtmlVisual"));
 
@@ -114,7 +119,9 @@ function VisualFullscreenContent({
               <code>{visual.code}</code>
             </pre>
           ) : (
-            <VisualSource code={visual.code} language={sourceLanguage} />
+            <LazyBoundary label={t("lazy.labels.source", "source")} variant="inline">
+              <VisualSource code={visual.code} language={sourceLanguage} />
+            </LazyBoundary>
           )}
         </div>
       )}

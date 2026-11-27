@@ -244,14 +244,14 @@ describe("Git conflict Editor handoff", () => {
 
     const searchButton = screen.getByRole("button", { name: "Search changed files" });
     expect(searchButton.querySelector(".lucide-search")).toBeInTheDocument();
-    fireEvent.mouseEnter(searchButton.parentElement!);
+    fireEvent.pointerEnter(searchButton.parentElement!, { pointerType: "mouse" });
     expect(screen.getByText("Search changed files", { selector: "span" })).toBeInTheDocument();
-    fireEvent.mouseLeave(searchButton.parentElement!);
+    fireEvent.pointerLeave(searchButton.parentElement!, { pointerType: "mouse" });
     await user.click(searchButton);
     expect(openSearch).toHaveBeenCalledOnce();
     const collapseButton = screen.getByRole("button", { name: "Collapse Git file list" });
     expect(collapseButton.querySelector(".lucide-panel-left-close")).toBeInTheDocument();
-    fireEvent.mouseEnter(collapseButton.parentElement!);
+    fireEvent.pointerEnter(collapseButton.parentElement!, { pointerType: "mouse" });
     expect(screen.getByText("Collapse changed-files sidebar")).toBeInTheDocument();
     await user.click(collapseButton);
     expect(collapse).toHaveBeenCalledOnce();
@@ -275,9 +275,9 @@ describe("Git conflict Editor handoff", () => {
     );
 
     const filenamesButton = screen.getByRole("button", { name: "Show filenames only" });
-    fireEvent.mouseEnter(filenamesButton.parentElement!);
+    fireEvent.pointerEnter(filenamesButton.parentElement!, { pointerType: "mouse" });
     expect(screen.getByText("Show filenames only — hide directory folders")).toBeInTheDocument();
-    fireEvent.mouseLeave(filenamesButton.parentElement!);
+    fireEvent.pointerLeave(filenamesButton.parentElement!, { pointerType: "mouse" });
     await user.click(filenamesButton);
     expect(onDisplayModeChange).toHaveBeenCalledWith("filenames");
     rerender(

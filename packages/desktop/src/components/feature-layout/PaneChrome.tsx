@@ -1,5 +1,5 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { useEffect, useRef, type HTMLAttributes, type ReactNode, type RefObject } from "react";
+import { useRef, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { Tabs, TabsList } from "@/components/ui/tabs";
@@ -19,6 +19,8 @@ import {
 } from "./pop-pane";
 import type { FeatureTabs, PaneSlot } from "./types";
 import { usePaneStripDrop } from "./use-pane-strip-drop";
+import { useRevealActiveTab } from "./use-reveal-active-tab";
+import { PhoneTabBar } from "./PhoneTabBar";
 
 export interface PaneChromeProps {
   featureId: number;
@@ -31,6 +33,11 @@ export interface PaneChromeProps {
   stripActions?: ReactNode;
   /** Where the pane sits in its parent split; absent for a lone root pane. */
   slot?: PaneSlot;
+  /**
+   * Where the root pane's tabs sit: the strip on top, or the phone layout's
+   * bottom tab bar (`PhoneTabBar`), which owns the bottom safe area.
+   */
+  tabPlacement?: TabPlacement;
   containerRef: RefObject<HTMLDivElement | null>;
   contentRef: (el: HTMLDivElement | null) => (() => void) | undefined;
   onFocusPane: () => void;
@@ -43,26 +50,26 @@ export interface PaneChromeProps {
   onTogglePop: (pop: boolean) => void;
 }
 
-export function PaneChrome({
-  featureId,
-  leaf,
-  tabs,
-  isRoot,
-  isFocused,
-  splitsEnabled,
-  stripActions,
-  slot,
-  containerRef,
-  contentRef,
-  onFocusPane,
-  onTabChange,
-  onActivateTab,
-  onDockTab,
-  onCloseTab,
-  onTogglePop,
-}: PaneChromeProps): ReactNode {
+export type TabPlacement = "top" | "bottom";
+
+export function PaneChrome(props: PaneChromeProps): ReactNode {
+  const {
+    featureId,
+    leaf,
+    tabs,
+    isRoot,
+    isFocused,
+    splitsEnabled,
+    slot,
+    tabPlacement = "top",
+    containerRef,
+    contentRef,
+    onFocusPane,
+    onActivateTab,
+    onCloseTab,
+  } = props;
   const popCollapsed = slot?.popCollapsed ?? false;
-  const rail = popCollapsed && slot?.orientation === "horizontal";
+  const bottomBar = isRoot && tabPlacement === "bottom";
   const frameRef = useReportFoldedSize(slot);
   const autoRevealed = useAutoLayoutStore((s) =>
     s.revealed[featureId]?.paneId === leaf.id ? s.revealed[featureId].kind : undefined,
@@ -86,6 +93,7 @@ export function PaneChrome({
         data-pane-focused={isFocused}
         data-pop-folded={popCollapsed || undefined}
         data-auto-revealed={autoRevealed}
+        data-phone-tab-bar-host={bottomBar || undefined}
         onAnimationEnd={(event) => {
           if (event.target !== event.currentTarget || !autoRevealed) return;
           useAutoLayoutStore.getState().clearRevealed(featureId, leaf.id);
@@ -96,52 +104,82 @@ export function PaneChrome({
         )}
         {...paneFocusHandlers(popCollapsed, onFocusPane)}
       >
-        {rail && slot ? (
-          <PopPaneRail
-            paneId={leaf.id}
-            leaf={leaf}
-            tabs={tabs}
-            slot={slot}
-            splitsEnabled={splitsEnabled}
-            onActivateTab={onActivateTab}
-            onTogglePop={onTogglePop}
-          />
-        ) : (
-          <PaneTabStrip paneId={leaf.id} enabled={splitsEnabled}>
-            <PaneTabs
-              featureId={featureId}
-              leaf={leaf}
-              tabs={tabs}
-              isRoot={isRoot}
-              isFocused={isFocused}
-              splitsEnabled={splitsEnabled}
-              onTabChange={onTabChange}
-              onActivateTab={onActivateTab}
-              onDockTab={onDockTab}
-              onCloseTab={onCloseTab}
-            />
-            {isRoot && (splitsEnabled || stripActions) && (
-              <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
-                {stripActions}
-                {splitsEnabled && <AutoLayoutToggle featureId={featureId} />}
-                {splitsEnabled && <LayoutMenu featureId={featureId} />}
-              </div>
-            )}
-            {!isRoot && splitsEnabled && slot && (
-              <div data-pop-toggle-slot className="ml-auto flex shrink-0 items-center pr-1">
-                <PopPaneToggle slot={slot} pop={slot.pops} onToggle={onTogglePop} />
-              </div>
-            )}
-          </PaneTabStrip>
-        )}
+        {!bottomBar && <PaneTabsHeader {...props} />}
         <PaneBody
           paneId={leaf.id}
           hidden={popCollapsed}
           splitsEnabled={splitsEnabled}
           contentRef={contentRef}
         />
+        {bottomBar && (
+          <PhoneTabBar
+            featureId={featureId}
+            activeTabId={leaf.activeTabId}
+            tabIds={leaf.tabIds}
+            tabs={tabs}
+            onActivateTab={onActivateTab}
+            onCloseTab={onCloseTab}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+/** The pane's tabs on top: the strip, or a folded pop pane's rail. */
+function PaneTabsHeader({
+  featureId,
+  leaf,
+  tabs,
+  isRoot,
+  isFocused,
+  splitsEnabled,
+  stripActions,
+  slot,
+  onTabChange,
+  onActivateTab,
+  onDockTab,
+  onCloseTab,
+  onTogglePop,
+}: PaneChromeProps): ReactNode {
+  const rail = slot?.popCollapsed === true && slot.orientation === "horizontal";
+  return rail && slot ? (
+    <PopPaneRail
+      paneId={leaf.id}
+      leaf={leaf}
+      tabs={tabs}
+      slot={slot}
+      splitsEnabled={splitsEnabled}
+      onActivateTab={onActivateTab}
+      onTogglePop={onTogglePop}
+    />
+  ) : (
+    <PaneTabStrip paneId={leaf.id} enabled={splitsEnabled}>
+      <PaneTabs
+        featureId={featureId}
+        leaf={leaf}
+        tabs={tabs}
+        isRoot={isRoot}
+        isFocused={isFocused}
+        splitsEnabled={splitsEnabled}
+        onTabChange={onTabChange}
+        onActivateTab={onActivateTab}
+        onDockTab={onDockTab}
+        onCloseTab={onCloseTab}
+      />
+      {isRoot && (splitsEnabled || stripActions) && (
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
+          {stripActions}
+          {splitsEnabled && <AutoLayoutToggle featureId={featureId} />}
+          {splitsEnabled && <LayoutMenu featureId={featureId} />}
+        </div>
+      )}
+      {!isRoot && splitsEnabled && slot && (
+        <div data-pop-toggle-slot className="ml-auto flex shrink-0 items-center pr-1">
+          <PopPaneToggle slot={slot} pop={slot.pops} onToggle={onTogglePop} />
+        </div>
+      )}
+    </PaneTabStrip>
   );
 }
 
@@ -345,46 +383,4 @@ function EdgeDropZone({
       )}
     />
   );
-}
-
-/**
- * Keep the active tab inside a strip that overflows horizontally — a custom tab
- * added from the "+" menu lands at the end, often past the visible edge. Reads
- * layout only when the active tab or the tab count changes.
- */
-function useRevealActiveTab(
-  listRef: RefObject<HTMLDivElement | null>,
-  activeTabId: TabKind | null,
-  tabCount: number,
-): void {
-  useEffect(() => {
-    const list = listRef.current;
-    const target = list && activeTabId ? activeTabTarget(list, activeTabId) : null;
-    if (!list || !target) return;
-    // Tab widths settle after fonts and badges load (any tab before it can
-    // push it out), so follow every tab's size while this one is active.
-    const reveal = (): void => revealInStrip(list, target);
-    reveal();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(reveal);
-    for (const child of Array.from(list.children)) observer.observe(child);
-    return () => observer.disconnect();
-  }, [activeTabId, listRef, tabCount]);
-}
-
-/** The active trigger's wrapper, which also holds its close button. */
-function activeTabTarget(list: HTMLElement, activeTabId: TabKind): HTMLElement | null {
-  const trigger = Array.from(list.querySelectorAll<HTMLElement>("[data-feature-tab-kind]")).find(
-    (element) => element.dataset.featureTabKind === activeTabId,
-  );
-  if (!trigger) return null;
-  return trigger.parentElement && trigger.parentElement !== list ? trigger.parentElement : trigger;
-}
-
-function revealInStrip(list: HTMLElement, target: HTMLElement): void {
-  if (list.scrollWidth <= list.clientWidth) return;
-  const listBox = list.getBoundingClientRect();
-  const box = target.getBoundingClientRect();
-  if (box.left < listBox.left) list.scrollLeft -= listBox.left - box.left;
-  else if (box.right > listBox.right) list.scrollLeft += box.right - listBox.right;
 }

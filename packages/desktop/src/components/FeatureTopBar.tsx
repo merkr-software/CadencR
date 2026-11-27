@@ -1,7 +1,5 @@
-import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
-import { useRef, useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
+import { useState, type Dispatch, type ReactElement, type SetStateAction } from "react";
 import { toast } from "sonner";
-import { CopyIcon, PencilIcon, WandSparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAutoNameFeature, useGetFeature } from "@/api/generated";
 import { CustomActionsLauncher } from "./custom-actions/CustomActionsLauncher";
@@ -17,17 +15,14 @@ import { WorktreeSetupDetailsPanel } from "./WorktreeSetupSection";
 import { useWorktreeSetup, type WorktreeSetupState } from "@/hooks/useWorktreeSetup";
 import { WorktreeSetupHeader } from "./WorktreeSetupHeader";
 import { ProjectBadge } from "@/components/ProjectBadge";
+import { PhoneFeatureTitle } from "@/components/phone-header/PhoneFeatureTitle";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useFeatureSettingsShortcuts } from "./useFeatureSettingsShortcuts";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
 import { autoNameErrorMessage } from "@/lib/auto-name-errors";
-import { copyToClipboard } from "@/lib/clipboard";
-import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
-import { FeatureRenameForm } from "./FeatureRenamePopover";
+import { FeatureTitleMenu } from "./FeatureTitleMenu";
 
 interface FeatureTopBarProps {
   featureId: number;
@@ -213,27 +208,29 @@ interface FeatureHeaderChromeProps {
   worktreeSetup: WorktreeSetupState | null;
 }
 
-function FeatureHeaderChrome({
-  featureId,
-  projectId,
-  className,
-  featureTitle,
-  featureLabel,
-  isSession,
-  isAutoNaming,
-  canAutoRename,
-  isAutoRenamePending,
-  onAutoRename,
-  draggable,
-  showCustomActions,
-  showSidebarChrome,
-  sidebarCollapsed,
-  onExpandSidebar,
-  settingsOpen,
-  onSettingsOpenChange,
-  worktreeSetup,
-}: FeatureHeaderChromeProps): ReactElement {
-  const isMobile = useIsMobile();
+/**
+ * The feature header, one tree for both layouts: the phone's one 44px line
+ * (menu, status dot, title, "…") or the desktop's row. Every control keeps its
+ * place across a layout flip (an iPad rotating, a window crossing the phone
+ * width), so the Git host keeps its open dialog and its runs.
+ */
+function FeatureHeaderChrome(props: FeatureHeaderChromeProps): ReactElement {
+  const {
+    featureId,
+    projectId,
+    className,
+    featureLabel,
+    isSession,
+    draggable,
+    showCustomActions,
+    showSidebarChrome,
+    sidebarCollapsed,
+    onExpandSidebar,
+    settingsOpen,
+    onSettingsOpenChange,
+    worktreeSetup,
+  } = props;
+  const phone = useIsMobile();
   return (
     <>
       <div
@@ -241,44 +238,29 @@ function FeatureHeaderChrome({
         // height to the sidebar header; `data-mac-controls` mirrors the same
         // platform constant `SidebarHeader` keys its height on).
         data-feature-header
-        data-mac-controls={HAS_MAC_WINDOW_CONTROLS ? "true" : undefined}
+        data-phone-feature-header={phone || undefined}
+        data-mac-controls={!phone && HAS_MAC_WINDOW_CONTROLS ? "true" : undefined}
         data-window-control-safe
         className={cn(
           draggable && "titlebar-drag",
           // Same height collapsed or not: the traffic lights move onto this
           // row (`SidebarCollapsedChrome`), the row never moves to them.
-          "flex items-center gap-3 px-3 py-3 md:px-6",
+          phone
+            ? "flex h-11 min-w-0 items-center gap-3 pr-1 pl-3"
+            : "flex items-center gap-3 px-3 py-3 desktop:px-6",
           className,
         )}
       >
         {showSidebarChrome && (
-          <SidebarCollapsedChrome visible={sidebarCollapsed} onExpand={onExpandSidebar} />
+          <SidebarCollapsedChrome
+            visible={sidebarCollapsed}
+            onExpand={onExpandSidebar}
+            currentFeatureId={featureId}
+          />
         )}
-        {/* The worktree summary is a subtitle here, not a band below, so the
-            header height doesn't change (see DESIGN.md "Worktree row"). */}
-        <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
-          <ProjectBadge projectId={projectId} size="md" className="justify-self-center" />
-          <div className="flex min-w-0 items-center gap-3">
-            {isAutoNaming ? (
-              <Skeleton className="h-5 w-40" />
-            ) : (
-              <FeatureTitleMenu
-                featureId={featureId}
-                title={featureTitle}
-                canAutoRename={canAutoRename}
-                isAutoRenamePending={isAutoRenamePending}
-                onAutoRename={onAutoRename}
-              />
-            )}
-            <FeatureLabelChip label={featureLabel} />
-          </div>
-          {worktreeSetup && (
-            <WorktreeSetupHeader
-              {...worktreeSetup.header}
-              className="col-span-2 grid-cols-subgrid gap-x-3"
-            />
-          )}
-        </div>
+        {phone ? <PhoneFeatureTitle {...props} /> : <DesktopFeatureTitle {...props} />}
+        {/* Triggerless on phones: only its sheet, opened on an action's
+            details from "…", the palette or a run's toast. */}
         {showCustomActions && <CustomActionsLauncher featureId={featureId} projectId={projectId} />}
 
         {/*
@@ -286,14 +268,22 @@ function FeatureHeaderChrome({
          * The session view drives the same `useGitStatusStore` (via
          * `useGitStatusSubscription` in `ws-session.$sessionId.tsx`), so the
          * commit / push / open-PR action and the current → target chip are
-         * relevant there too.
+         * relevant there too. On phones it is "…", whose sheet also holds the
+         * label, the branch and the worktree row.
          */}
-        <GitActionButton featureId={featureId} projectId={projectId} />
-        {/* On phones the branch chip lives inside the git popover (see
-            `GitActionButton`) so the title isn't squeezed. */}
-        {!isMobile && <BranchChip featureId={featureId} projectId={projectId} />}
+        <GitActionButton
+          featureId={featureId}
+          projectId={projectId}
+          phone={phone}
+          // Only the phone sheet reads these; desktop gets nulls so a worktree
+          // or label change doesn't re-render its Git control.
+          worktree={phone ? (worktreeSetup?.header ?? null) : null}
+          featureLabel={phone ? (featureLabel ?? null) : null}
+          showCustomActions={phone && showCustomActions}
+        />
+        {!phone && <BranchChip featureId={featureId} projectId={projectId} />}
 
-        {!isSession && (
+        {!phone && !isSession && (
           <FeatureSettingsPopover
             featureId={featureId}
             open={settingsOpen}
@@ -306,88 +296,43 @@ function FeatureHeaderChrome({
   );
 }
 
-interface FeatureTitleMenuProps {
-  featureId: number;
-  title: string;
-  canAutoRename: boolean;
-  isAutoRenamePending: boolean;
-  onAutoRename: () => void;
-}
-
-function FeatureTitleMenu({
+/** The desktop title block: badge, title and label, the worktree summary as a subtitle. */
+function DesktopFeatureTitle({
   featureId,
-  title,
+  projectId,
+  featureTitle,
+  featureLabel,
+  isAutoNaming,
   canAutoRename,
   isAutoRenamePending,
   onAutoRename,
-}: FeatureTitleMenuProps): ReactElement {
-  const { t } = useUiTranslation();
-  const [renameOpen, setRenameOpen] = useState(false);
-  // Opening the popover synchronously from `onSelect` races with the menu's
-  // own dismissal (focus + pointer events dispatched during teardown dismiss
-  // the freshly-mounted popover). Defer to `onCloseAutoFocus`, which fires
-  // after the menu has fully unmounted.
-  const openRenameOnMenuCloseRef = useRef(false);
-
-  const handleCopy = (): void => {
-    void copyToClipboard(
-      title,
-      translateUi("conversation.featureTopBar.copiedFeatureName", "Copied feature name"),
-    );
-  };
-
-  const handleMenuCloseAutoFocus = (event: Event): void => {
-    if (!openRenameOnMenuCloseRef.current) return;
-    openRenameOnMenuCloseRef.current = false;
-    // Keep focus out of the h1 so the popover's FocusScope can claim the input.
-    event.preventDefault();
-    setRenameOpen(true);
-  };
-
+  worktreeSetup,
+}: FeatureHeaderChromeProps): ReactElement {
   return (
-    <Popover open={renameOpen} onOpenChange={setRenameOpen}>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <PopoverAnchor asChild>
-            <h1
-              className="min-w-0 cursor-default truncate text-lg font-semibold"
-              onDoubleClick={() => setRenameOpen(true)}
-            >
-              {title}
-            </h1>
-          </PopoverAnchor>
-        </ContextMenuTrigger>
-        <ContextMenuContent onCloseAutoFocus={handleMenuCloseAutoFocus}>
-          <ContextMenuActionItem icon={CopyIcon} onSelect={handleCopy}>
-            {t("conversation.featureTopBar.copy", "Copy")}
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={PencilIcon}
-            onSelect={() => {
-              openRenameOnMenuCloseRef.current = true;
-            }}
-          >
-            {t("conversation.featureTopBar.rename", "Rename…")}
-          </ContextMenuActionItem>
-          {canAutoRename && (
-            <ContextMenuActionItem
-              icon={WandSparklesIcon}
-              disabled={isAutoRenamePending}
-              onSelect={onAutoRename}
-            >
-              {t("conversation.featureTopBar.autoRename", "Auto-rename")}
-            </ContextMenuActionItem>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
-      <PopoverContent align="start" className="w-80">
-        <FeatureRenameForm
-          featureId={featureId}
-          currentTitle={title}
-          open={renameOpen}
-          onClose={() => setRenameOpen(false)}
+    // The worktree summary is a subtitle here, not a band below, so the
+    // header height doesn't change (see DESIGN.md "Worktree row").
+    <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
+      <ProjectBadge projectId={projectId} size="md" className="justify-self-center" />
+      <div className="flex min-w-0 items-center gap-3">
+        {isAutoNaming ? (
+          <Skeleton className="h-5 w-40" />
+        ) : (
+          <FeatureTitleMenu
+            featureId={featureId}
+            title={featureTitle}
+            canAutoRename={canAutoRename}
+            isAutoRenamePending={isAutoRenamePending}
+            onAutoRename={onAutoRename}
+          />
+        )}
+        <FeatureLabelChip label={featureLabel} />
+      </div>
+      {worktreeSetup && (
+        <WorktreeSetupHeader
+          {...worktreeSetup.header}
+          className="col-span-2 grid-cols-subgrid gap-x-3"
         />
-      </PopoverContent>
-    </Popover>
+      )}
+    </div>
   );
 }

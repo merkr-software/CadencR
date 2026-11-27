@@ -5,8 +5,8 @@ import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { CopyIconButton } from "./remote-ui";
 
 /**
- * LAN connect details: the HTTPS URLs the workspace is reachable at, plus the
- * self-signed cert fingerprint for trust-on-first-use verification.
+ * The addresses the workspace answers on, and the full fingerprint of the
+ * self-signed certificate they serve (the pairing steps quote its start).
  */
 export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactElement {
   const { t } = useUiTranslation();
@@ -42,8 +42,8 @@ export function RemoteLanSection({ status }: { status: RemoteStatus }): ReactEle
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--acc-green)]" aria-hidden />
             <span>
               {t(
-                "remote.lan.compareHint",
-                "For LAN access, compare this SHA-256 fingerprint with the certificate shown by the other device's browser before accepting its warning. The pairing section above requires that comparison before showing a code:",
+                "remote.lan.fingerprintHint",
+                "Phones on your network see this certificate. Its SHA-256 fingerprint, to compare with the one in the browser's warning details:",
               )}
             </span>
           </p>

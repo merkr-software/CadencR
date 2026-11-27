@@ -1,0 +1,74 @@
+/* The sidebar in the phone layout (the drawer): rows a thumb can hit, and the
+ * swipe-action tray of a conversation row (`SidebarRowSwipeTray`,
+ * `useRowSwipe`). Unlayered, so it beats the rows' Tailwind utilities. */
+
+/* Every row is at least 44px tall: conversation rows (36px at the
+ * comfortable density on desktop), project rows and the Marketplace /
+ * Schedules links. `max()` keeps the floor when the phone zoom shrinks the
+ * root font size. */
+[data-shell="phone"] :is(.sidebar-row, .sidebar-project-row),
+[data-shell="phone"] [data-sidebar-nav-links] [data-nav-item] {
+  min-height: max(44px, 2.75rem);
+}
+
+/* A phone on its side (the tab bar's 499px step): 44px rows leave the list
+ * almost no room between the drawer's fixed top and bottom, so those fold.
+ * The header drops to 44px, Marketplace and Schedules share one line, and
+ * the footer (Full screen, Settings) runs on one line. */
+@media (max-height: 499px) {
+  [data-shell="phone"] [data-sidebar-header] {
+    height: 44px;
+  }
+  [data-shell="phone"] [data-sidebar-nav-links] {
+    flex-direction: row;
+  }
+  [data-shell="phone"] [data-sidebar-nav-links] > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  [data-shell="phone"] [data-sidebar-footer] {
+    flex-direction: row;
+    justify-content: center;
+    padding-block: 4px;
+  }
+  [data-shell="phone"] [data-sidebar-footer] > * {
+    width: auto;
+  }
+  [data-shell="phone"] [data-sidebar-footer] > [data-sidebar-settings-row] {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* A row that swipes leaves vertical pans to the browser and takes horizontal
+ * ones itself, so its passive listeners never hold up a scroll. */
+[data-shell="phone"] [data-row-swipe-row] {
+  touch-action: pan-y;
+}
+
+/* The tray sits over the row's trailing edge and is revealed from the right
+ * by `--row-swipe-x`, written on the tray by the gesture as the finger moves
+ * (no render per move; unset when closed). Clipped, not hidden: VoiceOver and
+ * the keyboard still reach its buttons, and keyboard focus on one opens it. */
+.sidebar-row-swipe-tray {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 1;
+  display: flex;
+  overflow: hidden;
+  border-radius: inherit;
+  clip-path: inset(0 0 0 calc(100% - var(--row-swipe-x, 0px)));
+  transition: clip-path 180ms var(--ease-fluid, ease-out);
+}
+.sidebar-row-swipe-tray[data-dragging] {
+  transition: none;
+}
+html[data-animations="off"] .sidebar-row-swipe-tray {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-row-swipe-tray {
+    transition: none;
+  }
+}

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { CleanupReport, StepOutcome } from "@/api/generated";
 import { scopedToastDescription } from "@/components/ToastScope";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { ARCHIVE_UNDO_TOAST_MS } from "@/lib/archive-undo";
 import {
   cleanupStepLabel,
   doneSummary,
@@ -65,7 +66,18 @@ export function updateArchiveProgress(featureId: number, report: CleanupReport):
  * user (interrupted, failed, blocked) are surfaced by `ArchiveCleanupNotices`
  * from the service's journal, on every client: this toast gives way to it.
  */
-export function finishArchiveProgress(featureId: number, report: CleanupReport): void {
+export function finishArchiveProgress(
+  featureId: number,
+  report: CleanupReport,
+  /**
+   * Offered as the toast's Undo (phone layout under a finger, when the archive
+   * removed no worktree or branch): unarchives what was archived. The toast
+   * then stays `ARCHIVE_UNDO_TOAST_MS`: with no hover to hold it, the default
+   * 4s ran out before a thumb reached it, and the tap fell through to what
+   * lies under the toast (the drawer's backdrop).
+   */
+  undo?: () => void,
+): void {
   const scope = takeScope(featureId);
   if (stepsNeedingAttention(report).length > 0) {
     toast.dismiss(progressToastId(featureId));
@@ -79,6 +91,15 @@ export function finishArchiveProgress(featureId: number, report: CleanupReport):
       ...RESET_TOAST_STAGE,
       id: progressToastId(featureId),
       description: withScope(scope, steps.length > 0 ? summary : undefined),
+      ...(undo
+        ? {
+            action: {
+              label: translateUi("conversation.archiveProgressToast.undo", "Undo"),
+              onClick: undo,
+            },
+            duration: ARCHIVE_UNDO_TOAST_MS,
+          }
+        : {}),
     },
   );
 }

@@ -18,7 +18,8 @@ export const MODEL_INSET_CLASS = "pl-[34px]";
 /** Keep arrow-key scrollIntoView from tucking the first row under a sticky heading. */
 export const PICKER_ITEM_CLASS = "scroll-mt-9";
 
-const HEADING_ROW_CLASS = "flex min-h-8 w-full items-center gap-2 px-2.5";
+// In the phone layout the picker is a sheet: 44px touch rows.
+const HEADING_ROW_CLASS = "flex min-h-8 w-full items-center gap-2 px-2.5 phone:min-h-11";
 
 export function ProviderHeader({
   group,

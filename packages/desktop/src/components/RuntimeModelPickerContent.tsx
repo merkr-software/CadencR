@@ -8,8 +8,9 @@ import {
   CommandList,
   useCommandState,
 } from "@/components/ui/command";
-import { PopoverContent } from "@/components/ui/popover";
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { AdaptivePopoverContent } from "@/components/PhoneSheetMenu";
+import { useInPhoneSheet } from "@/components/PhoneSheet";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { revealPickerItem } from "./RuntimeModelPickerChrome";
@@ -62,6 +63,10 @@ interface RuntimeModelPickerContentProps {
   setSearch: (value: string) => void;
 }
 
+const POPOVER_LIST_CLASS = "h-[320px] max-h-[320px]";
+/** The phone sheet: the list takes the sheet's height, its rows 44px touch targets. */
+const SHEET_LIST_CLASS = "max-h-none min-h-0 flex-1 [&_[cmdk-item]]:min-h-11";
+
 let highlightFrame = 0;
 
 function scrollHighlightedPickerItem(listRef: RefObject<HTMLDivElement | null>): void {
@@ -88,8 +93,12 @@ function FavoriteShortcut({ onToggleHighlighted }: FavoriteShortcutProps): React
     [onToggleHighlighted],
   );
 
+  // A keyboard legend: the whole footer goes on touch, where stars are tapped.
   return (
-    <div className="flex h-8 items-center gap-1.5 border-t px-2.5 text-[11px] text-muted-foreground">
+    <div
+      {...KBD_HINT_PROPS}
+      className="flex h-8 items-center gap-1.5 border-t px-2.5 text-[11px] text-muted-foreground"
+    >
       {hasMatches ? (
         <>
           <StarIcon className="size-3 shrink-0" />
@@ -131,12 +140,14 @@ export function RuntimeModelPickerContent({
   selectedModelValue,
   setSearch,
 }: RuntimeModelPickerContentProps): React.ReactElement {
-  function focusSearchInput(): void {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }
-
+  const { t } = useUiTranslation();
+  const inSheet = useInPhoneSheet();
+  // On phone the sheet never focuses the search field (that would raise the
+  // keyboard over the list) and gives focus back to the model chip on close.
   return (
-    <PopoverContent
+    <AdaptivePopoverContent
+      sheetTitle={t("conversation.stream.modelMetaChip.model", "Model")}
+      sheetClassName="min-h-0"
       align={align}
       className={cn(
         "flex w-[380px] max-h-[var(--radix-popper-available-height)] max-w-[calc(100vw-16px)] flex-col overflow-hidden p-0",
@@ -144,7 +155,7 @@ export function RuntimeModelPickerContent({
       )}
       onOpenAutoFocus={(event) => {
         event.preventDefault();
-        focusSearchInput();
+        requestAnimationFrame(() => inputRef.current?.focus());
       }}
       onCloseAutoFocus={(event) => {
         if (!restoreFocusAfterCloseRef.current) return;
@@ -154,6 +165,7 @@ export function RuntimeModelPickerContent({
       }}
     >
       <Command
+        className={inSheet ? "min-h-0 bg-transparent" : undefined}
         defaultValue={selectedCommandValue}
         filter={modelPickerFilter}
         onValueChange={() => scrollHighlightedPickerItem(listRef)}
@@ -163,10 +175,10 @@ export function RuntimeModelPickerContent({
           placeholder={searchPlaceholder}
           value={search}
           onValueChange={setSearch}
-          className="h-9 text-xs"
+          className={inSheet ? "h-11" : "h-9 text-xs"}
         />
         {catalogNotices.length > 0 ? <CatalogRefreshNotices notices={catalogNotices} /> : null}
-        <CommandList ref={listRef} className="h-[320px] max-h-[320px]">
+        <CommandList ref={listRef} className={inSheet ? SHEET_LIST_CLASS : POPOVER_LIST_CLASS}>
           <CommandEmpty className="py-3 text-center text-xs">{emptyText}</CommandEmpty>
           {action ? <SelectionGroup action={action} onSelect={onActionSelect} /> : null}
           {modelGroups.map((group) => (
@@ -194,6 +206,6 @@ export function RuntimeModelPickerContent({
           <FavoriteShortcut onToggleHighlighted={onToggleHighlightedFavorite} />
         ) : null}
       </Command>
-    </PopoverContent>
+    </AdaptivePopoverContent>
   );
 }

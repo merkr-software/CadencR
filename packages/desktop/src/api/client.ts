@@ -97,6 +97,7 @@ export function __resetRuntimeConfigForTests(): void {
 }
 
 const axiosInstance = Axios.create({ timeout: 30000 });
+const AUTH_HEADER = "X-Cadencr-Token";
 
 // `main.tsx` awaits preload before mounting, so sync accessors are always
 // populated by the time a request fires.
@@ -106,20 +107,24 @@ axiosInstance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   const token = getAuthTokenSync();
   if (token) {
-    config.headers.set("X-Cadencr-Token", token);
+    config.headers.set(AUTH_HEADER, token);
   }
   return config;
 });
 
 // In a remote browser, a 401 means the paired device token is no longer valid
 // (revoked on the host, or expired). Drop it so we stop presenting a dead
-// credential — the user can re-pair with a fresh code. Harmless on loopback,
-// where the launch token never 401s mid-session.
+// credential — the user can re-pair with a fresh code. Only the token the
+// request carried is dropped: a request sent before pairing (without a token,
+// or with a revoked one) that fails after it must not erase the token pairing
+// just saved, or the page reloads onto the pairing screen again. Harmless on
+// loopback, where the launch token never 401s mid-session.
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     if (error.response?.status === 401 && isBrowserRemote()) {
-      clearDeviceToken();
+      const sent = error.config?.headers?.get(AUTH_HEADER);
+      if (typeof sent === "string" && sent === readDeviceToken()) clearDeviceToken();
     }
     await decodeBlobErrorBody(error);
     return Promise.reject(error);

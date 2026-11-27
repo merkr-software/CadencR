@@ -93,10 +93,10 @@ describe("GitDiffFileHeaderActions", () => {
     expect(stageButton.querySelector(".lucide-plus")).toBeInTheDocument();
     expect(unstageButton.querySelector(".lucide-minus")).toBeInTheDocument();
 
-    fireEvent.mouseEnter(stageButton.parentElement!);
+    fireEvent.pointerEnter(stageButton.parentElement!, { pointerType: "mouse" });
     expect(screen.getByText("Stage file — add it to the next commit")).toBeInTheDocument();
-    fireEvent.mouseLeave(stageButton.parentElement!);
-    fireEvent.mouseEnter(unstageButton.parentElement!);
+    fireEvent.pointerLeave(stageButton.parentElement!, { pointerType: "mouse" });
+    fireEvent.pointerEnter(unstageButton.parentElement!, { pointerType: "mouse" });
     expect(screen.getByText("Unstage file — keeps worktree changes intact")).toBeInTheDocument();
   });
 
@@ -117,7 +117,7 @@ describe("GitDiffFileHeaderActions", () => {
       name: "Editor unavailable for deleted conflict src/file.ts",
     });
     expect(unavailableEditor).toBeDisabled();
-    fireEvent.mouseEnter(unavailableEditor.parentElement!);
+    fireEvent.pointerEnter(unavailableEditor.parentElement!, { pointerType: "mouse" });
     expect(
       screen.getByText(
         "Editor unavailable: both sides deleted this file. Stage the deletion to resolve it.",

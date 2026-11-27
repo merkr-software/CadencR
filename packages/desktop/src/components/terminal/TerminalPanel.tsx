@@ -1,6 +1,7 @@
 import { forwardRef, memo } from "react";
 import { createPortal } from "react-dom";
 import { MobileTerminalKeyBar } from "./MobileTerminalKeyBar";
+import { TerminalCompatibilityNotice } from "./TerminalCompatibilityNotice";
 import { TerminalPaneToolbar } from "./TerminalPaneToolbar";
 import { TerminalSplitTree } from "./TerminalSplitTree";
 import {
@@ -67,11 +68,14 @@ function TerminalPanelLayout({
         )}
       </div>
       {controller.isMobile && controller.leaves.length > 0 && !props.state.isMinimized && (
-        <MobileTerminalKeyBar
-          ctrlArmed={controller.focus.ctrlArmed}
-          onToggleCtrl={controller.focus.toggleCtrl}
-          onSendKey={controller.focus.sendKeyToActivePane}
-        />
+        <>
+          <TerminalCompatibilityNotice />
+          <MobileTerminalKeyBar
+            ctrlArmed={controller.focus.ctrlArmed}
+            onToggleCtrl={controller.focus.toggleCtrl}
+            onSendKey={controller.focus.sendKeyToActivePane}
+          />
+        </>
       )}
     </>
   );

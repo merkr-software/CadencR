@@ -88,7 +88,7 @@ export function ProjectRowActions({
         role="button"
         tabIndex={0}
         aria-label={t("project.rowMenus.newSession", "New Session")}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent phone:size-11"
         onClick={(event) => {
           event.stopPropagation();
           controller.startSession(project.id);
@@ -102,7 +102,7 @@ export function ProjectRowActions({
             role="button"
             tabIndex={0}
             aria-label={t("project.rowMenus.projectActions", "Project actions")}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent phone:size-11"
             onClick={(event) => event.stopPropagation()}
           >
             <Ellipsis className="h-3.5 w-3.5" />

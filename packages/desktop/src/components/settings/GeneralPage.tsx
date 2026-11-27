@@ -1,7 +1,8 @@
 import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { LanguageSetting } from "@/components/settings/LanguageSetting";
 import { Button } from "@/components/ui/button";
-import { ResolvedKbdChord } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedKbdChord } from "@/components/KbdShortcut";
+import { useShowsKeyboardHints } from "@/hooks/useShowsKeyboardHints";
 import { useZoom } from "@/hooks/useZoom";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { isDesktopShell } from "@/lib/desktop-bridge";
@@ -83,7 +84,7 @@ function ZoomRow(): React.JSX.Element {
               "settings.general.zoom.desktopDescription",
               "Scales the sidebar, editor, terminal and chrome together.",
             )}
-            <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span {...KBD_HINT_PROPS} className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <UiTrans
                 i18nKey="settings.general.zoom.shortcutHint"
                 defaults="<zoomIn/> <zoomOut/> <zoomReset/> work everywhere."
@@ -136,6 +137,7 @@ function ZoomRow(): React.JSX.Element {
 
 function ShortcutsRow(): React.JSX.Element {
   const { t } = useUiTranslation();
+  const showsKeys = useShowsKeyboardHints();
   // Action only — selecting the setter (never the open flag) keeps this row
   // from re-rendering when the modal toggles.
   const openShortcutsHelp = useShortcutsHelpStore((s) => s.setOpen);
@@ -143,13 +145,17 @@ function ShortcutsRow(): React.JSX.Element {
     <SettingsRow
       label={t("settings.general.keyboard.shortcuts", "Keyboard shortcuts")}
       description={
-        <span className="flex flex-wrap items-center gap-1.5">
-          <UiTrans
-            i18nKey="settings.general.keyboard.description"
-            defaults="Browse every shortcut, or press <shortcut/> anywhere."
-            components={{ shortcut: <ResolvedKbdChord shortcutId="shortcuts-help" /> }}
-          />
-        </span>
+        showsKeys ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <UiTrans
+              i18nKey="settings.general.keyboard.description"
+              defaults="Browse every shortcut, or press <shortcut/> anywhere."
+              components={{ shortcut: <ResolvedKbdChord shortcutId="shortcuts-help" /> }}
+            />
+          </span>
+        ) : (
+          t("settings.general.keyboard.descriptionTouch", "Browse every shortcut.")
+        )
       }
       control={
         <Button variant="outline" size="sm" onClick={() => openShortcutsHelp(true)}>

@@ -113,7 +113,7 @@ export function WorktreeSetupHeader({
   );
 }
 
-function WorktreeSetupBadge({
+export function WorktreeSetupBadge({
   status,
   setupError,
 }: Pick<WorktreeSetupHeaderProps, "status" | "setupError">): ReactElement {
@@ -203,7 +203,7 @@ function badgeContent(
   };
 }
 
-function missingSummary(branchExists: boolean | null, t: UiTranslator): string {
+export function missingSummary(branchExists: boolean | null, t: UiTranslator): string {
   if (branchExists === true)
     return t(
       "conversation.worktreeSetupHeader.folderRemovedBranchStillExists",

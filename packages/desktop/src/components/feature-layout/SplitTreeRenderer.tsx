@@ -13,6 +13,7 @@ import { useReplacementShownTabs } from "@/lib/plugin-tabs/builtin-fallback";
 
 import { usePopPanel } from "./use-pop-panel";
 import { TabPane } from "./TabPane";
+import type { TabPlacement } from "./PaneChrome";
 import type { FeatureTabActivationHandlers, FeatureTabs, PaneSlot } from "./types";
 
 interface SplitTreeRendererProps extends FeatureTabActivationHandlers {
@@ -24,6 +25,8 @@ interface SplitTreeRendererProps extends FeatureTabActivationHandlers {
   splitsEnabled?: boolean;
   /** Trailing controls for the root pane's strip (see `FeatureLayoutShell`). */
   rootStripActions?: ReactNode;
+  /** Where the root pane's tabs sit (see `PaneChrome`). */
+  tabPlacement?: TabPlacement;
   /** Where `node` sits in its parent split; absent for the tree's root node. */
   slot?: PaneSlot;
 }
@@ -52,6 +55,7 @@ export function SplitTreeRenderer(props: SplitTreeRendererProps): ReactNode {
       onEditorActivate={props.onEditorActivate}
       splitsEnabled={props.splitsEnabled ?? true}
       rootStripActions={props.rootStripActions}
+      tabPlacement={props.tabPlacement}
       slot={props.slot}
     />
   );

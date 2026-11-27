@@ -5,6 +5,9 @@ import { Markdown } from "@/components/Markdown";
 import { CodeBlockHeader } from "@/components/CodeBlockHeader";
 import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
 import { CopyAsMenu } from "@/components/agent-session/CopyAsMenu";
+import { MessageActionsMenu } from "@/components/agent-session/MessageActionsMenu";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useLatestRef } from "@/hooks/useLatestRef";
 import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
 import { copyAs } from "@/lib/markdown-export";
 import { subagentResultText } from "@/lib/subagents/subagent-report";
@@ -38,7 +41,9 @@ export const TextBlock = memo(function TextBlock({
 }) {
   const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
+  const phone = useIsMobile();
   const rootRef = useRef<HTMLDivElement>(null);
+  const contentRef = useLatestRef(content);
   // Throttle re-parse of the actively streaming block; copy always uses the
   // full latest content.
   const displayContent = useStreamingMarkdownThrottle(content, !!isStreaming);
@@ -57,7 +62,15 @@ export const TextBlock = memo(function TextBlock({
         isStreaming={isStreaming}
         disableCache={disableCache}
       />
-      {actions && (
+      {actions && phone && (
+        <MessageActionsMenu
+          contentRef={contentRef}
+          sourceRef={rootRef}
+          copyAsFormats={!isStreaming}
+          side="start"
+        />
+      )}
+      {actions && !phone && (
         <div className="stream-hover-actions left-0 flex items-center gap-1 opacity-0 group-hover/textblock:opacity-100 transition-colors">
           <button
             type="button"

@@ -7,17 +7,15 @@ import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";
+import { toast } from "sonner";
+import { PhoneCommitBar } from "../diff/PhoneCommitBar";
 import { GitActionButton } from "./GitActionButton";
 import {
   resetStashMutationCoordinatorForTest,
   useStashMutationCoordinator,
 } from "../diff/useStashMutationCoordinator";
 
-const buttonMocks = vi.hoisted(() => ({ isMobile: false, updatePending: false }));
-
-vi.mock("@/hooks/useIsMobile", () => ({
-  useIsMobile: () => buttonMocks.isMobile,
-}));
+const buttonMocks = vi.hoisted(() => ({ updatePending: false }));
 
 vi.mock("./useGitUpdatePending", () => ({
   gitUpdateMutationKey: (featureId: number) => ["git-update", featureId],
@@ -81,7 +79,6 @@ function makeDirtyMergeableSnapshot(featureId: number): GitStatusSnapshot {
 }
 
 beforeEach(() => {
-  buttonMocks.isMobile = false;
   buttonMocks.updatePending = false;
   useGitStatusStore.setState(useGitStatusStore.getInitialState());
   useSessionStatusStore.setState({ isConnected: false });
@@ -148,20 +145,18 @@ describe("GitActionButton status recovery", () => {
     expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
   });
 
-  it("offers retry on mobile when watcher setup fails after a valid snapshot", async () => {
-    buttonMocks.isMobile = true;
+  it("offers retry on a phone when watcher setup fails after a valid snapshot", async () => {
     useSessionStatusStore.setState({ isConnected: true });
     const git = useGitStatusStore.getState();
     const snapshot = makeDirtyMergeableSnapshot(42);
     git.setStatus(snapshot);
-    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+    const { user } = render(<GitActionButton featureId={42} projectId={7} phone />);
     act(() => git.setStatus({ ...snapshot, computed_at: 2 }, "inotify limit"));
-    await user.click(screen.getByRole("button", { name: "Git live updates unavailable" }));
-    expect(screen.getByText(/inotify limit/)).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Commit" })).not.toHaveAttribute(
-      "aria-disabled",
-      "true",
+    await user.click(
+      screen.getByRole("button", { name: "Conversation actions, something failed" }),
     );
+    expect(screen.getByText(/inotify limit/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Commit" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Retry Git status" }));
     expect(useGitStatusStore.getState().watcherEpoch[42]).toBe(1);
     act(() => git.setStatus({ ...snapshot, computed_at: 3 }, null));
@@ -197,8 +192,7 @@ describe("GitActionButton shortcuts", () => {
     expect(await screen.findByRole("dialog", { name: "Commit progress" })).toBeInTheDocument();
   });
 
-  it("keeps the Git actions menu available on mobile while committing", async () => {
-    buttonMocks.isMobile = true;
+  it("keeps the Git actions menu available while committing", async () => {
     useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
     useCommitOutputStore.getState().start(42);
 
@@ -209,16 +203,6 @@ describe("GitActionButton shortcuts", () => {
 
     expect(await screen.findByText("View commit progress")).toBeInTheDocument();
     expect(screen.getByText("Merge")).toBeInTheDocument();
-  });
-
-  it("names the checked-out branch on the mobile trigger", () => {
-    buttonMocks.isMobile = true;
-    useGitStatusStore.getState().setStatus(makeMergeableSnapshot(42));
-
-    render(<GitActionButton featureId={42} projectId={7} />);
-
-    const trigger = screen.getByRole("button", { name: /^Git actions, on / });
-    expect(trigger).toHaveTextContent(useGitStatusStore.getState().byFeature[42]!.current_branch);
   });
 
   it("replaces the primary action with a clickable Pushing control", async () => {
@@ -409,5 +393,56 @@ describe("GitActionButton shortcuts", () => {
     expect(activity.querySelector(".animate-spin")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: /more git actions/i }));
     expect(screen.getAllByText("Update request in progress").length).toBeGreaterThan(0);
+  });
+});
+
+function commitBarButton(): HTMLElement {
+  const bar = document.querySelector<HTMLElement>("[data-phone-commit-bar]");
+  if (!bar) throw new Error("no Commit bar");
+  return within(bar).getByRole("button", { name: "Commit" });
+}
+
+describe("the phone Commit bar", () => {
+  it("opens one commit dialog while two headers for the conversation are mounted", async () => {
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(
+      <>
+        <GitActionButton featureId={42} projectId={7} />
+        <GitActionButton featureId={42} projectId={7} />
+        <PhoneCommitBar featureId={42} />
+      </>,
+    );
+
+    await user.click(commitBarButton());
+    expect(await screen.findAllByRole("dialog", { name: "Commit progress" })).toHaveLength(1);
+  });
+
+  it("says why when the header cannot commit", async () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+    buttonMocks.updatePending = true;
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(
+      <>
+        <GitActionButton featureId={42} projectId={7} />
+        <PhoneCommitBar featureId={42} />
+      </>,
+    );
+
+    await user.click(commitBarButton());
+    expect(screen.queryByRole("dialog", { name: "Commit progress" })).not.toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith("Cannot commit", {
+      description: "Update request in progress",
+    });
+    error.mockRestore();
+  });
+
+  it("says so when no header can run the commit", async () => {
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const { user } = render(<PhoneCommitBar featureId={42} />);
+
+    await user.click(commitBarButton());
+    expect(error).toHaveBeenCalledWith("Commit isn't available here");
+    error.mockRestore();
   });
 });

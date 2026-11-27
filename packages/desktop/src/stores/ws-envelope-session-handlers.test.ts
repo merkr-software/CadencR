@@ -1,7 +1,11 @@
 import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it } from "vitest";
 
-import { handleInitialized, handleMcpServers } from "./ws-envelope-session-handlers";
+import {
+  handleInitialized,
+  handleMcpServers,
+  handlePermissionRequest,
+} from "./ws-envelope-session-handlers";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-types";
 
@@ -95,5 +99,27 @@ describe("handleMcpServers", () => {
     handleMcpServers(ctx, "s1", { session_id: "456", mcp_servers: [] });
     handleMcpServers(ctx, "s1", { mcp_servers: [] });
     expect(ctx.getSession("s1").mcpServers).toEqual(servers);
+  });
+});
+
+describe("handlePermissionRequest (AskUserQuestion)", () => {
+  const ask = (requestId: string, question: string): Record<string, unknown> => ({
+    request_id: requestId,
+    tool_name: "AskUserQuestion",
+    tool_input: { question },
+  });
+
+  it("keeps the waiting question's list when a reconnect re-sends it", () => {
+    const ctx = createTestContext(createSessionEntry());
+    handlePermissionRequest(ctx, "s1", ask("r1", "Which delimiter?"));
+    const first = ctx.getSession("s1").pendingQuestions;
+    expect(first).toHaveLength(1);
+
+    handlePermissionRequest(ctx, "s1", ask("r1", "Which delimiter?"));
+    expect(ctx.getSession("s1").pendingQuestions).toBe(first);
+
+    handlePermissionRequest(ctx, "s1", ask("r2", "Header row?"));
+    expect(ctx.getSession("s1").pendingQuestions).not.toBe(first);
+    expect(ctx.getSession("s1").pendingQuestions?.[0]?.question).toBe("Header row?");
   });
 });

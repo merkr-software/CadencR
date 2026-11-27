@@ -208,7 +208,8 @@ export function WorktreeList({ projectId }: { projectId: number }) {
   }
 
   return (
-    <div className="max-h-[240px] space-y-1 overflow-y-auto pr-1">
+    // A phone scrolls the page it sits in, never a box inside it.
+    <div className="max-h-[240px] space-y-1 overflow-y-auto pr-1 phone:max-h-none phone:overflow-visible phone:pr-0">
       {worktrees.map((wt) => (
         <WorktreeRow
           key={wt.path}

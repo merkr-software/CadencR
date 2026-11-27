@@ -3,7 +3,7 @@ import { Files, Loader2Icon } from "lucide-react";
 import { useMemo, type ReactElement, type RefObject } from "react";
 
 import type { UncommittedFile } from "@/api/generated";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KeyboardOnlyShortcutHint } from "@/components/KbdShortcut";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DialogFooter } from "@/components/ui/dialog";
@@ -105,9 +105,7 @@ function IncludeUntrackedOption({
             )}
           </span>
         </span>
-        <span aria-hidden="true" className="shrink-0 text-muted-foreground">
-          <KbdShortcut keys={["u"]} variant="hint" />
-        </span>
+        <KeyboardOnlyShortcutHint keys={["u"]} className="text-muted-foreground" />
       </div>
     </div>
   );
@@ -133,9 +131,7 @@ function StashNameField({
             {t("workspace.git.stashChangesDialogBody.optional", "(optional)")}
           </span>
         </label>
-        <span aria-hidden="true" className="text-muted-foreground">
-          <KbdShortcut keys={["n"]} variant="hint" />
-        </span>
+        <KeyboardOnlyShortcutHint keys={["n"]} className="text-muted-foreground" />
       </div>
       <Input
         ref={nameInputRef}
@@ -261,20 +257,14 @@ function StashChangesDialogFooter({
         disabled={submission.pending}
       >
         {t("workspace.git.stashChangesDialogBody.cancel", "Cancel")}
-        <span aria-hidden="true">
-          <KbdShortcut keys={ESC_KEYS} variant="hint" />
-        </span>
+        <KeyboardOnlyShortcutHint keys={ESC_KEYS} />
       </Button>
       <Button type="submit" disabled={!submission.canSubmit}>
         {submission.pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
         {submission.pending
           ? t("workspace.git.stashChangesDialogBody.stashing", "Stashing…")
           : t("workspace.git.stashChangesDialogBody.stashChanges", "Stash changes")}
-        {!submission.pending ? (
-          <span aria-hidden="true">
-            <KbdShortcut keys={SUBMIT_KEYS} variant="hint" />
-          </span>
-        ) : null}
+        {!submission.pending ? <KeyboardOnlyShortcutHint keys={SUBMIT_KEYS} /> : null}
       </Button>
     </DialogFooter>
   );

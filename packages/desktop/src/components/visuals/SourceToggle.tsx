@@ -1,5 +1,6 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { CodeIcon, EyeIcon } from "lucide-react";
+import { HEADER_BUTTON_CLASS } from "@/components/CodeBlockHeader";
 
 interface SourceToggleProps {
   showingSource: boolean;
@@ -15,7 +16,7 @@ export function SourceToggle({ showingSource, renderedLabel, onToggle }: SourceT
     <button
       type="button"
       onClick={onToggle}
-      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
+      className={HEADER_BUTTON_CLASS}
       title={
         showingSource
           ? t("conversation.stream.sourceToggle.viewRendered", "View {{label}}", {

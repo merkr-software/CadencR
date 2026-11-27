@@ -4,7 +4,7 @@ import { ImageIcon, Loader2Icon, MessageSquareTextIcon, PaperclipIcon } from "lu
 import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { UserMessageMark } from "@/lib/agent-message-navigator";
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { Badge } from "@/components/ui/badge";
 import { parseUTCDateTime } from "@/lib/date-utils";
 import { formattingLocale } from "@/lib/i18n/formatting-locale";
@@ -96,7 +96,7 @@ function PreviewFooter({ loading }: { loading: boolean }): ReactElement {
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[10.5px] text-muted-foreground">
       <span>{t("conversation.stream.messageNavigatorPreview.clickToJump", "Click to jump")}</span>
-      <span className="ml-auto inline-flex items-center gap-1">
+      <span {...KBD_HINT_PROPS} className="ml-auto inline-flex items-center gap-1">
         <ResolvedShortcutHint shortcutId="agent-previous-message" />
         <ResolvedShortcutHint shortcutId="agent-next-message" />
       </span>

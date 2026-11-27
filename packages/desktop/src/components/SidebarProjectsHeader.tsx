@@ -43,8 +43,11 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
       className={cn("group flex items-center justify-between px-2", SECTION_DIVIDER_CLASS)}
     >
       <SidebarLensMenu />
-      <div className="flex items-center gap-0.5">
-        <SidebarDisplayOptionsButton section="projects" className={HOVER_REVEAL_CLASS} />
+      <div className="flex items-center gap-0.5 phone:-mr-2 phone:gap-0">
+        <SidebarDisplayOptionsButton
+          section="projects"
+          className={cn(HOVER_REVEAL_CLASS, "phone:size-11")}
+        />
         {onRefresh && (
           <Button
             variant="ghost"
@@ -53,7 +56,7 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
             disabled={isRefreshing}
             title={t("sidebar.projectsHeader.reSortProjects", "Re-sort projects")}
             aria-label={t("sidebar.projectsHeader.reSortProjects", "Re-sort projects")}
-            className={HOVER_REVEAL_CLASS}
+            className={cn(HOVER_REVEAL_CLASS, "phone:size-11")}
           >
             <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
           </Button>
@@ -66,7 +69,7 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
             disabled={isAddingProject}
             title={t("sidebar.projectsHeader.addProject", "Add project")}
             aria-label={t("sidebar.projectsHeader.addProject", "Add project")}
-            className={HOVER_REVEAL_CLASS}
+            className={cn(HOVER_REVEAL_CLASS, "phone:size-11")}
           >
             <Plus />
           </Button>
@@ -87,7 +90,7 @@ export const SidebarProjectsHeader = memo(function SidebarProjectsHeader({
               ? t("sidebar.projectsHeader.collapseProjects", "Collapse projects")
               : t("sidebar.projectsHeader.expandProjects", "Expand projects")
           }
-          className="text-foreground/65 hover:text-foreground"
+          className="text-foreground/65 hover:text-foreground phone:size-11"
         >
           {fold.expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         </Button>

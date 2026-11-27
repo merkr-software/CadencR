@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type ReactElement, type RefObject } from "react";
 import { EditorFuzzyShortcut } from "@/components/editor/EditorFuzzyShortcut";
 import {
   OpenDiffInEditorProvider,
@@ -133,6 +133,16 @@ function SessionFeatureView({
     hotkeysEnabled = true,
     onActivate,
   } = props;
+  const { terminal, editor } = refs;
+  // Stable, so the memo'd tab strip and phone tab bar skip stream re-renders.
+  const activateTerminal = useCallback(
+    () => requestAnimationFrame(() => terminal.current?.activate()),
+    [terminal],
+  );
+  const activateEditor = useCallback(
+    () => requestAnimationFrame(() => editor.current?.focusActiveEditor()),
+    [editor],
+  );
   return (
     <LinkRoutingProvider scopeId={featureId}>
       <OpenDiffInEditorProvider onOpenFileInEditor={openDiffFileInEditor}>
@@ -182,17 +192,16 @@ function SessionFeatureView({
             splitsEnabled={splitsEnabled}
             hotkeysEnabled={hotkeysEnabled}
             mountInactiveTabs={false}
+            // Splits are off only in the phone layout and in embedded cards:
+            // the phone's conversation tabs sit in a bottom bar.
+            tabPlacement={!embedded && !splitsEnabled ? "bottom" : "top"}
             rootStripActions={
               splitsEnabled && pluginTabsAvailable() ? (
                 <PluginTabAddMenu featureId={layoutFeatureId} projectId={projectId} />
               ) : undefined
             }
-            onTerminalActivate={() =>
-              requestAnimationFrame(() => refs.terminal.current?.activate())
-            }
-            onEditorActivate={() =>
-              requestAnimationFrame(() => refs.editor.current?.focusActiveEditor())
-            }
+            onTerminalActivate={activateTerminal}
+            onEditorActivate={activateEditor}
           />
         </section>
       </OpenDiffInEditorProvider>

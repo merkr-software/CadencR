@@ -11,7 +11,7 @@ import {
 import { Check, ChevronDown, FolderIcon, GitBranchIcon, GitForkIcon, Loader2 } from "lucide-react";
 import type { SkillWorktree, VirtualSkillPayload } from "@/api/generated";
 import { CadencrLogo } from "@/components/CadencrLogo";
-import { KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import type { PromptEditorHandle } from "@/components/prompt-editor/PromptEditor";
 import {
   DropdownMenu,
@@ -222,7 +222,10 @@ function KeysOwner({ active }: { active: boolean }): ReactElement {
   if (!active) {
     return (
       // A key hint means nothing on a touch screen.
-      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden">
+      <span
+        {...KBD_HINT_PROPS}
+        className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+      >
         <ResolvedShortcutHint shortcutId="agent-skill-wizard" />
         <span className="@max-[30rem]:hidden">
           {t("conversation.composer.virtualSkillWizard.configure", "Configure")}
@@ -232,6 +235,7 @@ function KeysOwner({ active }: { active: boolean }): ReactElement {
   }
   return (
     <span
+      {...KBD_HINT_PROPS}
       className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
       role="status"
     >

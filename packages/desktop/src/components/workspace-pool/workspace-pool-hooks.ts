@@ -83,7 +83,7 @@ export function usePrewarmRequests(prewarmed: string | null, setState: SetPool):
  */
 export function useDropClosedWorkspaces(
   pool: WorkspacePoolState,
-  activeId: string,
+  activeId: string | null,
   setState: SetPool,
 ): void {
   const latest = useRef({ entries: pool.entries, activeId });
@@ -125,10 +125,12 @@ export function useDropClosedWorkspaces(
  * that was already mounted gets it from here, without its entry changing.
  * A layout that is not in the store yet gets it as soon as it arrives.
  */
-export function useApplyFocusRequest(target: WorkspaceTarget): void {
-  const { sessionId, featureId, focusTab } = target;
+export function useApplyFocusRequest(target: WorkspaceTarget | null): void {
+  const sessionId = target?.sessionId;
+  const featureId = target?.featureId;
+  const focusTab = target?.focusTab;
   useLayoutEffect(() => {
-    if (focusTab === undefined) return undefined;
+    if (featureId === undefined || focusTab === undefined) return undefined;
     const apply = (): boolean => {
       const layout = useFeatureLayoutStore.getState().features[featureId];
       if (layout === undefined) return false;
@@ -194,7 +196,7 @@ function replayOutsidePress(): void {
  * sidebar (a root dialog, a popover being typed in) stays open across a switch.
  */
 export function useDismissLayersOnSwitch(
-  activeId: string,
+  activeId: string | null,
   rootRef: RefObject<HTMLElement | null>,
 ): void {
   const previousIdRef = useRef(activeId);
@@ -202,6 +204,6 @@ export function useDismissLayersOnSwitch(
     const hiddenId = previousIdRef.current;
     if (hiddenId === activeId) return;
     previousIdRef.current = activeId;
-    if (slotOwnsOpenLayer(rootRef.current, hiddenId)) replayOutsidePress();
+    if (hiddenId !== null && slotOwnsOpenLayer(rootRef.current, hiddenId)) replayOutsidePress();
   }, [activeId, rootRef]);
 }

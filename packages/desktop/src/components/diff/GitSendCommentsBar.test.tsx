@@ -51,7 +51,7 @@ describe("GitSendCommentsBar", () => {
     render(<GitSendCommentsBar reviews={reviews({ selectedCount: 1, totalCount: 3 })} />);
 
     const button = screen.getByRole("button", { name: "Send 1 to agent" });
-    fireEvent.mouseEnter(button.closest("div.relative")!);
+    fireEvent.pointerEnter(button.closest("div.relative")!, { pointerType: "mouse" });
 
     expect(screen.getByText("Send picked threads to the agent").parentElement).toHaveTextContent(
       "F2",

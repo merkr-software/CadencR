@@ -1,5 +1,5 @@
 import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiErrorCode, apiErrorMessage, isSettingsRepairError, toastError } from "@/lib/api-errors";
@@ -15,7 +15,8 @@ import { useTelemetryActivity } from "@/hooks/useTelemetryActivity";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { COMPLETED_ONBOARDING_STEP, FIRST_ONBOARDING_STEP } from "@/lib/onboarding-step";
 import { TelemetryDecisionDialog } from "@/components/telemetry/TelemetryDecisionDialog";
-import { OnboardingOverlay } from "./OnboardingOverlay";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import { SettingsUnreadableDialog } from "./SettingsUnreadableDialog";
 
 interface OnboardingGateProps {
@@ -27,6 +28,20 @@ interface OnboardingGateProps {
 const SETTINGS_RECHECK_MS = 2_000;
 const FIRST_USE_RECHECK_MS = 5_000;
 
+// Shown once per workspace: its chunk (and the settings rows it reuses) loads only then.
+const OnboardingOverlay = lazyChunk(() =>
+  import("./OnboardingOverlay").then((module) => module.OnboardingOverlay),
+);
+
+function LazyOnboardingOverlay(props: ComponentProps<typeof OnboardingOverlay>): ReactNode {
+  const { t } = useUiTranslation();
+  return (
+    <LazyBoundary label={t("lazy.labels.onboarding", "onboarding")}>
+      <OnboardingOverlay {...props} />
+    </LazyBoundary>
+  );
+}
+
 /** Remote browsers never read or change the host's local privacy decision. */
 export function OnboardingGate(props: OnboardingGateProps): React.JSX.Element {
   return isBrowserRemote() ? <>{props.children}</> : <LocalOnboardingGate {...props} />;
@@ -37,7 +52,6 @@ function LocalOnboardingGate({
   openSettings,
   languageSuggestion,
 }: OnboardingGateProps): React.JSX.Element {
-  const { t } = useUiTranslation();
   const onboarding = useOnboardingStatus();
   const telemetry = useQuery({
     queryKey: TELEMETRY_QUERY_KEY,
@@ -104,7 +118,9 @@ function LocalOnboardingGate({
         <TelemetryDecisionDialog error={preferencesError} retry={retry} busy={isFetching} />
       );
     } else if (!onboarding.isCompleted && state) {
-      content = <OnboardingOverlay telemetryState={state} showWelcomeIntro={!workspaceWasReady} />;
+      content = (
+        <LazyOnboardingOverlay telemetryState={state} showWelcomeIntro={!workspaceWasReady} />
+      );
     } else if (state && needsTelemetryDecision(state)) {
       content = verifyingDecision ? (
         <SettingsRecheckStatus />
@@ -121,17 +137,20 @@ function LocalOnboardingGate({
       {workspaceReady && !needsRepair && preferencesError ? (
         <PrivacyRefreshNotice error={preferencesError} busy={telemetry.isFetching} retry={retry} />
       ) : null}
-      {activityError && !preferencesError ? (
-        <p
-          role="status"
-          className="fixed bottom-4 left-4 z-50 max-w-md rounded-md border border-border bg-background p-3 text-xs text-muted-foreground"
-        >
-          {t("telemetry.gate.audienceError", "Monthly audience counter: {{error}}", {
-            error: activityError,
-          })}
-        </p>
-      ) : null}
+      {activityError && !preferencesError ? <AudienceErrorNotice error={activityError} /> : null}
     </>
+  );
+}
+
+function AudienceErrorNotice({ error }: { error: string }): React.JSX.Element {
+  const { t } = useUiTranslation();
+  return (
+    <p
+      role="status"
+      className="fixed bottom-4 left-4 z-50 max-w-md rounded-md border border-border bg-background p-3 text-xs text-muted-foreground"
+    >
+      {t("telemetry.gate.audienceError", "Monthly audience counter: {{error}}", { error })}
+    </p>
   );
 }
 

@@ -23,6 +23,7 @@ import {
 import type { BrowserTabMetadata } from "@/lib/desktop-bridge";
 import { BrowserExternalButton } from "./BrowserExternalButton";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
+import { KBD_HINT_PROPS } from "@/components/KbdShortcut";
 
 interface BrowserToolbarActionsProps {
   activeTab: BrowserTabMetadata | null;
@@ -122,7 +123,10 @@ function BrowserOverflowMenu(
         <DropdownMenuItem disabled={disabled} onSelect={props.onDevTools}>
           <BugIcon /> {t("workspace.tools.browserToolbarActions.devTools", "DevTools")}
           {props.devToolsShortcut ? (
-            <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+            <span
+              {...KBD_HINT_PROPS}
+              className="ml-auto text-xs tracking-widest text-muted-foreground"
+            >
               {props.devToolsShortcut}
             </span>
           ) : null}
@@ -144,7 +148,10 @@ function BrowserOverflowMenu(
         <DropdownMenuItem onSelect={() => runAfterClose(props.onDownloads)}>
           <DownloadIcon /> {t("workspace.tools.browserToolbarActions.downloads", "Downloads")}
           {props.downloadsShortcut ? (
-            <span className="ml-auto text-xs tracking-widest text-muted-foreground">
+            <span
+              {...KBD_HINT_PROPS}
+              className="ml-auto text-xs tracking-widest text-muted-foreground"
+            >
               {props.downloadsShortcut}
             </span>
           ) : null}

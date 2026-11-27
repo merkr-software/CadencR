@@ -2,6 +2,8 @@ import { useRef, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import { PanelLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PhoneMenuAttentionDot } from "@/components/PhoneMenuAttentionDot";
+import { useDockedSidebar } from "@/hooks/useDockedSidebar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTrafficLightsAnchor } from "@/hooks/useTrafficLightsAnchor";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
@@ -13,6 +15,10 @@ import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 interface SidebarCollapsedChromeProps {
   visible: boolean;
   onExpand: () => void;
+  /** Phone: the menu button counts For me entries (`PhoneMenuAttentionDot`); off on the inbox. */
+  menuBadge?: boolean;
+  /** Phone: the conversation on screen, left out of that count. */
+  currentFeatureId?: number | null;
 }
 
 /**
@@ -26,13 +32,21 @@ interface SidebarCollapsedChromeProps {
 export function SidebarCollapsedChrome({
   visible,
   onExpand,
+  menuBadge = true,
+  currentFeatureId = null,
 }: SidebarCollapsedChromeProps): ReactElement {
-  const isMobile = useIsMobile();
+  // A docked phone sidebar collapses to the rail, which owns expand: like the
+  // desktop, not the drawer's menu button.
+  const phoneLayout = useIsMobile();
+  const docked = useDockedSidebar();
+  const isMobile = phoneLayout && !docked;
   const railHidden = useSidebarOption("rail") === "none";
   const hasContent = isMobile || railHidden || HAS_MAC_WINDOW_CONTROLS;
   const shown = visible && hasContent;
   const ref = useRef<HTMLDivElement>(null);
-  useTrafficLightsAnchor(ref, shown && HAS_MAC_WINDOW_CONTROLS && !isMobile);
+  // Phone layout too (a narrow Electron window): the lights center on the
+  // 44px row the menu button sits in, which clears them on its left.
+  useTrafficLightsAnchor(ref, shown && HAS_MAC_WINDOW_CONTROLS);
 
   return (
     <div
@@ -43,7 +57,11 @@ export function SidebarCollapsedChrome({
       inert={shown ? undefined : true}
     >
       {isMobile ? (
-        <MobileMenuButton onExpand={onExpand} />
+        <MobileMenuButton
+          onExpand={onExpand}
+          badge={menuBadge}
+          currentFeatureId={currentFeatureId}
+        />
       ) : railHidden ? (
         <TitlebarActions onExpand={onExpand} />
       ) : (
@@ -60,19 +78,34 @@ export function SidebarCollapsedChrome({
 //
 // `ml-1` keeps the whole tap target to the right of `MobileDrawer`'s 16px
 // edge-swipe strip, which swallows touches to block the browser's back gesture.
-function MobileMenuButton({ onExpand }: { onExpand: () => void }): ReactElement {
+// 44px square: the smallest comfortable target for a finger. In a narrow macOS
+// Electron window the traffic lights sit on this row (x≈12 to x≈71), so the
+// button starts past them instead: 68px after the row's 12px padding puts its
+// edge at x≈80, its glyph at x≈92, the desktop header's 20px berth.
+const MOBILE_MENU_BUTTON_INSET = HAS_MAC_WINDOW_CONTROLS ? "ml-[68px]" : "ml-1";
+
+function MobileMenuButton({
+  onExpand,
+  badge,
+  currentFeatureId,
+}: {
+  onExpand: () => void;
+  badge: boolean;
+  currentFeatureId: number | null;
+}): ReactElement {
   const { t } = useUiTranslation();
   const openMenu = t("sidebar.openMenu", "Open menu");
   return (
     <Button
       variant="ghost"
       size="icon"
-      className="ml-1 size-8 shrink-0"
+      className={cn("relative size-11 shrink-0", MOBILE_MENU_BUTTON_INSET)}
       title={openMenu}
       onClick={onExpand}
     >
       <PanelLeft className="size-5" />
       <span className="sr-only">{openMenu}</span>
+      {badge && <PhoneMenuAttentionDot exceptFeatureId={currentFeatureId} />}
     </Button>
   );
 }
@@ -85,6 +118,8 @@ function TitlebarActions({ onExpand }: { onExpand: () => void }): ReactElement {
   const actionButtonClass = cn(
     "text-muted-foreground hover:text-foreground",
     !HAS_MAC_WINDOW_CONTROLS && "size-7",
+    // A docked phone sidebar with its rail turned off lands here: thumb-sized.
+    "phone:size-11",
   );
   return (
     <>

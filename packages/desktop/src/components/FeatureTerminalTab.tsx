@@ -13,6 +13,7 @@ import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { useListProjects } from "@/api/generated";
 import { fetchTerminalSessions } from "@/api/terminal-sessions";
 import { useFeatureWorktreePath } from "@/hooks/useFeatureWorktreePath";
+import { getCoarsePointerSnapshot } from "@/lib/form-factor";
 import {
   getFocusedTab,
   isTabVisible,
@@ -30,7 +31,7 @@ interface FeatureTerminalTabProps {
 }
 
 export interface FeatureTerminalTabHandle {
-  /** Ensure a terminal pane exists and focus it */
+  /** Ensure a terminal pane exists and focus it (under a finger: open it, never focus) */
   activate: () => void;
 }
 
@@ -111,6 +112,12 @@ export const FeatureTerminalTab = memo(
 
     const activate = useCallback(async (): Promise<void> => {
       await ensureTerminalOpen();
+      // Under a finger, focusing raises the on-screen keyboard, which pans the
+      // page and hides the header: a tap into the terminal focuses it (the
+      // pane's click), and the key bar writes without focus. A narrow window
+      // with a mouse (the phone layout in Electron) still focuses. Read at
+      // call time: the primary pointer can change while it stays mounted.
+      if (getCoarsePointerSnapshot()) return;
       requestAnimationFrame(() => terminalRef.current?.focusActivePane());
     }, [ensureTerminalOpen]);
 

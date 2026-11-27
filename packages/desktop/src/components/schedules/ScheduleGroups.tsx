@@ -67,7 +67,7 @@ export const ScheduleGroups = memo(function ScheduleGroups({
           "Schedule a prompt to run once at a set time, or on a repeating cadence — into an existing conversation or a brand-new one.",
         )}
         action={
-          <Button type="button" size="sm" onClick={onCreate}>
+          <Button type="button" size="sm" className="phone:h-11" onClick={onCreate}>
             {t(
               "schedule.list.scheduleGroups.createYourFirstSchedule",
               "Create your first schedule",

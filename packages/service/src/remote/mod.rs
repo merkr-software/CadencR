@@ -14,6 +14,8 @@ mod tls;
 mod tunnel;
 
 pub use spa::spa_service;
+#[cfg(test)]
+pub(crate) use spa::test_support as spa_test_support;
 pub use tunnel::{load_tunnel_host, sanitize_tunnel_host};
 
 use std::net::{IpAddr, SocketAddr};

@@ -19,6 +19,13 @@ vi.mock("@/hooks/useManualConversationOrder", async (importOriginal) => ({
   moveConversation: mockMoveConversation,
 }));
 
+const formFactor = vi.hoisted(() => ({ phone: false, touch: false }));
+vi.mock("@/hooks/useIsMobile", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useIsMobile: () => formFactor.phone,
+}));
+vi.mock("@/hooks/useIsTouchDevice", () => ({ useIsTouchDevice: () => formFactor.touch }));
+
 vi.mock("@/hooks/usePersistedIdSet", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   ...(await import("@/test/persisted-id-set-mock")),
@@ -1038,5 +1045,87 @@ describe("ProjectFeatures manual reordering", () => {
       targetId: 3,
       position: "after",
     });
+  });
+});
+
+describe("ProjectFeatures on the phone layout", () => {
+  beforeEach(() => {
+    useSidebarConfigStore.setState({
+      config: { ...DEFAULT_SIDEBAR_CONFIG, dormantAfter: "never" },
+    });
+    mockUpdatePinned.mockClear();
+    mockNavigate.mockClear();
+    formFactor.phone = true;
+    formFactor.touch = true;
+    onTestFinished(() => {
+      formFactor.phone = false;
+      formFactor.touch = false;
+    });
+  });
+
+  function renderList() {
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Feature One").closest("[role=button]");
+    if (!(row instanceof HTMLElement)) throw new Error("row not found");
+    return row;
+  }
+
+  function swipeLeft(row: HTMLElement): void {
+    const at = (clientX: number) => ({ touches: [{ clientX, clientY: 100 }] });
+    fireEvent.touchStart(row, at(250));
+    fireEvent.touchMove(row, at(235));
+    fireEvent.touchMove(row, at(130));
+    fireEvent.touchEnd(row, { touches: [] });
+  }
+
+  it("gives the title the row: Pin and Archive move to the swipe tray", () => {
+    const row = renderList();
+    expect(row.querySelector(".sidebar-row-actions")).toBeNull();
+    const tray = row.querySelector("[data-row-swipe-tray]");
+    if (!(tray instanceof HTMLElement)) throw new Error("tray not found");
+    // Each action names the conversation it acts on.
+    expect(within(tray).getByRole("button", { name: "Pin “Feature One”" })).toBeInTheDocument();
+    expect(within(tray).getByRole("button", { name: "Archive “Feature One”" })).toBeInTheDocument();
+    expect(row).toHaveAttribute("data-row-swipe-row");
+  });
+
+  it("reveals the tray on a left swipe and pins through the same write as desktop", async () => {
+    const row = renderList();
+    swipeLeft(row);
+    const tray = row.querySelector<HTMLElement>("[data-row-swipe-tray]");
+    expect(tray?.style.getPropertyValue("--row-swipe-x")).toBe("112px");
+    fireEvent.click(within(row).getByRole("button", { name: "Pin “Feature One”" }));
+    expect(mockUpdatePinned).toHaveBeenCalledWith({ id: 1, data: { pinned: true } });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("archives through the archive dialog", async () => {
+    const row = renderList();
+    swipeLeft(row);
+    fireEvent.click(within(row).getByRole("button", { name: "Archive “Feature One”" }));
+    expect(await screen.findByText("Archive session?")).toBeInTheDocument();
+  });
+
+  it("keeps the hover actions in a narrow window driven by a mouse", () => {
+    formFactor.touch = false;
+    const row = renderList();
+    expect(row.querySelector(".sidebar-row-actions")).not.toBeNull();
+    expect(row.querySelector("[data-row-swipe-tray]")).toBeNull();
+    expect(row).not.toHaveAttribute("data-row-swipe-row");
+  });
+
+  it("keeps desktop rows as they were: hover actions, no tray", () => {
+    formFactor.phone = false;
+    const row = renderList();
+    expect(row.querySelector(".sidebar-row-actions")).not.toBeNull();
+    expect(row.querySelector("[data-row-swipe-tray]")).toBeNull();
+    expect(row).not.toHaveAttribute("data-row-swipe-row");
   });
 });

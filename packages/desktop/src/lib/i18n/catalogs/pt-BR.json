@@ -307,7 +307,8 @@
         "description": "Define quanto de cada turno do agente fica expandido no fluxo da conversa. Isso só altera a exibição e nunca afeta as ações do agente.",
         "messageNavigator": "Navegador de mensagens",
         "messageNavigatorDescription": "Mostra um pequeno marcador para cada mensagem sua na borda direita da aba Agente. Passe o ponteiro sobre o marcador para ver a mensagem, clique para ir até ela ou pressione {{previousCombo}} / {{nextCombo}}.",
-        "title": "Transcrição do agente"
+        "title": "Transcrição do agente",
+        "messageNavigatorDescriptionTouch": "Mostra um pequeno marcador para cada mensagem sua na borda direita da aba Agente. Toque em um marcador para ir até a mensagem dele."
       }
     },
     "cli": {
@@ -495,7 +496,8 @@
         "archivingSession": "Arquivando sessão…",
         "couldNotArchiveSession": "Não foi possível arquivar a sessão",
         "sessionArchived": "Sessão arquivada",
-        "sessionArchivedButItsCleanupDidNotReportBack": "Sessão arquivada, mas o resultado da limpeza não foi informado"
+        "sessionArchivedButItsCleanupDidNotReportBack": "Sessão arquivada, mas o resultado da limpeza não foi informado",
+        "undo": "Desfazer"
       },
       "archiveRelativeOptions": {
         "alsoArchiveEveryActiveDescendantSession": "Arquivar também todas as sessões descendentes ativas.",
@@ -571,7 +573,9 @@
           "finishTypingToReviewIt": "Termine de digitar para revê-lo.",
           "permissionPending": "Pedido de permissão pendente.",
           "planPending": "Aprovação do plano pendente.",
-          "questionPending": "Pergunta pendente."
+          "questionPending": "Pergunta pendente.",
+          "answer": "Responder",
+          "review": "Revisar"
         },
         "agentQuestionDrawer": {
           "next": "Próxima.",
@@ -582,7 +586,8 @@
         "assistMenu": {
           "keysSyntax": "Teclas e sintaxe",
           "moreComposerActions": "Mais ações de compositor.",
-          "session": "Sessão"
+          "session": "Sessão",
+          "sessionDetails": "Detalhes da sessão"
         },
         "autoMessageMenu": {
           "messageSendOptions": "Mensagem enviar opções",
@@ -708,7 +713,8 @@
           "bypass": "Sem grades de guarda.",
           "changed": "Modo alterado para {{label}}: {{risk}}",
           "edits": "Edita sem pedir confirmação",
-          "read": "Somente leitura"
+          "read": "Somente leitura",
+          "sheetTitle": "Modo"
         },
         "modelPickerRow": {
           "inheritModel": "Herdeiro ({{model}})",
@@ -1591,7 +1597,8 @@
           "resetZoom0": "Reinicie o zoom (0)",
           "scrollToPanPinchToZoom": "Role para pan · belisque para zoom · {{PAN_MODIFIER}}-drag para pan",
           "zoomIn": "Ampliar (+)",
-          "zoomOut": "Reduzir (−)"
+          "zoomOut": "Reduzir (−)",
+          "expandDiagram": "Expandir diagrama"
         },
         "mermaidFullscreen": {
           "diagram": "Diagrama"
@@ -1639,7 +1646,8 @@
           "on": "Ativado",
           "openModelPicker": "Seletor de modelos aberto.",
           "selectedModel": "Modelo: {{modelLabel}}",
-          "thinkingEffort": "Esforço de pensamento: {{effort}}"
+          "thinkingEffort": "Esforço de pensamento: {{effort}}",
+          "thinkingEffortTitle": "Nível de raciocínio"
         },
         "planBlock": {
           "approved": "Aprovado.",
@@ -2015,7 +2023,8 @@
           "saving": "Salvando",
           "thisBranch": "Esta branch",
           "usesAWorktree": "Usa uma worktree",
-          "whereTheAgentWorks": "Onde o agente trabalha: {{label}}"
+          "whereTheAgentWorks": "Onde o agente trabalha: {{label}}",
+          "sheetTitle": "Onde o agente trabalha"
         },
         "worktreePopover": {
           "baseBranch": "Branch base: {{branchLabel}}",
@@ -2038,6 +2047,9 @@
           "restart": "Interrompido: o Cadencr reiniciou antes que a operação terminasse.",
           "quit": "Interrompido: o Cadencr foi fechado antes que a operação terminasse.",
           "user": "Interrompido pelo usuário."
+        },
+        "messageActionsMenu": {
+          "messageActions": "Ações da mensagem"
         }
       },
       "subagent-presentation": {
@@ -2196,6 +2208,24 @@
         "streamFailed": "A conexão com o provedor de nomes automáticos falhou antes que o título ficasse pronto. Tente novamente.",
         "timeout": "O provedor de nomes automáticos não terminou a tempo. Tente novamente ou escolha um modelo de nomes mais rápido.",
         "warning": "Não foi possível renomear esta conversa automaticamente. {{detail}}"
+      },
+      "archiveUndo": {
+        "terminalsAndBrowserTabsClosed": "Os terminais e as abas do navegador continuam fechados.",
+        "terminalsClosed": "Os terminais continuam fechados.",
+        "browserTabsClosed": "As abas do navegador continuam fechadas.",
+        "schedulesMaybePaused": "Os agendamentos pausados pelo arquivamento continuam pausados.",
+        "schedulesPaused_many": "{{count}} agendamentos continuam pausados.",
+        "schedulesPaused_one": "{{count}} agendamento continua pausado.",
+        "schedulesPaused_other": "{{count}} agendamentos continuam pausados.",
+        "restoring": "Restaurando a sessão…",
+        "restored_many": "{{count}} sessões restauradas",
+        "restored_one": "Sessão restaurada",
+        "restored_other": "{{count}} sessões restauradas",
+        "unarchiveFailed": "Falha ao desarquivar",
+        "restoreFailed": "Não foi possível restaurar a sessão",
+        "partlyRestored_many": "{{restored}} de {{count}} sessões restauradas",
+        "partlyRestored_one": "{{restored}} de {{count}} sessão restaurada",
+        "partlyRestored_other": "{{restored}} de {{count}} sessões restauradas"
       }
     },
     "customActions": {
@@ -2372,9 +2402,7 @@
         "schedule": "Agendar {{name}}…"
       },
       "mobile": {
-        "failed": "Ações, uma falhou",
         "help": "Executa na cópia de trabalho da conversa.",
-        "running": "Ações, uma em execução",
         "terminal": "Abre um terminal"
       },
       "mobileCustomActionsSheet": {
@@ -2398,7 +2426,8 @@
       "runNamed": "Executar “{{name}}”",
       "saving": "Salvando…",
       "settings": {
-        "help": "Comandos que você executa com frequência na cópia de trabalho de uma conversa, como testes, lint, deploy e servidores de desenvolvimento. O cabeçalho do projeto mostra suas ações primeiro, depois as globais, na ordem abaixo. Execute-as no menu de ações do cabeçalho, onde cada ação tem uma página com saída, execuções e configurações, ou use <shortcut />."
+        "help": "Comandos que você executa com frequência na cópia de trabalho de uma conversa, como testes, lint, deploy e servidores de desenvolvimento. O cabeçalho do projeto mostra suas ações primeiro, depois as globais, na ordem abaixo. Execute-as no menu de ações do cabeçalho, onde cada ação tem uma página com saída, execuções e configurações, ou use <shortcut />.",
+        "helpTouch": "Comandos que você executa com frequência na cópia de trabalho de uma conversa, como testes, lint, deploy e servidores de desenvolvimento. O cabeçalho do projeto mostra suas ações primeiro, depois as globais, na ordem abaixo. Execute-as no menu de ações do cabeçalho, onde cada ação tem uma página com saída, execuções e configurações."
       },
       "starting": "Iniciando…",
       "status": {
@@ -2877,7 +2906,8 @@
     "home": {
       "emptyProject": {
         "hint": "Use o botão + na barra lateral para criar uma conversa",
-        "title": "Ainda não há conversas neste projeto"
+        "title": "Ainda não há conversas neste projeto",
+        "phoneTitle": "Ainda não há conversas neste projeto"
       },
       "feature": {
         "back": "Voltar ao início",
@@ -2892,7 +2922,8 @@
       "loading": "Carregando…",
       "noProjects": {
         "hint": "Use o botão + na barra lateral para adicionar um projeto.",
-        "title": "Ainda não há projetos"
+        "title": "Ainda não há projetos",
+        "hintPhone": "Abra o menu e use o botão + para adicionar um projeto"
       }
     },
     "marketplace": {
@@ -4603,71 +4634,71 @@
         "connected_one": "Acesso remoto ativado — {{count, number}} dispositivo conectado",
         "connected_other": "Acesso remoto ativado — {{count, number}} dispositivos conectados",
         "connected_zero": "Acesso remoto ativado — {{count, number}} dispositivos conectados",
-        "description": "Acesse este espaço de trabalho de outro dispositivo pela rede. Qualquer pessoa que consiga acessar este computador e parear um dispositivo terá acesso total. Ative apenas em redes de confiança.",
-        "disabled": "Acesso remoto desativado",
-        "disabledHint": "Ative para disponibilizar o espaço de trabalho na rede local.",
         "enabled": "Acesso remoto ativado",
-        "enabledHint": "Disponível via TLS na rede local.",
         "errors": {
           "bind": "não foi possível abrir a porta de acesso remoto (talvez já esteja em uso)",
           "malformed": "Resposta inválida ao consultar o estado do acesso remoto.",
           "missingIndex": "Serviço indisponível: o acesso remoto exige uma interface compilada. O arquivo index.html não foi encontrado em {{path}}",
           "request": "Falha na solicitação de acesso remoto.",
-          "unpacked": "Serviço indisponível: o acesso remoto exige uma versão empacotada (diretório da interface ausente)"
+          "unpacked": "Serviço indisponível: o acesso remoto exige uma versão empacotada (diretório da interface ausente)",
+          "poll": "Não foi possível atualizar o estado do acesso remoto."
         },
         "opening": "Ativando o acesso remoto…",
-        "preventSleep": {
-          "description": "Mantém este computador ativo enquanto o acesso remoto estiver habilitado. A tela ainda pode bloquear ou apagar. Suspender o computador manualmente, fechar a tampa ou ficar com pouca bateria ainda pode interromper o acesso.",
-          "title": "Impedir suspensão durante o acesso remoto"
-        },
         "sections": {
           "activity": "Atividade recente",
-          "connection": "Conexão e certificado",
-          "devices": "Dispositivos pareados ({{deviceCount}})",
-          "tunnel": "Disponibilizar pela internet"
+          "pairedDevices": "Dispositivos pareados",
+          "addresses": "Endereços e certificado",
+          "awayFromHome": "Usar fora de casa"
         },
         "title": "Acesso remoto",
-        "toggle": "Alternar o acesso remoto"
+        "subtitle": "Use este espaço de trabalho no celular ou tablet.",
+        "off": {
+          "title": "Acompanhe seus agentes pelo celular",
+          "body": "Ative o acesso, escaneie um código com o celular e leia, responda e inicie conversas de qualquer lugar da sua rede.",
+          "enable": "Ativar acesso remoto",
+          "warning": "Um dispositivo pareado tem acesso total a este espaço de trabalho. Ative o acesso apenas em redes confiáveis."
+        },
+        "status": {
+          "noDevices": "Nenhum dispositivo pareado ainda",
+          "devices_many": "{{count, number}} dispositivos pareados · {{connected, number}} on-line",
+          "devices_one": "{{count, number}} dispositivo pareado · {{connected, number}} on-line",
+          "devices_other": "{{count, number}} dispositivos pareados · {{connected, number}} on-line"
+        },
+        "keepAwake": {
+          "title": "Manter este computador ativo",
+          "description": "Enquanto o acesso remoto estiver ativado. A tela ainda pode ser bloqueada, e fechar a tampa ou a bateria fraca ainda suspendem o computador."
+        }
       },
       "lan": {
-        "compareHint": "Para acessar pela rede local, compare esta impressão digital SHA-256 com o certificado exibido pelo navegador do outro dispositivo antes de aceitar o aviso. A seção de pareamento acima exige essa comparação antes de exibir um código:",
         "fingerprintCopied": "Impressão digital copiada",
         "noAddress": "Nenhum endereço de rede local foi detectado. Conecte-se ao Wi-Fi ou use um túnel.",
-        "urlCopied": "URL copiado"
+        "urlCopied": "URL copiado",
+        "fingerprintHint": "Os celulares na sua rede veem este certificado. A impressão digital SHA-256 dele, para comparar com a dos detalhes do aviso do navegador:"
       },
       "pairing": {
-        "certificate": {
-          "browserFingerprint": "Impressão digital SHA-256 exibida no navegador do outro dispositivo",
-          "compare": "Comparar e mostrar código de pareamento",
-          "expected": "Impressão digital SHA-256 esperada do host",
-          "instructions": "No outro dispositivo, abra este endereço sem o código de pareamento. No visualizador de certificados do navegador, localize a impressão digital SHA-256. Compare-a com a deste host antes de aceitar o aviso. O Cadencr não consegue inspecionar o certificado exibido no outro navegador.",
-          "mismatch": "A impressão digital SHA-256 não corresponde. Não faça o pareamento. Confira novamente o certificado e o host.",
-          "placeholder": "Cole a impressão digital SHA-256 completa",
-          "unavailable": "A impressão digital do host está indisponível. O pareamento foi bloqueado.",
-          "urlCopied": "URL de verificação do certificado copiada"
-        },
         "code": {
           "errors": {
-            "addressChanged": "O endereço de conexão mudou. Selecione-o novamente antes de parear.",
-            "certificateChanged": "O certificado do host mudou. Feche e reabra o acesso remoto e verifique o certificado novamente.",
             "disabled": "Conflito: ative o acesso remoto antes de parear",
             "malformed": "Resposta inválida ao solicitar um código de pareamento.",
-            "request": "Não foi possível gerar um código de pareamento."
+            "request": "Não foi possível gerar um código de pareamento.",
+            "certificateChangedReopen": "O certificado deste computador mudou. Feche e abra novamente o Acesso remoto.",
+            "addressGone": "Este endereço não está mais disponível. Escolha outro."
           },
-          "expiresIn": "Expira em {{seconds}} s",
-          "generate": "Gerar código de pareamento",
-          "generateAnother": "Gerar novo código",
-          "instructions": "Gere um código e escaneie o código QR ou abra o link no outro dispositivo. O código só pode ser usado uma vez e expira em pouco tempo.",
           "linkCopied": "Link de pareamento copiado",
-          "qrLabel": "Código QR de pareamento",
-          "regenerate": "Novo código",
-          "used": "Este código já foi usado para parear um dispositivo. Cada código só funciona uma vez. Gere um novo para parear outro dispositivo."
+          "showNew": "Mostrar um novo código",
+          "paired": "<name>{{device}}</name> foi pareado.",
+          "aDevice": "Um dispositivo",
+          "pairAnother": "Escaneie o novo código para parear outro dispositivo ou o app adicionado à Tela de Início.",
+          "notYou": "Não é você? Revogar",
+          "qrTitle": "Código de pareamento",
+          "creating": "Gerando um código",
+          "expired": "O código expirou. Mostre um novo quando estiver pronto para escanear.",
+          "lifetime": "Validade do código",
+          "newIn": "Novo código em {{time}}",
+          "copyLink": "Copiar link"
         },
         "connected": "Conectado a este espaço de trabalho.",
-        "connectionAddress": "Endereço da conexão",
-        "connectionHint": "Recomendamos uma conexão privada pelo Tailscale com um certificado aceito pelo navegador. Ao usar a rede local, compare o certificado antes de compartilhar o código de pareamento.",
         "error": {
-          "expired": "O código de pareamento expirou. Gere um novo no computador host.",
           "failed": "Falha no pareamento.",
           "http": "Falha no pareamento (HTTP {{status}}).",
           "invalidInput": "Cole o link ou o código de pareamento exibido no computador.",
@@ -4675,35 +4706,61 @@
           "malformedResponse": "A resposta de pareamento é inválida.",
           "signInNotSaved": "O dispositivo foi pareado, mas este navegador não conseguiu salvar a sessão. Tente usar outro navegador.",
           "storageBlocked": "O dispositivo foi pareado, mas este navegador bloqueia o armazenamento. Após recarregar a página, você precisará fazer o pareamento novamente.",
-          "unsafeAddress": "Não foi possível remover o código de pareamento do endereço desta página. O pareamento foi interrompido."
+          "unsafeAddress": "Não foi possível remover o código de pareamento do endereço desta página. O pareamento foi interrompido.",
+          "usedOrExpired": "Este código já foi usado ou expirou. Escaneie o novo código exibido no computador.",
+          "rateLimited": "Muitas tentativas de pareamento. Aguarde um minuto e escaneie novamente."
         },
         "gate": {
-          "inputLabel": "Link ou código de pareamento",
-          "instructions": "Abra <setting>Acesso remoto</setting> no computador e escaneie o código QR ou cole o link de pareamento abaixo.",
-          "pairing": "Pareando…",
-          "pasteAlternative": "ou cole o link",
-          "placeholder": "Cole o link de pareamento…",
-          "scan": "Escanear código QR",
-          "submit": "Parear dispositivo",
-          "title": "Parear este dispositivo"
+          "title": "Parear este dispositivo",
+          "openingCamera": "Abrindo a câmera…",
+          "pairingDevice": "Pareando este dispositivo…",
+          "scanInstructions": "No computador, abra <name>Acesso remoto</name> (<icon/> na parte inferior da barra lateral do Cadencr) e escaneie o código exibido.",
+          "radioIcon": "o ícone de rádio",
+          "scanCode": "Escanear o código",
+          "staySignedInHint": "Caso contrário, este dispositivo precisará parear novamente depois de fechado.",
+          "staySignedInLabel": "Manter a sessão iniciada neste dispositivo",
+          "pasteOpen": "Sem câmera? Cole o link de pareamento",
+          "pastePlaceholder": "Cole o link de Copiar link",
+          "pasteLabel": "Link de pareamento",
+          "pasteInvalid": "Isso não é um link de pareamento. Use Copiar link, abaixo do código no computador.",
+          "pasteSubmit": "Parear com este link"
         },
-        "lanTarget": "{{host}} · LAN",
-        "noTarget": "Conecte-se a uma rede ou configure um túnel privado para parear um dispositivo.",
-        "privateTunnelTarget": "{{host}} · Túnel privado",
         "saveSignInFailed": "Não foi possível salvar a sessão neste dispositivo.",
         "scanner": {
-          "aim": "Aponte para o código QR exibido no computador",
-          "backToPaste": "Voltar para colar o link",
           "cancel": "Cancelar leitura",
-          "failed": "Não foi possível abrir a câmera. Use o link de pareamento.",
-          "permissionDenied": "O acesso à câmera foi negado. Permita-o nas configurações do navegador ou cole o link de pareamento.",
-          "unavailable": "Este navegador não consegue abrir a câmera aqui. Cole o link de pareamento.",
-          "viewfinder": "Visor da câmera"
+          "viewfinder": "Visor da câmera",
+          "unavailableLink": "Este navegador não consegue abrir a câmera aqui. Cole o link de pareamento.",
+          "deniedLink": "O acesso à câmera foi negado. Permita-o nas configurações do navegador ou cole o link de pareamento.",
+          "failedLink": "Não foi possível iniciar a câmera. Cole o link de pareamento.",
+          "looking": "Procurando o código…",
+          "foreignCode": "Esse código QR não é um código de pareamento do Cadencr.",
+          "hint": "Não encontrou? Segure o celular a 20–30 cm da tela, com o código inteiro dentro do quadrado.",
+          "title": "Escaneie o código exibido no computador",
+          "back": "Voltar"
         },
         "staySignedIn": "Manter sessão iniciada",
         "staySignedInDetail": "Quer manter a sessão iniciada neste dispositivo depois de fechar a aba?",
-        "title": "Parear um novo dispositivo",
-        "trusted": "A sessão permanecerá iniciada neste dispositivo."
+        "trusted": "A sessão permanecerá iniciada neste dispositivo.",
+        "targets": {
+          "tunnel": "Túnel privado",
+          "tailscale": "Tailscale",
+          "lan": "Rede local"
+        },
+        "section": {
+          "title": "Parear um dispositivo",
+          "address": "Endereço indicado pelo código",
+          "noAddress": "Nenhum endereço de rede encontrado. Conecte este computador ao Wi-Fi ou configure um túnel privado em <name>Usar fora de casa</name>."
+        },
+        "steps": {
+          "label": "Como parear um dispositivo",
+          "scan": "Escaneie o código com a câmera do celular",
+          "scanDetail": "Ou abra o link copiado em um navegador no outro dispositivo.",
+          "warning": "Continue apesar do aviso de privacidade",
+          "warningDetail": "Este computador assina o próprio certificado, então o navegador exibe um aviso uma vez. Nos detalhes do aviso, a impressão digital SHA-256 começa com <fingerprint>{{fingerprint}}</fingerprint>.",
+          "homeScreen": "Opcional: adicione à Tela de Início",
+          "homeScreenDetail": "Para usar como app em tela cheia. Ele pede para parear mais uma vez: toque em <em>Escanear o código</em> e escaneie este código de novo."
+        },
+        "sessionChosen": "Você precisará parear novamente quando este dispositivo fechar o Cadencr."
       },
       "tunnel": {
         "clear": "Limpar",
@@ -5085,7 +5142,8 @@
           "description": "Consulte todos os atalhos ou pressione <shortcut/> em qualquer lugar.",
           "shortcuts": "Atalhos de teclado",
           "title": "Teclado",
-          "view": "Ver atalhos"
+          "view": "Ver atalhos",
+          "descriptionTouch": "Consulte todos os atalhos."
         },
         "language": {
           "loading": "Carregando a preferência de idioma…",
@@ -8135,7 +8193,8 @@
           "vimOffDescription": "Edição padrão, sem movimento."
         },
         "editorPane": {
-          "emptyPane": "Abra um arquivo da barra lateral, pressione <newBuffer /> para um novo buffer, ou use <fuzzy />"
+          "emptyPane": "Abra um arquivo da barra lateral, pressione <newBuffer /> para um novo buffer, ou use <fuzzy />",
+          "emptyPaneTouch": "Abra um arquivo pela barra lateral"
         },
         "editorPreviewSurface": {
           "htmlPreview": "Visualização HTML",
@@ -8761,7 +8820,8 @@
         },
         "diffViewer": {
           "loadingDiff": "Carregando diff…",
-          "noChangesDetected": "Nenhuma mudança detectada."
+          "noChangesDetected": "Nenhuma mudança detectada.",
+          "files": "Arquivos"
         },
         "featurePrComments": {
           "couldNotOpenThisReviewThread": "Não foi possível abrir a discussão de revisão.",
@@ -8821,11 +8881,7 @@
         "gitActionControls": {
           "git": "Git",
           "gitActions": "Ações do Git",
-          "gitActionsOnBranch": "Ações do Git na branch {{branch}}",
           "moreGitActions": "Mais ações do Git"
-        },
-        "gitActionDialogs": {
-          "loadingGitAction": "Carregando ação do Git…"
         },
         "gitActionPopover": {
           "commit": "Criar commit",
@@ -9660,6 +9716,28 @@
           "refreshing": "Atualizando o status do Git…",
           "retry": "Tentar carregar o status do Git novamente",
           "issueWithDetail": "{{label}}. {{detail}}"
+        },
+        "phoneCommitBar": {
+          "unavailable": "Não é possível criar commits aqui",
+          "cannotCommit": "Não é possível criar o commit"
+        },
+        "phoneDiffFileList": {
+          "openPath": "Abrir {{path}}"
+        },
+        "phoneDiffFileStep": {
+          "actionsForPath": "Ações de {{path}}",
+          "markNotViewed": "Marcar como não visualizado",
+          "markViewed": "Marcar como visualizado",
+          "backTo": "Voltar para {{label}}",
+          "previousFile": "Arquivo anterior",
+          "nextFile": "Próximo arquivo"
+        },
+        "phoneGitViewPicker": {
+          "conflicted_many": "{{count}} em conflito",
+          "conflicted_one": "{{count}} em conflito",
+          "conflicted_other": "{{count}} em conflito",
+          "currentView": "Exibição do Git: {{view}}",
+          "title": "Exibição do Git"
         }
       },
       "links": {
@@ -10208,7 +10286,83 @@
           "socketError": "Erro Terminal WebSocket",
           "terminalDisconnectedYourInputWasDropped": "Terminal desconectado, sua entrada caiu.",
           "writeStalled": "Terminal escrito parado."
+        },
+        "terminalCompatibility": {
+          "dismiss": "Dispensar o aviso do terminal de compatibilidade",
+          "hiddenUntilReload": "Oculto até a próxima recarga",
+          "dismissNotRemembered": "Este navegador não permite que o Cadencr lembre que você dispensou o aviso."
         }
+      }
+    },
+    "lazy": {
+      "labels": {
+        "commandPalette": "paleta de comandos",
+        "search": "busca",
+        "changelog": "changelog",
+        "projectSettings": "configurações do projeto",
+        "projectLocation": "local do projeto",
+        "projectSetup": "configuração inicial do projeto",
+        "import": "importação",
+        "conversation": "conversa",
+        "fileSearch": "busca de arquivos",
+        "gitAction": "ação do Git",
+        "page": "página",
+        "thisPage": "esta página",
+        "onboarding": "configuração inicial",
+        "source": "código-fonte"
+      },
+      "loading": "Carregando {{label}}…",
+      "failed": "Falha ao carregar {{label}}. Verifique a conexão."
+    },
+    "phone": {
+      "gate": {
+        "laterLabel": "Depois: oculta esta solicitação, e o agente continua aguardando",
+        "later": "Depois",
+        "stopConfirmTitle": "Parar o agente?",
+        "stopConfirmDescription": "Ele deixa de aguardar sua resposta e encerra o turno. Com Depois, ele continua aguardando."
+      },
+      "menu": {
+        "attentionCount_many": ", {{count}} para você",
+        "attentionCount_one": ", {{count}} para você",
+        "attentionCount_other": ", {{count}} para você"
+      },
+      "actionOnConversation": "{{action}} “{{title}}”",
+      "tabs": {
+        "barLabel": "Abas da conversa",
+        "more": "Mais",
+        "moreTitle": "Mais abas",
+        "moreDescription": "Abra uma aba que não cabe na barra de abas.",
+        "files": "Arquivos"
+      },
+      "header": {
+        "worktree": "Worktree",
+        "hideSetup": "Ocultar configuração",
+        "setupDetails": "Detalhes da configuração",
+        "actions": "Ações da conversa",
+        "actionsDescription": "Branch, worktree, Git e ações personalizadas desta conversa.",
+        "customActionsLoadFailed": "Não foi possível carregar as ações personalizadas.",
+        "actionsFailed": "Ações da conversa, algo falhou",
+        "actionsRunning": "Ações da conversa, algo está em execução"
+      },
+      "inbox": {
+        "noConversationsDetail": "Comece uma: o que seus agentes perguntam, fazem e concluem aparece aqui.",
+        "recentEmpty": "Nada mais recentemente",
+        "newConversationIn": "Nova conversa em",
+        "projectsLoadFailed": "Não foi possível carregar os projetos"
+      }
+    },
+    "markdown": {
+      "richPreview": {
+        "expand": "Expandir"
+      },
+      "richBlocks": {
+        "table": "Tabela",
+        "expandTable": "Expandir tabela",
+        "expandCode": "Expandir código {{language}}"
+      },
+      "richViewer": {
+        "copyTable": "Copiar tabela",
+        "copyCode": "Copiar {{language}}"
       }
     }
   }

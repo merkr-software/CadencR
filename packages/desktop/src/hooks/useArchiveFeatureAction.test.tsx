@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AxiosError, AxiosHeaders } from "axios";
 import { getListFeaturesQueryKey, type ArchiveResponse, type Feature } from "@/api/generated";
 import { useArchiveFeatureAction } from "./useArchiveFeatureAction";
@@ -20,6 +20,11 @@ vi.mock("@/lib/archive-progress-toast", () => ({
 }));
 
 vi.mock("@/api/client", () => ({ customInstance }));
+const formFactor = vi.hoisted(() => ({ phone: false, touch: false }));
+vi.mock("@/lib/form-factor", () => ({
+  getPhoneShellSnapshot: () => formFactor.phone,
+  getCoarsePointerSnapshot: () => formFactor.touch,
+}));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
 vi.mock("@/stores/ws-session-store", () => ({
   useWsSessionStore: { getState: () => ({ disconnect }) },
@@ -92,7 +97,7 @@ describe("useArchiveFeatureAction", () => {
     expect(navigate).not.toHaveBeenCalled();
 
     await act(async () => resolveRequest?.({ archived_ids: [1, 2, 3], cleanup: {} }));
-    await waitFor(() => expect(progress.finish).toHaveBeenCalledExactlyOnceWith(2, {}));
+    await waitFor(() => expect(progress.finish).toHaveBeenCalledExactlyOnceWith(2, {}, undefined));
     for (const key of [listKey, otherListKey]) {
       expect(client.getQueryData<Feature[]>(key)?.map(({ status }) => status)).toEqual([
         "archived",
@@ -127,12 +132,63 @@ describe("useArchiveFeatureAction", () => {
     customInstance.mockResolvedValueOnce({ archived_ids: [2], cleanup });
     const { result, client, unmount } = setup(4);
     act(() => result.current(2, { ...options, kill_terminals: true, remove_worktree: true }));
-    await waitFor(() => expect(progress.finish).toHaveBeenCalledExactlyOnceWith(2, cleanup));
+    await waitFor(() =>
+      expect(progress.finish).toHaveBeenCalledExactlyOnceWith(2, cleanup, undefined),
+    );
     expect(customInstance.mock.calls[0]?.[0]).toMatchObject({
       data: { kill_terminals: true, remove_worktree: true },
     });
     unmount();
     client.clear();
+  });
+
+  function onPhone(touch: boolean): void {
+    formFactor.phone = true;
+    formFactor.touch = touch;
+    onTestFinished(() => {
+      formFactor.phone = false;
+      formFactor.touch = false;
+    });
+  }
+
+  async function offeredUndo(cleanup: object, archivedIds = [2, 3]): Promise<unknown> {
+    customInstance.mockResolvedValueOnce({ archived_ids: archivedIds, cleanup });
+    const { result, client, unmount } = setup(4);
+    onTestFinished(() => {
+      unmount();
+      client.clear();
+    });
+    act(() => result.current(2, options));
+    await waitFor(() => expect(progress.finish).toHaveBeenCalledOnce());
+    return progress.finish.mock.calls[0]?.[2];
+  }
+
+  it("offers Undo on a phone under a finger, which unarchives every archived conversation", async () => {
+    onPhone(true);
+    const undo = await offeredUndo({});
+    if (typeof undo !== "function") throw new Error("no Undo offered");
+    customInstance.mockResolvedValue({ success: true });
+    act(() => undo());
+    await waitFor(() => expect(customInstance).toHaveBeenCalledTimes(3));
+    expect(customInstance.mock.calls.slice(1).map(([request]) => request)).toEqual([
+      expect.objectContaining({ url: "/api/features/2/status", data: { status: "active" } }),
+      expect.objectContaining({ url: "/api/features/3/status", data: { status: "active" } }),
+    ]);
+  });
+
+  it("offers no Undo in a narrow window with a mouse", async () => {
+    onPhone(false);
+    expect(await offeredUndo({})).toBeUndefined();
+  });
+
+  it("offers no Undo once the archive removed a worktree or a branch", async () => {
+    onPhone(true);
+    expect(await offeredUndo({ worktree: { status: "done" } })).toBeUndefined();
+  });
+
+  it("still offers Undo when the cleanup only closed terminals", async () => {
+    onPhone(true);
+    expect(await offeredUndo({ terminals: { status: "done" } })).toBeTypeOf("function");
   });
 
   it("reports a failure on the toast without changing cache, sessions or navigation", async () => {

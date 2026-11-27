@@ -9,7 +9,19 @@ import {
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
 
-import FileSearchDialog from "./FileSearchDialog";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { preloadableChunk } from "@/components/lazy/lazy-chunk";
+
+// The picker (file icons, fuzzy search) in its own chunk: under a mouse it is
+// fetched once idle after the first paint (`useKeyboardSurfacePrefetch`),
+// under a finger on first use.
+const fileSearchChunk = preloadableChunk(() =>
+  import("./FileSearchDialog").then((module) => module.default),
+);
+const FileSearchDialog = fileSearchChunk.Component;
+export const preloadFileSearch = fileSearchChunk.preload;
+export const prefetchFileSearch = fileSearchChunk.prefetch;
 
 interface EditorFuzzyShortcutProps {
   /** Real feature id used by the editor store (file open / pane state). */
@@ -34,6 +46,7 @@ export function EditorFuzzyShortcut({
   projectId,
   enabled = true,
 }: EditorFuzzyShortcutProps): ReactNode {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? featureId;
   const isEditorFocused = useFeatureLayoutStore(
@@ -54,11 +67,17 @@ export function EditorFuzzyShortcut({
 
   if (!open) return null;
   return (
-    <FileSearchDialog
-      projectId={projectId}
-      featureId={featureId}
-      open={open}
-      onOpenChange={setOpen}
-    />
+    <LazyBoundary
+      label={t("lazy.labels.fileSearch", "file search")}
+      variant="overlay"
+      onDismiss={() => setOpen(false)}
+    >
+      <FileSearchDialog
+        projectId={projectId}
+        featureId={featureId}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </LazyBoundary>
   );
 }

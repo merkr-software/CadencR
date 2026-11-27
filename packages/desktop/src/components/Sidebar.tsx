@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KeyboardOnlyShortcutHint, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvider";
 import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
@@ -30,7 +30,10 @@ import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { MarketplaceSidebarLink } from "@/components/MarketplaceSidebarLink";
 import { SchedulesSidebarLink } from "@/components/SchedulesSidebarLink";
-import { UnifiedAgentsSidebarLink } from "@/components/UnifiedAgentsSidebarLink";
+import {
+  PhoneInboxSidebarLink,
+  UnifiedAgentsSidebarLink,
+} from "@/components/UnifiedAgentsSidebarLink";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
 import { InternetStatusIndicator } from "@/components/InternetStatusIndicator";
 import { SidebarUpdateButton } from "@/components/SidebarUpdateButton";
@@ -108,9 +111,10 @@ export const Sidebar = memo(function Sidebar({ onSearch }: { onSearch: () => voi
                   <div className="mb-2 shrink-0 px-1">
                     <SidebarSearchButton onSearch={onSearch} />
                   </div>
-                  {/* The unified agents grid is desktop-only — hide its entry on phones.
-            Schedules is a plain list, so it works everywhere. */}
-                  <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                  {/* The unified agents grid is desktop-only: a phone's "Agents" is the
+            inbox on the home page, first. Schedules is a plain list, so it works everywhere. */}
+                  <div data-sidebar-nav-links className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                    {isMobile && <PhoneInboxSidebarLink />}
                     <MarketplaceSidebarLink />
                     {!isMobile && <UnifiedAgentsSidebarLink />}
                     <SchedulesSidebarLink />
@@ -157,7 +161,7 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
       onClick={onSearch}
       title={title}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1.5",
+        "flex w-full items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1.5 phone:min-h-11",
         "text-sm text-muted-foreground outline-none transition-colors",
         "hover:bg-accent/50 hover:text-foreground focus-visible:bg-accent focus-visible:outline-none",
       )}
@@ -167,7 +171,7 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
         {t("sidebar.searchButton", "Search")}
       </span>
       {terminalFocused ? (
-        <InactiveShortcutHint />
+        <KeyboardOnlyShortcutHint keys={[]} disabled />
       ) : (
         <ResolvedShortcutHint shortcutId="command-palette" />
       )}
@@ -199,14 +203,6 @@ function useIsTerminalFocusActive(): boolean {
   return terminalFocused;
 }
 
-function InactiveShortcutHint(): ReactElement {
-  return (
-    <span aria-hidden="true" className="shrink-0">
-      <KbdShortcut keys={[]} variant="hint" disabled />
-    </span>
-  );
-}
-
 function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement {
   const { t } = useUiTranslation();
   const toggleSidebarCombo = useShortcutLabel("toggle-sidebar");
@@ -216,6 +212,7 @@ function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement
   // here, so they skip the strip.
   return (
     <div
+      data-sidebar-header
       className={cn("titlebar-drag group flex flex-col", HAS_MAC_WINDOW_CONTROLS ? "h-18" : "h-16")}
     >
       {HAS_MAC_WINDOW_CONTROLS && <div className="h-8 shrink-0" />}
@@ -229,7 +226,7 @@ function SidebarHeader({ onCollapse }: { onCollapse: () => void }): ReactElement
           <Button
             variant="ghost"
             size="icon"
-            className="size-7"
+            className="size-7 phone:size-11"
             title={t("sidebar.collapseWithShortcut", "Collapse sidebar ({{shortcut}})", {
               shortcut: toggleSidebarCombo,
             })}
@@ -366,17 +363,21 @@ function SidebarFooter({ anchorsToasts }: { anchorsToasts: boolean }): ReactElem
   const settingsRowRef = useRef<HTMLDivElement>(null);
   useToastAnchor(settingsRowRef, anchorsToasts);
   return (
-    <div className="flex flex-col items-center gap-1 py-2">
+    <div data-sidebar-footer className="flex flex-col items-center gap-1 py-2">
       <SidebarFullscreenButton />
       <SidebarPushButton />
       <SidebarUpdateButton />
       <StorageMaintenanceProgress />
-      <div ref={settingsRowRef} className="flex w-[90%] items-center gap-1.5">
+      <div
+        ref={settingsRowRef}
+        data-sidebar-settings-row
+        className="flex w-[90%] items-center gap-1.5"
+      >
         <Link
           to="/settings"
           data-nav-item
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-pill)] border border-transparent px-3 py-1.5 text-xs text-foreground/80 transition-colors",
+            "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-pill)] border border-transparent px-3 py-1.5 text-xs text-foreground/80 transition-colors phone:min-h-11",
             "hover:border-border hover:bg-accent hover:text-foreground",
             "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none focus-visible:text-foreground",
           )}

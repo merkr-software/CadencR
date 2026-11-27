@@ -3,13 +3,14 @@ import { act, render, screen, waitFor } from "@/test-utils";
 import { extractPairingCode, RemotePairingGate } from "./RemotePairingGate";
 import * as deviceToken from "@/lib/remote/device-token";
 import * as pairing from "@/api/remote-pairing";
+import * as fullscreen from "@/hooks/useFullscreen";
 import { uiI18n } from "@/lib/i18n/ui";
 
 vi.mock("@/components/CadencrLogo", () => ({ CadencrLogo: () => <span aria-label="Cadencr" /> }));
 
 vi.mock("./QrPairingScanner", () => ({
-  QrPairingScanner: ({ onDetect }: { onDetect: (value: string) => void }) => (
-    <button type="button" onClick={() => onDetect("https://host/#code=scanned-code")}>
+  QrPairingScanner: ({ onCode }: { onCode: (code: string) => void }) => (
+    <button type="button" onClick={() => onCode("scanned-code")}>
       Simulate scanned QR
     </button>
   ),
@@ -48,11 +49,7 @@ describe("extractPairingCode", () => {
 });
 
 describe("RemotePairingGate", () => {
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await uiI18n.changeLanguage("en-US");
-    uiI18n.removeResourceBundle("fr", "ui");
-  });
+  afterEach(() => vi.restoreAllMocks());
 
   it("renders children on the desktop shell / loopback (not a remote browser)", () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(false);
@@ -75,16 +72,6 @@ describe("RemotePairingGate", () => {
     expect(screen.getByText("app-content")).toBeInTheDocument();
   });
 
-  it("returns the open remote view to pairing when the host revokes this device", () => {
-    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
-    deviceToken.writeDeviceToken("paired-test-session", false);
-    render(<RemotePairingGate>Active remote conversation</RemotePairingGate>);
-    expect(screen.getByText("Active remote conversation")).toBeVisible();
-    act(() => deviceToken.clearDeviceToken());
-    expect(screen.getByRole("heading", { name: "Pair this device" })).toBeVisible();
-    expect(screen.queryByText("Active remote conversation")).not.toBeInTheDocument();
-  });
-
   it("shows the pairing screen when a remote browser is unpaired", () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
     vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
@@ -97,7 +84,7 @@ describe("RemotePairingGate", () => {
     expect(screen.queryByText("app-content")).not.toBeInTheDocument();
   });
 
-  it("keeps a manually pasted pairing link session-only", async () => {
+  it("keeps a pasted pairing link session-only in a browser tab", async () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
     vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
     const pair = vi
@@ -108,16 +95,14 @@ describe("RemotePairingGate", () => {
         <div>app-content</div>
       </RemotePairingGate>,
     );
-    await user.type(
-      screen.getByLabelText("Pairing link or code"),
-      "https://host/#code=fragment-code",
-    );
-    await user.click(screen.getByRole("button", { name: /pair device/i }));
-    expect(pair).toHaveBeenCalledWith("fragment-code");
+    await user.click(screen.getByRole("button", { name: /paste the pairing link/i }));
+    await user.type(screen.getByLabelText("Pairing link"), "https://host/#code=fragment-code");
+    await user.click(screen.getByRole("button", { name: "Pair with this link" }));
+    expect(pair).toHaveBeenCalledWith("fragment-code", { trust: false, chosen: true });
     expect(screen.getByText(/couldn't save/i)).toBeInTheDocument();
   });
 
-  it("keeps scanned QR pairing session-only too", async () => {
+  it("keeps the sign-in when asked to stay signed in, for a scanned code", async () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
     vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
     const pair = vi
@@ -128,10 +113,119 @@ describe("RemotePairingGate", () => {
         <div>app-content</div>
       </RemotePairingGate>,
     );
-    await user.click(screen.getByRole("button", { name: /scan qr code/i }));
+    await user.click(screen.getByRole("switch", { name: "Stay signed in on this device" }));
+    await user.click(screen.getByRole("button", { name: "Scan the code" }));
     await user.click(await screen.findByRole("button", { name: "Simulate scanned QR" }));
-    expect(pair).toHaveBeenCalledWith("scanned-code");
+    expect(pair).toHaveBeenCalledWith("scanned-code", { trust: true, chosen: true });
     expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
+  });
+
+  it("pairs with a new link that only changes the hash, and scrubs the code", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    const pair = vi
+      .spyOn(pairing, "pairRemoteDevice")
+      .mockResolvedValue({ storagePersisted: false });
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#code=hash-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() =>
+      expect(pair).toHaveBeenCalledWith("hash-code", { trust: false, chosen: true }),
+    );
+    expect(window.location.hash).toBe("");
+    expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
+  });
+
+  it("scrubs a code that arrives during a pairing, and does not start a second one", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    let finish: (value: { storagePersisted: boolean }) => void = () => undefined;
+    const pair = vi.spyOn(pairing, "pairRemoteDevice").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#code=first-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() =>
+      expect(pair).toHaveBeenCalledWith("first-code", { trust: false, chosen: true }),
+    );
+
+    window.history.replaceState(null, "", "/#code=second-code");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(window.location.hash).toBe("");
+    expect(pair).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish({ storagePersisted: false }));
+    expect(await screen.findByText(/couldn't save/i)).toBeInTheDocument();
+  });
+
+  it("ignores a hash change that carries no pairing code", () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    const pair = vi.spyOn(pairing, "pairRemoteDevice");
+    render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    window.history.replaceState(null, "", "/#/settings");
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(pair).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/settings");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("rejects a pasted text that is not a pairing link without pairing", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    const pair = vi.spyOn(pairing, "pairRemoteDevice");
+    const { user } = render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    await user.click(screen.getByRole("button", { name: /paste the pairing link/i }));
+    await user.type(screen.getByLabelText("Pairing link"), "not a link!");
+    await user.click(screen.getByRole("button", { name: "Pair with this link" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("isn't a pairing link");
+    expect(pair).not.toHaveBeenCalled();
+  });
+
+  it("stays signed in by default in a home-screen app", async () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
+    vi.spyOn(fullscreen, "detectStandalone").mockReturnValue(true);
+    const pair = vi
+      .spyOn(pairing, "pairRemoteDevice")
+      .mockResolvedValue({ storagePersisted: false });
+    const { user } = render(
+      <RemotePairingGate>
+        <div>app-content</div>
+      </RemotePairingGate>,
+    );
+    expect(screen.getByRole("switch", { name: "Stay signed in on this device" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Scan the code" }));
+    await user.click(await screen.findByRole("button", { name: "Simulate scanned QR" }));
+    expect(pair).toHaveBeenCalledWith("scanned-code", { trust: true, chosen: true });
   });
 
   it("offers both scan and paste affordances when unpaired", () => {
@@ -142,11 +236,22 @@ describe("RemotePairingGate", () => {
         <div>app-content</div>
       </RemotePairingGate>,
     );
-    expect(screen.getByRole("button", { name: /scan qr code/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /pair device/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scan the code" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /paste the pairing link/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Stay signed in on this device" })).not.toBeChecked();
   });
 
-  it("presents the startup pairing failure and follows the browser language without losing input", async () => {
+  it("returns the open remote view to pairing when the host revokes this device", () => {
+    vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
+    deviceToken.writeDeviceToken("paired-test-session", false);
+    render(<RemotePairingGate>Active remote conversation</RemotePairingGate>);
+    expect(screen.getByText("Active remote conversation")).toBeVisible();
+    act(() => deviceToken.clearDeviceToken());
+    expect(screen.getByRole("heading", { name: "Pair this device" })).toBeVisible();
+    expect(screen.queryByText("Active remote conversation")).not.toBeInTheDocument();
+  });
+
+  it("says why the boot-time pairing failed, in the browser's language", async () => {
     vi.spyOn(deviceToken, "isBrowserRemote").mockReturnValue(true);
     vi.spyOn(deviceToken, "readDeviceToken").mockReturnValue(null);
     const languages = vi.spyOn(navigator, "languages", "get").mockReturnValue(["fr-CA"]);
@@ -155,42 +260,31 @@ describe("RemotePairingGate", () => {
         pairing: {
           gate: {
             title: "Associer cet appareil",
-            instructions: "Sur votre ordinateur, ouvrez <setting>Accès à distance</setting>.",
-            inputLabel: "Lien ou code d’association",
+            scanInstructions: "Sur votre ordinateur, ouvrez <name>Accès à distance</name>.",
           },
-          error: { expired: "Ce code a expiré." },
+          error: { usedOrExpired: "Ce code a déjà servi ou a expiré." },
         },
       },
     });
     sessionStorage.setItem("cadencr.remotePairingError", JSON.stringify({ kind: "expired" }));
-    const { user } = render(<RemotePairingGate>app-content</RemotePairingGate>);
+    try {
+      render(<RemotePairingGate>app-content</RemotePairingGate>);
+      expect(await screen.findByRole("heading", { name: "Associer cet appareil" })).toBeVisible();
+      expect(screen.getByText("Accès à distance")).toHaveClass("font-medium");
+      expect(screen.getByRole("alert")).toHaveTextContent("Ce code a déjà servi ou a expiré.");
+      expect(pairing.takePairingError()).toBeNull();
 
-    expect(await screen.findByRole("heading", { name: "Associer cet appareil" })).toBeVisible();
-    expect(document.documentElement).toHaveAttribute("lang", "fr");
-    expect(screen.getByText("Accès à distance")).toHaveClass("font-medium");
-    expect(screen.getByRole("alert")).toHaveTextContent("Ce code a expiré.");
-    expect(pairing.takePairingError()).toBeNull();
-    const input = screen.getByRole("textbox", { name: "Lien ou code d’association" });
-    const link = "https://host/#code=raw-Code_123";
-    await user.type(input, link);
-
-    act(() => {
-      languages.mockReturnValue(["en-GB"]);
-      window.dispatchEvent(new Event("languagechange"));
-    });
-    expect(await screen.findByRole("heading", { name: "Pair this device" })).toBeVisible();
-    expect(screen.getByText("Remote access")).toHaveClass("font-medium");
-    expect(screen.getByRole("alert")).toHaveTextContent("This pairing code has expired.");
-    expect(screen.getByRole("textbox", { name: "Pairing link or code" })).toBe(input);
-    expect(input).toHaveValue(link);
-
-    act(() => {
-      languages.mockReturnValue(["fr-FR"]);
-      window.dispatchEvent(new Event("languagechange"));
-    });
-    await waitFor(() => expect(uiI18n.language).toBe("fr-FR"));
-    expect(document.documentElement).toHaveAttribute("lang", "fr-FR");
-    expect(screen.getByRole("textbox")).toBe(input);
-    expect(input).toHaveValue(link);
+      act(() => {
+        languages.mockReturnValue(["en-GB"]);
+        window.dispatchEvent(new Event("languagechange"));
+      });
+      expect(await screen.findByRole("heading", { name: "Pair this device" })).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "This code was already used or has expired. Scan the new code shown on your computer.",
+      );
+    } finally {
+      await act(() => uiI18n.changeLanguage("en-US"));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 });

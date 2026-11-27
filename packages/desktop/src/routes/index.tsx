@@ -1,7 +1,17 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useEffect, useMemo, type ReactElement } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { FeatureStatus, useListProjects, useListFeatures, type Feature } from "../api/generated";
+import {
+  FeatureStatus,
+  useListProjects,
+  useListFeatures,
+  type Feature,
+  type Project,
+} from "../api/generated";
+import { CenteredMessage, PhoneHomeFrame } from "@/components/PhoneHomeChrome";
+import { NewConversation } from "@/components/phone-inbox/PhoneInboxNewConversation";
+import { PhoneInbox } from "@/components/phone-inbox/PhoneInbox";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { readSavedFeature } from "@/lib/saved-feature";
 
 export const Route = createFileRoute("/")({
@@ -23,25 +33,10 @@ interface HomePageStatusProps {
   projectsLoaded: boolean;
   startupError: unknown;
   targetProjectId: number | null;
-}
-
-function CenteredMessage({
-  title,
-  detail,
-  error = false,
-}: {
-  title: string;
-  detail?: string;
-  error?: boolean;
-}): ReactElement {
-  return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="text-center">
-        <p className={error ? "text-destructive" : "text-muted-foreground"}>{title}</p>
-        {detail ? <p className="mt-2 text-sm text-muted-foreground">{detail}</p> : null}
-      </div>
-    </div>
-  );
+  /** The target project, once loaded: a phone offers New conversation in it. */
+  targetProject: Project | undefined;
+  /** The phone layout: the sidebar's "+" is behind the menu, so offer the action here. */
+  phone: boolean;
 }
 
 function HomePageStatus({
@@ -50,9 +45,21 @@ function HomePageStatus({
   projectsLoaded,
   startupError,
   targetProjectId,
+  targetProject,
+  phone,
 }: HomePageStatusProps): ReactElement {
   const { t } = useUiTranslation();
   if (projectsLoaded && targetProjectId != null && featuresLoaded && activeFeatureCount === 0) {
+    if (phone) {
+      return (
+        <CenteredMessage
+          title={t("home.emptyProject.phoneTitle", "No conversations in this project yet")}
+          action={
+            <NewConversation projects={targetProject ? [targetProject] : []} variant="button" />
+          }
+        />
+      );
+    }
     return (
       <CenteredMessage
         title={t("home.emptyProject.title", "No features in this project yet")}
@@ -67,7 +74,11 @@ function HomePageStatus({
     return (
       <CenteredMessage
         title={t("home.noProjects.title", "No projects yet")}
-        detail={t("home.noProjects.hint", "Use the + button in the sidebar to add a project")}
+        detail={
+          phone
+            ? t("home.noProjects.hintPhone", "Open the menu and use its + button to add a project")
+            : t("home.noProjects.hint", "Use the + button in the sidebar to add a project")
+        }
       />
     );
   }
@@ -80,16 +91,36 @@ function HomePageStatus({
             ? startupError.message
             : t("home.load.detail", "Failed to load workspace data.")
         }
-        error
+        tone="error"
       />
     );
   }
   return <CenteredMessage title={t("home.loading", "Loading...")} />;
 }
 
-function HomePage() {
-  const navigate = useNavigate();
+/**
+ * `#/`. The desktop layout opens the conversation last opened on this device
+ * (else the project's first); the phone layout shows the "Agents" inbox
+ * instead, unless a project is asked for (`?projectId=`), which opens as on
+ * desktop. A link to a conversation opens it in either layout.
+ */
+function HomePage(): ReactElement {
+  const isMobile = useIsMobile();
   const { projectId: searchProjectId } = Route.useSearch();
+  if (isMobile && searchProjectId == null) {
+    return <PhoneInbox />;
+  }
+  return <RestoreConversation phone={isMobile} searchProjectId={searchProjectId} />;
+}
+
+function RestoreConversation({
+  phone,
+  searchProjectId,
+}: {
+  phone: boolean;
+  searchProjectId: number | undefined;
+}): ReactElement {
+  const navigate = useNavigate();
 
   // Per-device session restore — read synchronously from localStorage.
   const lastFeature = useMemo(() => readSavedFeature(), []);
@@ -144,13 +175,16 @@ function HomePage() {
     }
   }, [activeFeatures, lastFeature, searchProjectId, targetProjectId, featuresQuery.data, navigate]);
 
-  return (
+  const status = (
     <HomePageStatus
       activeFeatureCount={activeFeatures.length}
       featuresLoaded={featuresQuery.isSuccess}
       projectsLoaded={projectsQuery.isSuccess}
       startupError={startupError}
       targetProjectId={targetProjectId}
+      targetProject={projectsQuery.data?.find((project) => project.id === targetProjectId)}
+      phone={phone}
     />
   );
+  return phone ? <PhoneHomeFrame>{status}</PhoneHomeFrame> : status;
 }

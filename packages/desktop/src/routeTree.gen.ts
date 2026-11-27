@@ -28,27 +28,29 @@ const AgentsRoute = AgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/agents.lazy').then((d) => d.Route))
 const MarketplaceRoute = MarketplaceRouteImport.update({
   id: '/marketplace',
   path: '/marketplace',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/marketplace.lazy').then((d) => d.Route))
 const SchedulesRoute = SchedulesRouteImport.update({
   id: '/schedules',
   path: '/schedules',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/schedules.lazy').then((d) => d.Route))
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/settings.lazy').then((d) => d.Route))
 const MarketplaceIndexRoute = MarketplaceIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => MarketplaceRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/marketplace.index.lazy').then((d) => d.Route),
+)
 const WsSessionSessionIdRoute = WsSessionSessionIdRouteImport.update({
   id: '/ws-session/$sessionId',
   path: '/ws-session/$sessionId',
@@ -58,7 +60,9 @@ const MarketplaceKindIdRoute = MarketplaceKindIdRouteImport.update({
   id: '/$kind/$id',
   path: '/$kind/$id',
   getParentRoute: () => MarketplaceRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/marketplace.$kind.$id.lazy').then((d) => d.Route),
+)
 const ProjectsProjectIdFeaturesFeatureIdRoute =
   ProjectsProjectIdFeaturesFeatureIdRouteImport.update({
     id: '/projects/$projectId/features/$featureId',

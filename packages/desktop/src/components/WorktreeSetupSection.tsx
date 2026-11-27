@@ -59,7 +59,7 @@ export function WorktreeSetupSection(props: WorktreeSetupInput): ReactElement | 
   if (!setup) return null;
   return (
     <WorktreeSetupFrame>
-      <WorktreeSetupHeader {...setup.header} className="px-3 py-1.5 md:px-6" />
+      <WorktreeSetupHeader {...setup.header} className="px-3 py-1.5 desktop:px-6" />
       {setup.header.isOpen && <WorktreeSetupDetails {...setup.details} />}
     </WorktreeSetupFrame>
   );
@@ -86,7 +86,7 @@ function WorktreeSetupDetails({
 }: WorktreeSetupDetailsProps): ReactElement {
   const { t } = useUiTranslation();
   return (
-    <div className="space-y-1.5 border-t border-border/50 px-3 py-2 md:px-6">
+    <div className="space-y-1.5 border-t border-border/50 px-3 py-2 desktop:px-6">
       {isMissing && <MissingWorktreeWarning branch={branch} branchExists={branchExists} />}
       {healthError != null && (
         <div className="flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">

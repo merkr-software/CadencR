@@ -1,11 +1,23 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ImportConversationsDialog } from "./import/ImportConversationsDialog";
-import { NewProjectOnboardingDialog } from "./NewProjectOnboardingDialog";
-import { ProjectLocationDialog } from "./ProjectLocationDialog";
-import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
+import { LazyBoundary } from "./lazy/LazyBoundary";
+import { lazyChunk } from "./lazy/lazy-chunk";
 import type { ProjectTreeController } from "./ProjectTree";
+
+// Each project dialog is its own chunk, loaded when it opens.
+const ProjectSettingsDialog = lazyChunk(() =>
+  import("./ProjectSettingsDialog").then((module) => module.ProjectSettingsDialog),
+);
+const ProjectLocationDialog = lazyChunk(() =>
+  import("./ProjectLocationDialog").then((module) => module.ProjectLocationDialog),
+);
+const NewProjectOnboardingDialog = lazyChunk(() =>
+  import("./NewProjectOnboardingDialog").then((module) => module.NewProjectOnboardingDialog),
+);
+const ImportConversationsDialog = lazyChunk(() =>
+  import("./import/ImportConversationsDialog").then((module) => module.ImportConversationsDialog),
+);
 
 /** Memoized on the tree's controller, which keeps its identity across conversation switches. */
 export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
@@ -17,43 +29,77 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
   return (
     <>
       {controller.settingsProject && (
-        <ProjectSettingsDialog
-          projectId={controller.settingsProject.id}
-          projectName={controller.settingsProject.name}
-          authoringTarget={controller.settingsProject.authoringTarget}
-          open
-          onOpenChange={(open) => {
-            if (!open) controller.setSettingsProject(null);
-          }}
-        />
+        <LazyBoundary
+          label={t("lazy.labels.projectSettings", "project settings")}
+          variant="overlay"
+          onDismiss={() => controller.setSettingsProject(null)}
+        >
+          <ProjectSettingsDialog
+            projectId={controller.settingsProject.id}
+            projectName={controller.settingsProject.name}
+            authoringTarget={controller.settingsProject.authoringTarget}
+            open
+            onOpenChange={(open) => {
+              if (!open) controller.setSettingsProject(null);
+            }}
+          />
+        </LazyBoundary>
       )}
       {controller.locationTarget && (
-        <ProjectLocationDialog
-          key={`${controller.locationTarget.id}-${controller.locationTarget.mode}`}
-          target={controller.locationTarget}
-          onClose={() => controller.setLocationTarget(null)}
-        />
+        <LazyBoundary
+          label={t("lazy.labels.projectLocation", "project location")}
+          variant="overlay"
+          onDismiss={() => controller.setLocationTarget(null)}
+        >
+          <ProjectLocationDialog
+            key={`${controller.locationTarget.id}-${controller.locationTarget.mode}`}
+            target={controller.locationTarget}
+            onClose={() => controller.setLocationTarget(null)}
+          />
+        </LazyBoundary>
       )}
       {controller.onboarding.onboardingProject && (
-        <NewProjectOnboardingDialog
-          projectId={controller.onboarding.onboardingProject.id}
-          projectName={controller.onboarding.onboardingProject.name}
-          open
-          onOpenChange={(open) => {
-            if (!open) controller.onboarding.close();
-          }}
-        />
+        <LazyBoundary
+          label={t("lazy.labels.projectSetup", "project setup")}
+          variant="overlay"
+          onDismiss={() => controller.onboarding.close()}
+        >
+          <NewProjectOnboardingDialog
+            projectId={controller.onboarding.onboardingProject.id}
+            projectName={controller.onboarding.onboardingProject.name}
+            open
+            onOpenChange={(open) => {
+              if (!open) controller.onboarding.close();
+            }}
+          />
+        </LazyBoundary>
       )}
       {controller.importProject && (
-        <ImportConversationsDialog
-          projectId={controller.importProject.id}
-          projectName={controller.importProject.name}
-          open
-          onOpenChange={(open) => {
-            if (!open) controller.setImportProject(null);
-          }}
-        />
+        <LazyBoundary
+          label={t("lazy.labels.import", "import")}
+          variant="overlay"
+          onDismiss={() => controller.setImportProject(null)}
+        >
+          <ImportConversationsDialog
+            projectId={controller.importProject.id}
+            projectName={controller.importProject.name}
+            open
+            onOpenChange={(open) => {
+              if (!open) controller.setImportProject(null);
+            }}
+          />
+        </LazyBoundary>
       )}
+      <ProjectConfirmDialogs controller={controller} />
+    </>
+  );
+});
+
+/** The tree's confirmations: archive every session of a project, delete a project. */
+function ProjectConfirmDialogs({ controller }: { controller: ProjectTreeController }) {
+  const { t } = useUiTranslation();
+  return (
+    <>
       <ConfirmDialog
         open={controller.archiveSessionsProject !== null}
         onOpenChange={(open) => {
@@ -102,4 +148,4 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
       />
     </>
   );
-});
+}

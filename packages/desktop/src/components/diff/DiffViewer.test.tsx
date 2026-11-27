@@ -190,7 +190,8 @@ vi.mock("./PatchDiffView", () => ({
     mocks.patchDiffViewMock(props),
 }));
 
-import { DiffViewer, visibleReviewThread } from "./DiffViewer";
+import { DiffViewer } from "./DiffViewer";
+import { visibleReviewThread } from "./useReviewThreadJump";
 
 /** Default: the changed-files list contains one modified file. */
 function withFooFile(): void {

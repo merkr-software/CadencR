@@ -1,0 +1,69 @@
+/* -------------------------------------------------------------------------
+ * The system's side strip on an iPhone Duo (`lib/side-strip.ts`): folded,
+ * and unfolded on its side, iOS keeps an 84pt column along one edge for the
+ * status bar and the Dynamic Island, reported as that side's safe-area inset.
+ *
+ * - The main column and the phone sheets keep off it, so nothing renders
+ *   under the status bar or the camera.
+ * - As in Apple's own apps on the Duo, the conversation's tabs move into the
+ *   strip, a vertical rail under the status bar
+ *   (`phone-tab-bar.css` lays the rail out). The conversation reaches into
+ *   the strip (its layer spans the main column's padding), what sits above
+ *   its pane (header, worktree panel) keeps off it, and the rail takes the
+ *   strip's width beside the pane. Like the bottom bar, the rail steps aside
+ *   while the keyboard is up, and the conversation then keeps off the strip,
+ *   as the column beside the rail would run under the status bar.
+ *
+ * Unlayered, like `phone-tab-bar.css`, so it wins over Tailwind utilities.
+ * ------------------------------------------------------------------------- */
+html[data-side-strip="right"] main[data-focus-zone="main-content"] {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+html[data-side-strip="left"] main[data-focus-zone="main-content"] {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+html[data-side-strip="right"] [data-phone-sheet] {
+  width: calc(100% - env(safe-area-inset-right, 0px));
+}
+html[data-side-strip="left"] [data-phone-sheet] {
+  left: env(safe-area-inset-left, 0px);
+  width: calc(100% - env(safe-area-inset-left, 0px));
+}
+
+/* The drawer's edge-swipe strip starts past a rail on the left. */
+html[data-side-strip="left"] [data-drawer-edge-swipe] {
+  left: env(safe-area-inset-left, 0px);
+}
+
+/* The conversation reaches into the strip; what sits above its pane keeps off it. */
+html[data-side-strip="right"]:not([data-keyboard-open]) [data-conversation-layer] {
+  right: calc(-1 * env(safe-area-inset-right, 0px));
+}
+html[data-side-strip="left"]:not([data-keyboard-open]) [data-conversation-layer] {
+  left: calc(-1 * env(safe-area-inset-left, 0px));
+}
+html[data-side-strip="right"]:not([data-keyboard-open])
+  [data-conversation-layer]
+  [data-agent-prompt-id]
+  > :not([data-feature-layout-shell]) {
+  margin-right: env(safe-area-inset-right, 0px);
+}
+html[data-side-strip="left"]:not([data-keyboard-open])
+  [data-conversation-layer]
+  [data-agent-prompt-id]
+  > :not([data-feature-layout-shell]) {
+  margin-left: env(safe-area-inset-left, 0px);
+}
+
+/* The rail takes the strip's width, which is the inset itself. */
+html[data-side-strip] .phone-tab-bar[data-rail] {
+  padding-right: 6px;
+  box-shadow: none;
+}
+html[data-side-strip="right"] .phone-tab-bar[data-rail="right"] {
+  width: env(safe-area-inset-right, 0px);
+}
+html[data-side-strip="left"] .phone-tab-bar[data-rail="left"] {
+  width: env(safe-area-inset-left, 0px);
+}

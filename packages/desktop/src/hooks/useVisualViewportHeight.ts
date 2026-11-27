@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { watchViewport } from "@/lib/viewport-settle";
 
 // Keyboards are tall; URL-bar show/hide and safe-area jitter are short. This
 // threshold cleanly separates "the on-screen keyboard is open" from that noise,
@@ -59,16 +60,20 @@ export function useVisualViewportHeight(enabled: boolean): void {
     // The keyboard slide fires many resize ticks at the same final height, so
     // cache the last write and skip redundant style mutations.
     let lastHeightPx: number | null = null;
-    const sync = (): void => {
+    const measure = (): void => {
       // A height difference, not `offsetTop`: iOS pans the viewport to lift the
       // caret around the same tick it reports the keyboard, and a panned
       // `offsetTop` under-reported the inset (the very first focus of a session
       // used to miss the override that way). The pan doesn't change heights.
       // Scaled back to layout pixels: a pinch zoom shrinks `vv.height` too, and
       // read raw it passed for a keyboard.
+      // Not positive is no reading at all: after a fold, iOS 27.1 kept
+      // reporting the Duo's visual viewport as -21px tall, with no event to
+      // correct it, which passed for a 678px keyboard and a 0px shell.
       const visibleHeight = vv.height * vv.scale;
       const inset = layoutHeight() - visibleHeight;
-      const heightPx = inset > KEYBOARD_INSET_THRESHOLD ? Math.round(visibleHeight) : null;
+      const heightPx =
+        visibleHeight > 0 && inset > KEYBOARD_INSET_THRESHOLD ? Math.round(visibleHeight) : null;
       if (heightPx !== lastHeightPx) {
         lastHeightPx = heightPx;
         if (heightPx === null) {
@@ -79,7 +84,6 @@ export function useVisualViewportHeight(enabled: boolean): void {
           root.dataset.keyboardOpen = "";
         }
       }
-      undoPan();
     };
 
     // iOS computes its caret-reveal pan from the layout *before* the shell
@@ -96,12 +100,19 @@ export function useVisualViewportHeight(enabled: boolean): void {
       if (lastHeightPx !== null) undoPan();
     };
 
-    sync();
-    vv.addEventListener("resize", sync);
+    // Measured on every viewport change and for a moment after it: a fold or
+    // a rotation reports in-between sizes and its last change may fire no
+    // event (an iPhone Duo kept a mid-fold reading: the shell 0px tall, the
+    // keyboard "open" with none on screen). The keyboard's own ticks then
+    // undo the pan, after the measure (`watchViewport` listens first).
+    const stopWatching = watchViewport(measure);
+    undoPan();
+    vv.addEventListener("resize", undoPan);
     vv.addEventListener("scroll", repin);
     window.addEventListener("scroll", repin);
     return () => {
-      vv.removeEventListener("resize", sync);
+      stopWatching();
+      vv.removeEventListener("resize", undoPan);
       vv.removeEventListener("scroll", repin);
       window.removeEventListener("scroll", repin);
       root.style.removeProperty("--app-vh");

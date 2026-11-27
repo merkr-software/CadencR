@@ -1,5 +1,5 @@
 import { type UiTranslator, useUiTranslation } from "@/lib/i18n/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGetFeatureSettings } from "@/api/generated";
 import { settingsArrayToMap } from "@/api/settings";
 import type { WorktreeStatus } from "@/types/workflow";
@@ -111,8 +111,9 @@ function useWorktreeSetupDisclosure(
     if (previousStep !== step && step === "error") setUserToggle(true);
   }, [step]);
 
-  const isOpen = userToggle ?? false;
-  return [isOpen, () => setUserToggle((prev) => !(prev ?? isOpen))];
+  // Stable, so the memoized header (and the memo'd Git host showing it) holds.
+  const toggle = useCallback(() => setUserToggle((prev) => !(prev ?? false)), []);
+  return [userToggle ?? false, toggle];
 }
 
 function buildSetupSteps(step: SetupStep, branch: string, t: UiTranslator): SetupStepItem[] {
@@ -143,6 +144,18 @@ function buildSetupSteps(step: SetupStep, branch: string, t: UiTranslator): Setu
       showLog: true,
     },
   ];
+}
+
+function displayStatusOf(
+  step: SetupStep | null,
+  isMissing: boolean,
+  healthFailed: boolean,
+  healthLoading: boolean,
+): WorktreeSetupDisplayStatus {
+  if (isMissing) return "removed";
+  if (healthFailed) return "health-error";
+  if (step === "done") return healthLoading ? "checking" : "ready";
+  return step && step !== "error" ? "running" : "setup-error";
 }
 
 /**
@@ -177,23 +190,12 @@ export function useWorktreeSetup({
 
   const isDone = step === "done";
   const isError = step === "error";
-  const isRunning = !!step && !isDone && !isError;
   const health = useFeatureWorktreeInfo(featureId, projectId, isDone);
   const isMissing = Boolean(
     isDone && health.worktree && !health.worktree.is_main_worktree && !health.worktree.live,
   );
   const branchExists = health.worktree?.branch_exists ?? null;
-  const displayStatus: WorktreeSetupDisplayStatus = isMissing
-    ? "removed"
-    : health.error != null
-      ? "health-error"
-      : health.isLoading && isDone
-        ? "checking"
-        : isDone
-          ? "ready"
-          : isRunning
-            ? "running"
-            : "setup-error";
+  const displayStatus = displayStatusOf(step, isMissing, health.error != null, health.isLoading);
   const [isOpen, toggleOpen] = useWorktreeSetupDisclosure(featureId, useWsMode, step);
   const wsSetupLog = useMemo(
     () => (isOpen && hasWsSetupOutput ? (wsWorktreeSetupOutput ?? []).join("\n") : ""),
@@ -203,27 +205,46 @@ export function useWorktreeSetup({
     ? wsSetupLog || (settings?.worktree_setup_log ?? "")
     : (settings?.worktree_setup_log ?? "");
 
-  if (!step) return null;
-
-  return {
-    header: {
+  // Memoized, so a parent re-rendering on every stream delta hands the same
+  // objects down (the header's Git host is memo'd on `header`).
+  const header = useMemo<WorktreeSetupHeaderProps>(
+    () => ({
       branch,
       branchExists,
       status: displayStatus,
       setupError,
       isOpen,
       onToggle: toggleOpen,
-    },
-    details: {
-      steps: buildSetupSteps(step, branch, t),
+    }),
+    [branch, branchExists, displayStatus, setupError, isOpen, toggleOpen],
+  );
+  const details = useMemo<WorktreeSetupDetailsProps | null>(
+    () =>
+      step
+        ? {
+            steps: buildSetupSteps(step, branch, t),
+            branch,
+            branchExists,
+            healthError: health.error,
+            isMissing,
+            log,
+            isError,
+            setupError,
+            onRetrySetup,
+          }
+        : null,
+    [
       branch,
       branchExists,
-      healthError: health.error,
+      health.error,
+      isError,
       isMissing,
       log,
-      isError,
-      setupError,
       onRetrySetup,
-    },
-  };
+      setupError,
+      step,
+      t,
+    ],
+  );
+  return useMemo(() => (details ? { header, details } : null), [details, header]);
 }

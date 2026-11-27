@@ -10,13 +10,21 @@ import {
   useConversationPreloadIntent,
 } from "./useConversationPreloadIntent";
 
-const mocks = vi.hoisted(() => ({ calls: [] as string[], preload: vi.fn(), prewarm: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  calls: [] as string[],
+  preload: vi.fn(),
+  prewarm: vi.fn(),
+  prefetchAgentSession: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("@/lib/conversation-preload", () => ({
   preloadConversation: (featureId: number, refreshAfterMs: number) => {
     mocks.calls.push(`preload:${featureId}`);
     return Promise.resolve(mocks.preload(featureId, refreshAfterMs));
   },
+}));
+vi.mock("@/components/lazy/agent-session-chunk", () => ({
+  prefetchAgentSession: mocks.prefetchAgentSession,
 }));
 vi.mock("@/components/workspace-pool/workspace-prewarm", () => ({
   requestWorkspacePrewarm: (target: { featureId: number }) => {
@@ -59,6 +67,7 @@ beforeEach(() => {
   mocks.calls.length = 0;
   mocks.preload.mockClear();
   mocks.prewarm.mockClear();
+  mocks.prefetchAgentSession.mockClear();
   queryClient.setQueryData(getListProjectsQueryKey(), [PROJECT]);
   useSessionStatusStore.setState({ bySession: {} });
 });
@@ -82,6 +91,8 @@ describe("a press on a conversation row", () => {
       expect.objectContaining({ featureId: 7, projectId: 3, cwd: "/repo", focusTab: undefined }),
     );
     expect(mocks.preload).toHaveBeenCalledWith(7, PRESS_SNAPSHOT_REFRESH_MS);
+    // The phone layout boots without the conversation view's chunk.
+    expect(mocks.prefetchAgentSession).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing for a secondary button, a modifier or a control inside the row", () => {
@@ -106,6 +117,33 @@ describe("a press on a conversation row", () => {
 
     expect(mocks.prewarm).not.toHaveBeenCalled();
     expect(mocks.calls).toEqual(["preload:7", "preload:7"]);
+  });
+
+  it("waits for a tap on a row that swipes, and skips its swipe tray", () => {
+    renderHook(() => useConversationPreloadIntent());
+    const row = addRow(7);
+    row.setAttribute("data-row-swipe-row", "");
+    const tray = row.appendChild(document.createElement("div"));
+    tray.setAttribute("data-row-swipe-tray", "");
+    const archive = tray.appendChild(document.createElement("span"));
+    const touch = { pointerType: "touch", pointerId: 3, clientX: 200, clientY: 20 };
+
+    // A swipe: the finger lifts 80px away from where it went down.
+    press(row, touch);
+    expect(mocks.preload).not.toHaveBeenCalled();
+    fireEvent.pointerUp(row, { ...touch, clientX: 120 });
+    // A scroll: the browser cancels the pointer.
+    press(row, touch);
+    fireEvent.pointerCancel(row, touch);
+    // A press on an action in the tray.
+    press(archive, touch);
+    fireEvent.pointerUp(archive, touch);
+    expect(mocks.preload).not.toHaveBeenCalled();
+
+    // A tap.
+    press(row, touch);
+    fireEvent.pointerUp(row, { ...touch, clientX: 203 });
+    expect(mocks.preload).toHaveBeenCalledExactlyOnceWith(7, PRESS_SNAPSHOT_REFRESH_MS);
   });
 });
 

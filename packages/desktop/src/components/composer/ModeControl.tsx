@@ -2,12 +2,12 @@ import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { memo, useEffect, useRef, useState, type ReactElement } from "react";
 import { AlertTriangle, Check, ChevronDown } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  AdaptiveMenu,
+  AdaptiveMenuContent,
+  AdaptiveMenuItem,
+  AdaptiveMenuLabel,
+  AdaptiveMenuTrigger,
+} from "@/components/PhoneSheetMenu";
 import { cn } from "@/lib/utils";
 import {
   type ModeRisk,
@@ -65,8 +65,8 @@ export const ModeControl = memo(function ModeControl({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <AdaptiveMenu>
+        <AdaptiveMenuTrigger asChild>
           <button
             type="button"
             data-composer-mode
@@ -97,14 +97,19 @@ export const ModeControl = memo(function ModeControl({
             )}
             <ChevronDown className="size-3 shrink-0 opacity-50" />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="start" className="w-72 p-1">
-          <DropdownMenuLabel className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+        </AdaptiveMenuTrigger>
+        <AdaptiveMenuContent
+          side="top"
+          align="start"
+          className="w-72 p-1"
+          sheetTitle={t("conversation.composer.modeControl.sheetTitle", "Mode")}
+        >
+          <AdaptiveMenuLabel className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
             {t("conversation.composer.modeControl.autonomy", "Autonomy")}
             {showShortcut && <KbdShortcut keys={cycleKeys} scope="agent" />}
-          </DropdownMenuLabel>
+          </AdaptiveMenuLabel>
           {visible.map((mode) => (
-            <DropdownMenuItem
+            <AdaptiveMenuItem
               key={mode.id}
               onSelect={() => choose(mode)}
               className="items-start gap-2.5 py-2"
@@ -117,7 +122,7 @@ export const ModeControl = memo(function ModeControl({
                 </span>
               </span>
               {mode.id === active.id && <Check className="mt-0.5 size-3.5 shrink-0" />}
-            </DropdownMenuItem>
+            </AdaptiveMenuItem>
           ))}
           {incompatibleReason && (
             <p className="mx-2 mt-1 mb-1.5 flex gap-1.5 text-xs text-[var(--acc-yellow)]">
@@ -125,8 +130,8 @@ export const ModeControl = memo(function ModeControl({
               {incompatibleReason}
             </p>
           )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </AdaptiveMenuContent>
+      </AdaptiveMenu>
       <span className="sr-only" role="status" aria-live="polite">
         {announcement.text}
       </span>

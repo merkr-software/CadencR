@@ -19,10 +19,14 @@ import { readBlobBase64, readPromptBlobBase64 } from "@/lib/prompt-image-cache";
 import { parseUserMessageContent, type PromptAttachmentPayload } from "@/types/agent-types";
 import { cn } from "@/lib/utils";
 import type { AgentBlockData } from "@/types/agent-block";
-import { useMessageBranchActions } from "./use-message-branch-actions";
+import { useMessageBranchActions, type MessageBranchActions } from "./use-message-branch-actions";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useAgentSessionContext } from "./agent-session-context";
 import { CopyAsMenu } from "./CopyAsMenu";
+import { MessageActionsMenu } from "./MessageActionsMenu";
+import { AdaptiveMenuItem } from "@/components/PhoneSheetMenu";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useLatestRef } from "@/hooks/useLatestRef";
 
 interface UserMessageActionsProps {
   block: AgentBlockData;
@@ -33,12 +37,15 @@ interface UserMessageActionsProps {
 /**
  * On-hover action row shown under a user message: Copy (markdown), Fork, and
  * Rewind. Mirrors the agent text-block copy affordance. Rendered inside the
- * `group/usermsg` hover group owned by `UserMessageBlock`.
+ * `group/usermsg` hover group owned by `UserMessageBlock`. The phone layout
+ * gets one "…" (`MessageActionsMenu`) opening a sheet of the same actions.
  */
 function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   const { t } = useUiTranslation();
   const [copied, setCopied] = useState(false);
-  const { canBranch, rewind, fork } = useMessageBranchActions(block);
+  const phone = useIsMobile();
+  const branch = useMessageBranchActions(block);
+  const { canBranch, rewind, fork } = branch;
   const { wsSessionId } = useAgentSessionContext();
   const sendPrompt = useWsSessionStore((s) => s.sendPrompt);
   const parsedContent = useMemo(() => parseUserMessageContent(block.content), [block.content]);
@@ -63,20 +70,24 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
     copiedTimer.current = setTimeout(() => setCopied(false), 1500);
   }, [parsedContent.text]);
 
+  if (phone) {
+    return (
+      <PhoneUserMessageActions
+        content={parsedContent.text}
+        bubbleRef={bubbleRef}
+        retry={retry}
+        branch={branch}
+      />
+    );
+  }
+
   return (
     <>
       {needsAttachment && (
-        <p id={retryHelpId} className="mt-1 text-xs text-muted-foreground">
-          {block.promptDeliveryState === "delivery_unknown"
-            ? t(
-                "conversation.stream.userMessageActions.retryAfterReconnect",
-                "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
-              )
-            : t(
-                "conversation.stream.userMessageActions.reattachAndResend",
-                "Reattach the file and resend the message from the composer.",
-              )}
-        </p>
+        <UserMessageRetryHelp
+          id={retryHelpId}
+          deliveryUnknown={block.promptDeliveryState === "delivery_unknown"}
+        />
       )}
       <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
         <ActionButton
@@ -133,6 +144,24 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   );
 }
 
+/** Why Retry is unavailable: the message's attachment must be added again. */
+function UserMessageRetryHelp({ id, deliveryUnknown }: { id: string; deliveryUnknown: boolean }) {
+  const { t } = useUiTranslation();
+  return (
+    <p id={id} className="mt-1 text-xs text-muted-foreground">
+      {deliveryUnknown
+        ? t(
+            "conversation.stream.userMessageActions.retryAfterReconnect",
+            "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
+          )
+        : t(
+            "conversation.stream.userMessageActions.reattachAndResend",
+            "Reattach the file and resend the message from the composer.",
+          )}
+    </p>
+  );
+}
+
 function UserMessageRetryButton({
   retry: { available, retrying, send },
   descriptionId,
@@ -169,7 +198,50 @@ function UserMessageRetryButton({
   );
 }
 
+/** The phone layout's "…" and its sheet: the same handlers as the desktop row. */
+function PhoneUserMessageActions({
+  content,
+  bubbleRef,
+  retry,
+  branch,
+}: {
+  content: string;
+  bubbleRef: RefObject<HTMLDivElement | null>;
+  retry: UserMessageRetry;
+  branch: MessageBranchActions;
+}) {
+  const { t } = useUiTranslation();
+  const contentRef = useLatestRef(content);
+  return (
+    <MessageActionsMenu contentRef={contentRef} sourceRef={bubbleRef} copyAsFormats side="end">
+      {retry.visible && (
+        <AdaptiveMenuItem disabled={!retry.available || retry.retrying} onSelect={retry.send}>
+          <RefreshCwIcon className={cn(retry.retrying && "animate-spin")} />
+          {retry.retrying
+            ? t("conversation.stream.userMessageActions.retrying", "Retrying")
+            : retry.available
+              ? t("common.retry", "Retry")
+              : t("conversation.stream.userMessageActions.retryUnavailable", "Retry unavailable")}
+        </AdaptiveMenuItem>
+      )}
+      {branch.canBranch && (
+        <>
+          <AdaptiveMenuItem onSelect={branch.fork}>
+            <GitBranchIcon />
+            {t("conversation.stream.userMessageActions.fork", "Fork")}
+          </AdaptiveMenuItem>
+          <AdaptiveMenuItem onSelect={branch.rewind}>
+            <RotateCcwIcon />
+            {t("conversation.stream.userMessageActions.rewind", "Rewind")}
+          </AdaptiveMenuItem>
+        </>
+      )}
+    </MessageActionsMenu>
+  );
+}
+
 type ParsedMessage = ReturnType<typeof parseUserMessageContent>;
+type UserMessageRetry = ReturnType<typeof useUserMessageRetry>;
 type SendPrompt = ReturnType<typeof useWsSessionStore.getState>["sendPrompt"];
 
 class RetryAttachmentUnavailable extends Error {}

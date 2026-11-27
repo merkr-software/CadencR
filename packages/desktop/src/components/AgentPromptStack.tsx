@@ -30,11 +30,20 @@ export function AgentPromptStack({
       {props.sideConversations}
       {!special.hasSpecialState && props.schedules}
       <QueueRail />
-      {special.permissionDeferred && props.pendingPermission && (
-        <AgentPromptPendingIndicator kind="permission" detail={props.pendingPermission.toolName} />
+      {(special.permissionDeferred || special.permissionLater) && props.pendingPermission && (
+        <AgentPromptPendingIndicator
+          kind="permission"
+          detail={props.pendingPermission.toolName}
+          onReopen={special.permissionLater ? special.reopenPermission : undefined}
+        />
       )}
       {special.planApprovalDeferred && <AgentPromptPendingIndicator kind="plan" />}
-      {special.questionsDeferred && <AgentPromptPendingIndicator kind="question" />}
+      {(special.questionsDeferred || special.questionsLater) && (
+        <AgentPromptPendingIndicator
+          kind="question"
+          onReopen={special.questionsLater ? special.reopenQuestion : undefined}
+        />
+      )}
       {props.referencedWorktreeSelection && props.projectId != null ? (
         <ReferencedWorktreeTip
           prompt={state.text}

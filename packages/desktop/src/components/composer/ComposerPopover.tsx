@@ -1,5 +1,5 @@
 import { forwardRef, useId, type ReactNode } from "react";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut } from "@/components/KbdShortcut";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
@@ -80,8 +80,9 @@ export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
         </div>
         {/* Keyboard hints mean nothing to a finger: the room goes to the list. */}
         <div
+          {...KBD_HINT_PROPS}
           aria-hidden
-          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden"
+          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
         >
           {displayedHints.map(([keys, hintLabel]) => (
             <span key={keys.join("+")} className="inline-flex items-center gap-1">

@@ -28,9 +28,7 @@ import {
 } from "@/hooks/useAgentExtensions";
 import { isAgentExtensionKind } from "@/lib/agent-extensions";
 import { formatAgo } from "@/lib/date-utils";
-
-export const MARKETPLACE_VIEWS = ["discover", "installed", "updates"] as const;
-export type MarketplaceView = (typeof MARKETPLACE_VIEWS)[number];
+import { MARKETPLACE_VIEWS, type MarketplaceView } from "@/lib/marketplace-views";
 
 function isMarketplaceView(value: string): value is MarketplaceView {
   return (MARKETPLACE_VIEWS as readonly string[]).includes(value);

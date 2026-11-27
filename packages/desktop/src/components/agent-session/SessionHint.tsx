@@ -19,7 +19,7 @@ import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { useState } from "react";
 import { Keyboard, Lightbulb, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ResolvedKbdChord } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedKbdChord } from "@/components/KbdShortcut";
 import {
   SHORTCUTS_BY_SCOPE,
   type Shortcut,
@@ -104,21 +104,25 @@ export function SessionHint() {
         key={rerollKey}
         className="w-full overflow-hidden rounded-lg border border-border bg-card shadow-sm motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200"
       >
-        <HintSection
-          icon={<Keyboard className="size-3" aria-hidden />}
-          label={t("conversation.stream.sessionHint.keyboardShortcut", "Keyboard shortcut")}
-        >
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            {/* Hints are drawn from SHORTCUTS_BY_SCOPE, so the id is a registry id. */}
-            <ResolvedKbdChord shortcutId={hint.shortcut.id as ShortcutId} />
-            <span className="text-sm font-medium text-foreground">{hint.shortcut.describe(t)}</span>
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            {hint.scope.describeHint(t)}
-          </p>
-        </HintSection>
-
-        <div className="h-px bg-border/60" role="presentation" />
+        {/* The whole shortcut section, divider included, goes on touch. */}
+        <div {...KBD_HINT_PROPS}>
+          <HintSection
+            icon={<Keyboard className="size-3" aria-hidden />}
+            label={t("conversation.stream.sessionHint.keyboardShortcut", "Keyboard shortcut")}
+          >
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              {/* Hints are drawn from SHORTCUTS_BY_SCOPE, so the id is a registry id. */}
+              <ResolvedKbdChord shortcutId={hint.shortcut.id as ShortcutId} />
+              <span className="text-sm font-medium text-foreground">
+                {hint.shortcut.describe(t)}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+              {hint.scope.describeHint(t)}
+            </p>
+          </HintSection>
+          <div className="h-px bg-border/60" role="presentation" />
+        </div>
 
         <HintSection
           icon={<Lightbulb className="size-3" aria-hidden />}

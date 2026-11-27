@@ -51,6 +51,24 @@ export function applyThemeToDocument(themeId: ThemeId): void {
   document.documentElement.dataset.theme = theme.id;
   document.documentElement.dataset.appearance = theme.appearance;
   applyThemeChrome(theme);
+  applyThemeColorMeta();
+}
+
+/**
+ * Points `<meta name="theme-color">` at the page's own background (the
+ * texture's opaque base when it has one, as `mobile-status-bar.css` does), so
+ * the browser and installed-app chrome around a remote phone or tablet match
+ * a light theme too; `index.html` ships the default dark value for the paint
+ * before this runs.
+ */
+function applyThemeColorMeta(): void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) return;
+  const style = getComputedStyle(document.documentElement);
+  const color =
+    style.getPropertyValue("--ambient-base").trim() ||
+    style.getPropertyValue("--background").trim();
+  if (color) meta.content = color;
 }
 
 /**

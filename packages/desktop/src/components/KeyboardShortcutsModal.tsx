@@ -3,7 +3,7 @@ import { memo, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { KbdChord } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdChord } from "@/components/KbdShortcut";
 import { useCustomTabShortcutGroups } from "@/components/plugin-tabs/useCustomTabShortcutGroups";
 import { comboSearchText, formatCombo, PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import {
@@ -164,7 +164,11 @@ export function KeyboardShortcutsModal({
           )}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-5 py-2 text-[11px] text-muted-foreground">
+        {/* A hint, unlike the reference above: a finger closes with the X. */}
+        <footer
+          {...KBD_HINT_PROPS}
+          className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-card px-5 py-2 text-[11px] text-muted-foreground"
+        >
           <UiTrans
             i18nKey="shortcuts.closeHint"
             defaults="<escape/> to close"

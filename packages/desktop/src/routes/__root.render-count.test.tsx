@@ -20,19 +20,28 @@ interface MockRouterState {
   location: MockLocation;
 }
 
+/** What the real router holds: the committed matches too (the leaf follows the location here). */
+interface MockRouterSnapshot extends MockRouterState {
+  matches: { pathname: string }[];
+}
+
+function snapshot(state: MockRouterState): MockRouterSnapshot {
+  return { ...state, matches: [{ pathname: "/" }, { pathname: state.location.pathname }] };
+}
+
 const mocks = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   const renders = { root: 0, sidebar: 0, sonner: 0, palette: 0 };
-  let state: MockRouterState = {
+  let state: MockRouterSnapshot = snapshot({
     status: "idle",
     location: { pathname: "/ws-session/ws-feature-1", search: { featureId: 1, projectId: 1 } },
-  };
+  });
   return {
     renders,
     navigate: vi.fn(),
     getState: () => state,
     setState(next: MockRouterState) {
-      state = next;
+      state = snapshot(next);
       listeners.forEach((listener) => listener());
     },
     subscribe(listener: () => void) {
@@ -49,7 +58,7 @@ vi.mock("@tanstack/react-router", () => ({
   useMatch: () => undefined,
   useNavigate: () => mocks.navigate,
   // Like the real hook: one subscription, compared by identity of the selection.
-  useRouterState: (options?: { select?: (state: MockRouterState) => unknown }) =>
+  useRouterState: (options?: { select?: (state: MockRouterSnapshot) => unknown }) =>
     useSyncExternalStore(mocks.subscribe, () => {
       const state = mocks.getState();
       return options?.select ? options.select(state) : state;

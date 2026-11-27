@@ -140,12 +140,70 @@ export function nextActionVerb(
   return { label: verb.label, className: TONE_CLASS[verb.tone] };
 }
 
+/** A next action as a surface shows it: its verb, what it is about, and how it is answered. */
+export interface NextActionView {
+  label: string;
+  /** The verb's tone classes (amber, primary, red or quiet). */
+  className: string;
+  /** What the verb asks, in full: the line's tooltip when it names nothing more. */
+  detail: string;
+  /** What the action is about (the pending request, the pull request), when known. */
+  object: string | null;
+  /** A pending permission or question: the quick reply answers it (a plan never). */
+  quickReply: boolean;
+}
+
+/**
+ * A next action other than a pending request: the verb ("Check error", "Fix
+ * CI", "Address review", "Review", "Merge") and the pull request it is about.
+ * Pure: a row that waits on nothing subscribes to nothing.
+ */
+export function actionView(
+  kind: Exclude<NextActionKind, "waiting">,
+  prStatus: PrStatusSnapshot | undefined,
+): NextActionView {
+  const verb = VERBS[kind];
+  return {
+    label: verb.label,
+    className: TONE_CLASS[verb.tone],
+    detail: verb.detail,
+    object: verb.aboutPr ? prObject(kind, prStatus) : null,
+    quickReply: false,
+  };
+}
+
+/**
+ * A pending request: "Approve" a permission or plan, "Answer" a question, then
+ * the request itself, fetched with the gate popover's query (answering from
+ * either refreshes both). "Respond" while neither the request nor the live
+ * status says which. Only a waiting row mounts it.
+ */
+export function useWaitingActionView(featureId: number): NextActionView {
+  const { t } = useUiTranslation();
+  const { kind: liveKind } = useFeatureStatus(featureId);
+  const { gate, errorMessage } = useFeaturePendingGate({ featureId, enabled: true });
+  const gateKind = gate ? effectiveGateKind(gate) : null;
+  const verb = WAITING_VERBS[gate || liveKind ? triggerPendingKind(liveKind, gateKind) : "unknown"];
+  // A plan is read in the conversation: the line only says it waits.
+  const prompt = gate ? sidebarGatePrompt(gate) : null;
+  return {
+    label: verb.label,
+    className: TONE_CLASS[verb.tone],
+    detail: verb.detail,
+    object:
+      prompt ??
+      (errorMessage
+        ? t("sidebar.nextActionLine.requestDetailsUnavailable", "Request details unavailable")
+        : null),
+    quickReply: gateKind !== "plan",
+  };
+}
+
 /**
  * What the "For me" block asks the user to do about a row, on its own line
- * under the title so the title keeps its width: the verb ("Approve", "Answer",
- * "Check error", "Fix CI", "Address review", "Review", "Merge"), then what it
- * is about when the row knows (the pending request, the pull request). Shows
- * in every density: naming the action is the block's point.
+ * under the title so the title keeps its width: the verb, then what it is
+ * about when the row knows. Shows in every density: naming the action is the
+ * block's point.
  */
 export const SidebarNextActionLine = memo(function SidebarNextActionLine({
   kind,
@@ -157,43 +215,14 @@ export const SidebarNextActionLine = memo(function SidebarNextActionLine({
   featureId: number;
   prStatus: PrStatusSnapshot | undefined;
 }): ReactElement {
+  // `actionView` reads the verbs' translated getters: re-render on a language change.
+  useUiTranslation();
   if (kind === "waiting") return <WaitingLine featureId={featureId} />;
-  const verb = VERBS[kind];
-  return (
-    <ActionLine verb={verb} kind={kind} object={verb.aboutPr ? prObject(kind, prStatus) : null} />
-  );
+  return <ActionLine view={actionView(kind, prStatus)} kind={kind} />;
 });
 
-/**
- * "Approve" a permission (or plan), "Answer" a question, followed by the
- * request itself. Shares the gate popover's query, so answering from either
- * refreshes both. "Respond" while neither the request nor the live status
- * says which.
- */
 function WaitingLine({ featureId }: { featureId: number }): ReactElement {
-  const { t } = useUiTranslation();
-  const { kind: liveKind } = useFeatureStatus(featureId);
-  const { gate, errorMessage } = useFeaturePendingGate({ featureId, enabled: true });
-  const verb =
-    WAITING_VERBS[
-      gate || liveKind
-        ? triggerPendingKind(liveKind, gate ? effectiveGateKind(gate) : null)
-        : "unknown"
-    ];
-  // A plan is read in the conversation: the line only says it waits.
-  const prompt = gate ? sidebarGatePrompt(gate) : null;
-  return (
-    <ActionLine
-      verb={verb}
-      kind="waiting"
-      object={
-        prompt ??
-        (errorMessage
-          ? t("sidebar.nextActionLine.requestDetailsUnavailable", "Request details unavailable")
-          : null)
-      }
-    />
-  );
+  return <ActionLine view={useWaitingActionView(featureId)} kind="waiting" />;
 }
 
 /** The pull request a PR action is about, and its first failing check when CI fails. */
@@ -204,15 +233,8 @@ function prObject(kind: NextActionKind, prStatus: PrStatusSnapshot | undefined):
   return failing ? `#${action.pr.number} · ${failing.name}` : `#${action.pr.number}`;
 }
 
-function ActionLine({
-  verb,
-  kind,
-  object,
-}: {
-  verb: Verb;
-  kind: NextActionKind;
-  object: string | null;
-}): ReactElement {
+function ActionLine({ view, kind }: { view: NextActionView; kind: NextActionKind }): ReactElement {
+  const { label, className, detail, object } = view;
   const { t } = useUiTranslation();
   return (
     <span
@@ -220,18 +242,15 @@ function ActionLine({
       title={
         object
           ? t("sidebar.nextAction.withObject", "{{action}}: {{object}}", {
-              action: verb.label,
+              action: label,
               object,
             })
-          : verb.detail
+          : detail
       }
       className="flex min-w-0 items-baseline gap-1 text-[11px] leading-4"
     >
-      <span
-        data-feature-next-action={kind}
-        className={cn("shrink-0 whitespace-nowrap", TONE_CLASS[verb.tone])}
-      >
-        {verb.label}
+      <span data-feature-next-action={kind} className={cn("shrink-0 whitespace-nowrap", className)}>
+        {label}
       </span>
       {object && <span className="min-w-0 truncate text-muted-foreground">{object}</span>}
     </span>

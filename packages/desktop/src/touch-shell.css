@@ -1,0 +1,99 @@
+/* -------------------------------------------------------------------------
+ * Touch and phone-layout rules. The phone layout is `<html data-shell="phone">`
+ * (`lib/form-factor.ts`, the same answer as `useIsMobile()`): any window up to
+ * 767px, or a touch primary pointer up to 1023px. Touch is the pointer media
+ * features. This file is imported unlayered from `index.css`, and unlayered
+ * rules beat Tailwind's layered utilities whatever their specificity: that,
+ * not `!important`, is why these rules win over an element's own `opacity-0`,
+ * `inline-flex` or `text-sm`. The `!important`s below only also override
+ * inline styles and the app's other unlayered stylesheets.
+ * ------------------------------------------------------------------------- */
+
+/* ─── Touch / mobile affordances ──────────────────────────────────────────
+ * Hover-reveal controls (collapse buttons, copy chips, tab close, row actions)
+ * use `opacity-0` + a `*hover:opacity-100` utility. Touch devices have no hover
+ * state, so these stay invisible and unreachable. Force every hover-revealed
+ * opacity affordance fully visible on touch pointers or in the phone layout.
+ * The `hover` + `:opacity-100` pair matches `hover:`, `group-hover:` and named
+ * `group-hover/x:` variants while excluding state-driven `data-[…]:opacity-100`. */
+@media (hover: none) {
+  [class*="hover"][class*=":opacity-100"] {
+    opacity: 1 !important;
+  }
+}
+/* The phone layout only exists under these queries; the gate keeps a desktop
+ * window from ever matching this attribute-substring selector. */
+@media (max-width: 767px), (pointer: coarse) {
+  [data-shell="phone"] [class*="hover"][class*=":opacity-100"] {
+    opacity: 1 !important;
+  }
+}
+
+/* The complement of the rule above. Where hover reveals the stream's hover
+ * actions (Copy, Retry… under a prompt or a reply), they float over the gap
+ * below their row instead of holding an invisible line in the layout — that
+ * line used to sit under every reply and every prompt, so the gap after each
+ * read far wider than the gap before it. Where the rule above forces them
+ * visible they stay in flow: they are real content there, and so do rows
+ * nested in a clipping card (`data-stream-nested`). The row must be
+ * `position: relative`; the stream's gap below it (`stream-rhythm.ts`) fits
+ * the 20px line. Above the next stream row, under the stream's own overlays
+ * (loading spinner: z-20). */
+@media (hover: hover) {
+  :root:not([data-shell="phone"]) .stream-hover-actions:not([data-stream-nested] *) {
+    position: absolute;
+    top: 100%;
+    z-index: 10;
+    margin: 0;
+    pointer-events: none;
+  }
+  :root:not([data-shell="phone"]) :hover > .stream-hover-actions:not([data-stream-nested] *) {
+    pointer-events: auto;
+  }
+}
+
+/* Keyboard-shortcut hints mean nothing to a finger. Every hint badge
+ * (`KbdShortcut`) and every wrapper that holds only a hint carries
+ * `data-kbd-hint` (`KBD_HINT_PROPS`), and all of them go wherever the primary
+ * pointer is touch, so a flex row closes the gap the hint held. The shortcuts
+ * reference (`KbdChord`) is not a hint and stays. One mechanism for every hint:
+ * - a badge or a wrapper holding only hints carries the attribute;
+ * - JSX text that cites keys wraps the key clause ("…, or press ⌘/") in a
+ *   `KBD_HINT_PROPS` span, so the sentence still reads without it;
+ * - only a plain string (a placeholder, a description passed as a string)
+ *   reads `useShowsKeyboardHints()`. */
+@media (pointer: coarse) {
+  [data-kbd-hint] {
+    display: none !important;
+  }
+}
+
+/*
+ * iOS Safari auto-zooms the page when you focus an editable whose font-size is
+ * below 16px — that's what made the keyboard "zoom horizontally to the left of
+ * the prompt". Force every focusable editable (the Lexical prompt is a
+ * `contenteditable`, hence the explicit selector) to at least 16px on any touch
+ * pointer and in the phone layout (which is a touch pointer or a window up to
+ * 767px, so the query below covers both) so focus never triggers the zoom.
+ * `max(16px, 1rem)` keeps that floor while still letting editables grow with
+ * the mobile UI-zoom (which scales the root font-size). Checkbox/radio/range
+ * inputs are excluded — they have no text and the rule would distort their
+ * sizing.
+ *
+ * The floor already beats Tailwind's `text-sm` / `text-xs` on the element (this
+ * file is unlayered); `!important` keeps an inline font-size or another
+ * stylesheet's field rule from taking an editable back under 16px.
+ *
+ * `.cm-content` is excluded: CodeMirror's editor buffer is a `contenteditable`,
+ * but it's a read-only code-review surface, not a text-entry field — forcing it
+ * to 16px blows the code font up far past its 13px theme size. It keeps its own
+ * size (and scales with the mobile UI-zoom via the editor theme).
+ */
+@media (pointer: coarse), (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [contenteditable="true"]:not(.cm-content) {
+    font-size: max(16px, 1rem) !important;
+  }
+}

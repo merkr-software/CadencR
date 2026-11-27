@@ -70,7 +70,7 @@ export function FilterEditorShell({
               components={{
                 shortcut: (
                   <span className="text-foreground/70">
-                    <KbdShortcut keys={["/"]} variant="inline-sm" />
+                    <KbdShortcut keys={["/"]} variant="inline-sm" persistent />
                   </span>
                 ),
               }}

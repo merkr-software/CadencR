@@ -7,6 +7,7 @@ import type { ComponentType } from "react";
 const mocks = vi.hoisted(() => ({
   search: {} as { tab?: string; section?: string },
   navigate: vi.fn(),
+  history: { index: 0, go: vi.fn() },
   persist: vi.fn(),
   realSetting: false,
   isMobile: false,
@@ -14,16 +15,22 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute:
-    () =>
-    (options: {
-      component: ComponentType;
-      beforeLoad: (context: { search: typeof mocks.search }) => void;
-    }) => ({
+    () => (options: { beforeLoad: (context: { search: typeof mocks.search }) => void }) => ({
       options,
-      useSearch: () => mocks.search,
     }),
+  // The page itself is the lazy half of the route (`settings.lazy.tsx`).
+  createLazyFileRoute: () => (options: { component: ComponentType }) => ({
+    options,
+    useSearch: () => mocks.search,
+  }),
   redirect: (options: unknown) => ({ redirect: options }),
   useNavigate: () => mocks.navigate,
+  useRouter: () => ({
+    history: {
+      location: { state: { __TSR_index: mocks.history.index } },
+      go: mocks.history.go,
+    },
+  }),
 }));
 vi.mock("@/hooks/useShortcut", () => ({
   useShortcut: (id: string, callback: (event: { preventDefault: () => void }) => void) => {
@@ -93,7 +100,8 @@ vi.mock("@/components/settings/SettingsNavSidebar", () => ({
   ),
 }));
 import { Route } from "./settings";
-const SettingsPage = Route.options.component as ComponentType;
+import { Route as LazyRoute } from "./settings.lazy";
+const SettingsPage = LazyRoute.options.component as ComponentType;
 const beforeLoad = Route.options.beforeLoad as unknown as (context: {
   search: { tab?: string; section?: string };
 }) => void;
@@ -105,6 +113,9 @@ afterEach(() => {
   mocks.persist.mockClear();
   mocks.realSetting = false;
   mocks.isMobile = false;
+  mocks.history.index = 0;
+  mocks.history.go.mockClear();
+  window.localStorage.clear();
   mocks.shortcuts.clear();
   vi.useRealTimers();
 });
@@ -147,6 +158,62 @@ describe("Settings page", () => {
     expect(screen.getByText("Page git")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "All settings" }));
     expect(mocks.navigate).toHaveBeenCalledWith({ to: "/settings", search: {} });
+  });
+
+  it("goes back on a phone to the page Settings was opened from, past its own pages", () => {
+    mocks.isMobile = true;
+    mocks.history.index = 4;
+    const { rerender } = render(<SettingsPage />);
+    // Two settings pages visited since: the route stays mounted.
+    mocks.history.index = 6;
+    mocks.search = { section: "git" };
+    rerender(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(mocks.history.go).toHaveBeenCalledWith(-3);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("never reloads on a phone when Settings remounted on a later entry than it opened on", () => {
+    mocks.isMobile = true;
+    // A Back into a later settings entry remounts the route there.
+    mocks.history.index = 6;
+    const { rerender } = render(<SettingsPage />);
+    // Back once more inside Settings: the earliest entry seen is now 5.
+    mocks.history.index = 5;
+    rerender(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(mocks.history.go).toHaveBeenCalledWith(-1);
+    expect(mocks.history.go).not.toHaveBeenCalledWith(0);
+  });
+
+  it("reopens the last conversation on a phone when Settings has no page before it", () => {
+    mocks.isMobile = true;
+    window.localStorage.setItem(
+      "cadencr:last-opened-feature",
+      JSON.stringify({ projectId: 2, featureId: 9 }),
+    );
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(mocks.history.go).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId/features/$featureId",
+      params: { projectId: "2", featureId: "9" },
+    });
+  });
+
+  it("opens the inbox on a phone with neither a page before Settings nor a last conversation", () => {
+    mocks.isMobile = true;
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: "/" });
+  });
+
+  it("leaves for the workspace home on desktop, whatever the history", () => {
+    mocks.history.index = 4;
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(mocks.history.go).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: "/" });
   });
 
   it("clears the search on Escape before leaving Settings", () => {

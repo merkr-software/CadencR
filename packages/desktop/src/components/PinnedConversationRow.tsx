@@ -33,6 +33,7 @@ import { useBrowserStore } from "@/stores/browser-store";
 import { openFeatureRowOnKey } from "@/components/ProjectFeatureRow";
 import { FeatureRowBody } from "@/components/FeatureRowBody";
 import { SidebarForMeDoneAction } from "@/components/SidebarForMeDoneAction";
+import { useCrossProjectRowSwipe } from "@/components/useFeatureRowSwipe";
 import type { AllocatedPort, Feature, FeatureWorktreeInfo } from "@/api/generated";
 import type { NextActionKind } from "@/lib/next-actions";
 
@@ -89,6 +90,7 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
   const label = useRowLabelEditor(feature);
   const reorder = useCrossProjectRowControls(navRef, actions, feature, state, label);
   const handleOpenConversation = useCallback(() => onNavigate(feature), [feature, onNavigate]);
+  const swipe = useCrossProjectRowSwipe(navRef, actions, feature, nextAction, liveTitle);
 
   return (
     <CrossProjectRowMenu
@@ -113,6 +115,7 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
         data-nav-project-id={String(feature.project_id)}
         data-sidebar-pointed={state.isPointed || undefined}
         {...reorder}
+        {...swipe.rowProps}
         className={`sidebar-row group/pinned relative flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-1.5 outline-none transition-colors hover:bg-sidebar-accent ${
           isActive ? "bg-sidebar-accent" : ""
         }`}
@@ -142,7 +145,9 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
           isActive={isActive}
           badgeRef={badgeRef}
           onOpenConversation={handleOpenConversation}
-          actions={rowHoverAction(feature.id, nextAction, showUnpin, actions)}
+          actions={
+            swipe.swipes ? undefined : rowHoverAction(feature.id, nextAction, showUnpin, actions)
+          }
           nextAction={nextAction}
           prStatus={state.prStatus}
           gitStats={state.gitStats}
@@ -155,6 +160,7 @@ export const PinnedConversationRow = memo(function PinnedConversationRow({
           onOpenPort={handleOpenPort}
           onOpenPr={handleOpenPr}
         />
+        {swipe.tray}
       </div>
     </CrossProjectRowMenu>
   );

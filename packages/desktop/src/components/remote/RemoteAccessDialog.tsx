@@ -1,23 +1,23 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useId, useRef, type ReactElement } from "react";
+import { Loader2, Smartphone } from "lucide-react";
 import type { RemoteStatus } from "@/api/generated";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { useRemoteError, useRemoteStore, type RemotePhase } from "@/stores/remote-store";
+import { useUiTranslation } from "@/lib/i18n/ui";
+import { useRemoteDialogError, useRemoteStore, type RemotePhase } from "@/stores/remote-store";
 import { useRemoteDialogStore } from "@/stores/remote-dialog-store";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { formatExactNumber } from "@/lib/format-number";
-import { formattingLocale } from "@/lib/i18n/formatting-locale";
-import { useUiTranslation } from "@/lib/i18n/ui";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { canPreventHostSleep, useRemotePreventSleep } from "@/lib/remote/sleep-prevention";
-import { RemoteDisclosure } from "./remote-ui";
+import { RemoteDisclosure, SectionHeading } from "./remote-ui";
 import { RemoteLanSection } from "./RemoteLanSection";
 import { RemotePairSection } from "./RemotePairSection";
 import { RemoteTunnelSection } from "./RemoteTunnelSection";
@@ -25,9 +25,11 @@ import { RemoteDevicesSection } from "./RemoteDevicesSection";
 import { RemoteActivitySection } from "./RemoteActivitySection";
 
 /**
- * Host control surface for remote access. Opens from the sidebar button; on
- * open it fetches current status. The on/off toggle, pairing, device list, and
- * audit tail all live here. Loopback-only — never rendered in a remote browser.
+ * Host control surface for remote access. Opens from the sidebar button and
+ * fetches the current status. Off, it explains what remote access gives and
+ * offers to turn it on; on, a status line (with the off switch) sits over the
+ * pairing QR and its steps, then the paired devices and the rest. Loopback
+ * only: never rendered in a remote browser.
  */
 export function RemoteAccessDialog({
   onOpenChange,
@@ -38,100 +40,192 @@ export function RemoteAccessDialog({
   const status = useRemoteStore((s) => s.status);
   const loaded = useRemoteStore((s) => s.loaded);
   const phase = useRemoteStore((s) => s.phase);
-  const error = useRemoteError();
+  const error = useRemoteDialogError();
   const refresh = useRemoteStore((s) => s.refresh);
-  const enable = useRemoteStore((s) => s.enable);
-  const disable = useRemoteStore((s) => s.disable);
+  const clearError = useRemoteStore((s) => s.clearError);
 
+  // A new opening starts clean: a failure from the last time it was open is
+  // not this one's.
   useEffect(() => {
+    clearError();
     void refresh();
-  }, [refresh]);
+  }, [clearError, refresh]);
 
-  const enabled = status?.enabled ?? false;
-  // First fetch still in flight: show a loader rather than a misleading "off".
+  // First fetch still in flight: a loader rather than a misleading "off".
   const initialLoading = !loaded && phase === "loading";
+  const enabled = status?.enabled ?? false;
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="grid-rows-[auto_minmax(0,1fr)] sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>{t("remote.host.title", "Remote access")}</DialogTitle>
           <DialogDescription>
-            {t(
-              "remote.host.description",
-              "Use this workspace from another device over your network. Anyone who can reach your machine and pair gains full access — only enable it on networks you trust.",
-            )}
+            {t("remote.host.subtitle", "Use this workspace from your phone or tablet.")}
           </DialogDescription>
         </DialogHeader>
-
-        {initialLoading ? (
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            {t("remote.host.checking", "Checking remote access…")}
-          </div>
-        ) : (
-          <>
-            <RemoteToggleRow
-              enabled={enabled}
-              phase={phase}
-              onEnable={() => void enable()}
-              onDisable={() => void disable()}
-            />
-
-            {canPreventHostSleep(desktopBridge.isElectron, isBrowserRemote()) ? (
-              <SleepPreventionToggle />
-            ) : null}
-
-            {error ? <p className="text-xs text-[var(--acc-red)]">{error}</p> : null}
-
-            {enabled && status ? <RemoteEnabledSections status={status} /> : null}
-          </>
-        )}
+        <DialogBody className="space-y-5">
+          {initialLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              {t("remote.host.checking", "Checking remote access…")}
+            </div>
+          ) : enabled && status ? (
+            <RemoteOnView status={status} phase={phase} />
+          ) : (
+            <RemoteOffView phase={phase} />
+          )}
+          {error ? (
+            <p role="alert" className="text-xs text-[var(--acc-red)]">
+              {error}
+            </p>
+          ) : null}
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );
 }
 
-/** The primary remote on/off switch, with an inline spinner while mutating. */
-function RemoteToggleRow({
-  enabled,
+function RemoteOffView({ phase }: { phase: RemotePhase }): ReactElement {
+  const { t } = useUiTranslation();
+  const enable = useRemoteStore((s) => s.enable);
+  const turning = phase === "mutating";
+  return (
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card px-6 py-8 text-center">
+      <div className="grid size-11 place-items-center rounded-xl border border-border bg-background">
+        <Smartphone className="size-5" aria-hidden />
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-base font-semibold">
+          {t("remote.host.off.title", "Follow your agents from your phone")}
+        </p>
+        <p className="mx-auto max-w-sm text-sm text-muted-foreground">
+          {t(
+            "remote.host.off.body",
+            "Turn it on, scan a code with your phone, and read, answer and start conversations from anywhere on your network.",
+          )}
+        </p>
+      </div>
+      <Button type="button" onClick={() => void enable()} disabled={phase !== "idle"}>
+        {turning ? <Loader2 className="animate-spin" aria-hidden /> : null}
+        {t("remote.host.off.enable", "Turn on remote access")}
+      </Button>
+      <p className="max-w-sm text-xs text-muted-foreground">
+        {t(
+          "remote.host.off.warning",
+          "A paired device gets full access to this workspace. Turn it on only on networks you trust.",
+        )}
+      </p>
+    </div>
+  );
+}
+
+function RemoteOnView({
+  status,
   phase,
-  onEnable,
-  onDisable,
 }: {
-  enabled: boolean;
+  status: RemoteStatus;
   phase: RemotePhase;
-  onEnable: () => void;
-  onDisable: () => void;
+}): ReactElement {
+  return (
+    <>
+      <RemoteStatusLine status={status} phase={phase} />
+      <RemotePairSection status={status} />
+      <RemoteManageSections status={status} />
+    </>
+  );
+}
+
+/** "On", how many devices are paired and connected, and the off switch. */
+function RemoteStatusLine({
+  status,
+  phase,
+}: {
+  status: RemoteStatus;
+  phase: RemotePhase;
 }): ReactElement {
   const { t } = useUiTranslation();
+  const disable = useRemoteStore((s) => s.disable);
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-      <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium">
-          {enabled
-            ? t("remote.host.enabled", "Remote access is on")
-            : t("remote.host.disabled", "Remote access is off")}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {enabled
-            ? t("remote.host.enabledHint", "Reachable over TLS on your local network.")
-            : t(
-                "remote.host.disabledHint",
-                "Turn on to expose the workspace over your local network.",
-              )}
-        </div>
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5">
+      <span
+        className="size-2.5 shrink-0 rounded-full bg-[var(--acc-green)] motion-safe:animate-pulse"
+        aria-hidden
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{t("remote.host.enabled", "Remote access is on")}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {status.devices.length === 0
+            ? t("remote.host.status.noDevices", "No device paired yet")
+            : t("remote.host.status.devices", {
+                count: status.devices.length,
+                connected: status.connected_devices,
+                defaultValue_one:
+                  "{{count, number}} device paired · {{connected, number}} connected",
+                defaultValue_other:
+                  "{{count, number}} devices paired · {{connected, number}} connected",
+              })}
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {phase === "mutating" ? (
-          <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
-        ) : null}
-        <Switch
-          checked={enabled}
-          disabled={phase !== "idle"}
-          onCheckedChange={(next) => (next ? onEnable() : onDisable())}
-          aria-label={t("remote.host.toggle", "Toggle remote access")}
-        />
+      {phase === "mutating" ? (
+        <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
+      ) : null}
+      <Switch
+        checked
+        disabled={phase !== "idle"}
+        onCheckedChange={(next) => {
+          if (!next) void disable();
+        }}
+        aria-label={t("remote.host.title", "Remote access")}
+      />
+    </div>
+  );
+}
+
+/**
+ * Paired devices, the stay-awake preference, and what is reference rather than
+ * routine (addresses and certificate, tunnels, activity) folded away. The
+ * "View devices" toast action scrolls to the devices (each toast bumps
+ * `focusDevicesNonce`, consumed once scrolled so a later opening starts at the
+ * pairing code).
+ */
+function RemoteManageSections({ status }: { status: RemoteStatus }): ReactElement {
+  const { t } = useUiTranslation();
+  const focusDevicesNonce = useRemoteDialogStore((s) => s.focusDevicesNonce);
+  const devicesFocused = useRemoteDialogStore((s) => s.devicesFocused);
+  const devicesRef = useRef<HTMLElement>(null);
+  const devicesHeadingId = useId();
+
+  useEffect(() => {
+    if (focusDevicesNonce === 0) return;
+    const raf = requestAnimationFrame(() => {
+      devicesRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      devicesFocused();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusDevicesNonce, devicesFocused]);
+
+  return (
+    <div className="space-y-5 border-t border-border pt-5">
+      <section ref={devicesRef} aria-labelledby={devicesHeadingId} className="space-y-2">
+        <SectionHeading id={devicesHeadingId}>
+          {t("remote.host.sections.pairedDevices", "Paired devices")}
+        </SectionHeading>
+        <RemoteDevicesSection status={status} />
+      </section>
+      {canPreventHostSleep(desktopBridge.isElectron, isBrowserRemote()) ? (
+        <SleepPreventionRow />
+      ) : null}
+      <div className="space-y-2">
+        <RemoteDisclosure title={t("remote.host.sections.addresses", "Addresses and certificate")}>
+          <RemoteLanSection status={status} />
+        </RemoteDisclosure>
+        <RemoteDisclosure title={t("remote.host.sections.awayFromHome", "Use it away from home")}>
+          <RemoteTunnelSection status={status} />
+        </RemoteDisclosure>
+        <RemoteDisclosure title={t("remote.host.sections.activity", "Recent activity")}>
+          <RemoteActivitySection status={status} />
+        </RemoteDisclosure>
       </div>
     </div>
   );
@@ -139,78 +233,25 @@ function RemoteToggleRow({
 
 /**
  * Keep the host awake while hosting. Shown only on the desktop host (a paired
- * browser has no blocker to hold), so remote users see no dead control. The preference
- * persists independently of the on/off state; the blocker is only held while
- * remote access is also active (see `useRemoteSleepGuard`).
+ * browser has no blocker to hold). The preference persists on its own; the
+ * blocker is held only while remote access is on (see `useRemoteSleepGuard`).
  */
-function SleepPreventionToggle(): ReactElement {
+function SleepPreventionRow(): ReactElement {
   const { t } = useUiTranslation();
   const [preventSleep, setPreventSleep] = useRemotePreventSleep();
-  const label = t("remote.host.preventSleep.title", "Prevent sleep while hosting");
+  const label = t("remote.host.keepAwake.title", "Keep this computer awake");
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
-      <div className="min-w-0 space-y-0.5">
-        <div className="text-sm font-medium">{label}</div>
-        <div className="text-xs text-muted-foreground">
+    <label className="flex items-center justify-between gap-4">
+      <span className="min-w-0 space-y-0.5">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-muted-foreground">
           {t(
-            "remote.host.preventSleep.description",
-            "Keeps this computer awake while remote access is active. The screen can still lock or turn off. Manual sleep, lid close, or low battery may still interrupt hosting.",
+            "remote.host.keepAwake.description",
+            "While remote access is on. The screen can still lock; closing the lid or a low battery still puts it to sleep.",
           )}
-        </div>
-      </div>
+        </span>
+      </span>
       <Switch checked={preventSleep} onCheckedChange={setPreventSleep} aria-label={label} />
-    </div>
-  );
-}
-
-/**
- * The QR/pairing hero plus the collapsed reference/management disclosures. The
- * paired-devices section is controlled so the "View devices" toast action can
- * expand it and scroll it into view (each toast bumps `focusDevicesNonce`).
- */
-function RemoteEnabledSections({ status }: { status: RemoteStatus }): ReactElement {
-  const { t, i18n } = useUiTranslation();
-  const focusDevicesNonce = useRemoteDialogStore((s) => s.focusDevicesNonce);
-  const [devicesOpen, setDevicesOpen] = useState(false);
-  const devicesRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (focusDevicesNonce === 0) return;
-    setDevicesOpen(true);
-    // Wait a frame for the section to expand, then bring it into view.
-    const raf = requestAnimationFrame(() => {
-      devicesRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [focusDevicesNonce]);
-
-  return (
-    <div className="max-h-[calc(var(--app-vh)*0.6)] space-y-3 overflow-y-auto pr-1">
-      {/* Hero: the primary task is pairing a device, so the QR leads. */}
-      <RemotePairSection status={status} />
-
-      {/* Everything else is reference or management — collapsed by default so
-          the dialog stays a one-glance "it's on, scan this". */}
-      <RemoteDisclosure title={t("remote.host.sections.connection", "Connection & certificate")}>
-        <RemoteLanSection status={status} />
-      </RemoteDisclosure>
-      <RemoteDisclosure title={t("remote.host.sections.tunnel", "Expose over the internet")}>
-        <RemoteTunnelSection status={status} />
-      </RemoteDisclosure>
-      <div ref={devicesRef}>
-        <RemoteDisclosure
-          title={t("remote.host.sections.devices", "Paired devices ({{deviceCount}})", {
-            deviceCount: formatExactNumber(status.devices.length, formattingLocale(i18n.language)),
-          })}
-          open={devicesOpen}
-          onOpenChange={setDevicesOpen}
-        >
-          <RemoteDevicesSection status={status} />
-        </RemoteDisclosure>
-      </div>
-      <RemoteDisclosure title={t("remote.host.sections.activity", "Recent activity")}>
-        <RemoteActivitySection status={status} />
-      </RemoteDisclosure>
-    </div>
+    </label>
   );
 }

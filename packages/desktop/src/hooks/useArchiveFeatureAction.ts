@@ -16,6 +16,13 @@ import {
   startArchiveProgress,
 } from "@/lib/archive-progress-toast";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import {
+  archiveUndoCaveats,
+  canUndoArchive,
+  enabledScheduleFeatureIds,
+  offersArchiveUndo,
+  undoArchive,
+} from "@/lib/archive-undo";
 
 export type ArchiveFeatureOptions = Required<ArchiveRequest>;
 
@@ -42,14 +49,32 @@ export function useArchiveFeatureAction({
       // navigate within are read now, not from the options when it answers.
       onMutate: ({ id }) => {
         startArchiveProgress(id);
-        return { projectId, activeFeatures };
+        // Read before the service pauses them, for what an Undo leaves paused.
+        const scheduleFeatureIds = enabledScheduleFeatureIds(queryClient);
+        return { projectId, activeFeatures, scheduleFeatureIds };
       },
       onSuccess: (response, { id }, context) => {
         const archivedIds = new Set(response.archived_ids);
         archiveFeaturesInCachedLists(queryClient, response.archived_ids);
         for (const featureId of response.archived_ids) closeFeatureSession(featureId);
         void invalidateByUrlPrefix(queryClient, "/api/features");
-        finishArchiveProgress(id, response.cleanup);
+        // A swipe archives on a phone, so its toast offers the way back, unless
+        // the archive removed what a status flip cannot bring back.
+        const undo =
+          offersArchiveUndo() && canUndoArchive(response.cleanup)
+            ? () =>
+                void undoArchive(queryClient, {
+                  featureId: id,
+                  archivedIds: response.archived_ids,
+                  projectId: context.projectId,
+                  caveats: archiveUndoCaveats(
+                    response.cleanup,
+                    response.archived_ids,
+                    context.scheduleFeatureIds,
+                  ),
+                })
+            : undefined;
+        finishArchiveProgress(id, response.cleanup, undo);
         if (context.projectId == null) return;
         const target = archiveNavigationTarget(
           context.activeFeatures,

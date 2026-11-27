@@ -94,6 +94,25 @@ describe("archive progress toast", () => {
     );
   });
 
+  it("offers Undo when asked, and only then", () => {
+    startArchiveProgress(2);
+    finishArchiveProgress(2, {});
+    expect(toast.success.mock.lastCall?.[1]).not.toHaveProperty("action.label");
+
+    const undo = vi.fn();
+    startArchiveProgress(2);
+    finishArchiveProgress(2, {}, undo);
+    const options = toast.success.mock.lastCall?.[1] as {
+      action?: { label: string; onClick: () => void };
+      duration?: number;
+    };
+    expect(options.action?.label).toBe("Undo");
+    // Long enough for a thumb to reach it: no hover holds a toast on a phone.
+    expect(options.duration).toBe(10_000);
+    options.action?.onClick();
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores events of archives this window did not start", () => {
     updateArchiveProgress(7, { terminals: { status: "running" } });
     expect(toast.loading).not.toHaveBeenCalled();

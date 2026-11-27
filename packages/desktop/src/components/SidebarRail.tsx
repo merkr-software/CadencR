@@ -28,7 +28,10 @@ import { useShortcutLabel } from "@/hooks/useShortcutLabel";
  * agents are doing: projects with their aggregated badges, every conversation
  * with something going on, or only the ones waiting on you. A waiting
  * conversation's glyph opens its gate popover, so a request can be answered
- * without reopening the sidebar. Desktop only.
+ * without reopening the sidebar. On the desktop, and beside the page on a
+ * touch screen wide enough to dock the sidebar (`useDockedSidebar`), where its
+ * buttons grow to 44px, its tiles to 40px with a 44px touch target, and it
+ * clears the notch and the home indicator.
  */
 export const SidebarRail = memo(function SidebarRail({
   onExpand,
@@ -48,6 +51,7 @@ export const SidebarRail = memo(function SidebarRail({
         data-sidebar-rail={content}
         className={cn(
           "glass-surface flex h-full w-12 shrink-0 flex-col items-center gap-1 bg-sidebar pb-2",
+          "phone:box-content phone:pt-[env(safe-area-inset-top)] phone:pb-[max(0.5rem,env(safe-area-inset-bottom))] phone:pl-[env(safe-area-inset-left)]",
           // The traffic lights straddle the rail's edge, so on Mac its hairline
           // starts under the titlebar band instead of cutting through them.
           HAS_MAC_WINDOW_CONTROLS
@@ -61,7 +65,7 @@ export const SidebarRail = memo(function SidebarRail({
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+          className="size-8 shrink-0 text-muted-foreground hover:text-foreground phone:size-11"
           title={t("sidebar.expandWithShortcut", "Expand sidebar ({{shortcut}})", {
             shortcut: toggleSidebarCombo,
           })}
@@ -88,7 +92,7 @@ export const SidebarRail = memo(function SidebarRail({
           asChild
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+          className="size-8 shrink-0 text-muted-foreground hover:text-foreground phone:size-11"
           title={t("sidebar.rail.settingsWithShortcut", "Settings ({{shortcut}})", {
             shortcut: settingsCombo,
           })}
@@ -156,7 +160,7 @@ export const RailProject = memo(function RailProject({
           onClick={() => onOpen(projectId)}
           style={tint}
           className={cn(
-            "sidebar-rail-tile relative size-8 shrink-0",
+            "sidebar-rail-tile relative size-8 shrink-0 phone:size-10 phone:hit-area",
             ring && `ring-2 ring-offset-1 ring-offset-sidebar ${ring}`,
           )}
         >
@@ -231,7 +235,7 @@ function RailConversations({
     return (attentionOnly ? loadingStates.some(needsUser) : loadingStates.length > 0) ? (
       <Skeleton
         aria-label={t("sidebar.rail.loadingConversations", "Loading conversations")}
-        className="size-8 shrink-0 rounded-md"
+        className="size-8 shrink-0 rounded-md phone:size-10"
       />
     ) : (
       <RailEmptyLine attentionOnly={attentionOnly} />
@@ -280,7 +284,7 @@ export const RailConversation = memo(function RailConversation({
             data-active={isActive || undefined}
             onClick={open}
             style={tint}
-            className="sidebar-rail-tile size-8"
+            className="sidebar-rail-tile size-8 phone:size-10 phone:hit-area"
           >
             {feature.title.slice(0, 1) || "#"}
           </button>

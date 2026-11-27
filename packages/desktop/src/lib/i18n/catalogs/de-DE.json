@@ -298,7 +298,8 @@
         "description": "Was in jedem Arbeitsschritt des Agenten aufgeklappt bleibt. Die Einstellung ändert nur die Darstellung und hat keinen Einfluss darauf, was der Agent tut.",
         "messageNavigator": "Nachrichtennavigator",
         "messageNavigatorDescription": "Markiert deine Nachrichten am rechten Rand des Agenten-Tabs. Fahr mit der Maus über eine Markierung, um eine Vorschau zu sehen, oder klicke darauf, um dorthin zu springen. Du kannst auch {{previousCombo}} oder {{nextCombo}} drücken.",
-        "title": "Agent Transkript"
+        "title": "Agent Transkript",
+        "messageNavigatorDescriptionTouch": "Markiert deine Nachrichten am rechten Rand des Agenten-Tabs. Tippe auf eine Markierung, um zu ihrer Nachricht zu springen."
       }
     },
     "cli": {
@@ -485,7 +486,8 @@
         "archivingSession": "Sitzung wird archiviert …",
         "couldNotArchiveSession": "Sitzung konnte nicht archiviert werden",
         "sessionArchived": "Sitzung archiviert",
-        "sessionArchivedButItsCleanupDidNotReportBack": "Sitzung archiviert. Der Status der Bereinigung wurde nicht gemeldet."
+        "sessionArchivedButItsCleanupDidNotReportBack": "Sitzung archiviert. Der Status der Bereinigung wurde nicht gemeldet.",
+        "undo": "Rückgängig"
       },
       "archiveRelativeOptions": {
         "alsoArchiveEveryActiveDescendantSession": "Alle aktiven untergeordneten Sitzungen ebenfalls archivieren.",
@@ -554,7 +556,9 @@
           "finishTypingToReviewIt": "Beende die Eingabe, um sie zu prüfen",
           "permissionPending": "Genehmigungsanfrage ausstehend",
           "planPending": "Plangenehmigung noch ausstehend",
-          "questionPending": "Frage ausstehend"
+          "questionPending": "Frage ausstehend",
+          "answer": "Antworten",
+          "review": "Prüfen"
         },
         "agentQuestionDrawer": {
           "next": "Weiter",
@@ -565,7 +569,8 @@
         "assistMenu": {
           "keysSyntax": "Tastenkürzel und Syntax",
           "moreComposerActions": "Weitere Eingabeaktionen",
-          "session": "Sitzung"
+          "session": "Sitzung",
+          "sessionDetails": "Sitzungsdetails"
         },
         "autoMessageMenu": {
           "messageSendOptions": "Optionen für den Versand von Nachrichten",
@@ -690,7 +695,8 @@
           "bypass": "Ohne Schutzvorkehrungen",
           "changed": "Modus geändert zu {{label}}: {{risk}}",
           "edits": "Bearbeitet Dateien ohne Rückfrage",
-          "read": "Schreibgeschützt"
+          "read": "Schreibgeschützt",
+          "sheetTitle": "Modus"
         },
         "modelPickerRow": {
           "inheritModel": "Übernehmen ({{model}})",
@@ -1552,7 +1558,8 @@
           "resetZoom0": "Zoom zurücksetzen (0)",
           "scrollToPanPinchToZoom": "Scrollen zum Verschieben · Zwei Finger zum Zoomen · Ziehen mit {{PAN_MODIFIER}} zum Verschieben",
           "zoomIn": "Vergrößern (+)",
-          "zoomOut": "Verkleinern (−)"
+          "zoomOut": "Verkleinern (−)",
+          "expandDiagram": "Diagramm vergrößern"
         },
         "mermaidFullscreen": {
           "diagram": "Diagramm"
@@ -1597,7 +1604,8 @@
           "on": "Ein",
           "openModelPicker": "Modellauswahl öffnen",
           "selectedModel": "Modell: {{modelLabel}}",
-          "thinkingEffort": "Denkstufe: {{effort}}"
+          "thinkingEffort": "Denkstufe: {{effort}}",
+          "thinkingEffortTitle": "Denkstufe"
         },
         "planBlock": {
           "approved": "Genehmigt",
@@ -1968,7 +1976,8 @@
           "saving": "Wird gespeichert",
           "thisBranch": "Dieser Branch",
           "usesAWorktree": "Verwendet einen Worktree",
-          "whereTheAgentWorks": "Wo der Agent arbeitet: {{label}}"
+          "whereTheAgentWorks": "Wo der Agent arbeitet: {{label}}",
+          "sheetTitle": "Wo der Agent arbeitet"
         },
         "worktreePopover": {
           "baseBranch": "Basis-Branch: {{branchLabel}}",
@@ -1991,6 +2000,9 @@
           "restart": "Unterbrochen: Cadencr wurde neu gestartet, bevor der Vorgang abgeschlossen war.",
           "quit": "Gestoppt: Cadencr wurde beendet, bevor der Vorgang abgeschlossen war.",
           "user": "Vom Benutzer gestoppt."
+        },
+        "messageActionsMenu": {
+          "messageActions": "Nachrichtenaktionen"
         }
       },
       "subagent-presentation": {
@@ -2148,6 +2160,21 @@
         "streamFailed": "Die Verbindung zum Anbieter für die automatische Benennung ist abgebrochen, bevor der Titel fertig war. Versuche es erneut.",
         "timeout": "Der Anbieter für die automatische Benennung wurde nicht rechtzeitig fertig. Versuche es erneut oder wähle ein schnelleres Modell für die Benennung.",
         "warning": "Diese Unterhaltung konnte nicht automatisch umbenannt werden. {{detail}}"
+      },
+      "archiveUndo": {
+        "terminalsAndBrowserTabsClosed": "Ihre Terminals und Browser-Tabs bleiben geschlossen.",
+        "terminalsClosed": "Ihre Terminals bleiben geschlossen.",
+        "browserTabsClosed": "Ihre Browser-Tabs bleiben geschlossen.",
+        "schedulesMaybePaused": "Zeitpläne, die beim Archivieren pausiert wurden, bleiben pausiert.",
+        "schedulesPaused_one": "{{count}} Zeitplan bleibt pausiert.",
+        "schedulesPaused_other": "{{count}} Zeitpläne bleiben pausiert.",
+        "restoring": "Sitzung wird wiederhergestellt …",
+        "restored_one": "Sitzung wiederhergestellt",
+        "restored_other": "{{count}} Sitzungen wiederhergestellt",
+        "unarchiveFailed": "Wiederherstellen fehlgeschlagen",
+        "restoreFailed": "Sitzung konnte nicht wiederhergestellt werden",
+        "partlyRestored_one": "{{restored}} von {{count}} Sitzung wiederhergestellt",
+        "partlyRestored_other": "{{restored}} von {{count}} Sitzungen wiederhergestellt"
       }
     },
     "customActions": {
@@ -2324,9 +2351,7 @@
         "schedule": "Liste {{name}}..."
       },
       "mobile": {
-        "failed": "Aktionen, eine ist gescheitert",
         "help": "Führen Sie die Arbeitskopie dieses Gesprächs aus.",
-        "running": "Aktionen, eine läuft",
         "terminal": "Öffnen eines Terminals"
       },
       "mobileCustomActionsSheet": {
@@ -2350,7 +2375,8 @@
       "runNamed": "Lauf ‚{{name}}‘",
       "saving": "Wird gespeichert…",
       "settings": {
-        "help": "Befehle, die du häufig in der Arbeitskopie einer Unterhaltung ausführst, etwa Tests, Linter, Deployments oder Entwicklungsserver. In jeder Projekt-Kopfzeile stehen die eigenen Aktionen vor den globalen Aktionen. Starte sie über die Kopfzeile oder mit <shortcut />. Jede Aktion hat eine Seite für die Ausgabe, frühere Durchläufe und Einstellungen."
+        "help": "Befehle, die du häufig in der Arbeitskopie einer Unterhaltung ausführst, etwa Tests, Linter, Deployments oder Entwicklungsserver. In jeder Projekt-Kopfzeile stehen die eigenen Aktionen vor den globalen Aktionen. Starte sie über die Kopfzeile oder mit <shortcut />. Jede Aktion hat eine Seite für die Ausgabe, frühere Durchläufe und Einstellungen.",
+        "helpTouch": "Befehle, die du häufig in der Arbeitskopie einer Unterhaltung ausführst, etwa Tests, Linter, Deployments oder Entwicklungsserver. In jeder Projekt-Kopfzeile stehen die eigenen Aktionen vor den globalen Aktionen, in der Reihenfolge unten. Starte sie über die Kopfzeile. Jede Aktion hat dort eine Seite für die Ausgabe, frühere Durchläufe und Einstellungen."
       },
       "starting": "Beginnen...",
       "status": {
@@ -2825,7 +2851,8 @@
     "home": {
       "emptyProject": {
         "hint": "Verwende die +-Taste in der Seitenleiste, um eine neue Funktion zu erstellen",
-        "title": "Noch keine Features in diesem Projekt"
+        "title": "Noch keine Features in diesem Projekt",
+        "phoneTitle": "Noch keine Unterhaltungen in diesem Projekt"
       },
       "feature": {
         "back": "Zur Startseite",
@@ -2840,7 +2867,8 @@
       "loading": "Wird geladen…",
       "noProjects": {
         "hint": "Über die Schaltfläche + in der Seitenleiste kannst du ein Projekt hinzufügen.",
-        "title": "Noch keine Projekte"
+        "title": "Noch keine Projekte",
+        "hintPhone": "Öffne das Menü und füge über die Schaltfläche + ein Projekt hinzu"
       }
     },
     "marketplace": {
@@ -4525,71 +4553,70 @@
         "connected_one": "Fernzugriff ON — {{count, number}} Gerät verbunden",
         "connected_other": "Fernzugriff ON — {{count, number}} Geräte verbunden",
         "connected_zero": "Fernzugriff ON — {{count, number}} Geräte verbunden",
-        "description": "Verwende diesen Arbeitsbereich von einem anderen Gerät in deinem Netzwerk. Wer deinen Computer erreichen und ein Gerät koppeln kann, erhält Vollzugriff. Aktiviere den Fernzugriff nur in Netzwerken, denen du vertraust.",
-        "disabled": "Remote Access ist ausgeschaltet",
-        "disabledHint": "Aktiviere den Arbeitsbereich über dein lokales Netzwerk.",
         "enabled": "Der Remote-Zugriff ist auf",
-        "enabledHint": "Erreichbar über TLS in deinem lokalen Netzwerk.",
         "errors": {
           "bind": "konnte den Remote Listener nicht binden (Port kann verwendet werden)",
           "malformed": "Ungültige Antwort zum Status des Fernzugriffs.",
           "missingIndex": "Dienst nicht verfügbar: Fernzugriff benötigt ein eingebautes Frontend: kein index.html bei {{path}}",
           "request": "Die Anfrage zum Fernzugriff ist fehlgeschlagen.",
-          "unpacked": "Service nicht verfügbar: Fernzugriff erfordert einen verpackten Build (kein Renderer dir)"
+          "unpacked": "Service nicht verfügbar: Fernzugriff erfordert einen verpackten Build (kein Renderer dir)",
+          "poll": "Der Status des Fernzugriffs konnte nicht aktualisiert werden."
         },
         "opening": "Fernzugriff wird eingerichtet …",
-        "preventSleep": {
-          "description": "Haltet diesen Computer wach, während der Fernzugriff aktiv ist. Der Bildschirm kann immer noch sperren oder ausschalten. Manueller Schlaf, Deckel schließen oder niedriger Akku kann das Hosting immer noch unterbrechen.",
-          "title": "Verhindern Sie den Schlaf beim Hosting"
-        },
         "sections": {
           "activity": "Jüngste Tätigkeit",
-          "connection": "Verbindung & Zertifikat",
-          "devices": "Gepaarte Geräte ({{deviceCount}})",
-          "tunnel": "Expose über das Internet"
+          "pairedDevices": "Gekoppelte Geräte",
+          "addresses": "Adressen und Zertifikat",
+          "awayFromHome": "Unterwegs nutzen"
         },
         "title": "Fernzugriff",
-        "toggle": "Fernzugriff umschalten"
+        "subtitle": "Nutze diesen Arbeitsbereich von deinem Telefon oder Tablet aus.",
+        "off": {
+          "title": "Verfolge deine Agenten vom Telefon aus",
+          "body": "Schalte ihn ein, scanne einen Code mit deinem Telefon und lies, beantworte und starte Unterhaltungen von überall in deinem Netzwerk.",
+          "enable": "Fernzugriff einschalten",
+          "warning": "Ein gekoppeltes Gerät erhält vollen Zugriff auf diesen Arbeitsbereich. Schalte ihn nur in Netzwerken ein, denen du vertraust."
+        },
+        "status": {
+          "noDevices": "Noch kein Gerät gekoppelt",
+          "devices_one": "{{count, number}} Gerät gekoppelt · {{connected, number}} verbunden",
+          "devices_other": "{{count, number}} Geräte gekoppelt · {{connected, number}} verbunden"
+        },
+        "keepAwake": {
+          "title": "Diesen Computer wach halten",
+          "description": "Solange der Fernzugriff eingeschaltet ist. Der Bildschirm kann sich trotzdem sperren; beim Zuklappen oder bei niedrigem Akkustand geht der Computer weiterhin in den Ruhezustand."
+        }
       },
       "lan": {
-        "compareHint": "Vergleiche für den LAN-Zugriff diesen SHA-256-Fingerabdruck mit dem Zertifikat im Browser des anderen Geräts, bevor du die Warnung bestätigst. Der Kopplungscode wird erst nach diesem Vergleich angezeigt:",
         "fingerprintCopied": "Fingerabdruck kopiert",
         "noAddress": "Keine lokale Netzwerkadresse erkannt. Verbinden Sie sich mit Wi-Fi oder verwenden Sie einen Tunnel.",
-        "urlCopied": "URL kopiert"
+        "urlCopied": "URL kopiert",
+        "fingerprintHint": "Telefone in deinem Netzwerk sehen dieses Zertifikat. Sein SHA-256-Fingerabdruck, zum Vergleich mit dem in den Details der Browserwarnung:"
       },
       "pairing": {
-        "certificate": {
-          "browserFingerprint": "SHA-256-Fingerabdruck im Browser des anderen Geräts",
-          "compare": "Vergleichen und Kopplungscode anzeigen",
-          "expected": "Erwarteter SHA-256-Fingerabdruck des Hosts",
-          "instructions": "Öffne diese Adresse auf dem anderen Gerät ohne Kopplungscode. Suche in der Zertifikatsansicht des Browsers nach dem SHA-256-Fingerabdruck. Vergleiche ihn mit dem Fingerabdruck dieses Hosts, bevor du die Zertifikatswarnung bestätigst. Cadencr kann das Zertifikat im anderen Browser nicht prüfen.",
-          "mismatch": "Die SHA-256-Fingerabdrücke stimmen nicht überein. Kopple das Gerät nicht. Prüfe das Zertifikat und den Host erneut.",
-          "placeholder": "Vollständigen SHA-256-Fingerabdruck einfügen",
-          "unavailable": "Der Fingerabdruck des Hosts ist nicht verfügbar. Die Kopplung ist blockiert.",
-          "urlCopied": "URL zur Zertifikatsprüfung kopiert"
-        },
         "code": {
           "errors": {
-            "addressChanged": "Die Verbindungsadresse hat sich geändert. Wähle sie vor dem Koppeln erneut aus.",
-            "certificateChanged": "Das Zertifikat des Hosts hat sich geändert. Schließe den Fernzugriff, öffne ihn erneut und prüfe das Zertifikat noch einmal.",
             "disabled": "Konflikt: Aktiviere zuerst den Fernzugriff, bevor du ein Gerät koppelst.",
             "malformed": "Ungültige Antwort auf die Kopplungscode-Anfrage.",
-            "request": "Kopplungscode konnte nicht erstellt werden."
+            "request": "Kopplungscode konnte nicht erstellt werden.",
+            "certificateChangedReopen": "Das Zertifikat dieses Computers hat sich geändert. Schließe den Fernzugriff und öffne ihn erneut.",
+            "addressGone": "Diese Adresse ist nicht mehr verfügbar. Wähle eine andere."
           },
-          "expiresIn": "Läuft in {{seconds}} s ab",
-          "generate": "Kopplungscode erstellen",
-          "generateAnother": "Neuen Code erstellen",
-          "instructions": "Erstelle einen Code. Scanne anschließend den QR-Code oder öffne den Link auf dem anderen Gerät. Der Code gilt nur einmal und läuft nach kurzer Zeit ab.",
           "linkCopied": "Kopplungslink kopiert",
-          "qrLabel": "QR-Code zur Kopplung",
-          "regenerate": "Neuer Code",
-          "used": "Mit diesem Code wurde bereits ein Gerät gekoppelt. Jeder Code gilt nur einmal. Erstelle für ein weiteres Gerät einen neuen Code."
+          "showNew": "Neuen Code anzeigen",
+          "paired": "<name>{{device}}</name> ist gekoppelt.",
+          "aDevice": "Ein Gerät",
+          "pairAnother": "Scanne den neuen Code, um ein weiteres Gerät oder seine Home-Screen-App zu koppeln.",
+          "notYou": "Nicht du? Zugriff widerrufen",
+          "qrTitle": "Kopplungscode",
+          "creating": "Code wird erstellt",
+          "expired": "Der Code ist abgelaufen. Lass dir einen neuen anzeigen, wenn du zum Scannen bereit bist.",
+          "lifetime": "Gültigkeit des Codes",
+          "newIn": "Neuer Code in {{time}}",
+          "copyLink": "Link kopieren"
         },
         "connected": "Mit diesem Arbeitsbereich verbunden.",
-        "connectionAddress": "Verbindungsadresse",
-        "connectionHint": "Wir empfehlen eine private Tailscale-Verbindung mit einem Zertifikat, dem dein Browser vertraut. Vergleiche bei einer LAN-Verbindung zuerst die Zertifikatsfingerabdrücke, bevor du einen Kopplungscode teilst.",
         "error": {
-          "expired": "Dieser Kopplungscode ist abgelaufen. Erstelle auf dem Host einen neuen Code.",
           "failed": "Das Gerät konnte nicht gekoppelt werden.",
           "http": "Das Gerät konnte nicht gekoppelt werden (HTTP {{status}}).",
           "invalidInput": "Füge den Kopplungslink oder -code von deinem Computer ein.",
@@ -4597,35 +4624,61 @@
           "malformedResponse": "Die Antwort beim Koppeln war ungültig.",
           "signInNotSaved": "Das Gerät ist gekoppelt, aber dieser Browser konnte die Anmeldung nicht speichern. Versuche es mit einem anderen Browser.",
           "storageBlocked": "Das Gerät ist gekoppelt, aber der Browser blockiert den Speicher. Nach dem Neuladen musst du es erneut koppeln.",
-          "unsafeAddress": "Der Kopplungscode konnte nicht aus der Seitenadresse entfernt werden. Der Kopplungsvorgang wurde abgebrochen."
+          "unsafeAddress": "Der Kopplungscode konnte nicht aus der Seitenadresse entfernt werden. Der Kopplungsvorgang wurde abgebrochen.",
+          "usedOrExpired": "Dieser Code wurde bereits verwendet oder ist abgelaufen. Scanne den neuen Code auf deinem Computer.",
+          "rateLimited": "Zu viele Kopplungsversuche. Warte eine Minute und scanne dann erneut."
         },
         "gate": {
-          "inputLabel": "Kopplungslink oder -code",
-          "instructions": "Öffne auf deinem Computer <setting>Fernzugriff</setting> und scanne den QR-Code oder füge unten den Kopplungslink ein.",
-          "pairing": "Gerät wird gekoppelt …",
-          "pasteAlternative": "oder den Link einfügen",
-          "placeholder": "Kopplungslink einfügen …",
-          "scan": "QR-Code scannen",
-          "submit": "Gerät koppeln",
-          "title": "Dieses Gerät koppeln"
+          "title": "Dieses Gerät koppeln",
+          "openingCamera": "Kamera wird geöffnet …",
+          "pairingDevice": "Dieses Gerät wird gekoppelt …",
+          "scanInstructions": "Öffne auf deinem Computer <name>Fernzugriff</name> (<icon/> unten in der Seitenleiste von Cadencr) und scanne dann den angezeigten Code.",
+          "radioIcon": "das Funksymbol",
+          "scanCode": "Code scannen",
+          "staySignedInHint": "Andernfalls muss dieses Gerät nach dem Schließen erneut gekoppelt werden.",
+          "staySignedInLabel": "Auf diesem Gerät angemeldet bleiben",
+          "pasteOpen": "Keine Kamera? Kopplungslink einfügen",
+          "pastePlaceholder": "Link aus „Link kopieren“ einfügen",
+          "pasteLabel": "Kopplungslink",
+          "pasteInvalid": "Das ist kein Kopplungslink. Verwende „Link kopieren“ unter dem Code auf deinem Computer.",
+          "pasteSubmit": "Mit diesem Link koppeln"
         },
-        "lanTarget": "{{host}} · LAN",
-        "noTarget": "Verbinde dich mit einem Netzwerk oder richte einen privaten Tunnel ein, um ein Gerät zu koppeln.",
-        "privateTunnelTarget": "{{host}} · Privater Tunnel",
         "saveSignInFailed": "Die Anmeldung konnte auf diesem Gerät nicht gespeichert werden.",
         "scanner": {
-          "aim": "Richte die Kamera auf den QR-Code auf deinem Computer",
-          "backToPaste": "Zurück zur Link-Eingabe",
           "cancel": "Scan abbrechen",
-          "failed": "Die Kamera konnte nicht gestartet werden. Füge stattdessen den Link ein.",
-          "permissionDenied": "Der Kamerazugriff wurde verweigert. Erlaube ihn in deinen Browsereinstellungen oder füge den Link ein.",
-          "unavailable": "Dieser Browser kann hier nicht auf die Kamera zugreifen. Füge stattdessen den Link ein.",
-          "viewfinder": "Kamerasucher"
+          "viewfinder": "Kamerasucher",
+          "unavailableLink": "Dieser Browser kann die Kamera hier nicht öffnen. Füge stattdessen den Kopplungslink ein.",
+          "deniedLink": "Der Kamerazugriff wurde verweigert. Erlaube ihn in den Einstellungen deines Browsers oder füge stattdessen den Kopplungslink ein.",
+          "failedLink": "Die Kamera konnte nicht gestartet werden. Füge stattdessen den Kopplungslink ein.",
+          "looking": "Code wird gesucht …",
+          "foreignCode": "Dieser QR-Code ist kein Kopplungscode von Cadencr.",
+          "hint": "Code wird nicht erkannt? Halte das Telefon 20–30 cm vom Bildschirm entfernt, sodass der ganze Code im Quadrat liegt.",
+          "title": "Scanne den Code auf deinem Computer",
+          "back": "Zurück"
         },
         "staySignedIn": "Angemeldet bleiben",
         "staySignedInDetail": "Möchtest du auf diesem Gerät angemeldet bleiben, wenn du den Tab schließt?",
-        "title": "Ein neues Gerät koppeln",
-        "trusted": "Dieses Gerät bleibt angemeldet."
+        "trusted": "Dieses Gerät bleibt angemeldet.",
+        "targets": {
+          "tunnel": "Privater Tunnel",
+          "tailscale": "Tailscale",
+          "lan": "Lokales Netzwerk"
+        },
+        "section": {
+          "title": "Gerät koppeln",
+          "address": "Adresse, auf die der Code verweist",
+          "noAddress": "Keine Netzwerkadresse gefunden. Verbinde diesen Computer mit einem Wi-Fi-Netzwerk oder richte unter <name>Unterwegs nutzen</name> einen privaten Tunnel ein."
+        },
+        "steps": {
+          "label": "So koppelst du ein Gerät",
+          "scan": "Scanne den Code mit der Kamera deines Telefons",
+          "scanDetail": "Oder öffne den kopierten Link in einem Browser auf dem anderen Gerät.",
+          "warning": "Fahre trotz der Datenschutzwarnung fort",
+          "warningDetail": "Dieser Computer signiert sein Zertifikat selbst, deshalb warnt der Browser einmal. In den Details der Warnung beginnt der SHA-256-Fingerabdruck mit <fingerprint>{{fingerprint}}</fingerprint>.",
+          "homeScreen": "Optional: Zum Home-Bildschirm hinzufügen",
+          "homeScreenDetail": "Für eine Vollbild-App. Sie fragt noch einmal nach der Kopplung: Tippe darin auf <em>Code scannen</em> und scanne diesen Code erneut."
+        },
+        "sessionChosen": "Du musst erneut koppeln, sobald dieses Gerät Cadencr schließt."
       },
       "tunnel": {
         "clear": "klar",
@@ -4998,7 +5051,8 @@
           "description": "Sieh dir alle Tastenkürzel an oder drücke an beliebiger Stelle <shortcut/>.",
           "shortcuts": "Tastenkürzel",
           "title": "Tastatur",
-          "view": "Tastenkürzel anzeigen"
+          "view": "Tastenkürzel anzeigen",
+          "descriptionTouch": "Sieh dir alle Tastenkürzel an."
         },
         "language": {
           "loading": "Spracheinstellung wird geladen…",
@@ -6144,7 +6198,7 @@
         "preset": "Voreinstellung"
       },
       "conversationBlock": {
-        "loading": "Beladung {{label}}"
+        "loading": "Wird geladen: {{label}}"
       },
       "crossProject": {
         "loadFailed": "Konnte keine Gespräche laden"
@@ -7984,7 +8038,8 @@
           "vimOffDescription": "Standardbearbeitung ohne Vim-Bewegungsbefehle."
         },
         "editorPane": {
-          "emptyPane": "Öffne eine Datei aus der Seitenleiste, drück <newBuffer /> für einen neuen Puffer oder verwende <fuzzy />"
+          "emptyPane": "Öffne eine Datei aus der Seitenleiste, drück <newBuffer /> für einen neuen Puffer oder verwende <fuzzy />",
+          "emptyPaneTouch": "Öffne eine Datei aus der Seitenleiste"
         },
         "editorPreviewSurface": {
           "htmlPreview": "HTML-Vorschau",
@@ -8593,7 +8648,8 @@
         },
         "diffViewer": {
           "loadingDiff": "Diff wird geladen …",
-          "noChangesDetected": "Keine Veränderungen festgestellt"
+          "noChangesDetected": "Keine Veränderungen festgestellt",
+          "files": "Dateien"
         },
         "featurePrComments": {
           "couldNotOpenThisReviewThread": "Dieser Review-Thread konnte nicht geöffnet werden.",
@@ -8653,11 +8709,7 @@
         "gitActionControls": {
           "git": "Git",
           "gitActions": "Git-Aktionen",
-          "gitActionsOnBranch": "Git-Aktionen für {{branch}}",
           "moreGitActions": "Mehr Git-Aktionen"
-        },
-        "gitActionDialogs": {
-          "loadingGitAction": "Git-Aktion wird geladen …"
         },
         "gitActionPopover": {
           "commit": "Commit erstellen",
@@ -9462,6 +9514,27 @@
           "refreshing": "Git-Status wird aktualisiert…",
           "retry": "Git-Status erneut abrufen",
           "issueWithDetail": "{{label}}. {{detail}}"
+        },
+        "phoneCommitBar": {
+          "unavailable": "Commits sind hier nicht verfügbar",
+          "cannotCommit": "Commit nicht möglich"
+        },
+        "phoneDiffFileList": {
+          "openPath": "{{path}} öffnen"
+        },
+        "phoneDiffFileStep": {
+          "actionsForPath": "Aktionen für {{path}}",
+          "markNotViewed": "Als nicht angesehen markieren",
+          "markViewed": "Als angesehen markieren",
+          "backTo": "Zurück zu {{label}}",
+          "previousFile": "Vorherige Datei",
+          "nextFile": "Nächste Datei"
+        },
+        "phoneGitViewPicker": {
+          "conflicted_one": "{{count}} mit Konflikt",
+          "conflicted_other": "{{count}} mit Konflikten",
+          "currentView": "Git-Ansicht: {{view}}",
+          "title": "Git-Ansicht"
         }
       },
       "links": {
@@ -9996,7 +10069,82 @@
           "socketError": "Terminal WebSocket Fehler",
           "terminalDisconnectedYourInputWasDropped": "Terminal abgeschaltet — dein Eingang wurde fallen gelassen.",
           "writeStalled": "Terminal-Schreibstopp"
+        },
+        "terminalCompatibility": {
+          "dismiss": "Hinweis zum Kompatibilitätsterminal schließen",
+          "hiddenUntilReload": "Bis zum nächsten Neuladen ausgeblendet",
+          "dismissNotRemembered": "Dieser Browser erlaubt Cadencr nicht, sich zu merken, dass du den Hinweis geschlossen hast."
         }
+      }
+    },
+    "lazy": {
+      "labels": {
+        "commandPalette": "Befehlspalette",
+        "search": "Suche",
+        "changelog": "Änderungsprotokoll",
+        "projectSettings": "Projekteinstellungen",
+        "projectLocation": "Projektspeicherort",
+        "projectSetup": "Projekteinrichtung",
+        "import": "Import",
+        "conversation": "Unterhaltung",
+        "fileSearch": "Dateisuche",
+        "gitAction": "Git-Aktion",
+        "page": "Seite",
+        "thisPage": "diese Seite",
+        "onboarding": "Einrichtung",
+        "source": "Quelltext"
+      },
+      "loading": "Wird geladen: {{label}} …",
+      "failed": "Laden fehlgeschlagen: {{label}}. Prüfe die Verbindung."
+    },
+    "phone": {
+      "gate": {
+        "laterLabel": "Später: Anfrage ausblenden, der Agent wartet weiter",
+        "later": "Später",
+        "stopConfirmTitle": "Agenten stoppen?",
+        "stopConfirmDescription": "Er wartet dann nicht mehr auf deine Antwort und beendet seine Runde. Mit „Später“ wartet er stattdessen weiter."
+      },
+      "menu": {
+        "attentionCount_one": ", {{count}} für dich",
+        "attentionCount_other": ", {{count}} für dich"
+      },
+      "actionOnConversation": "{{action}} „{{title}}“",
+      "tabs": {
+        "barLabel": "Tabs der Unterhaltung",
+        "more": "Mehr",
+        "moreTitle": "Weitere Tabs",
+        "moreDescription": "Öffne einen Tab, der in der Tab-Leiste keinen Platz hat.",
+        "files": "Dateien"
+      },
+      "header": {
+        "worktree": "Worktree",
+        "hideSetup": "Einrichtung ausblenden",
+        "setupDetails": "Details zur Einrichtung",
+        "actions": "Aktionen der Unterhaltung",
+        "actionsDescription": "Branch, Worktree, Git und eigene Aktionen für diese Unterhaltung.",
+        "customActionsLoadFailed": "Die eigenen Aktionen konnten nicht geladen werden.",
+        "actionsFailed": "Aktionen der Unterhaltung, etwas ist fehlgeschlagen",
+        "actionsRunning": "Aktionen der Unterhaltung, etwas läuft gerade"
+      },
+      "inbox": {
+        "noConversationsDetail": "Starte eine: Was deine Agenten fragen, bearbeiten und abschließen, erscheint hier.",
+        "recentEmpty": "Sonst nichts in letzter Zeit",
+        "newConversationIn": "Neue Unterhaltung in",
+        "projectsLoadFailed": "Die Projekte konnten nicht geladen werden"
+      }
+    },
+    "markdown": {
+      "richPreview": {
+        "expand": "Vergrößern"
+      },
+      "richBlocks": {
+        "table": "Tabelle",
+        "expandTable": "Tabelle vergrößern",
+        "expandCode": "{{language}}-Code vergrößern"
+      },
+      "richViewer": {
+        "copyTable": "Tabelle kopieren",
+        "copyCode": "{{language}} kopieren"
       }
     }
   }

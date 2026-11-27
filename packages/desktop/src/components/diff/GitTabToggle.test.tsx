@@ -158,7 +158,9 @@ describe("GitTabToggle", () => {
   it("reveals the tab's keyboard shortcut on hover", () => {
     render(<GitTabToggle value="uncommitted" onChange={vi.fn()} prLabel="Pull request" />);
 
-    fireEvent.mouseEnter(screen.getByRole("tab", { name: "Pull request" }).parentElement!);
+    fireEvent.pointerEnter(screen.getByRole("tab", { name: "Pull request" }).parentElement!, {
+      pointerType: "mouse",
+    });
 
     const tip = document.querySelector<HTMLElement>('[data-slot="tooltip-content"]')!;
     expect(tip).toHaveTextContent("Pull request status, checks, and comments");

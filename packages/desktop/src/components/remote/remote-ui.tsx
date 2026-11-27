@@ -1,4 +1,5 @@
 import { useState, type ReactElement, type ReactNode } from "react";
+import type { RemoteDevice } from "@/api/generated";
 import { ChevronRight, Copy } from "lucide-react";
 import { copyToClipboard } from "@/lib/clipboard";
 import { formatCompactAge, parseUTCDateTime } from "@/lib/date-utils";
@@ -6,13 +7,24 @@ import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
-/** Small uppercase eyebrow used as a section label inside the remote dialog. */
-export function SectionHeading({ children }: { children: ReactNode }): ReactElement {
+/** A section's title inside the remote dialog; `id` names its section (`aria-labelledby`). */
+export function SectionHeading({
+  id,
+  children,
+}: {
+  id: string;
+  children: ReactNode;
+}): ReactElement {
   return (
-    <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+    <h3 id={id} className="text-sm font-semibold">
       {children}
     </h3>
   );
+}
+
+/** What a paired device is called wherever the dialog names it. */
+export function deviceLabel(device: Pick<RemoteDevice, "label">, t: UiTranslator): string {
+  return device.label ?? t("remote.devices.unnamed", "Remote device");
 }
 
 /**
@@ -23,24 +35,14 @@ export function SectionHeading({ children }: { children: ReactNode }): ReactElem
 export function RemoteDisclosure({
   title,
   defaultOpen = false,
-  open: controlledOpen,
-  onOpenChange,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
-  /** Controlled open state. When provided, `onOpenChange` owns toggling. */
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }): ReactElement {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
-  const open = controlledOpen ?? internalOpen;
-  const toggle = (): void => {
-    const next = !open;
-    if (onOpenChange) onOpenChange(next);
-    else setInternalOpen(next);
-  };
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = (): void => setOpen((current) => !current);
   return (
     <div className="rounded-lg border border-border bg-card">
       <button

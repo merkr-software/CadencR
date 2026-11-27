@@ -9,7 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatCombo } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { GitTabToggle, type GitViewMode } from "./GitTabToggle";
+import { PhoneGitViewPicker } from "./PhoneGitViewPicker";
 
 export interface GitTabToolbarProps {
   viewMode: GitViewMode;
@@ -68,6 +70,31 @@ export function GitTabToolbar({
   onToggleFileList,
   stats,
 }: GitTabToolbarProps): ReactElement {
+  const phone = useIsMobile();
+  if (phone) {
+    // Phone layout: no file list beside the diff to toggle, and the views in
+    // a sheet behind one 44px button instead of a strip of 24px tabs.
+    return (
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-3 pl-1">
+        <PhoneGitViewPicker
+          value={viewMode}
+          onChange={onViewModeChange}
+          targetBranch={targetBranch}
+          prLabel={prLabel}
+          prNumber={prNumber}
+          prTone={prTone}
+          uncommittedCount={uncommittedCount}
+          conflictCount={conflictCount}
+          pendingViewMode={pendingViewMode}
+        />
+        {!isListView && (
+          <div className="ml-auto">
+            <GitToolbarNumStat {...stats} />
+          </div>
+        )}
+      </div>
+    );
+  }
   // `@container`: the tab strip drops its inactive labels by the width of this
   // bar, not the window — the Git tab is routinely a narrow floating column
   // beside the agent stream, and the two have nothing to do with each other.

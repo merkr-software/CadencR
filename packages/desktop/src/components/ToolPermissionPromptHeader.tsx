@@ -2,15 +2,19 @@ import { useUiTranslation } from "@/lib/i18n/ui";
 import { ShieldAlertIcon, X } from "lucide-react";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
+import { GateLaterButton } from "./GatePhoneActions";
 
 interface ToolPermissionPromptHeaderProps {
   toolName: string;
   onCancel?: () => void;
+  /** Phone layout: "Later" in place of the close button. */
+  onLater?: () => void;
 }
 
 export function ToolPermissionPromptHeader({
   toolName,
   onCancel,
+  onLater,
 }: ToolPermissionPromptHeaderProps): JSX.Element {
   const { t } = useUiTranslation();
   return (
@@ -25,6 +29,7 @@ export function ToolPermissionPromptHeader({
       {toolName ? (
         <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-foreground">{toolName}</code>
       ) : null}
+      {onLater && <GateLaterButton onLater={onLater} />}
       {onCancel && (
         <Button
           type="button"

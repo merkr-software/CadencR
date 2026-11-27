@@ -93,7 +93,10 @@ export function SidebarBlock({
       )}
       {!isEmpty && (
         <div
-          className={cn("flex flex-col gap-0.5", capped && "md:max-h-[40vh] md:overflow-y-auto")}
+          className={cn(
+            "flex flex-col gap-0.5",
+            capped && "desktop:max-h-[40vh] desktop:overflow-y-auto",
+          )}
         >
           {children}
         </div>
@@ -124,20 +127,20 @@ export function SidebarBlock({
             {...reorder.handle}
             className={cn(
               EYEBROW_CLASS,
-              "w-full outline-none hover:text-foreground focus-visible:text-foreground",
+              "w-full outline-none hover:text-foreground focus-visible:text-foreground phone:min-h-11",
             )}
           >
             {content}
           </button>
         ) : (
-          <div {...reorder.handle} className={cn(EYEBROW_CLASS, "w-full")}>
+          <div {...reorder.handle} className={cn(EYEBROW_CLASS, "w-full phone:min-h-11")}>
             {content}
           </div>
         )}
         <SidebarDisplayOptionsButton
           section={block}
           className={cn(
-            "absolute top-1/2 -translate-y-1/2",
+            "absolute top-1/2 -translate-y-1/2 phone:size-11",
             fold ? "right-6" : "right-1",
             HOVER_REVEAL_CLASS,
           )}

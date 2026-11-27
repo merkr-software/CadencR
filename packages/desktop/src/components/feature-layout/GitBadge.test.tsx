@@ -1,5 +1,8 @@
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { pickIndicator } from "./GitBadge";
+import type { GitStatusSnapshot } from "@/api/generated";
+import { useGitStatusStore } from "@/stores/useGitStatusStore";
+import { GitBarBadge, pickIndicator } from "./GitBadge";
 
 /**
  * State-machine tests for the badge's three-way priority. The visual is
@@ -101,5 +104,41 @@ describe("pickIndicator", () => {
         hasOpenPr: true,
       }),
     ).toBeNull();
+  });
+});
+
+describe("GitBarBadge", () => {
+  const snapshot = (uncommitted: number): GitStatusSnapshot => ({
+    feature_id: 9,
+    current_branch: "feature/bar",
+    target_branch: "origin/main",
+    uncommitted_count: uncommitted,
+    staged_count: 0,
+    unstaged_count: uncommitted,
+    untracked_count: 0,
+    ahead_of_remote: 0,
+    behind_remote: 0,
+    ahead_of_target: 0,
+    behind_target: 0,
+    target_resolved: true,
+    conflict_count: 0,
+    operation: null,
+    has_remote: true,
+    compare_url: null,
+    action_label: "Commit",
+    computed_at: 1,
+  });
+
+  it("shows the indicator without the branch, its meaning for screen readers", () => {
+    useGitStatusStore.getState().setStatus(snapshot(2));
+    const { container } = render(<GitBarBadge featureId={9} />);
+    expect(container).toHaveTextContent("●2, 2 uncommitted files");
+    expect(screen.queryByText("feature/bar")).not.toBeInTheDocument();
+  });
+
+  it("renders nothing when there is nothing to act on", () => {
+    useGitStatusStore.getState().setStatus(snapshot(0));
+    const { container } = render(<GitBarBadge featureId={9} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

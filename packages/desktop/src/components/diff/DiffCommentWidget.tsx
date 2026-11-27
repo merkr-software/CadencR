@@ -1,7 +1,7 @@
 import { useUiTranslation, UiTrans } from "@/lib/i18n/ui";
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut } from "@/components/KbdShortcut";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseUTCDateTime } from "@/lib/date-utils";
 import { formattingLocale } from "@/lib/i18n/formatting-locale";
@@ -78,7 +78,10 @@ export function CommentForm({
         {/* Keyboard hints are useless without a physical keyboard — desktop only.
             `mr-auto` keeps the action buttons right-aligned when it's hidden. */}
         {!isMobile && (
-          <span className="mr-auto flex items-center gap-1.5 text-[11px] !text-[var(--editor-comment)]">
+          <span
+            {...KBD_HINT_PROPS}
+            className="mr-auto flex items-center gap-1.5 text-[11px] !text-[var(--editor-comment)]"
+          >
             <UiTrans
               i18nKey="workspace.git.diffCommentWidget.commentShortcut"
               defaults="<shortcut /> to comment"

@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut } from "@/components/KbdShortcut";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface CleanupOptionProps {
@@ -29,7 +29,7 @@ export function CleanupOption(props: CleanupOptionProps): ReactElement {
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2 font-medium">
           {props.label}
-          <span className="text-muted-foreground">
+          <span {...KBD_HINT_PROPS} className="text-muted-foreground">
             <KbdShortcut keys={[props.shortcut]} variant="inline-sm" />
           </span>
         </span>

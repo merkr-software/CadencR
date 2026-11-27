@@ -1,6 +1,6 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { ChevronUp, ListPlus, Timer } from "lucide-react";
-import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, ResolvedShortcutHint } from "@/components/KbdShortcut";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,7 +63,7 @@ export function AutoMessageMenu({
           <DropdownMenuItem onSelect={onQueue} disabled={disabled}>
             <ListPlus />
             {t("conversation.composer.autoMessageMenu.queueAfterTurn", "Queue after this turn")}
-            <span className="ml-auto">
+            <span {...KBD_HINT_PROPS} className="ml-auto">
               <ResolvedShortcutHint shortcutId="agent-send" />
             </span>
           </DropdownMenuItem>

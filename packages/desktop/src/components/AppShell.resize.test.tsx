@@ -70,6 +70,7 @@ function shell(collapsed = false, panelRef = createRef<PanelImperativeHandle | n
       leftSidebarRef={createRef<HTMLDivElement | null>()}
       defaultLeftSize={`${DEFAULT_WIDTH}px`}
       onLayoutChanged={() => {}}
+      onSidebarResize={() => {}}
     >
       <div>main</div>
     </AppShell>

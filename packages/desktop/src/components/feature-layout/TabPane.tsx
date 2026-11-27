@@ -1,10 +1,10 @@
-import { useCallback, useRef, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { ROOT_LEAF_ID, type LayoutLeaf, type TabKind } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore, useFocusedPaneId } from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 import { useFreezeWidthDuringResize } from "@/lib/use-freeze-width-during-resize";
 import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
-import { PaneChrome, type PaneChromeProps } from "./PaneChrome";
+import { PaneChrome, type PaneChromeProps, type TabPlacement } from "./PaneChrome";
 import type { FeatureTabActivationHandlers, FeatureTabs, PaneSlot } from "./types";
 
 interface TabPaneProps extends FeatureTabActivationHandlers {
@@ -15,6 +15,7 @@ interface TabPaneProps extends FeatureTabActivationHandlers {
   rootStripActions?: ReactNode;
   /** Where the pane sits in its parent split; absent for a lone root pane. */
   slot?: PaneSlot;
+  tabPlacement?: TabPlacement;
 }
 
 /**
@@ -35,6 +36,7 @@ export function TabPane({
   splitsEnabled = true,
   rootStripActions,
   slot,
+  tabPlacement,
 }: TabPaneProps): ReactNode {
   const registerHost = useTabHostRegistry((s) => s.registerHost);
   const unregisterHost = useTabHostRegistry((s) => s.unregisterHost);
@@ -113,6 +115,8 @@ export function TabPane({
     [activateTab],
   );
 
+  const layoutActions = useMemo(() => paneLayoutActions(featureId, leaf.id), [featureId, leaf.id]);
+
   return (
     <PaneChrome
       featureId={featureId}
@@ -123,12 +127,13 @@ export function TabPane({
       splitsEnabled={splitsEnabled}
       stripActions={isRoot ? rootStripActions : undefined}
       slot={slot}
+      tabPlacement={tabPlacement}
       containerRef={containerRef}
       contentRef={setContentRef}
       onFocusPane={markPaneFocused}
       onTabChange={handleTabChange}
       onActivateTab={activateTab}
-      {...paneLayoutActions(featureId, leaf.id)}
+      {...layoutActions}
     />
   );
 }

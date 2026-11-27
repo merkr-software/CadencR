@@ -103,6 +103,8 @@ export const CompactFlowRow = memo(function CompactFlowRow({
           className={cn(
             HEAD_CLASS,
             "group/flow rounded-sm transition-colors hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+            // Phone: a 44px target around the 24px head (`hit-area`).
+            "phone:hit-area",
           )}
         >
           {head}
@@ -167,7 +169,9 @@ function CompactFlowSteps({ steps, basePath, revealIndex, toolResultMap }: Compa
   const hidden = steps.length - shown;
   return (
     // The rule runs under the head icon; steps hang on the head's label column.
-    <ol className="ml-2.5 border-l border-border/60 pl-[11px]">
+    // Positioned, so on phone the head's 44px target (`hit-area`) reaching
+    // down never takes a tap from the first step.
+    <ol className="ml-2.5 border-l border-border/60 pl-[11px] phone:relative">
       {steps.slice(0, shown).map((block) => (
         <li key={block.id} data-block-id={block.id} className="flex min-h-6 min-w-0 items-center">
           <CompactToolLine

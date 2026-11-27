@@ -161,3 +161,26 @@ export function forMeVisibleCount(
 export function isStrongAction({ kind }: { kind: NextActionKind }): boolean {
   return kind === "waiting" || kind === "failed";
 }
+
+/**
+ * The action list with each tier's entries newest first, the tiers kept in
+ * their order: a phone inbox reads the latest of each kind first, and a
+ * blocked agent still comes before a reply to read. The waiting tier keeps its
+ * order (oldest first): it is the quick reply's queue, so the sheet's "1 of N"
+ * and its move to the next request after an answer follow the cards down.
+ */
+export function newestFirstWithinTier<T extends { kind: NextActionKind }>(
+  actions: readonly T[],
+): T[] {
+  const tiers: T[][] = [];
+  let previousTier: number | null = null;
+  for (const action of actions) {
+    const tier = TIER[action.kind];
+    if (tier !== previousTier) tiers.push([]);
+    const current = tiers[tiers.length - 1];
+    if (tier === TIER.waiting) current?.push(action);
+    else current?.unshift(action);
+    previousTier = tier;
+  }
+  return tiers.flat();
+}

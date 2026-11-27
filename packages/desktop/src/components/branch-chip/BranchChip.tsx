@@ -29,11 +29,14 @@ import { ThreadBranchesPanel } from "./ThreadBranchesPanel";
 interface BranchChipProps {
   featureId: number;
   projectId: number;
+  /** `row`: a full-width 44px row of a phone sheet, the name untruncated up to the row's end. */
+  variant?: "chip" | "row";
 }
 
 export const BranchChip = memo(function BranchChip({
   featureId,
   projectId,
+  variant = "chip",
 }: BranchChipProps): ReactElement | null {
   const { t } = useUiTranslation();
   const snapshot = useGitStatusStore(selectGitStatus(featureId));
@@ -63,7 +66,10 @@ export const BranchChip = memo(function BranchChip({
         <button
           type="button"
           data-branch-chip
-          className="inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-accent"
+          className={cn(
+            "inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-accent",
+            variant === "row" && "min-h-11 w-full gap-2 px-2 text-sm",
+          )}
           title={chipTitle(checkout, t)}
           aria-label={t(
             "workspace.git.branchChip.branchBranchCountInThisConversation",
@@ -74,7 +80,8 @@ export const BranchChip = memo(function BranchChip({
           <GitBranch className="size-3 shrink-0 text-muted-foreground" />
           <span
             className={cn(
-              "max-w-[160px] truncate font-mono",
+              "truncate font-mono",
+              variant === "chip" && "max-w-[160px]",
               !checkout.branch && "text-muted-foreground",
             )}
           >

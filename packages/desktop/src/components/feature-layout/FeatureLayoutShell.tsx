@@ -16,6 +16,7 @@ import { flatLayoutState } from "@/stores/feature-layout-schema";
 import { getPluginTabs, restrictLayoutToTabs } from "@/stores/feature-layout-tree";
 
 import { DragChip } from "./DragChip";
+import type { TabPlacement } from "./PaneChrome";
 import { useStableTabIds } from "./feature-tabs";
 import { SplitTreeRenderer } from "./SplitTreeRenderer";
 import { TabContentRegistry } from "./TabContentRegistry";
@@ -33,6 +34,8 @@ interface FeatureLayoutShellProps extends FeatureTabActivationHandlers {
    * layout toggle (the custom-tab "+" menu).
    */
   rootStripActions?: ReactNode;
+  /** Where the root pane's tabs sit: the phone layout puts them in a bottom bar. */
+  tabPlacement?: TabPlacement;
 }
 
 /**
@@ -58,6 +61,7 @@ export function FeatureLayoutShell({
   hotkeysEnabled = true,
   mountInactiveTabs = true,
   rootStripActions,
+  tabPlacement,
 }: FeatureLayoutShellProps): ReactNode {
   useFeatureLayoutHydration(featureId, { enabled: splitsEnabled });
   useFeatureLayoutPersistence(featureId, { enabled: splitsEnabled });
@@ -136,6 +140,7 @@ export function FeatureLayoutShell({
           onEditorActivate={onEditorActivate}
           splitsEnabled={splitsEnabled}
           rootStripActions={rootStripActions}
+          tabPlacement={tabPlacement}
         />
       </div>
       <DragOverlay dropAnimation={null}>

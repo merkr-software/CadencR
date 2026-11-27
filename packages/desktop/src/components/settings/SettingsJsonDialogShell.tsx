@@ -1,5 +1,8 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
+import { PHONE_PAGE_DIALOG_CLASS } from "@/components/FullscreenDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { cn } from "@/lib/utils";
 
 interface SettingsJsonDialogShellProps {
   open?: boolean;
@@ -22,9 +25,15 @@ export function SettingsJsonDialogShell({
   children,
 }: SettingsJsonDialogShellProps): React.JSX.Element {
   const { t } = useUiTranslation();
+  const phone = useIsMobile();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] w-[90vw] sm:max-w-7xl flex-col gap-0 p-0">
+      <DialogContent
+        className={cn(
+          "flex flex-col gap-0 p-0",
+          phone ? PHONE_PAGE_DIALOG_CLASS : "h-[85vh] w-[90vw] sm:max-w-7xl",
+        )}
+      >
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-base font-semibold">
             {t("settings.general.json.editorTitle", "{{title}}: Edit JSON", { title })}

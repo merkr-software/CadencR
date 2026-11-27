@@ -1,0 +1,98 @@
+/* -------------------------------------------------------------------------
+ * The phone layout's bottom tab bar (`PhoneTabBar`). 56px of tabs (icon over
+ * a short label) plus the home-indicator inset, which the bar owns: the pane
+ * it closes sets `--app-inset-bottom` to 0, so the composer and the terminal
+ * key bar above it don't clear the inset a second time. While the on-screen
+ * keyboard is up the bar steps aside (the inset is already 0 then), so the
+ * transcript keeps the room. On a short window (499px tall or less) it
+ * shrinks to 44px of icons; the labels stay as the tabs' accessible names.
+ *
+ * On a touch screen in the phone layout 600px wide or more (`useTabRail`: a
+ * foldable unfolded, a tablet in portrait, a phone on its side), the tabs are
+ * a column on the right of the pane instead: 76px wide plus the right inset,
+ * icons over their labels, aligned to the bottom, under the thumb; the
+ * transcript keeps the screen's height and the composer clears the home
+ * indicator itself. In the system's side strip (an iPhone Duo folded, or
+ * unfolded on its side) the rail takes the strip's width instead
+ * (`phone-side-strip.css`).
+ * Unlayered, like `touch-shell.css`, so it wins over Tailwind utilities.
+ * ------------------------------------------------------------------------- */
+.phone-tab-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding: 0 4px env(safe-area-inset-bottom, 0px);
+  background: var(--background);
+  /* A hairline that takes no height, so every tab keeps the full 56/44px. */
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+/* A rail leaves the inset to the pane. */
+[data-phone-tab-bar-host]:not(:has(> .phone-tab-bar[data-rail])) {
+  --app-inset-bottom: 0px;
+}
+
+html[data-keyboard-open] .phone-tab-bar {
+  display: none;
+}
+
+@media (max-height: 499px) {
+  .phone-tab-bar {
+    height: calc(44px + env(safe-area-inset-bottom, 0px));
+  }
+  .phone-tab-bar:not([data-rail]) [data-phone-tab-label] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* The rail: the pane's body, then the rail on its side. */
+[data-phone-tab-bar-host]:has(> .phone-tab-bar[data-rail="right"]) {
+  flex-direction: row;
+}
+[data-phone-tab-bar-host]:has(> .phone-tab-bar[data-rail="left"]) {
+  flex-direction: row-reverse;
+}
+.phone-tab-bar[data-rail] {
+  flex-direction: column;
+  gap: 4px;
+  width: 76px;
+  height: auto;
+  overflow-y: auto;
+  padding: 8px 6px max(8px, env(safe-area-inset-bottom, 0px));
+  box-shadow: none;
+}
+/* On the right of the pane it also clears the right inset (a phone on its side). */
+.phone-tab-bar[data-rail="right"] {
+  width: calc(76px + env(safe-area-inset-right, 0px));
+  padding-right: calc(6px + env(safe-area-inset-right, 0px));
+  box-shadow: inset 1px 0 0 var(--border);
+}
+.phone-tab-bar[data-rail] > [role="tab"] {
+  flex: none;
+  min-height: 56px;
+  border-radius: 14px;
+}
+.phone-tab-bar[data-rail] > [role="tab"][aria-selected="true"] {
+  background: var(--accent);
+}
+/* Aligned to the bottom; an auto margin, not `justify-content`, so a rail
+ * taller than its column scrolls from its top. */
+.phone-tab-bar[data-rail] > [role="tab"]:first-child {
+  margin-top: auto;
+}
+/* On a short screen the rail sits in the middle (clear of the camera at
+ * either end of a folded Duo's strip), its tabs 44px tall so all five fit. */
+@media (max-height: 499px) {
+  .phone-tab-bar[data-rail] > [role="tab"] {
+    min-height: 44px;
+  }
+  .phone-tab-bar[data-rail] > [role="tab"]:last-child {
+    margin-bottom: auto;
+  }
+}

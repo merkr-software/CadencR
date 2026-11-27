@@ -18,7 +18,8 @@ const PATH_ATTR = "data-cadencr-stage-path";
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const ROW_SELECTOR = "[data-item-path][data-item-type]";
 
-function checkboxVisualState(stageState: ReturnType<typeof resolvedStageState>): {
+/** A file's stage checkbox: staged checked, partly staged mixed; `null` when it has none. */
+export function checkboxVisualState(stageState: ReturnType<typeof resolvedStageState>): {
   checked: boolean;
   indeterminate: boolean;
 } | null {
@@ -202,6 +203,22 @@ function observeStageCheckboxRows(
   return () => observer.disconnect();
 }
 
+/**
+ * What a tap on a file's stage checkbox asks Git for: a staged or partly
+ * staged file is unstaged, anything else staged (a conflicted file with the
+ * warning that it still holds conflicts).
+ */
+export function toggleFileStage(file: ChangedFile, actions: GitFileIndexActions): void {
+  const stageState = resolvedStageState(file);
+  const visual = checkboxVisualState(stageState);
+  if (!visual) return;
+  if (visual.checked || visual.indeterminate) {
+    actions.reset(file.file);
+    return;
+  }
+  actions.stage(file.file, { conflicted: stageState === FileStageState.conflicted });
+}
+
 function bindStageCheckboxEvents(
   shadowRoot: ShadowRoot,
   fileByPathRef: { current: ReadonlyMap<string, ChangedFile> },
@@ -220,18 +237,12 @@ function bindStageCheckboxEvents(
     if (!path) return;
     const file = fileByPathRef.current.get(path);
     if (!file) return;
-    const stageState = resolvedStageState(file);
-    const visual = checkboxVisualState(stageState);
+    const visual = checkboxVisualState(resolvedStageState(file));
     if (!visual) return;
+    // The box shows the confirmed state until Git answers.
     target.checked = visual.checked;
     target.indeterminate = visual.indeterminate;
-    if (visual.checked || visual.indeterminate) {
-      actionsRef.current.reset(path);
-      return;
-    }
-    actionsRef.current.stage(path, {
-      conflicted: stageState === FileStageState.conflicted,
-    });
+    toggleFileStage(file, actionsRef.current);
   };
   shadowRoot.addEventListener("pointerdown", stopCheckboxEventPropagation, true);
   shadowRoot.addEventListener("click", stopCheckboxEventPropagation, true);

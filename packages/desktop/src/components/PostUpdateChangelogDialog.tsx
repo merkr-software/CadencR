@@ -13,7 +13,9 @@ import {
 import { APP_VERSION } from "@/lib/app-version";
 import { LAST_SEEN_VERSION_KEY, openFullChangelog } from "@/lib/changelog";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBody";
+import type { ChangelogBodyState } from "@/components/ChangelogBody";
+import { LazyBoundary } from "@/components/lazy/LazyBoundary";
+import { LazyChangelogBody } from "@/components/lazy/changelog-body-chunk";
 
 /**
  * One-shot "What's new" dialog: opened automatically on the first launch
@@ -86,7 +88,9 @@ export function PostUpdateChangelogDialog(): ReactElement | null {
           </DialogDescription>
         </DialogHeader>
 
-        <ChangelogBody state={changelog} />
+        <LazyBoundary label={t("lazy.labels.changelog", "changelog")} variant="inline">
+          <LazyChangelogBody state={changelog} />
+        </LazyBoundary>
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>

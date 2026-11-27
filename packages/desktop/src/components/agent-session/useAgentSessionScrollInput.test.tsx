@@ -33,6 +33,7 @@ const params = {
   setAutoScrollEnabled: noop,
   onScrollActivity: noop,
   onUserInput: noop,
+  pinToEnd: noop,
 };
 
 let scrollRef: ScrollRef;

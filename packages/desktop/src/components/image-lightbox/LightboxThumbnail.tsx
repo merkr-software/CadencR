@@ -71,7 +71,7 @@ export function LightboxThumbnail({
       />
       {/*
         Hover affordance driven by colour, not opacity: the touch stylesheet
-        force-reveals every `hover:opacity-100` element (index.css, "Touch /
+        force-reveals every `hover:opacity-100` element (touch-shell.css, "Touch /
         mobile affordances"), which would leave this scrim permanently over the
         thumbnail on a phone.
       */}

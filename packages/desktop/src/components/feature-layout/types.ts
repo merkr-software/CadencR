@@ -21,6 +21,11 @@ interface FeatureTabDefBase {
   label: string;
   /** Optional badge rendered inside the tab trigger (git stats, terminal pane count, …). */
   badge?: ReactNode;
+  /**
+   * Compact badge for the phone tab bar, drawn on the tab's icon where the
+   * strip's `badge` (a branch name, a count) has no room. None when absent.
+   */
+  barBadge?: ReactNode;
   /** Registry shortcut whose live binding the tab tooltip shows (rebinds included). */
   shortcutId?: ShortcutId;
   /** Tab body. Rendered once; portaled into the active pane. */

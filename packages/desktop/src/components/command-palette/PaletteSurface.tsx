@@ -1,11 +1,12 @@
 import { useUiTranslation } from "@/lib/i18n/ui";
-import { useRef, type ReactElement } from "react";
+import { useEffect, useRef, type ReactElement } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { PaletteFooter } from "./PaletteFooter";
 import { PaletteInputRow } from "./PaletteInputRow";
 import { PalettePreview } from "./PalettePreview";
 import { PaletteResults } from "./PaletteResults";
 import { usePaletteView, type PaletteSurfaceProps } from "./usePaletteView";
+import { getCoarsePointerSnapshot } from "@/lib/form-factor";
 
 export type { PaletteSurfaceProps } from "./usePaletteView";
 
@@ -15,6 +16,18 @@ export function PaletteSurface(props: PaletteSurfaceProps): ReactElement {
   const { flow, sources, now, sections, selected } = view;
   const { t } = useUiTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
+  // When ⌘K opened the dialog before this chunk loaded, the dialog focused
+  // itself and nothing moves the focus here: take it. Only then — with the
+  // chunk already loaded, Radix's open autofocus runs after this effect and
+  // must find the focus where it was, to give it back on close. Not under a
+  // finger, where focusing raises the on-screen keyboard.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input || getCoarsePointerSnapshot()) return;
+    if (document.activeElement === input.closest('[role="dialog"]')) {
+      input.focus({ preventScroll: true });
+    }
+  }, []);
   return (
     <CommandPrimitive
       shouldFilter={false}

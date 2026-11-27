@@ -5,6 +5,8 @@ import { useVisualViewportHeight } from "./useVisualViewportHeight";
 
 interface Viewport {
   resize: (h: number) => void;
+  /** Change the visible height without an event, as a fold's last change can. */
+  setHeightSilently: (h: number) => void;
   /** Pinch-zoom: the visible viewport shrinks by the zoom factor. */
   zoom: (scale: number) => void;
   /** Pan the layout viewport up (as the browser does to lift a focused input). */
@@ -48,6 +50,9 @@ function installViewport(height: number): Viewport {
       vv.height = h;
       target.dispatchEvent(new Event("resize"));
     },
+    setHeightSilently: (h: number) => {
+      vv.height = h;
+    },
     zoom: (scale: number) => {
       vv.height = height / scale;
       vv.scale = scale;
@@ -87,6 +92,35 @@ describe("useVisualViewportHeight", () => {
 
     act(() => resize(800)); // keyboard closes: override dropped
     expect(vh()).toBe("");
+  });
+
+  it("settles a fold's in-between reading that no event corrects", () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
+      const { resize, setHeightSilently } = installViewport(800);
+      renderHook(() => useVisualViewportHeight(true));
+
+      // Mid-fold, the visible height reads short, then grows back silently.
+      act(() => resize(300));
+      expect(document.documentElement.dataset.keyboardOpen).toBe("");
+      setHeightSilently(800);
+      act(() => vi.advanceTimersByTime(100));
+      expect(vh()).toBe("");
+      expect(document.documentElement.dataset.keyboardOpen).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a visible height that is no reading at all", () => {
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(657);
+    const { resize } = installViewport(657);
+    renderHook(() => useVisualViewportHeight(true));
+    // What an iPhone Duo reported after folding, until the next rotation.
+    act(() => resize(-21));
+    expect(vh()).toBe("");
+    expect(document.documentElement.dataset.keyboardOpen).toBeUndefined();
   });
 
   it("ignores sub-threshold shrink like URL-bar show/hide", () => {

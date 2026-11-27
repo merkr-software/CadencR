@@ -19,6 +19,7 @@ import { useAppClose } from "@/hooks/useAppClose";
 import { useArchiveFeatureAction } from "@/hooks/useArchiveFeatureAction";
 import { useAutoUpdateBridge } from "@/hooks/useAutoUpdateBridge";
 import { useConnectionWatchdog } from "@/hooks/useConnectionWatchdog";
+import { useDockedSidebar } from "@/hooks/useDockedSidebar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePowerBusySignal } from "@/hooks/usePowerBusySignal";
 import { usePowerEvents } from "@/hooks/usePowerEvents";
@@ -286,8 +287,9 @@ function useRootShortcuts(
 
 export function useRootLayoutController() {
   const isMobile = useIsMobile();
+  const dockedSidebar = useDockedSidebar();
   useRootEnvironment(isMobile);
-  const sidebar = useSidebarController(isMobile);
+  const sidebar = useSidebarController(isMobile, dockedSidebar);
   // Ids, not the location: the root renders once per conversation switch for
   // these, and its memoized children (shell, hosts, routed page) bail out.
   const { projectId: activeProjectId, featureId: activeFeatureId } = useRouteFeatureIds();
@@ -302,12 +304,13 @@ export function useRootLayoutController() {
   return useMemo(
     () => ({
       commandPaletteOpen,
+      dockedSidebar,
       features,
       isMobile,
       openCommandPalette,
       setCommandPaletteOpen,
       sidebar,
     }),
-    [commandPaletteOpen, features, isMobile, openCommandPalette, sidebar],
+    [commandPaletteOpen, dockedSidebar, features, isMobile, openCommandPalette, sidebar],
   );
 }

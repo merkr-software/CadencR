@@ -1,4 +1,4 @@
-import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import {
   useCallback,
   useEffect,
@@ -7,13 +7,12 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import { ChevronDownIcon, ChevronRightIcon, GitBranchIcon } from "lucide-react";
+import { GitBranchIcon } from "lucide-react";
 import { Virtuoso } from "react-virtuoso";
 import type { Feature } from "@/api/generated";
-import { Button } from "@/components/ui/button";
 import type { WorktreeFeatureGroup } from "@/lib/feature-grouping";
 import { descendantIdsOf, type FeatureTreeNode } from "@/lib/feature-hierarchy";
-import type { RenderFeature } from "@/components/FeatureSubtree";
+import { SubtreeToggle, type RenderFeature } from "@/components/FeatureSubtree";
 import { useSidebarVirtualList } from "@/hooks/useVirtualFeatureFocus";
 
 type FeatureEntry = {
@@ -163,7 +162,7 @@ export function VirtualizedProjectFeatureList(
           increaseViewportBy={144}
           itemContent={(index, entry) => (
             <div data-project-feature-index={index}>
-              {renderEntry(entry, props, collapsed, toggleNode, t)}
+              {renderEntry(entry, props, collapsed, toggleNode)}
             </div>
           )}
         />
@@ -177,7 +176,6 @@ function renderEntry(
   props: VirtualizedProjectFeatureListProps,
   collapsed: ReadonlySet<number>,
   toggleNode: (id: number) => void,
-  t: UiTranslator,
 ): ReactNode {
   if (entry.kind === "group") {
     return (
@@ -189,30 +187,10 @@ function renderEntry(
     );
   }
   const control = entry.hasChildren ? (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      className="size-3 rounded-sm text-muted-foreground/70 hover:text-foreground"
-      aria-label={
-        collapsed.has(entry.feature.id)
-          ? t("project.virtualizedProjectFeatureList.expandChildSessions", "Expand child sessions")
-          : t(
-              "project.virtualizedProjectFeatureList.collapseChildSessions",
-              "Collapse child sessions",
-            )
-      }
-      onClick={(event) => {
-        event.stopPropagation();
-        toggleNode(entry.feature.id);
-      }}
-    >
-      {collapsed.has(entry.feature.id) ? (
-        <ChevronRightIcon className="size-3" />
-      ) : (
-        <ChevronDownIcon className="size-3" />
-      )}
-    </Button>
+    <SubtreeToggle
+      expanded={!collapsed.has(entry.feature.id)}
+      onToggle={() => toggleNode(entry.feature.id)}
+    />
   ) : null;
   return (
     <div

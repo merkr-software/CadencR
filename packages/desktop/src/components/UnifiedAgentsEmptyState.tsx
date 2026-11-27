@@ -2,7 +2,7 @@ import { UiTrans, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement, type ReactNode } from "react";
 import { AlertTriangleIcon, SearchXIcon } from "lucide-react";
 import { AgentIcon } from "@/components/AgentIcon";
-import { EmptyState } from "@/components/FeaturePrViewParts";
+import { EmptyState } from "@/components/EmptyState";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { Button } from "@/components/ui/button";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";

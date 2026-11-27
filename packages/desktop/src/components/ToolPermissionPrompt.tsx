@@ -1,22 +1,18 @@
-import { permissionOptionCopy } from "@/lib/permission-option-copy";
 import { useUiTranslation } from "@/lib/i18n/ui";
 import { useScopedHotkeys } from "@/hooks/useScopedHotkeys";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { KbdShortcut } from "@/components/KbdShortcut";
-import { useShortcutKeys } from "@/hooks/useShortcutLabel";
-import type { ShortcutId } from "@/lib/shortcuts/registry";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { SendIcon, Loader2 } from "lucide-react";
 import { getPermissionPreview } from "./permission-preview";
 import { ToolPermissionPromptHeader } from "./ToolPermissionPromptHeader";
 import { useToolPermissionActions } from "./useToolPermissionActions";
 import {
-  AGENT_OPTION_CARD_BASE,
-  AGENT_OPTION_CARD_RESTING,
-  AGENT_OPTION_CARD_HIGHLIGHTED,
-} from "./agent-prompt-option-card";
+  PermissionOptionList,
+  shouldShortcutAllowFuture,
+  shouldShortcutDeny,
+} from "./ToolPermissionOptions";
 
 import type {
   PendingPermission,
@@ -31,6 +27,11 @@ interface ToolPermissionPromptProps {
   onDecision: (decision: PermissionDecisionValue, feedback?: string, optionId?: string) => void;
   /** Called when the user closes the gate without answering it */
   onCancel?: () => void;
+  /**
+   * Folds the request away unanswered, the agent still waiting (phone layout:
+   * "Later" replaces the close button, and Escape does the same).
+   */
+  onLater?: () => void;
   /** When true, disables keyboard shortcuts */
   disableShortcuts?: boolean;
   /**
@@ -67,6 +68,9 @@ interface ToolPermissionPromptContentProps {
   feedback: string;
   isSubmitting: boolean;
   onCancel?: () => void;
+  /** Phone layout only (see `ToolPermissionPromptProps.onLater`). */
+  onLater?: () => void;
+  phone: boolean;
   onOption: (index: number) => void;
   onFeedbackChange: (feedback: string) => void;
   onDenySubmit: () => void;
@@ -82,33 +86,33 @@ function ToolPermissionPromptContent({
   feedback,
   isSubmitting,
   onCancel,
+  onLater,
+  phone,
   onOption,
   onFeedbackChange,
   onDenySubmit,
 }: ToolPermissionPromptContentProps) {
   return (
     <div className="agent-prompt-gate-panel border-t border-amber-500/30 bg-card px-3 py-2">
-      <ToolPermissionPromptHeader toolName={permission.toolName} onCancel={onCancel} />
+      <ToolPermissionPromptHeader
+        toolName={permission.toolName}
+        onCancel={onLater ? undefined : onCancel}
+        onLater={onLater}
+      />
       <p className="mb-1.5 text-sm text-foreground">{permission.description}</p>
       {rawCommand && (
-        <pre className="mb-3 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all">
+        <pre className="mb-3 max-h-40 overflow-auto phone-short:mb-2 phone-short:max-h-16 rounded-md border border-border bg-muted/40 p-2 text-xs text-foreground font-mono whitespace-pre-wrap break-all">
           {rawCommand}
         </pre>
       )}
-      <div className="mb-2 flex flex-col gap-1.5">
-        {options.map((option, index) => (
-          <PermissionOptionButton
-            key={`${option.decision}-${option.label}`}
-            option={option}
-            index={index}
-            highlighted={highlightedIndex === index}
-            onClick={onOption}
-            options={options}
-            disabled={isSubmitting}
-            showSpinner={isSubmitting && submittedIndex === index}
-          />
-        ))}
-      </div>
+      <PermissionOptionList
+        options={options}
+        highlightedIndex={highlightedIndex}
+        submittedIndex={submittedIndex}
+        isSubmitting={isSubmitting}
+        onOption={onOption}
+        phone={phone}
+      />
       {showFeedback && (
         <DenyFeedbackInput
           feedback={feedback}
@@ -121,89 +125,6 @@ function ToolPermissionPromptContent({
         />
       )}
     </div>
-  );
-}
-
-interface PermissionOptionButtonProps {
-  option: PermissionOption;
-  index: number;
-  highlighted: boolean;
-  onClick: (index: number) => void;
-  options: PermissionOption[];
-  disabled: boolean;
-  showSpinner: boolean;
-}
-
-function optionLabel(option: PermissionOption): string {
-  return option.label.trim().toLowerCase();
-}
-
-function isAlwaysApprovalOption(option: PermissionOption): boolean {
-  return optionLabel(option).includes("always");
-}
-
-function shouldShortcutAllowFuture(option: PermissionOption, options: PermissionOption[]): boolean {
-  if (option.decision !== "allow_future") return false;
-  const hasAlwaysApproval = options.some(
-    (candidate) => candidate.decision === "allow_future" && isAlwaysApprovalOption(candidate),
-  );
-  return hasAlwaysApproval ? isAlwaysApprovalOption(option) : true;
-}
-
-function shouldShortcutDeny(option: PermissionOption): boolean {
-  if (option.decision !== "deny") return false;
-  const label = optionLabel(option);
-  return label === "deny" || label.includes("deny and continue");
-}
-
-function shortcutIdForOption(
-  option: PermissionOption,
-  options: PermissionOption[],
-): ShortcutId | undefined {
-  if (option.decision === "allow_once") return "perm-allow-once";
-  if (shouldShortcutAllowFuture(option, options)) return "perm-allow-future";
-  if (shouldShortcutDeny(option)) return "perm-deny";
-  return undefined;
-}
-
-/** Resolves the key hint through the registry so a rebind updates the badge. */
-function PermissionShortcutBadge({ shortcutId }: { shortcutId: ShortcutId }) {
-  const keys = useShortcutKeys(shortcutId);
-  return <KbdShortcut keys={keys} variant="square" scope="agent" />;
-}
-
-function PermissionOptionButton({
-  option,
-  index,
-  highlighted,
-  onClick,
-  options,
-  disabled,
-  showSpinner,
-}: PermissionOptionButtonProps) {
-  const { t } = useUiTranslation();
-  const shortcutId = shortcutIdForOption(option, options);
-  const copy = permissionOptionCopy(t, option);
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-busy={showSpinner}
-      className={cn(
-        AGENT_OPTION_CARD_BASE,
-        AGENT_OPTION_CARD_RESTING,
-        highlighted && AGENT_OPTION_CARD_HIGHLIGHTED,
-        "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-muted/40",
-      )}
-      onClick={() => onClick(index)}
-    >
-      <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-        {shortcutId && <PermissionShortcutBadge shortcutId={shortcutId} />}
-        {copy.label}
-        {showSpinner && <Loader2 className="ml-1 size-3.5 animate-spin text-muted-foreground" />}
-      </span>
-      <span className="mt-0.5 block text-xs text-muted-foreground">{copy.description}</span>
-    </button>
   );
 }
 
@@ -235,11 +156,11 @@ function DenyFeedbackInput({
           "conversation.composer.toolPermissionPrompt.reasonForDenyingOptional",
           "Reason for denying (optional)...",
         )}
-        className="h-8 border-border/50 bg-muted/40 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring/40"
+        className="h-8 border-border/50 bg-muted/40 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring/40 phone:h-11"
         autoFocus
         disabled={disabled}
       />
-      <Button size="sm" onClick={onSubmit} className="h-8" disabled={disabled}>
+      <Button size="sm" onClick={onSubmit} className="h-8 phone:h-11" disabled={disabled}>
         {showSpinner ? (
           <Loader2 className="mr-1.5 size-3 animate-spin" />
         ) : (
@@ -317,6 +238,7 @@ export function ToolPermissionPrompt({
   permission,
   onDecision,
   onCancel,
+  onLater,
   disableShortcuts,
   isSubmitting = false,
 }: ToolPermissionPromptProps) {
@@ -324,6 +246,10 @@ export function ToolPermissionPrompt({
     permission.options && permission.options.length > 0 ? permission.options : FALLBACK_OPTIONS;
   const rawCommand = getPermissionPreview(permission);
   const actions = useToolPermissionActions({ isSubmitting, options, onDecision });
+  const phone = useIsMobile();
+  const phoneLater = phone ? onLater : undefined;
+  // On phone, Escape puts the request off like "Later": stopping takes the composer's Stop.
+  const onEscape = phoneLater ?? onCancel;
 
   usePermissionHotkeys({
     disableShortcuts,
@@ -336,15 +262,15 @@ export function ToolPermissionPrompt({
     (event) => {
       event.preventDefault();
       event.stopPropagation();
-      onCancel?.();
+      onEscape?.();
     },
     "agent",
     {
-      enabled: !!onCancel && !disableShortcuts,
+      enabled: !!onEscape && !disableShortcuts,
       enableOnFormTags: true,
       enableOnContentEditable: true,
     },
-    [onCancel, disableShortcuts],
+    [onEscape, disableShortcuts],
   );
 
   return (
@@ -358,6 +284,8 @@ export function ToolPermissionPrompt({
       feedback={actions.feedback}
       isSubmitting={isSubmitting}
       onCancel={onCancel}
+      onLater={phoneLater}
+      phone={phone}
       onOption={actions.handleOption}
       onFeedbackChange={actions.setFeedback}
       onDenySubmit={actions.handleDenyWithEnter}

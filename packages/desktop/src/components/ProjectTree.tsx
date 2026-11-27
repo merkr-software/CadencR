@@ -1,21 +1,14 @@
 import { translateUi, useUiTranslation } from "@/lib/i18n/ui";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  type Project,
-  useDeleteProject,
-  getListProjectsQueryKey,
-  useCreateFeature,
-} from "../api/generated";
+import { type Project, useDeleteProject, getListProjectsQueryKey } from "../api/generated";
 import { useArchiveProjectSessionsAction } from "@/hooks/useArchiveProjectSessionsAction";
 import { useOrderedProjects } from "@/hooks/useOrderedProjects";
 import { useProjectExpansion } from "@/hooks/useProjectExpansion";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ProjectRowActions, ProjectRowContextMenu } from "./ProjectRowMenus";
-import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
-import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { useAddProjectAtPath } from "@/hooks/useAddProjectAtPath";
+import { useStartConversation } from "@/hooks/useStartConversation";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { toastError } from "@/lib/api-errors";
 import { SidebarProjectsHeader } from "./SidebarProjectsHeader";
@@ -51,14 +44,8 @@ type ProjectDialogTarget = {
   authoringTarget?: Project["authoring_target"];
 };
 
-function useProjectTreeMutations(
-  projects: ProjectSummary[],
-  activeProjectId: number | null,
-  activeFeatureId: number | null,
-) {
-  const navigate = useNavigate();
+function useProjectTreeMutations(activeProjectId: number | null, activeFeatureId: number | null) {
   const queryClient = useQueryClient();
-  const pendingProjectIdRef = useRef(0);
   const deleteProject = useDeleteProject({
     mutation: {
       onSuccess: () => {
@@ -70,33 +57,18 @@ function useProjectTreeMutations(
     activeFeatureId,
     projectId: activeProjectId ?? -1,
   });
-  const createSession = useCreateFeature({
-    mutation: {
-      onSuccess: (session) => {
-        const projectId = pendingProjectIdRef.current;
-        void invalidateFeatureLists(queryClient, projectId);
-        const project = projects.find((candidate) => candidate.id === projectId);
-        void navigate({
-          to: "/ws-session/$sessionId",
-          params: { sessionId: wsSessionIdFromFeature(session.id) },
-          search: { cwd: project?.path ?? "", featureId: session.id, projectId },
-        });
-      },
-    },
-  });
+  const startConversation = useStartConversation();
   // The stable parts only: the mutation results are new objects every render,
   // and the controller (with every project row memoized on it) follows this.
   const { isPending: isArchivingSessions, mutateAsync: archiveSessions } = archiveProjectSessions;
-  const { mutate: createSessionMutate } = createSession;
   const { mutate: deleteProjectMutate } = deleteProject;
   return useMemo(
     () => ({
       archiveProjectSessions: { isPending: isArchivingSessions, mutateAsync: archiveSessions },
-      createSession: { mutate: createSessionMutate },
+      startConversation: startConversation.start,
       deleteProject: { mutate: deleteProjectMutate },
-      pendingProjectIdRef,
     }),
-    [archiveSessions, createSessionMutate, deleteProjectMutate, isArchivingSessions],
+    [archiveSessions, deleteProjectMutate, isArchivingSessions, startConversation.start],
   );
 }
 
@@ -105,11 +77,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const [isAddingProject, setIsAddingProject] = useState(false);
   const onboarding = useNewProjectOnboarding();
   const addProjectAtPath = useAddProjectAtPath();
-  const mutations = useProjectTreeMutations(
-    ordered.projects,
-    props.activeProjectId,
-    props.activeFeatureId,
-  );
+  const mutations = useProjectTreeMutations(props.activeProjectId, props.activeFeatureId);
   const revealActive = useSidebarOption("revealActive");
   const expansion = useProjectExpansion(revealActive === "off" ? null : props.activeProjectId);
   const { setExpanded: setProjectExpanded } = expansion;
@@ -123,8 +91,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const startSession = useCallback(
     (projectId: number) => {
       setProjectExpanded(projectId, true);
-      mutations.pendingProjectIdRef.current = projectId;
-      mutations.createSession.mutate({ data: { project_id: projectId, type: "ws-session" } });
+      mutations.startConversation(projectId);
     },
     [mutations, setProjectExpanded],
   );

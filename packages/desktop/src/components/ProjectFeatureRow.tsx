@@ -23,6 +23,7 @@ import { useOpenFeaturePort } from "@/hooks/useOpenFeaturePort";
 import { useOpenFeaturePr } from "@/hooks/useOpenFeaturePr";
 import { useSidebarRowActionListener } from "@/hooks/useSidebarRowActionListener";
 import { useRowReorder } from "@/hooks/useRowReorder";
+import { useFeatureRowSwipe } from "@/components/useFeatureRowSwipe";
 
 const ROW_KEYDOWN_IGNORED_SELECTOR = [
   "input",
@@ -85,6 +86,8 @@ interface FeatureRowDetailsProps {
   onOpenPort: (port: number) => void;
   onOpenPr: (prNumber: number | null) => void;
   badgeRef: RefObject<HTMLSpanElement | null>;
+  /** Off where the row swipes (phone, touch): its tray carries Pin and Archive. */
+  showHoverActions: boolean;
 }
 
 function FeatureRowDetails({
@@ -94,6 +97,7 @@ function FeatureRowDetails({
   onOpenPort,
   onOpenPr,
   badgeRef,
+  showHoverActions,
 }: FeatureRowDetailsProps): ReactElement {
   const {
     feature,
@@ -128,13 +132,15 @@ function FeatureRowDetails({
       badgeRef={badgeRef}
       onOpenConversation={onOpenConversation}
       actions={
-        <FeatureRowActions
-          featureId={feature.id}
-          isArchived={state.isArchived}
-          isPinned={state.isPinned}
-          onTogglePin={onTogglePin}
-          onArchiveOrDelete={onArchiveOrDelete}
-        />
+        showHoverActions ? (
+          <FeatureRowActions
+            featureId={feature.id}
+            isArchived={state.isArchived}
+            isPinned={state.isPinned}
+            onTogglePin={onTogglePin}
+            onArchiveOrDelete={onArchiveOrDelete}
+          />
+        ) : undefined
       }
       prStatus={state.prStatus}
       gitStats={state.gitStats}
@@ -259,6 +265,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
     pin: state.isArchived ? undefined : () => props.onTogglePin(feature.id, !state.isPinned),
   });
   const reorder = useRowReorder(navRef, feature.id, props.isEditingLabel);
+  const swipe = useProjectRowSwipe(navRef, props, state);
 
   return (
     <ContextMenu>
@@ -274,6 +281,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
           data-feature-depth={hierarchyDepth}
           data-sidebar-pointed={state.isPointed || undefined}
           {...reorder}
+          {...swipe.rowProps}
           className={`sidebar-row group/feature relative flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-sidebar-accent ${
             state.isActive ? "bg-sidebar-accent" : ""
           } ${state.isArchived ? "opacity-50" : ""}`}
@@ -296,7 +304,9 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
             onOpenPort={handleOpenPort}
             onOpenPr={handleOpenPr}
             badgeRef={badgeRef}
+            showHoverActions={!swipe.swipes}
           />
+          {swipe.tray}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent
@@ -313,6 +323,24 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow(
     </ContextMenu>
   );
 });
+
+/** The row's swipe actions (phone layout, touch): the ones its hover buttons run elsewhere. */
+function useProjectRowSwipe(
+  navRef: RefObject<HTMLDivElement | null>,
+  props: ProjectFeatureRowProps,
+  state: ProjectFeatureRowState,
+): ReturnType<typeof useFeatureRowSwipe> {
+  const { feature, liveTitle, onTogglePin, onArchiveOrDelete, onUnarchive } = props;
+  return useFeatureRowSwipe(navRef, {
+    featureId: feature.id,
+    title: liveTitle ?? feature.title,
+    isArchived: state.isArchived,
+    isPinned: state.isPinned,
+    onTogglePin,
+    onArchiveOrDelete: () => onArchiveOrDelete(feature.id),
+    onUnarchive,
+  });
+}
 
 export function shouldIgnoreFeatureRowKeyDown(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;

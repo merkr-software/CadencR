@@ -258,3 +258,17 @@
     height: 24px;
   }
 }
+
+/* Phone: the action, cancel and close buttons are 44px targets around their
+ * 24px look (`hit-area`, DESIGN.md "Hit areas on phone"); the close button
+ * keeps Sonner's absolute place. */
+[data-shell="phone"] [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  @apply hit-area;
+}
+[data-shell="phone"]
+  [data-sonner-toaster]
+  [data-sonner-toast][data-styled="true"]
+  [data-close-button] {
+  @apply hit-area;
+  position: absolute;
+}

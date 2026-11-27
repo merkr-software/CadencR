@@ -37,7 +37,7 @@ export function ArchivedFeatureSection({
           label,
           count: features.length,
         })}
-        className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:bg-accent/40 focus-visible:text-foreground"
+        className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground outline-none phone:min-h-11 transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:bg-accent/40 focus-visible:text-foreground"
         onClick={onToggle}
       >
         <FeatureHierarchyGutter>

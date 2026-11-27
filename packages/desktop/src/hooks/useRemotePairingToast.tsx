@@ -23,12 +23,12 @@ const trustedMessage = (
  * replayed here):
  *
  * - on failure, an error toast;
- * - after a session-only pair (the Safari `?code=` flow), an offer to *stay
- *   signed in* — the "trust this device" decision lives on the device that
- *   paired, not in the host's link;
- * - after a trusted pair (the manual gate, e.g. an installed PWA, which already
- *   persisted to `localStorage`), a plain confirmation — without this, the PWA
- *   path showed no post-pair feedback at all.
+ * - after a session-only pair from a link (the Safari `#code=` flow), an offer
+ *   to *stay signed in* — the "trust this device" decision lives on the device
+ *   that paired, not in the host's link;
+ * - after a pair from the pairing screen (e.g. an installed PWA), where its
+ *   "Stay signed in" switch already decided, a plain confirmation saying
+ *   whether the sign-in persists.
  *
  * No-op in the desktop shell or when there's nothing to replay.
  */
@@ -43,6 +43,15 @@ export function useRemotePairingToast(): void {
     if (mode === "trusted") {
       toast.success(connectedMessage, {
         description: trustedMessage,
+      });
+    } else if (mode === "session-chosen") {
+      toast.success(connectedMessage, {
+        description: (
+          <UiTrans
+            i18nKey="remote.pairing.sessionChosen"
+            defaults="You'll pair again once this device closes Cadencr."
+          />
+        ),
       });
     } else if (mode === "session") {
       toast.success(connectedMessage, {

@@ -14,8 +14,15 @@ import { StreamFollowGlide } from "./stream-follow-glide";
  *   stays put (`ScrollAnchorGuard`). The view does not visibly move.
  * - `jump`: bring a message to the top (prompt rail, composer's agent list).
  * - `reveal`: bring a search match into view.
+ * - `resize-anchor`: put the reader's row back where it was once a viewport
+ *   resize (rotation, fold) settled (`observeResizeSettle`).
  */
-export type StreamScrollIntent = "follow-bottom" | "keep-anchor" | "jump" | "reveal";
+export type StreamScrollIntent =
+  | "follow-bottom"
+  | "keep-anchor"
+  | "jump"
+  | "reveal"
+  | "resize-anchor";
 
 /**
  * Raw `scrollTop` writes allowed on iOS. Virtuoso corrects position there
@@ -23,13 +30,15 @@ export type StreamScrollIntent = "follow-bottom" | "keep-anchor" | "jump" | "rev
  * momentum scrolling fights it and can loop forever (React #185 in the PWA).
  * `followOutput` keeps iOS pinned, and index scrolls go through Virtuoso,
  * which knows its own deviation. A search reveal is one write on a reader's
- * explicit request, never inside momentum, as before this module existed.
+ * explicit request, never inside momentum, as before this module existed; a
+ * resize anchor is one write after a rotation settled, dropped by a touch.
  */
 const RAW_WRITE_ON_IOS: Readonly<Record<StreamScrollIntent, boolean>> = {
   "follow-bottom": false,
   "keep-anchor": false,
   jump: false,
   reveal: true,
+  "resize-anchor": true,
 };
 
 /**
@@ -80,6 +89,8 @@ const INDEX_SCROLL_RETRY_MS = 1250;
 export class StreamScrollWriter {
   private arbiter: ScrollCompensationArbiter | null = null;
   private lastIndexScrollAt = Number.NEGATIVE_INFINITY;
+  /** When a jump or reveal last took the viewport (`performance.now()`). */
+  private lastJumpAt = Number.NEGATIVE_INFINITY;
   /** Non-iOS only, like every raw follow write. */
   private glide: StreamFollowGlide | null = null;
 
@@ -222,11 +233,16 @@ export class StreamScrollWriter {
     return Math.max(0, this.lastIndexScrollAt + INDEX_SCROLL_RETRY_MS - performance.now());
   }
 
+  /** Whether a jump or reveal took the viewport at or after `since` (`performance.now()`). */
+  jumpedSince(since: number): boolean {
+    return this.lastJumpAt >= since;
+  }
+
   /** A jump or reveal moves the view away from the bottom: follow lets go first. */
   private takeViewport(intent: StreamScrollIntent): void {
-    if ((intent === "jump" || intent === "reveal") && this.owner.isFollowing()) {
-      this.owner.prepareJump();
-    }
+    if (intent !== "jump" && intent !== "reveal") return;
+    this.lastJumpAt = performance.now();
+    if (this.owner.isFollowing()) this.owner.prepareJump();
   }
 
   private virtuosoScrollBy(scroller: HTMLElement, args: unknown[]): void {

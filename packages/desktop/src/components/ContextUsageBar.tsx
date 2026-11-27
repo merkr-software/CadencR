@@ -6,7 +6,7 @@ import {
   getContextUsageAppearance,
   type ContextUsageAppearance,
 } from "@/lib/context-usage-appearance";
-import { KbdShortcut } from "@/components/KbdShortcut";
+import { KBD_HINT_PROPS, KbdShortcut } from "@/components/KbdShortcut";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCompactTokens } from "@/components/usage/usage-chart-palette";
 
@@ -225,8 +225,9 @@ function PromptKeyboardHint(): ReactElement {
   const { t } = useUiTranslation();
   return (
     <span
+      {...KBD_HINT_PROPS}
       data-prompt-keyboard-hint
-      className="hidden shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground md:inline-flex"
+      className="hidden shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground desktop:inline-flex"
     >
       <KbdShortcut keys={["enter"]} variant="hint" />
       <span>{t("conversation.composer.contextUsageBar.send", "send")}</span>

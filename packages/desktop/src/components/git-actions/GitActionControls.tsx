@@ -1,12 +1,13 @@
 /**
- * The split primary/menu control, in its desktop and mobile shapes.
+ * The header's split primary/menu control (the phone layout reaches the same
+ * actions from its conversation sheet, `PhoneFeatureMoreSheet`).
  *
  * Whenever a commit or push is streaming in the background the primary
  * slot is replaced by an activity button that reopens that run's dialog —
  * the only way back into output the user chose to background.
  */
 import { memo, type ReactElement } from "react";
-import { CircleAlert, ChevronDown, GitBranch, GitCommit, Loader2 } from "lucide-react";
+import { CircleAlert, ChevronDown, GitCommit, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -38,13 +39,6 @@ const GIT_ACTION_BUTTON_CLASS =
 export interface GitActionControlsProps {
   featureId: number;
   projectId: number;
-  isMobile: boolean;
-  /**
-   * The directory's checkout. Phones have no room for the header's branch chip
-   * (it moves into the popover), so their trigger names the branch instead of
-   * "Git" — the header always says what is checked out.
-   */
-  checkedOut: string | undefined;
   state: GitActionState;
   activities: GitActivities;
   statusRetry: GitStatusRetry;
@@ -53,90 +47,7 @@ export interface GitActionControlsProps {
   onAction: (action: GitAction) => void;
 }
 
-export function GitActionControls(props: GitActionControlsProps): ReactElement {
-  if (props.isMobile) return <MobileGitActionControl {...props} />;
-  return <DesktopGitActionControl {...props} />;
-}
-
-function MobileGitActionControl({
-  featureId,
-  projectId,
-  checkedOut,
-  state,
-  activities,
-  statusRetry,
-  popoverOpen,
-  onPopoverOpenChange,
-  onAction,
-}: GitActionControlsProps): ReactElement {
-  const { t } = useUiTranslation();
-  const active = activeGitActivity(activities);
-  const actionsLabel = checkedOut
-    ? t("workspace.git.gitActionControls.gitActionsOnBranch", "Git actions, on {{branch}}", {
-        branch: checkedOut,
-      })
-    : t("workspace.git.gitActionControls.gitActions", "Git actions");
-  return (
-    <div className="inline-flex items-center">
-      {active && (
-        <GitActivityButton
-          action={active.action}
-          activity={active.activity}
-          onSelect={onAction}
-          className="rounded-r-none border-r-0"
-        />
-      )}
-      <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="xs"
-            className={cn(GIT_ACTION_BUTTON_CLASS, active ? "rounded-l-none px-1.5" : "min-w-0")}
-            aria-label={
-              active
-                ? t("workspace.git.gitActionControls.moreGitActions", "More git actions")
-                : (statusRetry.issue?.label ?? actionsLabel)
-            }
-          >
-            {active ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <>
-                {statusRetry.issue ? (
-                  <CircleAlert className="size-3.5 text-destructive" />
-                ) : (
-                  <GitBranch className="size-3.5" />
-                )}
-                <span
-                  className={cn(
-                    "max-w-24 truncate",
-                    checkedOut && !statusRetry.issue && "font-mono",
-                  )}
-                >
-                  {statusRetry.issue?.label ??
-                    checkedOut ??
-                    t("workspace.git.gitActionControls.git", "Git")}
-                </span>
-              </>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 p-0">
-          <GitActionPopoverContent
-            featureId={featureId}
-            projectId={projectId}
-            state={state}
-            activities={activities}
-            statusRetry={statusRetry}
-            onPick={onAction}
-          />
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-function DesktopGitActionControl({
+export function GitActionControls({
   featureId,
   projectId,
   state,
