@@ -44,11 +44,12 @@ export function HaloControls({
   return (
     <div className="rounded-lg border border-border bg-background">
       <div className="flex items-center justify-between gap-2 px-4 py-2.5">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium"
+          className="h-auto min-w-0 flex-1 justify-start px-1 py-0 text-sm font-medium"
         >
           <ChevronDown
             className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
@@ -57,7 +58,7 @@ export function HaloControls({
           <span className="shrink-0 text-xs font-normal text-muted-foreground">
             {enabled ? halos.length : "Off"}
           </span>
-        </button>
+        </Button>
         {busy || isSaving ? (
           <span role="status" aria-label={busy ? "Loading halo settings" : "Saving halo settings"}>
             <Loader2 className="size-3 animate-spin text-muted-foreground" />

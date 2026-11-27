@@ -94,13 +94,14 @@ function HaloColorRow({
   const label = `Halo ${index + 1}`;
   return (
     <div className="space-y-1.5">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         onClick={onToggle}
         aria-expanded={open}
         aria-label={`${label} color`}
         disabled={disabled}
-        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs hover:bg-accent disabled:opacity-50"
+        className="h-auto w-full justify-start px-1 py-1 text-left text-xs"
       >
         <span
           className="size-4 shrink-0 rounded-full border border-border"
@@ -110,22 +111,24 @@ function HaloColorRow({
         <span className="truncate font-mono text-[11px] text-muted-foreground">
           {picked === null ? "theme" : "custom"}
         </span>
-      </button>
+      </Button>
 
       <CollapsibleSection open={open}>
         <div className="space-y-2 px-1 pb-1">
           <div className="grid grid-cols-6 gap-1.5" role="group" aria-label={`${label} palette`}>
             {palette.map((entry) => (
-              <button
+              <Button
                 key={entry.token}
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => onPick(entry.color)}
                 aria-label={`${label}: ${entry.token}`}
                 disabled={disabled}
                 aria-pressed={entry.color === picked}
                 title={entry.token}
                 className={cn(
-                  "size-6 rounded-md border transition-transform hover:scale-110",
+                  "size-6 border p-0 transition-transform hover:scale-110",
                   entry.color === picked
                     ? "border-foreground ring-2 ring-foreground/40"
                     : "border-border",

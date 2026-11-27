@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { z } from "zod";
 import {
   getGetWorkspaceSettingQueryKey,
   getWorkspaceSetting,
@@ -8,6 +9,12 @@ import {
 } from "@/api/generated";
 import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
 import { apiErrorMessage } from "@/lib/api-errors";
+
+// The HTTP body is typed, not checked: validate it at the boundary like the
+// other generated-client calls, so a malformed `value` rejects the query.
+const settingValueResponseSchema: z.ZodType<SettingValueResponse> = z.object({
+  value: z.string().nullable().optional(),
+});
 
 /**
  * Computes the value to write from the setting's confirmed value at the moment
@@ -110,7 +117,7 @@ async function reconcileConfirmedSetting(queryClient: QueryClient, key: string):
     const fresh = await queryClient.fetchQuery({
       queryKey,
       // The queue needs this read even if the last settings observer unmounts.
-      queryFn: () => getWorkspaceSetting(key),
+      queryFn: async () => settingValueResponseSchema.parse(await getWorkspaceSetting(key)),
       staleTime: 0,
       retry: false,
       networkMode: "always",
