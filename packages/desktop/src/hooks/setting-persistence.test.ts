@@ -8,7 +8,7 @@ import { isSettingSaving, readConfirmedSetting, writeSetting } from "./setting-p
 interface PendingWrite {
   url: string;
   value: string;
-  resolve: () => void;
+  resolve: (response?: unknown) => void;
   reject: (error: unknown) => void;
 }
 
@@ -28,9 +28,9 @@ vi.mock("@/api/client", () => ({
       pending.push({
         url: config.url ?? "",
         value,
-        resolve: () => {
+        resolve: (response: unknown = { value }) => {
           serverValue = value;
-          resolve({ value });
+          resolve(response);
         },
         reject,
       });
@@ -74,6 +74,20 @@ describe("writeSetting", () => {
       { key: "k", value: "new" },
     ]);
     expect(isSettingSaving("k")).toBe(false);
+  });
+
+  it("reconciles an invalid write response before using the saved value", async () => {
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(getGetWorkspaceSettingQueryKey("k"), { value: "old" });
+    const write = writeSetting(queryClient, "k", "new");
+    await settle();
+    pending[0]!.resolve({ value: 42 });
+
+    await expect(write).resolves.toBe(false);
+    expect(toastError).toHaveBeenCalledWith(
+      'Could not save setting "k": Invalid workspace setting response',
+    );
+    expect(cached(queryClient, "k")).toEqual({ value: "new" });
   });
 
   it("keeps the confirmed value and says why when the write fails", async () => {

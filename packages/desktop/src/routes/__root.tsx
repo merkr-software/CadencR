@@ -100,7 +100,6 @@ function RootLayout() {
       <UniversalContextMenu>
         <div className="flex h-[var(--app-vh)]">
           <RootWindowControls />
-          <ThemeSync />
           <RootAppShell
             isMobile={controller.isMobile}
             collapsed={sidebar.collapsed}

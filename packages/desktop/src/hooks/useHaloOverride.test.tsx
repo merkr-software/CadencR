@@ -24,7 +24,7 @@ interface PendingWrite {
 
 const pending: PendingWrite[] = [];
 const toastError = vi.fn();
-let confirmed: string | null = null;
+let confirmed: unknown = null;
 let readError: Error | null = null;
 let readDelay = 0;
 const clients: QueryClient[] = [];
@@ -313,6 +313,17 @@ describe("useHaloOverride with real setting persistence", () => {
     const { result } = setup("not json").mount();
     expect(result.current.override).toEqual(DEFAULT_HALO_OVERRIDE);
     expect(result.current.error).not.toBeNull();
+  });
+
+  it("rejects a malformed settings response before caching or enabling edits", async () => {
+    const { mount, queryClient } = setup(null, false);
+    confirmed = { "frost-light": { rotation: 45 } };
+    const { result } = mount();
+    await tick(1);
+
+    expect(result.current.error).toBe("Invalid workspace setting response");
+    expect(result.current.canEdit).toBe(false);
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined();
   });
 
   it("surfaces a failed initial read and preserves other themes until it recovers", async () => {

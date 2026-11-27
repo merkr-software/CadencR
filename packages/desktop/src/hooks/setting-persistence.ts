@@ -10,11 +10,22 @@ import {
 import { getWorkspaceSettingsQueryKey, type SettingEntry } from "@/api/settings";
 import { apiErrorMessage } from "@/lib/api-errors";
 
-// The HTTP body is typed, not checked: validate it at the boundary like the
-// other generated-client calls, so a malformed `value` rejects the query.
 const settingValueResponseSchema: z.ZodType<SettingValueResponse> = z.object({
   value: z.string().nullable().optional(),
 });
+
+function parseSettingResponse(response: unknown): SettingValueResponse {
+  const parsed = settingValueResponseSchema.safeParse(response);
+  if (!parsed.success) throw new Error("Invalid workspace setting response");
+  return parsed.data;
+}
+
+export async function fetchWorkspaceSetting(
+  key: string,
+  signal?: AbortSignal,
+): Promise<SettingValueResponse> {
+  return parseSettingResponse(await getWorkspaceSetting(key, signal));
+}
 
 /**
  * Computes the value to write from the setting's confirmed value at the moment
@@ -88,7 +99,7 @@ async function sendSetting(
   try {
     const value = typeof next === "string" ? next : next(readConfirmedSetting(queryClient, key));
     if (value === null) return true;
-    const saved = await setWorkspaceSetting(key, { value });
+    const saved = parseSettingResponse(await setWorkspaceSetting(key, { value }));
     // A read begun before the write could replace its confirmed value.
     await queryClient.cancelQueries({ queryKey: getGetWorkspaceSettingQueryKey(key), exact: true });
     seedConfirmedSetting(queryClient, key, saved.value ?? null);
@@ -117,7 +128,7 @@ async function reconcileConfirmedSetting(queryClient: QueryClient, key: string):
     const fresh = await queryClient.fetchQuery({
       queryKey,
       // The queue needs this read even if the last settings observer unmounts.
-      queryFn: async () => settingValueResponseSchema.parse(await getWorkspaceSetting(key)),
+      queryFn: ({ signal }) => fetchWorkspaceSetting(key, signal),
       staleTime: 0,
       retry: false,
       networkMode: "always",

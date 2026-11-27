@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useGetWorkspaceSetting } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
+  fetchWorkspaceSetting,
   isSettingSaving,
   subscribeSettingWrites,
   writeSetting,
@@ -54,7 +55,9 @@ export function useSettingWriter(key: string): SettingWriter {
  * before then uses `useSettingDraft`.
  */
 export function useSetting(key: string): Setting {
-  const query = useGetWorkspaceSetting(key);
+  const query = useGetWorkspaceSetting(key, {
+    query: { queryFn: ({ signal }) => fetchWorkspaceSetting(key, signal) },
+  });
   const { setValue, isSaving } = useSettingWriter(key);
   const value = query.data?.value ?? null;
   const error =
