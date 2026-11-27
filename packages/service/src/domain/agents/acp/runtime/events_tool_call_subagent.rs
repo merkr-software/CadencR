@@ -64,7 +64,8 @@ pub(super) fn settle_carrier(
     provider_events: Vec<RuntimeEvent>,
     events: &mut Vec<RuntimeEvent>,
 ) {
-    let mut updates: Vec<RuntimeSubagentUpdate> = terminal_update(call, hooks).into_iter().collect();
+    let mut updates: Vec<RuntimeSubagentUpdate> =
+        terminal_update(call, hooks).into_iter().collect();
     let mut passthrough = Vec::with_capacity(provider_events.len());
     for event in provider_events {
         if event.is_subagent_signal_only() {
@@ -94,7 +95,10 @@ fn is_carrier(tool_name: &str, hooks: &dyn AcpProviderHooks) -> bool {
     is_subagent_tool_name(tool_name) || hooks.subagent_carrier_alias(tool_name).is_some()
 }
 
-fn terminal_update(call: &TerminalToolCall<'_>, hooks: &dyn AcpProviderHooks) -> Option<RuntimeSubagentUpdate> {
+fn terminal_update(
+    call: &TerminalToolCall<'_>,
+    hooks: &dyn AcpProviderHooks,
+) -> Option<RuntimeSubagentUpdate> {
     if !is_carrier(call.tool_name, hooks) {
         return None;
     }
