@@ -12,6 +12,7 @@ import {
 } from "@/api/generated";
 import type { RowSwipeAction } from "@/components/SidebarRowSwipeTray";
 import { archiveActionLabel, pinActionLabel } from "@/components/ProjectFeatureRowParts";
+import { translateUi } from "@/lib/i18n/ui";
 
 interface FeatureSwipeActionsInput {
   featureId: number;
@@ -45,17 +46,25 @@ export function featureSwipeActions({
 }: FeatureSwipeActionsInput): RowSwipeAction[] {
   const named = (label: string): Pick<RowSwipeAction, "label" | "ariaLabel"> => ({
     label,
-    ariaLabel: `${label} “${title}”`,
+    ariaLabel: translateUi("phone.actionOnConversation", "{{action}} “{{title}}”", {
+      action: label,
+      title,
+    }),
   });
   const actions: RowSwipeAction[] = [];
   if (onMarkDone) {
-    actions.push({ key: "done", ...named("Done"), icon: CheckIcon, onSelect: onMarkDone });
+    actions.push({
+      key: "done",
+      ...named(translateUi("common.done", "Done")),
+      icon: CheckIcon,
+      onSelect: onMarkDone,
+    });
   }
   if (isArchived) {
     if (onUnarchive) {
       actions.push({
         key: "unarchive",
-        ...named("Unarchive"),
+        ...named(translateUi("project.featureContextMenu.unarchive", "Unarchive")),
         icon: ArchiveRestoreIcon,
         onSelect: () => onUnarchive(featureId),
         mutationKey: getUpdateFeatureStatusMutationKey(),

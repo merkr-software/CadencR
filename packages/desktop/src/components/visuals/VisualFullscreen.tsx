@@ -119,7 +119,7 @@ function VisualFullscreenContent({
               <code>{visual.code}</code>
             </pre>
           ) : (
-            <LazyBoundary label="source" variant="inline">
+            <LazyBoundary label={t("lazy.labels.source", "source")} variant="inline">
               <VisualSource code={visual.code} language={sourceLanguage} />
             </LazyBoundary>
           )}

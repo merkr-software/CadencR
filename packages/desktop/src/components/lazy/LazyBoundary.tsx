@@ -11,6 +11,7 @@ import {
 import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGlobalShortcut } from "@/hooks/useGlobalShortcut";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { LazyChunkError } from "./lazy-chunk";
 
@@ -28,7 +29,7 @@ type LazyVariantProps =
   | { variant: "overlay"; onDismiss: () => void };
 
 type LazyBoundaryProps = LazyVariantProps & {
-  /** What is loading, as the user calls it: "Terminal", "Git", "Settings". */
+  /** What is loading, as the user calls it (translated): "Terminal", "Git", "Settings". */
   label: string;
   children: ReactNode;
 };
@@ -71,6 +72,7 @@ interface LazyStateProps {
 }
 
 export function LazyLoading({ label, variant, onDismiss }: LazyStateProps): ReactElement {
+  const { t } = useUiTranslation();
   const ref = useOverlayKeys(variant, onDismiss);
   return (
     <div
@@ -83,7 +85,7 @@ export function LazyLoading({ label, variant, onDismiss }: LazyStateProps): Reac
         aria-hidden
         className={cn("animate-spin", variant === "panel" ? "size-5" : "size-4")}
       />
-      <span>Loading {label}…</span>
+      <span>{t("lazy.loading", "Loading {{label}}…", { label })}</span>
     </div>
   );
 }
@@ -116,6 +118,7 @@ class ChunkErrorBoundary extends Component<ChunkErrorBoundaryProps, { error: unk
 }
 
 export function LazyFailed({ label, variant, onDismiss }: LazyStateProps): ReactElement {
+  const { t } = useUiTranslation();
   const ref = useOverlayKeys(variant, onDismiss);
   return (
     <div
@@ -124,18 +127,20 @@ export function LazyFailed({ label, variant, onDismiss }: LazyStateProps): React
       tabIndex={variant === "overlay" ? -1 : undefined}
       className={STATE_CLASS[variant]}
     >
-      <span className="text-destructive">Couldn’t load {label}. Check the connection.</span>
+      <span className="text-destructive">
+        {t("lazy.failed", "Couldn’t load {{label}}. Check the connection.", { label })}
+      </span>
       <Button
         variant="outline"
         size="sm"
         className="phone:min-h-11"
         onClick={() => window.location.reload()}
       >
-        Reload
+        {t("common.reload", "Reload")}
       </Button>
       {variant === "overlay" && onDismiss && (
         <Button variant="ghost" size="sm" className="phone:min-h-11" onClick={onDismiss}>
-          Close
+          {t("common.close", "Close")}
         </Button>
       )}
     </div>

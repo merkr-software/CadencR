@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAnchoredZoom } from "@/hooks/useAnchoredZoom";
 import { useTouchPinch } from "@/hooks/useTouchPinch";
 import { copyToClipboard } from "@/lib/clipboard";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { tableToMarkdown } from "@/lib/table-to-markdown";
 import {
   useRichViewerStore,
@@ -54,6 +55,7 @@ function RichViewerBody({
   links: RichViewerLinks;
   onClose: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   const setViewportRef = useCallback((element: HTMLDivElement | null) => {
@@ -65,7 +67,7 @@ function RichViewerBody({
   const copy = (): void => {
     const table = viewportRef.current?.querySelector("table");
     const text = viewer.kind === "code" ? viewer.code : table ? tableToMarkdown(table) : "";
-    void copyToClipboard(text, "Copied");
+    void copyToClipboard(text, t("common.copied", "Copied"));
   };
   return (
     <>
@@ -74,7 +76,7 @@ function RichViewerBody({
           <Button
             variant="ghost"
             className={PHONE_VIEWER_BUTTON}
-            aria-label="Reset zoom"
+            aria-label={t("workspace.tools.browserToolbarActions.resetZoom", "Reset zoom")}
             onClick={() => setScale(1)}
           >
             <RotateCcwIcon />
@@ -83,7 +85,13 @@ function RichViewerBody({
         <Button
           variant="ghost"
           className={PHONE_VIEWER_BUTTON}
-          aria-label={`Copy ${viewer.title.toLowerCase()}`}
+          aria-label={
+            viewer.kind === "table"
+              ? t("markdown.richViewer.copyTable", "Copy table")
+              : t("markdown.richViewer.copyCode", "Copy {{language}}", {
+                  language: viewer.title.toLowerCase(),
+                })
+          }
           onClick={copy}
         >
           <CopyIcon />

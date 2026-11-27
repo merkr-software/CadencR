@@ -115,7 +115,7 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
           </DialogDescription>
         </DialogHeader>
 
-        <LazyBoundary label="changelog" variant="inline">
+        <LazyBoundary label={t("lazy.labels.changelog", "changelog")} variant="inline">
           <LazyChangelogBody state={bodyState} />
         </LazyBoundary>
         {status === "downloaded" && <UpdateInstallNotice />}

@@ -1,7 +1,7 @@
 import { useRef, type ReactElement } from "react";
 import { EllipsisIcon, Loader2Icon } from "lucide-react";
 
-import { useUiTranslation } from "@/lib/i18n/ui";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 
 import type { CustomAction } from "@/api/generated";
 import { CustomActionSheetRow } from "@/components/custom-actions/MobileCustomActionsSheet";
@@ -53,6 +53,7 @@ export function PhoneFeatureMoreSheet({
   featureLabel,
   showCustomActions,
 }: PhoneFeatureMoreSheetProps): ReactElement {
+  const { t } = useUiTranslation();
   // The header's launcher owns the fallback poll; this only reads the list.
   const customActions = useFeatureCustomActions(projectId, featureId, {
     enabled: showCustomActions,
@@ -64,29 +65,10 @@ export function PhoneFeatureMoreSheet({
     handingOffRef.current = true;
     git.setPickerOpen(false);
   };
-  const flag = moreFlag(git, actions);
+  const flag = moreFlag(git, actions, t);
   return (
     <Dialog open={git.pickerOpen} onOpenChange={git.setPickerOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative size-11 shrink-0"
-          data-phone-more-trigger
-          aria-label={flag ? `Conversation actions, ${flag.label}` : "Conversation actions"}
-        >
-          <EllipsisIcon className="size-5" />
-          {flag && (
-            <span
-              aria-hidden
-              className={cn(
-                "absolute top-2.5 right-2.5 size-2 rounded-full ring-2 ring-background",
-                flag.tone,
-              )}
-            />
-          )}
-        </Button>
-      </DialogTrigger>
+      <MoreSheetTrigger flag={flag} />
       <PhoneSheetContent
         onCloseAutoFocus={(event) => {
           if (!handingOffRef.current) return;
@@ -94,9 +76,14 @@ export function PhoneFeatureMoreSheet({
           event.preventDefault();
         }}
       >
-        <DialogTitle className="sr-only">Conversation actions</DialogTitle>
+        <DialogTitle className="sr-only">
+          {t("phone.header.actions", "Conversation actions")}
+        </DialogTitle>
         <DialogDescription className="sr-only">
-          Branch, worktree, Git and custom actions for this conversation.
+          {t(
+            "phone.header.actionsDescription",
+            "Branch, worktree, Git and custom actions for this conversation.",
+          )}
         </DialogDescription>
         <div className="flex flex-col overflow-y-auto px-2 pt-2 pb-3">
           {featureLabel && (
@@ -104,7 +91,9 @@ export function PhoneFeatureMoreSheet({
               <FeatureLabelChip label={featureLabel} className="max-w-full" />
             </div>
           )}
-          <PhoneSheetHeading className="px-2">Branch</PhoneSheetHeading>
+          <PhoneSheetHeading className="px-2">
+            {t("palette.preview.branch", "Branch")}
+          </PhoneSheetHeading>
           <PhoneBranchSection
             featureId={featureId}
             projectId={projectId}
@@ -115,7 +104,9 @@ export function PhoneFeatureMoreSheet({
               worktree?.onToggle();
             }}
           />
-          <PhoneSheetHeading className="px-2">Git</PhoneSheetHeading>
+          <PhoneSheetHeading className="px-2">
+            {t("workspace.git.gitActionControls.git", "Git")}
+          </PhoneSheetHeading>
           {git.statusRetry.issue && (
             <PhoneGitStatusIssue issue={git.statusRetry.issue} retry={git.statusRetry} />
           )}
@@ -144,6 +135,33 @@ export function PhoneFeatureMoreSheet({
         </div>
       </PhoneSheetContent>
     </Dialog>
+  );
+}
+
+/** "…": its accessible name says what it flags, the dot shows it. */
+function MoreSheetTrigger({ flag }: { flag: MoreFlag | null }): ReactElement {
+  const { t } = useUiTranslation();
+  return (
+    <DialogTrigger asChild>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative size-11 shrink-0"
+        data-phone-more-trigger
+        aria-label={flag ? flag.label : t("phone.header.actions", "Conversation actions")}
+      >
+        <EllipsisIcon className="size-5" />
+        {flag && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-2.5 right-2.5 size-2 rounded-full ring-2 ring-background",
+              flag.tone,
+            )}
+          />
+        )}
+      </Button>
+    </DialogTrigger>
   );
 }
 
@@ -182,18 +200,24 @@ function CustomActionsSection({
   onDone: () => void;
   onShowDetails: (actionId: number) => void;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   if (query.isSuccess && query.data.length === 0) return null;
   return (
     <>
-      <PhoneSheetHeading className="px-2">Custom actions</PhoneSheetHeading>
+      <PhoneSheetHeading className="px-2">
+        {t("customActions.customActionsLauncher.customActions", "Custom actions")}
+      </PhoneSheetHeading>
       {query.isError ? (
         <p role="alert" className="flex min-h-11 items-center px-2 text-sm text-destructive">
-          {apiErrorMessage(query.error, "Couldn't load custom actions.")}
+          {apiErrorMessage(
+            query.error,
+            t("phone.header.customActionsLoadFailed", "Couldn't load custom actions."),
+          )}
         </p>
       ) : query.isPending ? (
         <p className="flex min-h-11 items-center gap-2 px-2 text-sm text-muted-foreground">
           <Loader2Icon className="size-4 animate-spin" />
-          Loading actions…
+          {t("customActions.customActionsManager.loadingActions", "Loading actions…")}
         </p>
       ) : (
         <ul className="flex flex-col">
@@ -214,18 +238,30 @@ function CustomActionsSection({
   );
 }
 
+interface MoreFlag {
+  label: string;
+  tone: string;
+}
+
 /** What "…" flags: a Git run or a custom action that runs or failed. */
 function moreFlag(
   git: GitActionController,
   actions: readonly CustomAction[],
-): { label: string; tone: string } | null {
+  t: UiTranslator,
+): MoreFlag | null {
   const gitRun = activeGitActivity(git.activities);
   const custom = aggregateRunState(actions);
   if (gitRun?.activity === "failed" || custom === "failed" || git.statusRetry.issue) {
-    return { label: "something failed", tone: "bg-[var(--acc-red)]" };
+    return {
+      label: t("phone.header.actionsFailed", "Conversation actions, something failed"),
+      tone: "bg-[var(--acc-red)]",
+    };
   }
   if (gitRun || custom === "running") {
-    return { label: "something is running", tone: "bg-[var(--acc-orange)]" };
+    return {
+      label: t("phone.header.actionsRunning", "Conversation actions, something is running"),
+      tone: "bg-[var(--acc-orange)]",
+    };
   }
   return null;
 }

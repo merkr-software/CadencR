@@ -50,7 +50,11 @@ export const AssistMenu = memo(function AssistMenu(): ReactElement {
         </button>
       </AdaptivePopoverTrigger>
       <AdaptivePopoverContent
-        sheetTitle={helpShown ? "Composer keys & syntax" : "Session details"}
+        sheetTitle={
+          helpShown
+            ? t("conversation.composer.composerHelp.composerKeysSyntax", "Composer keys & syntax")
+            : t("conversation.composer.assistMenu.sessionDetails", "Session details")
+        }
         // The session panel's controls are desktop-sized: 44px targets in the sheet.
         // Its bottom padding replaces the sheet's, so it keeps the home-indicator inset.
         sheetClassName={cn(

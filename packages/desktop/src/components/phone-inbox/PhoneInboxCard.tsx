@@ -13,6 +13,7 @@ import { formatElapsed } from "@/lib/format-elapsed";
 import type { NextActionKind } from "@/lib/next-actions";
 import { serverToLocalMs } from "@/lib/server-clock";
 import { cn } from "@/lib/utils";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { preloadPressedConversation } from "@/hooks/useConversationPreloadIntent";
 import { useFeatureTurnStartedAt } from "@/stores/session-status-selectors";
 
@@ -59,6 +60,7 @@ export const InboxCard = memo(function InboxCard({
   onOpen,
   nextAction,
 }: InboxCardProps): ReactElement {
+  const { t } = useUiTranslation();
   const { title: liveTitle } = useFeatureTitle(feature.id);
   const title = liveTitle ?? feature.title;
   const cardRef = useRef<HTMLLIElement>(null);
@@ -102,7 +104,9 @@ export const InboxCard = memo(function InboxCard({
           {working ? <WorkingSummary featureId={feature.id} /> : summary}
           <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
             <ProjectBadge projectId={feature.project_id} size="xs" />
-            <span className="min-w-0 truncate">{projectName ?? "Unknown project"}</span>
+            <span className="min-w-0 truncate">
+              {projectName ?? t("palette.preview.unknownProject", "Unknown project")}
+            </span>
           </span>
         </span>
       </button>
@@ -111,7 +115,10 @@ export const InboxCard = memo(function InboxCard({
           <Button
             variant="raised"
             className={cn("min-h-11 min-w-[4.5rem] px-3", action.className)}
-            aria-label={`${action.label} “${title}”`}
+            aria-label={t("phone.actionOnConversation", "{{action}} “{{title}}”", {
+              action: action.label,
+              title,
+            })}
             onClick={action.onPress}
           >
             {action.label}
@@ -145,12 +152,13 @@ const WorkingSummary = memo(function WorkingSummary({
 }: {
   featureId: number;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const startedAt = useFeatureTurnStartedAt(featureId);
   const anchor = startedAt == null ? null : serverToLocalMs(startedAt);
   const now = useNow(anchor != null, 1_000, anchor);
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-[13px] leading-[18px]">
-      <span className="font-medium text-blue-500">Working</span>
+      <span className="font-medium text-blue-500">{t("sidebar.attention.working", "Working")}</span>
       {anchor != null && (
         <span className="tabular-nums text-muted-foreground">
           {formatElapsed(Math.max(0, now - anchor))}

@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { EYEBROW_TEXT_CLASS } from "@/components/SidebarBlock";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 interface InboxSectionProps {
   label: string;
@@ -72,6 +73,7 @@ function SectionBody({
   InboxSectionProps,
   "loading" | "error" | "empty" | "isEmpty" | "label" | "children"
 >): ReactElement {
+  const { t } = useUiTranslation();
   if (error) {
     return (
       <p role="alert" className="px-1 text-sm text-destructive">
@@ -81,7 +83,11 @@ function SectionBody({
   }
   if (isEmpty && loading) {
     return (
-      <div aria-label={`Loading ${label}`} aria-busy className="flex flex-col gap-2">
+      <div
+        aria-label={t("sidebar.conversationBlock.loading", "Loading {{label}}", { label })}
+        aria-busy
+        className="flex flex-col gap-2"
+      >
         <Skeleton className="h-16 rounded-xl" />
         <Skeleton className="h-16 rounded-xl" />
       </div>

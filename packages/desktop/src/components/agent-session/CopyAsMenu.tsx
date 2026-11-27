@@ -128,7 +128,11 @@ export function CopyAsMenu({ content, sourceRef }: CopyAsMenuProps): ReactElemen
           <ChevronDownIcon className="size-3" />
         </button>
       </AdaptiveMenuTrigger>
-      <AdaptiveMenuContent align="start" sheetTitle="Copy as" sheetTitleVisible>
+      <AdaptiveMenuContent
+        align="start"
+        sheetTitle={t("conversation.stream.copyAsMenu.copyAs", "Copy as")}
+        sheetTitleVisible
+      >
         <CopyAsItems getContent={() => content} sourceRef={sourceRef} />
       </AdaptiveMenuContent>
     </AdaptiveMenu>

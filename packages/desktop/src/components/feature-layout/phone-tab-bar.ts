@@ -1,3 +1,4 @@
+import { translateUi, type UiTranslator } from "@/lib/i18n/ui";
 import type { BuiltinTabKind, TabKind } from "@/stores/feature-layout-schema";
 
 import type { FeatureTabDef, FeatureTabs } from "./types";
@@ -6,10 +7,12 @@ import type { FeatureTabDef, FeatureTabs } from "./types";
 const PHONE_BAR_TABS: readonly BuiltinTabKind[] = ["agent", "terminal", "git", "editor"];
 
 /** Shorter names where the bar's label has a few characters of room. */
-const PHONE_TAB_LABELS: Partial<Record<TabKind, string>> = { editor: "Files" };
-
-export function phoneTabLabel(tab: TabKind, def: FeatureTabDef): string {
-  return PHONE_TAB_LABELS[tab] ?? def.label;
+export function phoneTabLabel(
+  tab: TabKind,
+  def: FeatureTabDef,
+  t: UiTranslator = translateUi,
+): string {
+  return tab === "editor" ? t("phone.tabs.files", "Files") : def.label;
 }
 
 export interface PhoneTabGroups {

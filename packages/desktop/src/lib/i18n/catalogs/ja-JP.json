@@ -289,7 +289,8 @@
         "description": "各エージェントのターンの頻度は、ストリームで展開されます。これは、エージェントが何をしているのか、決して変更するだけです。",
         "messageNavigator": "メッセージナビゲーター",
         "messageNavigatorDescription": "エージェントタブの右端にある小さなダニでメッセージのそれぞれをマークします。 チェックをオンにしてメッセージをプレビューし、そこにスクロールするか、{{previousCombo}} / {{nextCombo}}を押します。",
-        "title": "エージェントのトランスクリプト"
+        "title": "エージェントのトランスクリプト",
+        "messageNavigatorDescriptionTouch": "エージェントタブの右端に、自分の各メッセージを示す小さな目盛りを表示します。目盛りをタップすると、そのメッセージまでスクロールします。"
       }
     },
     "cli": {
@@ -475,7 +476,8 @@
         "archivingSession": "アーカイブセッション...",
         "couldNotArchiveSession": "セッションをアーカイブできない",
         "sessionArchived": "セッションアーカイブ",
-        "sessionArchivedButItsCleanupDidNotReportBack": "セッションをアーカイブしましたが、クリーンアップの結果が返りませんでした"
+        "sessionArchivedButItsCleanupDidNotReportBack": "セッションをアーカイブしましたが、クリーンアップの結果が返りませんでした",
+        "undo": "元に戻す"
       },
       "archiveRelativeOptions": {
         "alsoArchiveEveryActiveDescendantSession": "また、すべてのアクティブな子孫セッションをアーカイブします。",
@@ -537,7 +539,9 @@
           "finishTypingToReviewIt": "入力を終えてから内容を確認してください",
           "permissionPending": "権限の確認待ち",
           "planPending": "計画承認の終了",
-          "questionPending": "質問の終了"
+          "questionPending": "質問の終了",
+          "answer": "回答",
+          "review": "確認"
         },
         "agentQuestionDrawer": {
           "next": "次へ",
@@ -548,7 +552,8 @@
         "assistMenu": {
           "keysSyntax": "キーとシンタックス",
           "moreComposerActions": "入力欄のその他の操作",
-          "session": "セッション"
+          "session": "セッション",
+          "sessionDetails": "セッションの詳細"
         },
         "autoMessageMenu": {
           "messageSendOptions": "メッセージ送信オプション",
@@ -672,7 +677,8 @@
           "bypass": "安全チェックなし",
           "changed": "モードを {{label}} に変更しました：{{risk}}",
           "edits": "確認なしで編集",
-          "read": "読み取り専用"
+          "read": "読み取り専用",
+          "sheetTitle": "モード"
         },
         "modelPickerRow": {
           "inheritModel": "アヒーライト (Inherit){{model}})",
@@ -1513,7 +1519,8 @@
           "resetZoom0": "リセットズーム (0)",
           "scrollToPanPinchToZoom": "パンにスクロールする・パンにピンチする・{{PAN_MODIFIER}}-dragにパンに",
           "zoomIn": "ズームイン(+)",
-          "zoomOut": "ズームアウト(−)"
+          "zoomOut": "ズームアウト(−)",
+          "expandDiagram": "ダイアグラムを拡大表示"
         },
         "mermaidFullscreen": {
           "diagram": "ダイアグラム"
@@ -1555,7 +1562,8 @@
           "on": "オン",
           "openModelPicker": "オープンモデルピッカー",
           "selectedModel": "モデル: {{modelLabel}}",
-          "thinkingEffort": "思考の努力: {{effort}}"
+          "thinkingEffort": "思考の努力: {{effort}}",
+          "thinkingEffortTitle": "推論の強度"
         },
         "planBlock": {
           "approved": "承認済み",
@@ -1921,7 +1929,8 @@
           "saving": "保存中",
           "thisBranch": "このブランチ",
           "usesAWorktree": "ワークツリーを使用する",
-          "whereTheAgentWorks": "代理人が働く場所: {{label}}"
+          "whereTheAgentWorks": "代理人が働く場所: {{label}}",
+          "sheetTitle": "エージェントの作業場所"
         },
         "worktreePopover": {
           "baseBranch": "基礎枝: {{branchLabel}}",
@@ -1944,6 +1953,9 @@
           "restart": "中断：処理が完了する前に Cadencr が再起動しました。",
           "quit": "停止：処理が完了する前に Cadencr が終了しました。",
           "user": "ユーザーが停止しました。"
+        },
+        "messageActionsMenu": {
+          "messageActions": "メッセージのアクション"
         }
       },
       "subagent-presentation": {
@@ -2100,6 +2112,18 @@
         "streamFailed": "タイトルが完成する前に、自動命名プロバイダーとの接続でエラーが発生しました。もう一度お試しください。",
         "timeout": "自動命名プロバイダーが制限時間内に処理を完了しませんでした。もう一度試すか、より高速な命名モデルを選んでください。",
         "warning": "この会話の名前を自動で変更できませんでした。{{detail}}"
+      },
+      "archiveUndo": {
+        "terminalsAndBrowserTabsClosed": "ターミナルとブラウザータブは閉じたままです。",
+        "terminalsClosed": "ターミナルは閉じたままです。",
+        "browserTabsClosed": "ブラウザータブは閉じたままです。",
+        "schedulesMaybePaused": "アーカイブ時に一時停止したスケジュールは、停止したままです。",
+        "schedulesPaused_other": "{{count}} 件のスケジュールは一時停止したままです。",
+        "restoring": "セッションを復元しています…",
+        "restored_other": "{{count}} 件のセッションを復元しました",
+        "unarchiveFailed": "アーカイブから戻せませんでした",
+        "restoreFailed": "セッションを復元できませんでした",
+        "partlyRestored_other": "{{count}} 件中 {{restored}} 件のセッションを復元しました"
       }
     },
     "customActions": {
@@ -2276,9 +2300,7 @@
         "schedule": "スケジュール {{name}} ..."
       },
       "mobile": {
-        "failed": "アクション、失敗した1",
         "help": "この会話の作業コピーで実行します。",
-        "running": "アクション, 1つの実行",
         "terminal": "ターミナルを開く"
       },
       "mobileCustomActionsSheet": {
@@ -2302,7 +2324,8 @@
       "runNamed": "実行 “{{name}}”",
       "saving": "保存中…",
       "settings": {
-        "help": "多くの場合、会話の作業コピーで実行するコマンド:テスト、linters、デプロイ、devサーバー。各プロジェクトのヘッダは独自のアクションをリストし、その後、グローバルで実行します。ヘッダランチャーから実行し、各アクションには、出力、実行、設定、または<shortcut />を含むページがあります。"
+        "help": "多くの場合、会話の作業コピーで実行するコマンド:テスト、linters、デプロイ、devサーバー。各プロジェクトのヘッダは独自のアクションをリストし、その後、グローバルで実行します。ヘッダランチャーから実行し、各アクションには、出力、実行、設定、または<shortcut />を含むページがあります。",
+        "helpTouch": "会話の作業コピーでよく実行するコマンド（テスト、リンター、デプロイ、開発サーバーなど）です。各プロジェクトのヘッダーには、そのプロジェクトのアクション、続いてグローバルなアクションが、下の順序で表示されます。ヘッダーランチャーから実行できます。各アクションには、出力、実行履歴、設定を確認できるページもあります。"
       },
       "starting": "スタート...",
       "status": {
@@ -2773,7 +2796,8 @@
     "home": {
       "emptyProject": {
         "hint": "サイドバーの「＋」から新しい会話を始められます",
-        "title": "このプロジェクトに会話はまだありません"
+        "title": "このプロジェクトに会話はまだありません",
+        "phoneTitle": "このプロジェクトに会話はまだありません"
       },
       "feature": {
         "back": "ホームに戻る",
@@ -2788,7 +2812,8 @@
       "loading": "読み込み中…",
       "noProjects": {
         "hint": "サイドバーの + ボタンからプロジェクトを追加できます。",
-        "title": "プロジェクトはまだありません"
+        "title": "プロジェクトはまだありません",
+        "hintPhone": "メニューを開き、+ ボタンからプロジェクトを追加してください"
       }
     },
     "marketplace": {
@@ -4447,71 +4472,69 @@
         "checking": "リモートアクセスを確認しています…",
         "connected_other": "リモートアクセスが有効 · {{count, number}} 台のデバイスが接続中",
         "connected_zero": "リモートアクセスが有効 · {{count, number}} 台のデバイスが接続中",
-        "description": "ネットワーク経由で別のデバイスからこのワークスペースを使用できます。このコンピューターに接続し、ペアリングできる人にはすべてのアクセス権が与えられます。信頼できるネットワークでのみ有効にしてください。",
-        "disabled": "リモートアクセスは無効です",
-        "disabledHint": "有効にすると、ローカルネットワーク上でワークスペースにアクセスできます。",
         "enabled": "リモートアクセスは有効です",
-        "enabledHint": "ローカルネットワーク上で TLS を使って接続できます。",
         "errors": {
           "bind": "リモートアクセス用のポートを確保できませんでした。別のプロセスが使用している可能性があります。",
           "malformed": "リモートアクセスの状態を示す応答が不正です。",
           "missingIndex": "サービスを利用できません。リモートアクセスにはビルド済みのフロントエンドが必要です。{{path}} に index.html がありません。",
           "request": "リモートアクセスのリクエストに失敗しました。",
-          "unpacked": "サービスを利用できません。リモートアクセスにはパッケージ版が必要です（レンダラーのディレクトリがありません）。"
+          "unpacked": "サービスを利用できません。リモートアクセスにはパッケージ版が必要です（レンダラーのディレクトリがありません）。",
+          "poll": "リモートアクセスの状態を更新できませんでした。"
         },
         "opening": "リモートアクセスを開いています…",
-        "preventSleep": {
-          "description": "リモートアクセスが有効な間、このコンピューターの自動スリープを防ぎます。画面のロックや消灯は可能です。手動でスリープにした場合、ノートパソコンの蓋を閉じた場合、バッテリー残量が少ない場合は、接続が中断されることがあります。",
-          "title": "リモートアクセス中の自動スリープを防ぐ"
-        },
         "sections": {
           "activity": "最近のアクティビティ",
-          "connection": "接続と証明書",
-          "devices": "ペアリング済みのデバイス（{{deviceCount}} 台）",
-          "tunnel": "インターネット経由のアクセス"
+          "pairedDevices": "ペアリング済みのデバイス",
+          "addresses": "アドレスと証明書",
+          "awayFromHome": "外出先で使う"
         },
         "title": "リモートアクセス",
-        "toggle": "リモートアクセスの切り替え"
+        "subtitle": "スマートフォンやタブレットから、このワークスペースを使えます。",
+        "off": {
+          "title": "スマートフォンからエージェントを見守る",
+          "body": "有効にしてスマートフォンでコードを読み取ると、ネットワーク内のどこからでも会話を読んだり、回答したり、新しく始めたりできます。",
+          "enable": "リモートアクセスを有効にする",
+          "warning": "ペアリングしたデバイスは、このワークスペースにフルアクセスできます。信頼できるネットワークでのみ有効にしてください。"
+        },
+        "status": {
+          "noDevices": "ペアリング済みのデバイスはまだありません",
+          "devices_other": "{{count, number}} 台のデバイスをペアリング済み · {{connected, number}} 台が接続中"
+        },
+        "keepAwake": {
+          "title": "このコンピューターをスリープさせない",
+          "description": "リモートアクセスが有効な間に適用されます。画面のロックはかかります。また、蓋を閉じたりバッテリー残量が少なくなったりすると、スリープします。"
+        }
       },
       "lan": {
-        "compareHint": "LAN で接続する場合は、証明書の警告を承認する前に、ここに表示された SHA-256 フィンガープリントを、接続先のデバイスのブラウザーに表示される証明書と照合してください。この照合が完了するまで、上のペアリング画面にコードは表示されません。",
         "fingerprintCopied": "フィンガープリントをコピーしました",
         "noAddress": "ローカルネットワークのアドレスが見つかりません。Wi-Fi に接続するか、トンネルを使用してください。",
-        "urlCopied": "URL をコピーしました"
+        "urlCopied": "URL をコピーしました",
+        "fingerprintHint": "ネットワーク上のスマートフォンには、この証明書が提示されます。ブラウザーの警告の詳細に表示されるものと照合するための SHA-256 フィンガープリント："
       },
       "pairing": {
-        "certificate": {
-          "browserFingerprint": "接続するデバイスのブラウザーに表示された SHA-256 フィンガープリント",
-          "compare": "照合してペアリングコードを表示",
-          "expected": "ホストの SHA-256 フィンガープリント",
-          "instructions": "接続するデバイスでこのアドレスを開いてください。このときペアリングコードは不要です。ブラウザーの証明書ビューアーで SHA-256 フィンガープリントを確認し、証明書の警告を承認する前に、このホストに表示された値と照合してください。Cadencr から接続先ブラウザーの証明書を確認することはできません。",
-          "mismatch": "SHA-256 フィンガープリントが一致しません。ペアリングを行わず、証明書とホストを確認し直してください。",
-          "placeholder": "SHA-256 フィンガープリント全体を貼り付け",
-          "unavailable": "ホストのフィンガープリントを取得できないため、ペアリングできません。",
-          "urlCopied": "証明書確認用の URL をコピーしました"
-        },
         "code": {
           "errors": {
-            "addressChanged": "接続先のアドレスが変わりました。ペアリングする前にもう一度選んでください。",
-            "certificateChanged": "ホストの証明書が変わりました。「リモートアクセス」を開き直し、証明書をもう一度確認してください。",
             "disabled": "ペアリングするには、先にリモートアクセスを有効にしてください。",
             "malformed": "ペアリングコードを含む応答が不正です。",
-            "request": "ペアリングコードを作成できませんでした。"
+            "request": "ペアリングコードを作成できませんでした。",
+            "certificateChangedReopen": "このコンピューターの証明書が変更されました。リモートアクセスを閉じて、もう一度開いてください。",
+            "addressGone": "このアドレスは使用できなくなりました。別のアドレスを選んでください。"
           },
-          "expiresIn": "有効期限まで {{seconds}} 秒",
-          "generate": "ペアリングコードを作成",
-          "generateAnother": "新しいコードを作成",
-          "instructions": "コードを作成したら、接続するデバイスで QR コードを読み取るか、リンクを開いてください。コードは一度だけ使用でき、短時間で期限が切れます。",
           "linkCopied": "ペアリングリンクをコピーしました",
-          "qrLabel": "ペアリング用の QR コード",
-          "regenerate": "新しいコード",
-          "used": "このコードは使用済みです。コードは一度だけ使用できます。別のデバイスをペアリングするには新しいコードを作成してください。"
+          "showNew": "新しいコードを表示",
+          "paired": "<name>{{device}}</name> をペアリングしました。",
+          "aDevice": "デバイス",
+          "pairAnother": "別のデバイスやホーム画面のアプリをペアリングするには、新しいコードを読み取ってください。",
+          "notYou": "心当たりがなければアクセスを取り消す",
+          "qrTitle": "ペアリングコード",
+          "creating": "コードを作成しています",
+          "expired": "コードの有効期限が切れました。読み取る準備ができたら、新しいコードを表示してください。",
+          "lifetime": "コードの有効期間",
+          "newIn": "{{time}} 後に新しいコード",
+          "copyLink": "リンクをコピー"
         },
         "connected": "このワークスペースに接続しました。",
-        "connectionAddress": "接続アドレス",
-        "connectionHint": "ブラウザーが信頼する証明書を使い、非公開の Tailscale 接続を利用することをおすすめします。LAN で接続する場合は、ペアリングコードを共有する前に証明書を照合してください。",
         "error": {
-          "expired": "ペアリングコードの有効期限が切れました。ホストコンピューターで新しいコードを作成してください。",
           "failed": "ペアリングに失敗しました。",
           "http": "ペアリングに失敗しました（HTTP {{status}}）。",
           "invalidInput": "コンピューターに表示されたペアリング用のリンクまたはコードを貼り付けてください。",
@@ -4519,35 +4542,61 @@
           "malformedResponse": "ペアリングの応答が不正です。",
           "signInNotSaved": "ペアリングは完了しましたが、このブラウザーにログイン状態を保存できませんでした。別のブラウザーをお試しください。",
           "storageBlocked": "ペアリングは完了しましたが、このブラウザーではデータの保存が許可されていません。再読み込み後にもう一度ペアリングしてください。",
-          "unsafeAddress": "このページのアドレスからペアリングコードを取り除けなかったため、ペアリングを中止しました。"
+          "unsafeAddress": "このページのアドレスからペアリングコードを取り除けなかったため、ペアリングを中止しました。",
+          "usedOrExpired": "このコードは使用済みか、有効期限が切れています。コンピューターに表示された新しいコードを読み取ってください。",
+          "rateLimited": "ペアリングの試行回数が多すぎます。1 分待ってから、もう一度読み取ってください。"
         },
         "gate": {
-          "inputLabel": "ペアリング用のリンクまたはコード",
-          "instructions": "コンピューターで <setting>リモートアクセス</setting> を開いてください。QR コードを読み取るか、ペアリングリンクを下に貼り付けてください。",
-          "pairing": "ペアリングしています…",
-          "pasteAlternative": "またはリンクを貼り付け",
-          "placeholder": "ペアリングリンクを貼り付け…",
-          "scan": "QR コードを読み取る",
-          "submit": "ペアリング",
-          "title": "このデバイスをペアリング"
+          "title": "このデバイスをペアリング",
+          "openingCamera": "カメラを起動しています…",
+          "pairingDevice": "このデバイスをペアリングしています…",
+          "scanInstructions": "コンピューターで<name>リモートアクセス</name>（Cadencr のサイドバー下部にある <icon/>）を開き、表示されたコードを読み取ってください。",
+          "radioIcon": "電波のアイコン",
+          "scanCode": "コードを読み取る",
+          "staySignedInHint": "オフにすると、閉じた後にこのデバイスを再度ペアリングする必要があります。",
+          "staySignedInLabel": "このデバイスでログイン状態を保持",
+          "pasteOpen": "カメラがない場合はペアリングリンクを貼り付け",
+          "pastePlaceholder": "「リンクをコピー」でコピーしたリンクを貼り付け",
+          "pasteLabel": "ペアリングリンク",
+          "pasteInvalid": "ペアリングリンクではありません。コンピューターのコードの下にある「リンクをコピー」を使ってください。",
+          "pasteSubmit": "このリンクでペアリング"
         },
-        "lanTarget": "{{host}}・LAN",
-        "noTarget": "デバイスをペアリングするには、ネットワークに接続するか、プライベートトンネルを設定してください。",
-        "privateTunnelTarget": "{{host}} · プライベートトンネル",
         "saveSignInFailed": "このデバイスにログイン状態を保存できませんでした。",
         "scanner": {
-          "aim": "コンピューターに表示された QR コードにカメラを向けてください",
-          "backToPaste": "リンクの入力に戻る",
           "cancel": "読み取りをキャンセル",
-          "failed": "カメラを起動できませんでした。リンクを貼り付けてください。",
-          "permissionDenied": "カメラへのアクセスが拒否されました。ブラウザーの設定で許可するか、リンクを貼り付けてください。",
-          "unavailable": "このブラウザーではカメラを利用できません。リンクを貼り付けてください。",
-          "viewfinder": "カメラのプレビュー"
+          "viewfinder": "カメラのプレビュー",
+          "unavailableLink": "このブラウザーでは、ここでカメラを開けません。代わりにペアリングリンクを貼り付けてください。",
+          "deniedLink": "カメラへのアクセスが拒否されました。ブラウザーの設定で許可するか、代わりにペアリングリンクを貼り付けてください。",
+          "failedLink": "カメラを起動できませんでした。代わりにペアリングリンクを貼り付けてください。",
+          "looking": "コードを探しています…",
+          "foreignCode": "この QR コードは Cadencr のペアリングコードではありません。",
+          "hint": "見つからない場合は、コード全体が枠内に収まるように、スマートフォンを画面から 20〜30 cm 離してください。",
+          "title": "コンピューターに表示されたコードを読み取る",
+          "back": "戻る"
         },
         "staySignedIn": "ログイン状態を保持",
         "staySignedInDetail": "タブを閉じた後も、このデバイスのログイン状態を保持しますか？",
-        "title": "新しいデバイスをペアリング",
-        "trusted": "このデバイスのログイン状態は保持されます。"
+        "trusted": "このデバイスのログイン状態は保持されます。",
+        "targets": {
+          "tunnel": "プライベートトンネル",
+          "tailscale": "Tailscale",
+          "lan": "ローカルネットワーク"
+        },
+        "section": {
+          "title": "デバイスをペアリング",
+          "address": "コードが指すアドレス",
+          "noAddress": "ネットワークアドレスが見つかりません。このコンピューターを Wi-Fi に接続するか、<name>外出先で使う</name>でプライベートトンネルを設定してください。"
+        },
+        "steps": {
+          "label": "デバイスをペアリングする手順",
+          "scan": "スマートフォンのカメラでコードを読み取る",
+          "scanDetail": "または、もう一方のデバイスのブラウザーで、コピーしたリンクを開きます。",
+          "warning": "プライバシーの警告が表示されても続行する",
+          "warningDetail": "このコンピューターは自己署名証明書を使うため、ブラウザーで一度だけ警告が表示されます。警告の詳細にある SHA-256 フィンガープリントは <fingerprint>{{fingerprint}}</fingerprint> で始まります。",
+          "homeScreen": "任意：ホーム画面に追加する",
+          "homeScreenDetail": "フルスクリーンのアプリとして使えます。もう一度ペアリングを求められるので、アプリ内の<em>コードを読み取る</em>をタップし、このコードをもう一度読み取ってください。"
+        },
+        "sessionChosen": "このデバイスで Cadencr を閉じると、再度ペアリングが必要になります。"
       },
       "tunnel": {
         "clear": "クリア",
@@ -4911,7 +4960,8 @@
           "description": "一覧からすべてのショートカットを確認できます。どの画面からでも <shortcut/> で開けます。",
           "shortcuts": "キーボードショートカット",
           "title": "キーボード",
-          "view": "ショートカットを表示"
+          "view": "ショートカットを表示",
+          "descriptionTouch": "すべてのショートカットを確認できます。"
         },
         "language": {
           "loading": "言語設定を読み込み中…",
@@ -7833,7 +7883,8 @@
           "vimOffDescription": "Vim のキー操作を使わず標準のエディターで編集します。"
         },
         "editorPane": {
-          "emptyPane": "サイドバーからファイルを開くか、<newBuffer /> を押して新しいバッファへ保存するか、または <fuzzy /> を使用します。"
+          "emptyPane": "サイドバーからファイルを開くか、<newBuffer /> を押して新しいバッファへ保存するか、または <fuzzy /> を使用します。",
+          "emptyPaneTouch": "サイドバーからファイルを開いてください"
         },
         "editorPreviewSurface": {
           "htmlPreview": "HTMLプレビュー",
@@ -8425,7 +8476,8 @@
         },
         "diffViewer": {
           "loadingDiff": "差分を読み込んでいます…",
-          "noChangesDetected": "検出された変更無し"
+          "noChangesDetected": "検出された変更無し",
+          "files": "ファイル"
         },
         "featurePrComments": {
           "couldNotOpenThisReviewThread": "このレビュースレッドを開けませんでした。",
@@ -8485,11 +8537,7 @@
         "gitActionControls": {
           "git": "Git",
           "gitActions": "Git 操作",
-          "gitActionsOnBranch": "{{branch}} の Git 操作",
           "moreGitActions": "その他の Git 操作"
-        },
-        "gitActionDialogs": {
-          "loadingGitAction": "Git 操作を読み込み中…"
         },
         "gitActionPopover": {
           "commit": "コミット",
@@ -9264,6 +9312,26 @@
           "refreshing": "Git の状態を更新中…",
           "retry": "Git の状態の取得を再試行",
           "issueWithDetail": "{{label}}。{{detail}}"
+        },
+        "phoneCommitBar": {
+          "unavailable": "ここではコミットできません",
+          "cannotCommit": "コミットできません"
+        },
+        "phoneDiffFileList": {
+          "openPath": "{{path}} を開く"
+        },
+        "phoneDiffFileStep": {
+          "actionsForPath": "{{path}} のアクション",
+          "markNotViewed": "未確認に戻す",
+          "markViewed": "確認済みにする",
+          "backTo": "{{label}} に戻る",
+          "previousFile": "前のファイル",
+          "nextFile": "次のファイル"
+        },
+        "phoneGitViewPicker": {
+          "conflicted_other": "競合 {{count}} 件",
+          "currentView": "Git ビュー：{{view}}",
+          "title": "Git ビュー"
         }
       },
       "links": {
@@ -9784,7 +9852,81 @@
           "socketError": "ターミナルWebSocketエラー",
           "terminalDisconnectedYourInputWasDropped": "ターミナルの接続が切れたため、入力は送信されませんでした。再接続中…",
           "writeStalled": "ターミナルの書き込みはstalled"
+        },
+        "terminalCompatibility": {
+          "dismiss": "互換ターミナルのお知らせを閉じる",
+          "hiddenUntilReload": "次に再読み込みするまで非表示",
+          "dismissNotRemembered": "このブラウザーでは、お知らせを閉じたことを Cadencr が記憶できません。"
         }
+      }
+    },
+    "lazy": {
+      "labels": {
+        "commandPalette": "コマンドパレット",
+        "search": "検索",
+        "changelog": "変更ログ",
+        "projectSettings": "プロジェクト設定",
+        "projectLocation": "プロジェクトの場所",
+        "projectSetup": "プロジェクトのセットアップ",
+        "import": "インポート",
+        "conversation": "会話",
+        "fileSearch": "ファイル検索",
+        "gitAction": "Git アクション",
+        "page": "ページ",
+        "thisPage": "このページ",
+        "onboarding": "初期設定",
+        "source": "ソース"
+      },
+      "loading": "{{label}} を読み込んでいます…",
+      "failed": "{{label}} を読み込めませんでした。接続を確認してください。"
+    },
+    "phone": {
+      "gate": {
+        "laterLabel": "後で：このリクエストを非表示にします。エージェントは待機を続けます",
+        "later": "後で",
+        "stopConfirmTitle": "エージェントを停止しますか？",
+        "stopConfirmDescription": "回答の待機をやめ、ターンを終了します。「後で」を選ぶと、待機を続けます。"
+      },
+      "menu": {
+        "attentionCount_other": "、対応待ち {{count}} 件"
+      },
+      "actionOnConversation": "{{action}}：「{{title}}」",
+      "tabs": {
+        "barLabel": "会話のタブ",
+        "more": "その他",
+        "moreTitle": "その他のタブ",
+        "moreDescription": "タブバーに収まらないタブを開きます。",
+        "files": "ファイル"
+      },
+      "header": {
+        "worktree": "ワークツリー",
+        "hideSetup": "セットアップを隠す",
+        "setupDetails": "セットアップの詳細",
+        "actions": "会話のアクション",
+        "actionsDescription": "この会話のブランチ、ワークツリー、Git、カスタムアクションです。",
+        "customActionsLoadFailed": "カスタムアクションを読み込めませんでした。",
+        "actionsFailed": "会話のアクション、失敗した処理があります",
+        "actionsRunning": "会話のアクション、実行中の処理があります"
+      },
+      "inbox": {
+        "noConversationsDetail": "会話を始めましょう。エージェントからの質問、作業中の内容、完了した作業がここに表示されます。",
+        "recentEmpty": "最近の項目はほかにありません",
+        "newConversationIn": "新しい会話の作成先",
+        "projectsLoadFailed": "プロジェクトを読み込めませんでした"
+      }
+    },
+    "markdown": {
+      "richPreview": {
+        "expand": "拡大表示"
+      },
+      "richBlocks": {
+        "table": "表",
+        "expandTable": "表を拡大表示",
+        "expandCode": "{{language}} のコードを拡大表示"
+      },
+      "richViewer": {
+        "copyTable": "表をコピー",
+        "copyCode": "{{language}} をコピー"
       }
     }
   }

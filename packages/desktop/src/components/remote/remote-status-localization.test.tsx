@@ -78,14 +78,21 @@ it("formats the host badge and paired-device count for the display language", as
     const frenchDevices = frFR.ui.remote.host.status.devices_other
       .replace("{{count, number}}", french)
       .replace("{{connected, number}}", french);
-    const devices = await screen.findByText(frenchDevices);
+    // The dialog is its own chunk, slow to transform on a cold run.
+    const spaced = (text: string): string => text.replace(/\s+/gu, " ");
+    const devices = await screen.findByText(
+      (_, node) =>
+        node?.tagName === "P" && spaced(node.textContent ?? "") === spaced(frenchDevices),
+      undefined,
+      { timeout: 10_000 },
+    );
     await switchLanguage("en");
     expect(devices.textContent).toBe(`${english} devices paired · ${english} connected`);
   } finally {
     view.unmount();
     useRemoteStore.setState({ status, loaded });
   }
-});
+}, 20_000);
 
 it("updates device and activity labels during a pending revoke, preserving raw data", async () => {
   const now = Date.UTC(2026, 10, 25);

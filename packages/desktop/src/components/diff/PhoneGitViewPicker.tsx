@@ -1,6 +1,6 @@
 import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { CheckIcon, ChevronDownIcon, Loader2Icon, type LucideIcon } from "lucide-react";
-import { memo, useState, type ReactElement } from "react";
+import { memo, useMemo, useState, type ReactElement } from "react";
 import {
   AdaptiveMenu,
   AdaptiveMenuContent,
@@ -111,7 +111,8 @@ export const PhoneGitViewPicker = memo(function PhoneGitViewPicker(
 ): ReactElement {
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
-  const rows = gitViews(t).map((view) => viewRow(view, t, props));
+  const views = useMemo(() => gitViews(t), [t]);
+  const rows = views.map((view) => viewRow(view, t, props));
   const current = rows.find((row) => row.mode === props.value) ?? rows[0];
   const slowPending = useDelayedPending(props.pendingViewMode, GIT_VIEW_SPINNER_DELAY_MS);
   if (!current) throw new Error("Git view rows are never empty");

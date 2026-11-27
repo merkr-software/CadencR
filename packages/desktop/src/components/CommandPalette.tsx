@@ -75,7 +75,7 @@ export function CommandPalette({
         }}
       >
         <DialogTitle className="sr-only">{t("palette.title", "Command palette")}</DialogTitle>
-        <LazyBoundary label="command palette" variant="inline">
+        <LazyBoundary label={t("lazy.labels.commandPalette", "command palette")} variant="inline">
           <PaletteSurface
             activeProjectId={activeProjectId}
             activeFeatureId={activeFeatureId}

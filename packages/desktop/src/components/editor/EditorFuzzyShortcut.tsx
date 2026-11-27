@@ -9,6 +9,7 @@ import {
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
 
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { LazyBoundary } from "@/components/lazy/LazyBoundary";
 import { preloadableChunk } from "@/components/lazy/lazy-chunk";
 
@@ -45,6 +46,7 @@ export function EditorFuzzyShortcut({
   projectId,
   enabled = true,
 }: EditorFuzzyShortcutProps): ReactNode {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? featureId;
   const isEditorFocused = useFeatureLayoutStore(
@@ -65,7 +67,11 @@ export function EditorFuzzyShortcut({
 
   if (!open) return null;
   return (
-    <LazyBoundary label="file search" variant="overlay" onDismiss={() => setOpen(false)}>
+    <LazyBoundary
+      label={t("lazy.labels.fileSearch", "file search")}
+      variant="overlay"
+      onDismiss={() => setOpen(false)}
+    >
       <FileSearchDialog
         projectId={projectId}
         featureId={featureId}

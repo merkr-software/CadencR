@@ -34,8 +34,9 @@ const OnboardingOverlay = lazyChunk(() =>
 );
 
 function LazyOnboardingOverlay(props: ComponentProps<typeof OnboardingOverlay>): ReactNode {
+  const { t } = useUiTranslation();
   return (
-    <LazyBoundary label="onboarding">
+    <LazyBoundary label={t("lazy.labels.onboarding", "onboarding")}>
       <OnboardingOverlay {...props} />
     </LazyBoundary>
   );
@@ -51,7 +52,6 @@ function LocalOnboardingGate({
   openSettings,
   languageSuggestion,
 }: OnboardingGateProps): React.JSX.Element {
-  const { t } = useUiTranslation();
   const onboarding = useOnboardingStatus();
   const telemetry = useQuery({
     queryKey: TELEMETRY_QUERY_KEY,

@@ -34,7 +34,7 @@ export function AgentMessageNavigatorSetting(): React.JSX.Element {
             )
           : t(
               "appearance.transcript.messageNavigatorDescriptionTouch",
-              "Mark each of your messages with a small tick on the agent tab's right edge. Hover a tick to preview the message, click it to scroll there.",
+              "Mark each of your messages with a small tick on the agent tab's right edge. Tap a tick to scroll to its message.",
             )
       }
       checked={parseAgentMessageNavigator(setting.value)}

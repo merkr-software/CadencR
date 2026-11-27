@@ -4,6 +4,7 @@ import { useSidebarAttention } from "@/components/SidebarAttentionProvider";
 import { useRecentFeatures } from "@/components/SidebarRecentSection";
 import { useFrozenActionOrder } from "@/hooks/useFrozenActionOrder";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { newestFirstWithinTier, type ResolvedNextAction } from "@/lib/next-actions";
 import { usePendingGatePopoverStore } from "@/stores/pending-gate-popover-store";
 import { isLiveStatusKnown } from "@/stores/session-status-selectors";
@@ -42,6 +43,7 @@ const NO_PROJECTS: readonly Project[] = [];
  * re-renders nothing here.
  */
 export function usePhoneInbox(): PhoneInboxData {
+  const { t } = useUiTranslation();
   const { items, actions, actionsLoading, loadingStates } = useSidebarAttention();
   // Before the first status snapshot, "nothing waiting" would be a guess.
   const statusKnown = useSessionStatusStore(isLiveStatusKnown);
@@ -78,14 +80,23 @@ export function usePhoneInbox(): PhoneInboxData {
     [workingLoading, workingRows],
   );
   const recentError = recentQuery.error
-    ? apiErrorMessage(recentQuery.error, "Could not load recent conversations")
+    ? apiErrorMessage(
+        recentQuery.error,
+        t(
+          "sidebar.recentSection.couldNotLoadRecentConversations",
+          "Could not load recent conversations",
+        ),
+      )
     : null;
   const recent = useMemo<InboxSection<Feature>>(
     () => ({ rows: recentRows, loading: recentQuery.isPending, error: recentError }),
     [recentError, recentQuery.isPending, recentRows],
   );
   const projectsError = projectsQuery.error
-    ? apiErrorMessage(projectsQuery.error, "Could not load projects")
+    ? apiErrorMessage(
+        projectsQuery.error,
+        t("phone.inbox.projectsLoadFailed", "Could not load projects"),
+      )
     : null;
   const projectSection = useMemo<InboxSection<Project>>(
     () => ({ rows: projects, loading: projectsQuery.isPending, error: projectsError }),

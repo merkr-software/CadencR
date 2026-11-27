@@ -205,7 +205,7 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
       barBadge: <GitBarBadge featureId={featureId} />,
       content: gitReady ? (
-        <LazyBoundary label="Git">
+        <LazyBoundary label={label}>
           <FeatureGitTab
             featureId={featureId}
             projectId={projectId}
@@ -249,7 +249,7 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       shortcutId: "pane-browser",
       badge: <AgentBrowserActivityDot featureId={featureId} />,
       content: browserReady ? (
-        <LazyBoundary label="Browser">
+        <LazyBoundary label={label}>
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />
         </LazyBoundary>
       ) : (
@@ -270,7 +270,7 @@ function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {
       label,
       Icon: FileTextIcon,
       content: previewReady ? (
-        <LazyBoundary label="Preview">
+        <LazyBoundary label={label}>
           <FeaturePreviewTab featureId={featureId} projectId={projectId} />
         </LazyBoundary>
       ) : (
@@ -295,7 +295,7 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
       content: !editorReady ? (
         <DeferredTabContent label={label} />
       ) : projectPathOrCwd ? (
-        <LazyBoundary label="Editor">
+        <LazyBoundary label={label}>
           <FeatureEditorTab
             ref={refs.editor}
             featureId={featureId}

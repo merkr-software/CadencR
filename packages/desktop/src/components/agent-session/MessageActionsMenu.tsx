@@ -7,6 +7,7 @@ import {
   AdaptiveMenuLabel,
   AdaptiveMenuTrigger,
 } from "@/components/PhoneSheetMenu";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { COPY_AS_FORMATS, CopyAsItems, copyMessageAs } from "./CopyAsMenu";
 
@@ -46,13 +47,15 @@ export const MessageActionsMenu = memo(function MessageActionsMenu({
   side,
   children,
 }: MessageActionsMenuProps): ReactElement {
+  const { t } = useUiTranslation();
   const getContent = (): string => contentRef.current;
+  const title = t("conversation.stream.messageActionsMenu.messageActions", "Message actions");
   return (
     <AdaptiveMenu>
       <AdaptiveMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Message actions"
+          aria-label={title}
           data-message-actions-trigger=""
           className={cn(
             "group/msgactions relative -mb-5 flex size-11 shrink-0 items-start text-muted-foreground outline-none",
@@ -67,14 +70,16 @@ export const MessageActionsMenu = memo(function MessageActionsMenu({
           </span>
         </button>
       </AdaptiveMenuTrigger>
-      <AdaptiveMenuContent sheetTitle="Message actions">
+      <AdaptiveMenuContent sheetTitle={title}>
         <AdaptiveMenuItem onSelect={() => copyMessageAs("markdown", getContent(), sourceRef)}>
           <CopyIcon />
-          Copy
+          {t("common.copy", "Copy")}
         </AdaptiveMenuItem>
         {copyAsFormats && (
           <>
-            <AdaptiveMenuLabel>Copy as</AdaptiveMenuLabel>
+            <AdaptiveMenuLabel>
+              {t("conversation.stream.copyAsMenu.copyAs", "Copy as")}
+            </AdaptiveMenuLabel>
             <CopyAsItems
               formats={SHEET_COPY_AS_FORMATS}
               getContent={getContent}

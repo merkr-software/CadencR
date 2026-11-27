@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 /** A 44px icon button in `PhoneViewerHeader`. */
 export const PHONE_VIEWER_BUTTON =
@@ -13,7 +14,7 @@ export const PHONE_VIEWER_BUTTON =
  */
 export function PhoneViewerHeader({
   title,
-  closeLabel = "Close",
+  closeLabel,
   onClose,
   children,
 }: {
@@ -23,6 +24,8 @@ export function PhoneViewerHeader({
   /** The viewer's actions, before Close. */
   children?: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
+  const label = closeLabel ?? t("common.close", "Close");
   return (
     <div className="flex h-11 shrink-0 items-center border-b border-border pl-4 [&_button]:size-11">
       <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
@@ -30,8 +33,8 @@ export function PhoneViewerHeader({
       <Button
         variant="ghost"
         className={PHONE_VIEWER_BUTTON}
-        aria-label={closeLabel}
-        title={closeLabel}
+        aria-label={label}
+        title={label}
         onClick={onClose}
       >
         <XIcon />

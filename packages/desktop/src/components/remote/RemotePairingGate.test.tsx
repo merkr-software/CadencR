@@ -260,7 +260,7 @@ describe("RemotePairingGate", () => {
         pairing: {
           gate: {
             title: "Associer cet appareil",
-            instructions: "Sur votre ordinateur, ouvrez <name>Accès à distance</name>.",
+            scanInstructions: "Sur votre ordinateur, ouvrez <name>Accès à distance</name>.",
           },
           error: { usedOrExpired: "Ce code a déjà servi ou a expiré." },
         },

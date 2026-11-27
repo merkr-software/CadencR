@@ -10,6 +10,7 @@ import {
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { Button } from "@/components/ui/button";
 import { useStartConversation } from "@/hooks/useStartConversation";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 interface NewConversationProps {
   projects: readonly Project[];
@@ -23,6 +24,8 @@ interface NewConversationProps {
  * there are several. Nothing to start without a project.
  */
 export function NewConversation({ projects, variant }: NewConversationProps): ReactElement | null {
+  const { t } = useUiTranslation();
+  const label = t("palette.steps.newConversation", "New conversation");
   const { start, isPending } = useStartConversation();
   const only = projects.length === 1 ? projects[0] : undefined;
   if (projects.length === 0) return null;
@@ -32,8 +35,8 @@ export function NewConversation({ projects, variant }: NewConversationProps): Re
         variant="ghost"
         size="icon"
         className="size-11 shrink-0"
-        aria-label="New conversation"
-        title="New conversation"
+        aria-label={label}
+        title={label}
         disabled={isPending}
         {...props}
       >
@@ -46,7 +49,7 @@ export function NewConversation({ projects, variant }: NewConversationProps): Re
     ) : (
       <Button className="mt-4 min-h-11" disabled={isPending} {...props}>
         {isPending ? <Loader2Icon className="animate-spin" /> : <PlusIcon />}
-        New conversation
+        {label}
       </Button>
     );
   if (only) return trigger({ onClick: () => start(only.id) });
@@ -66,10 +69,15 @@ function ProjectPicker({
   onPick: (projectId: number) => void;
   children: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <AdaptiveMenu>
       <AdaptiveMenuTrigger asChild>{children}</AdaptiveMenuTrigger>
-      <AdaptiveMenuContent align="end" sheetTitle="New conversation in" sheetTitleVisible>
+      <AdaptiveMenuContent
+        align="end"
+        sheetTitle={t("phone.inbox.newConversationIn", "New conversation in")}
+        sheetTitleVisible
+      >
         {projects.map((project) => (
           <AdaptiveMenuItem key={project.id} onSelect={() => onPick(project.id)}>
             <ProjectBadge projectId={project.id} />

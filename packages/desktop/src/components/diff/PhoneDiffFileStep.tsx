@@ -16,6 +16,7 @@ import {
 } from "@/components/PhoneSheetMenu";
 import { Button } from "@/components/ui/button";
 import { displayGitPath } from "@/lib/git-display-path";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import type { GitFileActionEntry } from "./gitFileActions";
 import { splitGitPath } from "./PhoneDiffFileList";
@@ -37,13 +38,20 @@ function FileActionsMenu({
   file: ChangedFile;
   actions: PhoneDiffFileActions;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const { entries, viewed } = actions;
   const shownPath = displayGitPath(file.file);
   return (
     <AdaptiveMenu open={open} onOpenChange={setOpen}>
       <AdaptiveMenuTrigger asChild>
-        <Button variant="ghost" className={BAR_BUTTON} aria-label={`Actions for ${shownPath}`}>
+        <Button
+          variant="ghost"
+          className={BAR_BUTTON}
+          aria-label={t("workspace.git.phoneDiffFileStep.actionsForPath", "Actions for {{path}}", {
+            path: shownPath,
+          })}
+        >
           <MoreHorizontalIcon />
         </Button>
       </AdaptiveMenuTrigger>
@@ -69,7 +77,9 @@ function FileActionsMenu({
             onSelect={viewed.isViewed ? viewed.unmark : viewed.mark}
           >
             {viewed.isViewed ? <EyeOffIcon /> : <EyeIcon />}
-            {viewed.isViewed ? "Mark as not viewed" : "Mark as viewed"}
+            {viewed.isViewed
+              ? t("workspace.git.phoneDiffFileStep.markNotViewed", "Mark as not viewed")
+              : t("workspace.git.phoneDiffFileStep.markViewed", "Mark as viewed")}
           </AdaptiveMenuItem>
         )}
       </AdaptiveMenuContent>
@@ -103,6 +113,7 @@ export function PhoneDiffFileStep({
   actions,
   children,
 }: PhoneDiffFileStepProps): ReactElement {
+  const { t } = useUiTranslation();
   const { name } = splitGitPath(file.file);
   const { index, total } = position;
   return (
@@ -112,7 +123,9 @@ export function PhoneDiffFileStep({
           variant="ghost"
           onClick={onBack}
           className="h-11 max-w-[40%] shrink-0 gap-1 rounded-none px-3 font-normal text-muted-foreground"
-          aria-label={`Back to ${backLabel}`}
+          aria-label={t("workspace.git.phoneDiffFileStep.backTo", "Back to {{label}}", {
+            label: backLabel,
+          })}
         >
           <ArrowLeftIcon className="size-4" />
           <span className="truncate">{backLabel}</span>
@@ -123,7 +136,7 @@ export function PhoneDiffFileStep({
         <Button
           variant="ghost"
           className={BAR_BUTTON}
-          aria-label="Previous file"
+          aria-label={t("workspace.git.phoneDiffFileStep.previousFile", "Previous file")}
           disabled={index <= 0}
           onClick={() => onStep(-1)}
         >
@@ -132,7 +145,7 @@ export function PhoneDiffFileStep({
         <Button
           variant="ghost"
           className={BAR_BUTTON}
-          aria-label="Next file"
+          aria-label={t("workspace.git.phoneDiffFileStep.nextFile", "Next file")}
           disabled={index >= total - 1}
           onClick={() => onStep(1)}
         >

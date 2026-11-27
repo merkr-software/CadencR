@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 
 import type { GitStatusSnapshot } from "@/api/generated";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { LazyBoundary } from "@/components/lazy/LazyBoundary";
 import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import type { GitAction } from "./useGitAction";
@@ -39,12 +40,13 @@ export function GitActionDialogs({
   pushSubmission,
   onOpenChange,
 }: GitActionDialogsProps): ReactElement | null {
+  const { t } = useUiTranslation();
   if (activeDialog === null) return null;
   return (
     // Keyed by dialog: a failure shown for one is gone once it is dismissed.
     <LazyBoundary
       key={activeDialog}
-      label="Git action"
+      label={t("lazy.labels.gitAction", "Git action")}
       variant="overlay"
       onDismiss={() => onOpenChange(false)}
     >

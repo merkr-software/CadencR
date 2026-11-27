@@ -109,7 +109,7 @@ function FullscreenBar({
   if (phone) {
     return (
       <PhoneViewerHeader
-        title={t("conversation.stream.mermaidDiagramView.diagram", "Diagram")}
+        title={t("conversation.stream.mermaidFullscreen.diagram", "Diagram")}
         closeLabel={closeLabel}
         onClose={onClose}
       >
@@ -147,6 +147,7 @@ function MermaidPhonePreview({
   panZoom: PanZoom;
   onExpand?: () => void;
 }) {
+  const { t } = useUiTranslation();
   const height = panZoom.contentStyle.height;
   const clipped = typeof height === "number" && height > PREVIEW_MAX_HEIGHT;
   return (
@@ -167,7 +168,7 @@ function MermaidPhonePreview({
       {onExpand && (
         <button
           type="button"
-          aria-label="Expand diagram"
+          aria-label={t("conversation.stream.mermaidDiagramView.expandDiagram", "Expand diagram")}
           onClick={(event) => {
             event.stopPropagation();
             onExpand();
@@ -175,7 +176,7 @@ function MermaidPhonePreview({
           className="absolute right-3 bottom-3 flex h-11 items-center gap-1.5 rounded-full border border-border bg-background/90 px-4 text-xs text-foreground/80 shadow-xs"
         >
           <Maximize2Icon className="size-3.5" aria-hidden />
-          Expand
+          {t("markdown.richPreview.expand", "Expand")}
         </button>
       )}
     </div>

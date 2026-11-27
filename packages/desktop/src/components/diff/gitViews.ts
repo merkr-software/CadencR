@@ -19,7 +19,8 @@ export interface GitViewDefinition {
   icon: LucideIcon;
   /** The view's name; the target and proposal views name themselves from live data. */
   label: string;
-  hint: string;
+  /** Tooltip copy; the target and proposal views word theirs from live data. */
+  hint?: string;
   shortcutId: ShortcutId;
 }
 
@@ -40,17 +41,12 @@ export function gitViews(t: UiTranslator) {
       mode: "vs-target",
       icon: GitCompareArrowsIcon,
       label: t("workspace.git.gitTabToggle.compareWithTarget", "vs target"),
-      hint: t("workspace.git.gitTabToggle.diffAgainstTarget", "Diff against the target branch"),
       shortcutId: "git-show-vs-target",
     },
     {
       mode: "pr",
       icon: GitPullRequestIcon,
       label: t("workspace.git.gitTabToggle.pullRequest", "Pull request"),
-      hint: t(
-        "workspace.git.gitViews.pullRequestDetails",
-        "Pull request status, checks, and comments",
-      ),
       shortcutId: "git-show-pull-request",
     },
     {

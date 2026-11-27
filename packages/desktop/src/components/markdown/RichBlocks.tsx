@@ -6,6 +6,7 @@ import { useLinkRouting } from "@/components/links/LinkRoutingContext";
 import { RichExpandButton, RichPreviewFade } from "@/components/markdown/RichPreview";
 import { useContentOverflow } from "@/hooks/useContentOverflow";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import {
   openRichViewer,
@@ -41,18 +42,20 @@ export function MarkdownTable({ children }: { children?: ReactNode }): ReactElem
 }
 
 function PhoneMarkdownTable({ children }: { children?: ReactNode }): ReactElement {
+  const { t } = useUiTranslation();
   const { ref, wide, tall } = useContentOverflow(true);
+  const tableTitle = t("markdown.richBlocks.table", "Table");
   const viewer = useMemo<RichViewerContent>(
     () => ({
       kind: "table",
-      title: "Table",
+      title: tableTitle,
       content: (
         <table className="min-w-full border-collapse text-xs [&_td]:min-w-40 [&_th]:min-w-40">
           {children}
         </table>
       ),
     }),
-    [children],
+    [children, tableTitle],
   );
   const openViewer = useRichViewerOpener(viewer);
   return (
@@ -63,8 +66,11 @@ function PhoneMarkdownTable({ children }: { children?: ReactNode }): ReactElemen
       {wide && (
         <div className="flex h-11 items-center gap-1.5 border-b border-border bg-muted pl-3 text-xs text-muted-foreground">
           <TableIcon className="size-3" aria-hidden />
-          <span className="flex-1">Table</span>
-          <RichExpandButton label="Expand table" onClick={openViewer} />
+          <span className="flex-1">{tableTitle}</span>
+          <RichExpandButton
+            label={t("markdown.richBlocks.expandTable", "Expand table")}
+            onClick={openViewer}
+          />
         </div>
       )}
       <div className="relative">
@@ -116,6 +122,7 @@ function PhoneMarkdownCodeBlock({
   showTerminalButton,
   onSendToTerminal,
 }: MarkdownCodeBlockProps): ReactElement {
+  const { t } = useUiTranslation();
   const { ref, wide, tall } = useContentOverflow(true);
   const viewer = useMemo<RichViewerContent>(
     () => ({
@@ -139,7 +146,10 @@ function PhoneMarkdownCodeBlock({
       onSendToTerminal={onSendToTerminal}
       leadingActions={
         wide ? (
-          <RichExpandButton label={`Expand ${language} code`} onClick={openViewer} />
+          <RichExpandButton
+            label={t("markdown.richBlocks.expandCode", "Expand {{language}} code", { language })}
+            onClick={openViewer}
+          />
         ) : undefined
       }
     >

@@ -6,6 +6,7 @@ import {
   useRef,
   type ComponentProps,
 } from "react";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { LazyBoundary } from "@/components/lazy/LazyBoundary";
 import { lazyChunk } from "@/components/lazy/lazy-chunk";
 import type { FeatureTerminalTabHandle } from "@/components/FeatureTerminalTab";
@@ -25,6 +26,7 @@ type FeatureTerminalTabProps = Omit<ComponentProps<typeof FeatureTerminalTabChun
 export const LazyFeatureTerminalTab = memo(
   forwardRef<FeatureTerminalTabHandle, FeatureTerminalTabProps>(
     function LazyFeatureTerminalTab(props, ref) {
+      const { t } = useUiTranslation();
       const inner = useRef<FeatureTerminalTabHandle | null>(null);
       const pendingActivate = useRef(false);
       const attach = useCallback((handle: FeatureTerminalTabHandle | null): void => {
@@ -45,7 +47,9 @@ export const LazyFeatureTerminalTab = memo(
         [],
       );
       return (
-        <LazyBoundary label="Terminal">
+        <LazyBoundary
+          label={t("conversation.webSocketSessionFeatureBlockTabs.terminalTab", "Terminal")}
+        >
           <FeatureTerminalTabChunk ref={attach} {...props} />
         </LazyBoundary>
       );

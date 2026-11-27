@@ -84,17 +84,10 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   return (
     <>
       {needsAttachment && (
-        <p id={retryHelpId} className="mt-1 text-xs text-muted-foreground">
-          {block.promptDeliveryState === "delivery_unknown"
-            ? t(
-                "conversation.stream.userMessageActions.retryAfterReconnect",
-                "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
-              )
-            : t(
-                "conversation.stream.userMessageActions.reattachAndResend",
-                "Reattach the file and resend the message from the composer.",
-              )}
-        </p>
+        <UserMessageRetryHelp
+          id={retryHelpId}
+          deliveryUnknown={block.promptDeliveryState === "delivery_unknown"}
+        />
       )}
       <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
         <ActionButton
@@ -151,6 +144,24 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   );
 }
 
+/** Why Retry is unavailable: the message's attachment must be added again. */
+function UserMessageRetryHelp({ id, deliveryUnknown }: { id: string; deliveryUnknown: boolean }) {
+  const { t } = useUiTranslation();
+  return (
+    <p id={id} className="mt-1 text-xs text-muted-foreground">
+      {deliveryUnknown
+        ? t(
+            "conversation.stream.userMessageActions.retryAfterReconnect",
+            "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
+          )
+        : t(
+            "conversation.stream.userMessageActions.reattachAndResend",
+            "Reattach the file and resend the message from the composer.",
+          )}
+    </p>
+  );
+}
+
 function UserMessageRetryButton({
   retry: { available, retrying, send },
   descriptionId,
@@ -199,24 +210,29 @@ function PhoneUserMessageActions({
   retry: UserMessageRetry;
   branch: MessageBranchActions;
 }) {
+  const { t } = useUiTranslation();
   const contentRef = useLatestRef(content);
   return (
     <MessageActionsMenu contentRef={contentRef} sourceRef={bubbleRef} copyAsFormats side="end">
       {retry.visible && (
         <AdaptiveMenuItem disabled={!retry.available || retry.retrying} onSelect={retry.send}>
           <RefreshCwIcon className={cn(retry.retrying && "animate-spin")} />
-          {retry.retrying ? "Retrying" : retry.available ? "Retry" : "Retry unavailable"}
+          {retry.retrying
+            ? t("conversation.stream.userMessageActions.retrying", "Retrying")
+            : retry.available
+              ? t("common.retry", "Retry")
+              : t("conversation.stream.userMessageActions.retryUnavailable", "Retry unavailable")}
         </AdaptiveMenuItem>
       )}
       {branch.canBranch && (
         <>
           <AdaptiveMenuItem onSelect={branch.fork}>
             <GitBranchIcon />
-            Fork
+            {t("conversation.stream.userMessageActions.fork", "Fork")}
           </AdaptiveMenuItem>
           <AdaptiveMenuItem onSelect={branch.rewind}>
             <RotateCcwIcon />
-            Rewind
+            {t("conversation.stream.userMessageActions.rewind", "Rewind")}
           </AdaptiveMenuItem>
         </>
       )}

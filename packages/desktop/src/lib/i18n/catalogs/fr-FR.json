@@ -307,7 +307,8 @@
         "description": "Choisissez la part de chaque intervention qui reste dépliée dans le fil. Ce réglage change uniquement l’affichage, jamais les actions de l’agent.",
         "messageNavigator": "Navigateur de messages",
         "messageNavigatorDescription": "Marquez chacun de vos messages avec une petite case sur le bord droit de l'onglet agent. Cochez une case pour prévisualiser le message, cliquez dessus pour faire défiler le message ou appuyez sur {{previousCombo}} / {{nextCombo}}.",
-        "title": "Transcription de l'agent"
+        "title": "Transcription de l'agent",
+        "messageNavigatorDescriptionTouch": "Marquez chacun de vos messages d’un petit repère sur le bord droit de l’onglet de l’agent. Touchez un repère pour aller à son message."
       }
     },
     "cli": {
@@ -495,7 +496,8 @@
         "archivingSession": "Archivage de la session…",
         "couldNotArchiveSession": "Impossible d'archiver la session",
         "sessionArchived": "Session archivée",
-        "sessionArchivedButItsCleanupDidNotReportBack": "Session archivée, mais son nettoyage n'a pas rapporté"
+        "sessionArchivedButItsCleanupDidNotReportBack": "Session archivée, mais son nettoyage n'a pas rapporté",
+        "undo": "Annuler"
       },
       "archiveRelativeOptions": {
         "alsoArchiveEveryActiveDescendantSession": "Archivez également chaque session descendante active.",
@@ -571,7 +573,9 @@
           "finishTypingToReviewIt": "Terminer la saisie pour la revoir",
           "permissionPending": "Demande d’autorisation en attente",
           "planPending": "Approbation du plan en attente",
-          "questionPending": "Question en attente"
+          "questionPending": "Question en attente",
+          "answer": "Répondre",
+          "review": "Examiner"
         },
         "agentQuestionDrawer": {
           "next": "Suivant",
@@ -582,7 +586,8 @@
         "assistMenu": {
           "keysSyntax": "Raccourcis et syntaxe",
           "moreComposerActions": "Autres actions de la zone de saisie",
-          "session": "Session"
+          "session": "Session",
+          "sessionDetails": "Détails de la session"
         },
         "autoMessageMenu": {
           "messageSendOptions": "Options d'envoi de message",
@@ -708,7 +713,8 @@
           "bypass": "Sans garde-fous",
           "changed": "Nouveau mode : {{label}} ({{risk}})",
           "edits": "Modifie les fichiers sans demander",
-          "read": "Lecture seule"
+          "read": "Lecture seule",
+          "sheetTitle": "Mode"
         },
         "modelPickerRow": {
           "inheritModel": "Hériter ({{model}})",
@@ -1591,7 +1597,8 @@
           "resetZoom0": "Réinitialiser le zoom (0)",
           "scrollToPanPinchToZoom": "Faites défiler vers le bac · Pincez pour zoomer · {{PAN_MODIFIER}}-goutte vers le bac",
           "zoomIn": "Agrandir (+)",
-          "zoomOut": "Réduire (−)"
+          "zoomOut": "Réduire (−)",
+          "expandDiagram": "Agrandir le schéma"
         },
         "mermaidFullscreen": {
           "diagram": "Schéma"
@@ -1639,7 +1646,8 @@
           "on": "Activé",
           "openModelPicker": "Ouvrir le sélecteur de modèle",
           "selectedModel": "Modèle: {{modelLabel}}",
-          "thinkingEffort": "Niveau de raisonnement : {{effort}}"
+          "thinkingEffort": "Niveau de raisonnement : {{effort}}",
+          "thinkingEffortTitle": "Niveau de raisonnement"
         },
         "planBlock": {
           "approved": "Approuvé",
@@ -2015,7 +2023,8 @@
           "saving": "Enregistrement",
           "thisBranch": "Cette branche",
           "usesAWorktree": "Utilise un arbre de travail",
-          "whereTheAgentWorks": "Emplacement de travail de l’agent : {{label}}"
+          "whereTheAgentWorks": "Emplacement de travail de l’agent : {{label}}",
+          "sheetTitle": "Emplacement de travail de l’agent"
         },
         "worktreePopover": {
           "baseBranch": "Branche de base: {{branchLabel}}",
@@ -2038,6 +2047,9 @@
           "restart": "Interrompu : Cadencr a redémarré avant la fin de l’opération.",
           "quit": "Arrêté : Cadencr a été fermé avant la fin de l’opération.",
           "user": "Arrêté par l’utilisateur."
+        },
+        "messageActionsMenu": {
+          "messageActions": "Actions du message"
         }
       },
       "subagent-presentation": {
@@ -2196,6 +2208,24 @@
         "streamFailed": "La connexion au fournisseur de renommage automatique a échoué avant que le titre soit prêt. Réessayez.",
         "timeout": "Le fournisseur de renommage automatique n’a pas terminé à temps. Réessayez ou choisissez un modèle de renommage plus rapide.",
         "warning": "Impossible de renommer automatiquement cette conversation. {{detail}}"
+      },
+      "archiveUndo": {
+        "terminalsAndBrowserTabsClosed": "Ses terminaux et onglets du navigateur restent fermés.",
+        "terminalsClosed": "Ses terminaux restent fermés.",
+        "browserTabsClosed": "Ses onglets du navigateur restent fermés.",
+        "schedulesMaybePaused": "Les programmations suspendues par l’archivage restent en pause.",
+        "schedulesPaused_many": "{{count}} programmations restent en pause.",
+        "schedulesPaused_one": "{{count}} programmation reste en pause.",
+        "schedulesPaused_other": "{{count}} programmations restent en pause.",
+        "restoring": "Restauration de la session…",
+        "restored_many": "{{count}} sessions restaurées",
+        "restored_one": "Session restaurée",
+        "restored_other": "{{count}} sessions restaurées",
+        "unarchiveFailed": "Échec du désarchivage",
+        "restoreFailed": "Impossible de restaurer la session",
+        "partlyRestored_many": "{{restored}} sessions sur {{count}} restaurées",
+        "partlyRestored_one": "{{restored}} sur {{count}} session restaurée",
+        "partlyRestored_other": "{{restored}} sessions sur {{count}} restaurées"
       }
     },
     "customActions": {
@@ -2372,9 +2402,7 @@
         "schedule": "Planifier {{name}}…"
       },
       "mobile": {
-        "failed": "Actions, une a échoué",
         "help": "S’exécute dans la copie de travail de cette conversation.",
-        "running": "Actions, une exécution",
         "terminal": "Ouvre un terminal"
       },
       "mobileCustomActionsSheet": {
@@ -2398,7 +2426,8 @@
       "runNamed": "Exécuter « {{name}} »",
       "saving": "Enregistrement…",
       "settings": {
-        "help": "Commandes que vous exécutez souvent dans la copie de travail d’une conversation, par exemple des tests, des analyses de code, des déploiements ou des serveurs de développement. L’en-tête de chaque projet présente ses actions, puis les actions globales dans l’ordre indiqué ci-dessous. Lancez-les depuis l’en-tête ou avec <shortcut />. Chaque action a une page pour sa sortie, ses exécutions et ses réglages."
+        "help": "Commandes que vous exécutez souvent dans la copie de travail d’une conversation, par exemple des tests, des analyses de code, des déploiements ou des serveurs de développement. L’en-tête de chaque projet présente ses actions, puis les actions globales dans l’ordre indiqué ci-dessous. Lancez-les depuis l’en-tête ou avec <shortcut />. Chaque action a une page pour sa sortie, ses exécutions et ses réglages.",
+        "helpTouch": "Commandes que vous exécutez souvent dans la copie de travail d’une conversation, par exemple des tests, des analyses de code, des déploiements ou des serveurs de développement. L’en-tête de chaque projet présente ses actions, puis les actions globales dans l’ordre indiqué ci-dessous. Lancez-les depuis l’en-tête. Chaque action a une page pour sa sortie, ses exécutions et ses réglages."
       },
       "starting": "Commencer…",
       "status": {
@@ -2877,7 +2906,8 @@
     "home": {
       "emptyProject": {
         "hint": "Utilisez le bouton + dans la barre latérale pour créer une nouvelle fonctionnalité",
-        "title": "Pas encore de fonctionnalités dans ce projet"
+        "title": "Pas encore de fonctionnalités dans ce projet",
+        "phoneTitle": "Aucune conversation dans ce projet pour le moment"
       },
       "feature": {
         "back": "Retour à l’accueil",
@@ -2892,7 +2922,8 @@
       "loading": "Chargement…",
       "noProjects": {
         "hint": "Utilisez le bouton + de la barre latérale pour ajouter un projet.",
-        "title": "Aucun projet pour le moment"
+        "title": "Aucun projet pour le moment",
+        "hintPhone": "Ouvrez le menu et utilisez son bouton + pour ajouter un projet"
       }
     },
     "marketplace": {
@@ -4603,71 +4634,71 @@
         "connected_one": "Accès distant activé : {{count, number}} appareil connecté",
         "connected_other": "Accès distant activé : {{count, number}} appareils connectés",
         "connected_zero": "Accès distant activé : {{count, number}} appareils connectés",
-        "description": "Accédez à cet espace de travail depuis un autre appareil sur votre réseau. Toute personne qui peut joindre votre machine et appairer un appareil bénéficie d’un accès complet. Activez cette option uniquement sur un réseau de confiance.",
-        "disabled": "L’accès distant est désactivé",
-        "disabledHint": "Activez cette option pour rendre l’espace de travail accessible sur votre réseau local.",
         "enabled": "L’accès distant est activé",
-        "enabledHint": "Accessible via TLS sur votre réseau local.",
         "errors": {
           "bind": "Impossible de démarrer l’écoute des connexions distantes (le port est peut-être déjà utilisé)",
           "malformed": "La réponse sur l’état de l’accès distant est mal formée.",
           "missingIndex": "Service indisponible : l’accès distant exige une interface compilée. Aucun fichier index.html à l’emplacement {{path}}",
           "request": "La demande d’accès distant a échoué.",
-          "unpacked": "Service indisponible : l’accès distant exige une version empaquetée (dossier de l’interface introuvable)"
+          "unpacked": "Service indisponible : l’accès distant exige une version empaquetée (dossier de l’interface introuvable)",
+          "poll": "Impossible d’actualiser l’état de l’accès distant."
         },
         "opening": "Ouverture de l’accès distant…",
-        "preventSleep": {
-          "description": "Empêche cet ordinateur de se mettre en veille tant que l’accès distant est actif. L’écran peut toujours se verrouiller ou s’éteindre. Une mise en veille manuelle, la fermeture du capot ou une batterie faible peuvent interrompre l’hébergement.",
-          "title": "Empêcher la mise en veille pendant l’hébergement"
-        },
         "sections": {
           "activity": "Activité récente",
-          "connection": "Connexion et certificat",
-          "devices": "Appareils appairés ({{deviceCount}})",
-          "tunnel": "Rendre accessible depuis Internet"
+          "pairedDevices": "Appareils appairés",
+          "addresses": "Adresses et certificat",
+          "awayFromHome": "Utiliser hors de chez vous"
         },
         "title": "Accès distant",
-        "toggle": "Activer ou désactiver l’accès distant"
+        "subtitle": "Utilisez cet espace de travail depuis votre téléphone ou votre tablette.",
+        "off": {
+          "title": "Suivez vos agents depuis votre téléphone",
+          "body": "Activez l’accès, scannez un code avec votre téléphone, puis lisez, répondez et lancez des conversations depuis n’importe où sur votre réseau.",
+          "enable": "Activer l’accès distant",
+          "warning": "Un appareil appairé obtient un accès complet à cet espace de travail. Activez cette option uniquement sur un réseau de confiance."
+        },
+        "status": {
+          "noDevices": "Aucun appareil appairé pour le moment",
+          "devices_many": "{{count, number}} appareils appairés · {{connected, number}} en ligne",
+          "devices_one": "{{count, number}} appareil appairé · {{connected, number}} en ligne",
+          "devices_other": "{{count, number}} appareils appairés · {{connected, number}} en ligne"
+        },
+        "keepAwake": {
+          "title": "Garder cet ordinateur éveillé",
+          "description": "Tant que l’accès distant est activé. L’écran peut toujours se verrouiller ; la fermeture du capot ou une batterie faible mettent quand même l’ordinateur en veille."
+        }
       },
       "lan": {
-        "compareHint": "Pour un accès sur le réseau local, comparez cette empreinte SHA-256 à celle du certificat affiché dans le navigateur de l’autre appareil avant d’accepter son avertissement. La section d’appairage ci-dessus exige cette vérification avant d’afficher un code :",
         "fingerprintCopied": "Empreinte copiée",
         "noAddress": "Aucune adresse de réseau local détectée. Connectez-vous au Wi-Fi ou utilisez un tunnel.",
-        "urlCopied": "URL copiée"
+        "urlCopied": "URL copiée",
+        "fingerprintHint": "Les téléphones de votre réseau voient ce certificat. Voici son empreinte SHA-256, à comparer avec celle des détails de l’avertissement du navigateur :"
       },
       "pairing": {
-        "certificate": {
-          "browserFingerprint": "Empreinte SHA-256 affichée dans le navigateur de l’autre appareil",
-          "compare": "Comparer et afficher le code d’appairage",
-          "expected": "Empreinte SHA-256 attendue pour l’hôte",
-          "instructions": "Sur l’autre appareil, ouvrez cette adresse sans code d’appairage. Affichez le certificat dans le navigateur et repérez son empreinte SHA-256. Comparez-la à celle de cet hôte avant d’accepter l’avertissement. Cadencr ne peut pas examiner le certificat affiché dans l’autre navigateur.",
-          "mismatch": "Les empreintes SHA-256 ne correspondent pas. N’associez pas les appareils. Vérifiez à nouveau le certificat et l’hôte.",
-          "placeholder": "Collez l’empreinte SHA-256 complète",
-          "unavailable": "L’empreinte de l’hôte est indisponible. L’appairage est bloqué.",
-          "urlCopied": "URL de vérification du certificat copiée"
-        },
         "code": {
           "errors": {
-            "addressChanged": "L’adresse de connexion a changé. Sélectionnez-la à nouveau avant l’appairage.",
-            "certificateChanged": "Le certificat de l’hôte a changé. Fermez puis rouvrez l’accès distant et vérifiez-le de nouveau.",
             "disabled": "Conflit : activez l’accès distant avant l’appairage",
             "malformed": "La réponse contenant le code d’appairage est mal formée.",
-            "request": "Impossible de créer un code d’appairage."
+            "request": "Impossible de créer un code d’appairage.",
+            "certificateChangedReopen": "Le certificat de cet ordinateur a changé. Fermez puis rouvrez Accès distant.",
+            "addressGone": "Cette adresse n’est plus disponible. Choisissez-en une autre."
           },
-          "expiresIn": "Expire dans {{seconds}} s",
-          "generate": "Générer un code d’appairage",
-          "generateAnother": "Générer un nouveau code",
-          "instructions": "Générez un code, puis scannez le QR code ou ouvrez le lien sur l’autre appareil. Ce code est à usage unique et expire rapidement.",
           "linkCopied": "Lien d’appairage copié",
-          "qrLabel": "QR code d’appairage",
-          "regenerate": "Nouveau code",
-          "used": "Ce code a déjà servi à appairer un appareil. Il est à usage unique. Générez un nouveau code pour appairer un autre appareil."
+          "showNew": "Afficher un nouveau code",
+          "paired": "<name>{{device}}</name> est appairé.",
+          "aDevice": "Un appareil",
+          "pairAnother": "Scannez le nouveau code pour appairer un autre appareil, ou son application sur l’écran d’accueil.",
+          "notYou": "Ce n’est pas vous ? Révoquer",
+          "qrTitle": "Code d’appairage",
+          "creating": "Création d’un code",
+          "expired": "Le code a expiré. Affichez-en un nouveau quand vous serez prêt à scanner.",
+          "lifetime": "Durée de validité du code",
+          "newIn": "Nouveau code dans {{time}}",
+          "copyLink": "Copier le lien"
         },
         "connected": "Connecté à cet espace de travail.",
-        "connectionAddress": "Adresse de connexion",
-        "connectionHint": "Recommandation : utilisez une connexion Tailscale privée avec un certificat reconnu par le navigateur. Sur un réseau local, vérifiez le certificat avant de communiquer un code d’appairage.",
         "error": {
-          "expired": "Ce code d’appairage a expiré. Générez-en un autre sur l’ordinateur hôte.",
           "failed": "Échec de l’appairage.",
           "http": "Échec de l’appairage (HTTP {{status}}).",
           "invalidInput": "Collez le lien ou le code d’appairage fourni par votre ordinateur.",
@@ -4675,35 +4706,61 @@
           "malformedResponse": "La réponse d’appairage est mal formée.",
           "signInNotSaved": "L’appareil est appairé, mais ce navigateur n’a pas pu mémoriser la connexion. Essayez un autre navigateur.",
           "storageBlocked": "L’appareil est appairé, mais ce navigateur bloque le stockage local. Vous devrez l’appairer à nouveau après un rechargement.",
-          "unsafeAddress": "Impossible de retirer le code d’appairage de l’adresse de cette page. L’appairage a été interrompu."
+          "unsafeAddress": "Impossible de retirer le code d’appairage de l’adresse de cette page. L’appairage a été interrompu.",
+          "usedOrExpired": "Ce code a déjà été utilisé ou a expiré. Scannez le nouveau code affiché sur votre ordinateur.",
+          "rateLimited": "Trop de tentatives d’appairage. Patientez une minute, puis scannez de nouveau."
         },
         "gate": {
-          "inputLabel": "Lien ou code d’appairage",
-          "instructions": "Ouvrez <setting>Accès distant</setting> sur votre ordinateur, puis scannez le QR code ou collez le lien d’appairage ci-dessous.",
-          "pairing": "Appairage…",
-          "pasteAlternative": "ou collez le lien",
-          "placeholder": "Coller le lien d’appairage…",
-          "scan": "Scanner le QR code",
-          "submit": "Appairer un appareil",
-          "title": "Appairer cet appareil"
+          "title": "Appairer cet appareil",
+          "openingCamera": "Ouverture de la caméra…",
+          "pairingDevice": "Appairage de cet appareil…",
+          "scanInstructions": "Sur votre ordinateur, ouvrez <name>Accès distant</name> (<icon/> en bas de la barre latérale de Cadencr), puis scannez le code affiché.",
+          "radioIcon": "l’icône radio",
+          "scanCode": "Scanner le code",
+          "staySignedInHint": "Sinon, cet appareil devra être appairé de nouveau après sa fermeture.",
+          "staySignedInLabel": "Rester connecté sur cet appareil",
+          "pasteOpen": "Pas de caméra ? Collez le lien d’appairage",
+          "pastePlaceholder": "Collez le lien obtenu avec Copier le lien",
+          "pasteLabel": "Lien d’appairage",
+          "pasteInvalid": "Ce n’est pas un lien d’appairage. Utilisez Copier le lien sous le code, sur votre ordinateur.",
+          "pasteSubmit": "Appairer avec ce lien"
         },
-        "lanTarget": "{{host}} · Réseau local",
-        "noTarget": "Connectez-vous à un réseau ou configurez un tunnel privé pour appairer un appareil.",
-        "privateTunnelTarget": "{{host}} · Tunnel privé",
         "saveSignInFailed": "Impossible de mémoriser la connexion sur cet appareil.",
         "scanner": {
-          "aim": "Visez le QR code affiché sur votre ordinateur",
-          "backToPaste": "Revenir à la saisie du lien",
           "cancel": "Annuler le scan",
-          "failed": "Impossible de démarrer la caméra. Collez le lien pour continuer.",
-          "permissionDenied": "L’accès à la caméra a été refusé. Autorisez-le dans les réglages du navigateur ou collez le lien.",
-          "unavailable": "Ce navigateur ne peut pas ouvrir la caméra ici. Collez le lien pour continuer.",
-          "viewfinder": "Viseur de la caméra"
+          "viewfinder": "Viseur de la caméra",
+          "unavailableLink": "Ce navigateur ne peut pas ouvrir la caméra ici. Collez plutôt le lien d’appairage.",
+          "deniedLink": "L’accès à la caméra a été refusé. Autorisez-le dans les réglages du navigateur ou collez plutôt le lien d’appairage.",
+          "failedLink": "Impossible de démarrer la caméra. Collez plutôt le lien d’appairage.",
+          "looking": "Recherche du code…",
+          "foreignCode": "Ce QR code n’est pas un code d’appairage Cadencr.",
+          "hint": "Vous ne le trouvez pas ? Tenez le téléphone à 20–30 cm de l’écran, avec tout le code dans le carré.",
+          "title": "Scannez le code affiché sur votre ordinateur",
+          "back": "Retour"
         },
         "staySignedIn": "Rester connecté",
         "staySignedInDetail": "Rester connecté sur cet appareil après la fermeture de l’onglet ?",
-        "title": "Appairer un nouvel appareil",
-        "trusted": "Cet appareil restera connecté."
+        "trusted": "Cet appareil restera connecté.",
+        "targets": {
+          "tunnel": "Tunnel privé",
+          "tailscale": "Tailscale",
+          "lan": "Réseau local"
+        },
+        "section": {
+          "title": "Appairer un appareil",
+          "address": "Adresse ciblée par le code",
+          "noAddress": "Aucune adresse réseau trouvée. Connectez cet ordinateur au Wi-Fi ou configurez un tunnel privé dans <name>Utiliser hors de chez vous</name>."
+        },
+        "steps": {
+          "label": "Comment appairer un appareil",
+          "scan": "Scannez le code avec la caméra de votre téléphone",
+          "scanDetail": "Ou ouvrez le lien copié dans un navigateur sur l’autre appareil.",
+          "warning": "Continuez malgré l’avertissement de confidentialité",
+          "warningDetail": "Cet ordinateur signe son propre certificat : le navigateur affiche donc un avertissement une fois. Dans les détails de l’avertissement, son empreinte SHA-256 commence par <fingerprint>{{fingerprint}}</fingerprint>.",
+          "homeScreen": "Facultatif : ajoutez-le à l’écran d’accueil",
+          "homeScreenDetail": "Pour une application en plein écran. Elle demande un nouvel appairage : touchez <em>Scanner le code</em> dans l’application et scannez de nouveau ce code."
+        },
+        "sessionChosen": "Vous devrez appairer de nouveau cet appareil quand il fermera Cadencr."
       },
       "tunnel": {
         "clear": "Effacer",
@@ -5085,7 +5142,8 @@
           "description": "Parcourez chaque raccourci, ou appuyez sur <shortcut/> n'importe où.",
           "shortcuts": "Raccourcis clavier",
           "title": "Clavier",
-          "view": "Afficher les raccourcis"
+          "view": "Afficher les raccourcis",
+          "descriptionTouch": "Parcourez tous les raccourcis."
         },
         "language": {
           "loading": "Chargement de la préférence linguistique…",
@@ -8135,7 +8193,8 @@
           "vimOffDescription": "Édition standard, sans les déplacements Vim."
         },
         "editorPane": {
-          "emptyPane": "Ouvrez un fichier depuis la barre latérale, appuyez sur <newBuffer /> pour créer un document ou utilisez <fuzzy />."
+          "emptyPane": "Ouvrez un fichier depuis la barre latérale, appuyez sur <newBuffer /> pour créer un document ou utilisez <fuzzy />.",
+          "emptyPaneTouch": "Ouvrez un fichier depuis la barre latérale"
         },
         "editorPreviewSurface": {
           "htmlPreview": "Aperçu HTML",
@@ -8761,7 +8820,8 @@
         },
         "diffViewer": {
           "loadingDiff": "Chargement du diff…",
-          "noChangesDetected": "Aucun changement détecté"
+          "noChangesDetected": "Aucun changement détecté",
+          "files": "Fichiers"
         },
         "featurePrComments": {
           "couldNotOpenThisReviewThread": "Impossible d’ouvrir cette discussion de revue.",
@@ -8821,11 +8881,7 @@
         "gitActionControls": {
           "git": "Git",
           "gitActions": "Actions Git",
-          "gitActionsOnBranch": "Actions Git pour {{branch}}",
           "moreGitActions": "Autres actions Git"
-        },
-        "gitActionDialogs": {
-          "loadingGitAction": "Chargement de l'action Git…"
         },
         "gitActionPopover": {
           "commit": "Créer un commit",
@@ -9660,6 +9716,28 @@
           "refreshing": "Actualisation de l’état Git…",
           "retry": "Réessayer de charger l’état Git",
           "issueWithDetail": "{{label}}. {{detail}}"
+        },
+        "phoneCommitBar": {
+          "unavailable": "Commit indisponible ici",
+          "cannotCommit": "Impossible de créer un commit"
+        },
+        "phoneDiffFileList": {
+          "openPath": "Ouvrir {{path}}"
+        },
+        "phoneDiffFileStep": {
+          "actionsForPath": "Actions pour {{path}}",
+          "markNotViewed": "Marquer comme non consulté",
+          "markViewed": "Marquer comme consulté",
+          "backTo": "Retour à {{label}}",
+          "previousFile": "Fichier précédent",
+          "nextFile": "Fichier suivant"
+        },
+        "phoneGitViewPicker": {
+          "conflicted_many": "{{count}} en conflit",
+          "conflicted_one": "{{count}} en conflit",
+          "conflicted_other": "{{count}} en conflit",
+          "currentView": "Vue Git : {{view}}",
+          "title": "Vue Git"
         }
       },
       "links": {
@@ -10208,7 +10286,83 @@
           "socketError": "Erreur WebSocket du terminal",
           "terminalDisconnectedYourInputWasDropped": "Terminal déconnecté — votre entrée a été abandonnée.",
           "writeStalled": "Écriture dans le terminal bloquée"
+        },
+        "terminalCompatibility": {
+          "dismiss": "Fermer l’avis sur le terminal de compatibilité",
+          "hiddenUntilReload": "Masqué jusqu’au prochain rechargement",
+          "dismissNotRemembered": "Ce navigateur ne permet pas à Cadencr de mémoriser que vous l’avez fermé."
         }
+      }
+    },
+    "lazy": {
+      "labels": {
+        "commandPalette": "palette des commandes",
+        "search": "recherche",
+        "changelog": "journal des changements",
+        "projectSettings": "réglages du projet",
+        "projectLocation": "emplacement du projet",
+        "projectSetup": "configuration du projet",
+        "import": "importation",
+        "conversation": "conversation",
+        "fileSearch": "recherche de fichiers",
+        "gitAction": "action Git",
+        "page": "page",
+        "thisPage": "cette page",
+        "onboarding": "configuration initiale",
+        "source": "source"
+      },
+      "loading": "Chargement : {{label}}…",
+      "failed": "Impossible de charger : {{label}}. Vérifiez la connexion."
+    },
+    "phone": {
+      "gate": {
+        "laterLabel": "Plus tard : masquer cette demande, l’agent continue d’attendre",
+        "later": "Plus tard",
+        "stopConfirmTitle": "Arrêter l’agent ?",
+        "stopConfirmDescription": "Il cesse d’attendre votre réponse et termine son tour. Avec « Plus tard », il continue d’attendre."
+      },
+      "menu": {
+        "attentionCount_many": ", {{count}} pour vous",
+        "attentionCount_one": ", {{count}} pour vous",
+        "attentionCount_other": ", {{count}} pour vous"
+      },
+      "actionOnConversation": "{{action}} « {{title}} »",
+      "tabs": {
+        "barLabel": "Onglets de la conversation",
+        "more": "Plus",
+        "moreTitle": "Autres onglets",
+        "moreDescription": "Ouvrez un onglet qui n’a pas de place dans la barre d’onglets.",
+        "files": "Fichiers"
+      },
+      "header": {
+        "worktree": "Arbre de travail",
+        "hideSetup": "Masquer la configuration",
+        "setupDetails": "Détails de la configuration",
+        "actions": "Actions de la conversation",
+        "actionsDescription": "Branche, arbre de travail, Git et actions personnalisées de cette conversation.",
+        "customActionsLoadFailed": "Impossible de charger les actions personnalisées.",
+        "actionsFailed": "Actions de la conversation, une action a échoué",
+        "actionsRunning": "Actions de la conversation, une action est en cours"
+      },
+      "inbox": {
+        "noConversationsDetail": "Lancez-en une : ce que vos agents demandent, font et terminent s’affiche ici.",
+        "recentEmpty": "Rien d’autre récemment",
+        "newConversationIn": "Nouvelle conversation dans",
+        "projectsLoadFailed": "Impossible de charger les projets"
+      }
+    },
+    "markdown": {
+      "richPreview": {
+        "expand": "Agrandir"
+      },
+      "richBlocks": {
+        "table": "Tableau",
+        "expandTable": "Agrandir le tableau",
+        "expandCode": "Agrandir le code {{language}}"
+      },
+      "richViewer": {
+        "copyTable": "Copier le tableau",
+        "copyCode": "Copier {{language}}"
       }
     }
   }

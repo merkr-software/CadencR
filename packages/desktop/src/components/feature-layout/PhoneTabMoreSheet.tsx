@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PHONE_SHEET_ROW_CLASS, PhoneSheetContent } from "@/components/PhoneSheet";
 import type { TabKind } from "@/stores/feature-layout-schema";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 import { FeatureTabIcon } from "./FeatureTabIcon";
@@ -34,20 +35,21 @@ export function PhoneTabMoreSheet({
   onActivateTab,
   onCloseTab,
 }: PhoneTabMoreSheetProps): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <PhoneSheetContent>
         <div className="px-4 pt-4 pb-2">
-          <DialogTitle className="text-base">More tabs</DialogTitle>
+          <DialogTitle className="text-base">{t("phone.tabs.moreTitle", "More tabs")}</DialogTitle>
           <DialogDescription className="sr-only">
-            Open a tab that has no place in the tab bar.
+            {t("phone.tabs.moreDescription", "Open a tab that has no place in the tab bar.")}
           </DialogDescription>
         </div>
         <ul className="flex flex-col overflow-y-auto px-2 pb-3">
           {tabIds.map((tab) => {
             const def = tabs[tab];
             if (!def) return null;
-            const label = phoneTabLabel(tab, def);
+            const label = phoneTabLabel(tab, def, t);
             const active = tab === activeTabId;
             return (
               <li key={tab} className="flex items-center gap-1">
@@ -70,7 +72,13 @@ export function PhoneTabMoreSheet({
                     variant="ghost"
                     size="icon"
                     className="size-11 text-muted-foreground"
-                    aria-label={`Close ${label}`}
+                    aria-label={t(
+                      "workspace.tools.paneTabTriggers.closeNamedTab",
+                      "Close {{name}}",
+                      {
+                        name: label,
+                      },
+                    )}
                     onClick={() => onCloseTab(tab)}
                   >
                     <XIcon />

@@ -88,7 +88,7 @@ export function PostUpdateChangelogDialog(): ReactElement | null {
           </DialogDescription>
         </DialogHeader>
 
-        <LazyBoundary label="changelog" variant="inline">
+        <LazyBoundary label={t("lazy.labels.changelog", "changelog")} variant="inline">
           <LazyChangelogBody state={changelog} />
         </LazyBoundary>
 

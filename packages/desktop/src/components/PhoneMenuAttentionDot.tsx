@@ -1,5 +1,6 @@
 import { memo, useMemo, type ReactElement } from "react";
 import { useSidebarAttention } from "@/components/sidebar-attention-context";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { isStrongAction } from "@/lib/next-actions";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ export const PhoneMenuAttentionDot = memo(function PhoneMenuAttentionDot({
 }: {
   exceptFeatureId: number | null;
 }): ReactElement | null {
+  const { t } = useUiTranslation();
   const { actions } = useSidebarAttention();
   const { count, strong } = useMemo(() => {
     const others = actions.filter((action) => action.feature.id !== exceptFeatureId);
@@ -33,7 +35,13 @@ export const PhoneMenuAttentionDot = memo(function PhoneMenuAttentionDot({
       >
         {count > 9 ? "9+" : count}
       </span>
-      <span className="sr-only">{`, ${count} for you`}</span>
+      <span className="sr-only">
+        {t("phone.menu.attentionCount", {
+          count,
+          defaultValue_one: ", {{count}} for you",
+          defaultValue_other: ", {{count}} for you",
+        })}
+      </span>
     </>
   );
 });

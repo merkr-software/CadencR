@@ -53,7 +53,7 @@ function HomePageStatus({
     if (phone) {
       return (
         <CenteredMessage
-          title="No conversations in this project yet"
+          title={t("home.emptyProject.phoneTitle", "No conversations in this project yet")}
           action={
             <NewConversation projects={targetProject ? [targetProject] : []} variant="button" />
           }

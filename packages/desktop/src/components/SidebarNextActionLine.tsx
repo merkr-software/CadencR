@@ -215,6 +215,8 @@ export const SidebarNextActionLine = memo(function SidebarNextActionLine({
   featureId: number;
   prStatus: PrStatusSnapshot | undefined;
 }): ReactElement {
+  // `actionView` reads the verbs' translated getters: re-render on a language change.
+  useUiTranslation();
   if (kind === "waiting") return <WaitingLine featureId={featureId} />;
   return <ActionLine view={actionView(kind, prStatus)} kind={kind} />;
 });

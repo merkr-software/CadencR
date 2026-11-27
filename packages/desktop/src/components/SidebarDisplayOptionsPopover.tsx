@@ -42,6 +42,7 @@ export function SidebarDisplayOptionsHost({
   collapsed: boolean;
   children: ReactNode;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const phone = useIsMobile();
   const open = useSidebarPreviewStore((state) => state.optionsOpen);
   const origin = useSidebarPreviewStore((state) => state.optionsOrigin);
@@ -66,7 +67,7 @@ export function SidebarDisplayOptionsHost({
       <AdaptivePopover open={open} onOpenChange={(next) => !next && closeOptions()}>
         {!phone && <PopoverAnchor virtualRef={virtualRef} />}
         <AdaptivePopoverContent
-          sheetTitle="Display options"
+          sheetTitle={t("sidebar.displayOptions.displayOptions", "Display options")}
           sheetRows
           sheetClassName="px-4 pb-4"
           sheetOnCloseAutoFocus={(event) => {

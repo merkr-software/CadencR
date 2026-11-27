@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,15 +17,16 @@ export function GateLaterButton({
   onLater: () => void;
   className?: string;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <Button
       type="button"
       variant="ghost"
       onClick={onLater}
-      aria-label="Later: hide this request, the agent keeps waiting"
+      aria-label={t("phone.gate.laterLabel", "Later: hide this request, the agent keeps waiting")}
       className={cn("-my-2.5 -mr-2 ml-auto h-11 px-3 text-sm text-muted-foreground", className)}
     >
-      Later
+      {t("phone.gate.later", "Later")}
     </Button>
   );
 }
@@ -40,6 +42,7 @@ export function GateStopButton({
   onStop: () => void;
   disabled?: boolean;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const [confirming, setConfirming] = useState(false);
   return (
     <>
@@ -50,14 +53,17 @@ export function GateStopButton({
         onClick={() => setConfirming(true)}
         className="-ml-3 h-11 px-3 text-sm text-destructive hover:text-destructive"
       >
-        Stop agent
+        {t("conversation.composer.promptBarActions.stopAgent", "Stop agent")}
       </Button>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Stop the agent?"
-        description="It stops waiting for your answer and ends its turn. Later keeps it waiting instead."
-        confirmText="Stop agent"
+        title={t("phone.gate.stopConfirmTitle", "Stop the agent?")}
+        description={t(
+          "phone.gate.stopConfirmDescription",
+          "It stops waiting for your answer and ends its turn. Later keeps it waiting instead.",
+        )}
+        confirmText={t("conversation.composer.promptBarActions.stopAgent", "Stop agent")}
         variant="destructive"
         onConfirm={onStop}
       />

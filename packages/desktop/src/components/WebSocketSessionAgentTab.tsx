@@ -107,12 +107,13 @@ function AgentTabContent({
     args;
   const sessionConfigControls = useSessionConfigControls(controls);
   const callbacks = useStableSessionCallbacks(controls);
+  const { t } = useUiTranslation();
   return (
     <SessionInfoMcpServersProvider
       mcpServers={controls.ws.mcpServers}
       error={controls.ws.mcpServersError}
     >
-      <LazyBoundary label="conversation">
+      <LazyBoundary label={t("lazy.labels.conversation", "conversation")}>
         <LazyAgentSession
           ref={refs.agent}
           agentType="session"
@@ -325,7 +326,7 @@ function useAgentSendHandler(args: {
         throw error;
       }
     },
-    [checkoutMutateAsync, featureId, latest, projectId, queryClient, setFeatureSetting],
+    [checkoutMutateAsync, featureId, latest, projectId, queryClient, setFeatureSetting, t],
   );
 }
 

@@ -5,6 +5,7 @@ import { FileStageState, type ChangedFile } from "@/api/generated";
 import { NumStat } from "@/components/NumStat";
 import { Checkbox } from "@/components/ui/checkbox";
 import { displayGitPath } from "@/lib/git-display-path";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import type { ThemeAppearance } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import {
@@ -43,6 +44,7 @@ function PhoneStageToggle({
   control: GitStageControlState;
   actions: GitFileIndexActions;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const stageState = resolvedStageState(file);
   const visual = checkboxVisualState(stageState);
   const shownPath = displayGitPath(file.file);
@@ -52,7 +54,15 @@ function PhoneStageToggle({
     content = (
       <Loader2Icon
         role="status"
-        aria-label={`${control.pendingAction === "reset" ? "Unstaging" : "Staging"} ${shownPath}`}
+        aria-label={
+          control.pendingAction === "reset"
+            ? t("workspace.git.stageCheckbox.unstagingFile", "Unstaging {{path}}", {
+                path: shownPath,
+              })
+            : t("workspace.git.stageCheckbox.stagingFile", "Staging {{path}}", {
+                path: shownPath,
+              })
+        }
         className="size-4 animate-spin text-muted-foreground"
       />
     );
@@ -60,7 +70,9 @@ function PhoneStageToggle({
     const { canStage, canReset } = getGitFileActionAvailability(stageState);
     content = (
       <Checkbox
-        aria-label={`Stage ${shownPath}`}
+        aria-label={t("workspace.git.gitDiffFileHeaderActions.stagePath", "Stage {{path}}", {
+          path: shownPath,
+        })}
         checked={visual.indeterminate ? "indeterminate" : visual.checked}
         disabled={control.isBusy || !(visual.checked ? canReset : canStage)}
         // Controlled by Git's answer: the box changes when the file list does.
@@ -91,6 +103,7 @@ const PhoneDiffFileRow = memo(function PhoneDiffFileRow({
   file: ChangedFile;
   context: RowContext;
 }): ReactElement {
+  const { t } = useUiTranslation();
   const { name, folder } = splitGitPath(file.file);
   const reviews = context.reviewCountsByFile?.get(file.file) ?? 0;
   const viewed = context.viewedFiles.has(file.file);
@@ -110,7 +123,9 @@ const PhoneDiffFileRow = memo(function PhoneDiffFileRow({
       )}
       <button
         type="button"
-        aria-label={`Open ${displayGitPath(file.file)}`}
+        aria-label={t("workspace.git.phoneDiffFileList.openPath", "Open {{path}}", {
+          path: displayGitPath(file.file),
+        })}
         onClick={() => context.onOpen(file.file)}
         className={cn(
           "flex h-full min-w-0 flex-1 items-center gap-2.5 pr-2 text-left hover:bg-accent/50",
@@ -128,7 +143,9 @@ const PhoneDiffFileRow = memo(function PhoneDiffFileRow({
           {folder && <span className="truncate text-xs text-muted-foreground">{folder}</span>}
         </span>
         {conflicted && (
-          <span className="shrink-0 text-[11px] text-[var(--acc-orange)]">Conflict</span>
+          <span className="shrink-0 text-[11px] text-[var(--acc-orange)]">
+            {t("workspace.git.gitDiffFileHeaderActions.conflict", "Conflict")}
+          </span>
         )}
         {reviews > 0 && (
           <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground">
@@ -137,7 +154,10 @@ const PhoneDiffFileRow = memo(function PhoneDiffFileRow({
           </span>
         )}
         {viewed && (
-          <CheckIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Viewed" />
+          <CheckIcon
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-label={t("workspace.git.diffFileHeader.viewed", "Viewed")}
+          />
         )}
         <NumStat
           additions={file.additions}
@@ -191,6 +211,7 @@ export const PhoneDiffFileList = memo(function PhoneDiffFileList({
   scrollTarget,
   onOpen,
 }: PhoneDiffFileListProps): ReactElement {
+  const { t } = useUiTranslation();
   const scrollerRef = useRef<HTMLElement | null>(null);
   const open = useCallback(
     (path: string) => onOpen(path, scrollerRef.current?.scrollTop ?? 0),
@@ -207,11 +228,22 @@ export const PhoneDiffFileList = memo(function PhoneDiffFileList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-4 text-xs text-muted-foreground">
         <span>
-          {files.length} changed {files.length === 1 ? "file" : "files"}
+          {t("workspace.git.gitDiffFileTree.changedFiles", "{{count, number}} changed files", {
+            count: files.length,
+            defaultValue_zero: "{{count, number}} changed files",
+            defaultValue_one: "{{count, number}} changed file",
+          })}
         </span>
         {supportsViewed && (
           <span aria-live="polite">
-            {files.filter((file) => viewedFiles.has(file.file)).length}/{files.length} viewed
+            {t(
+              "workspace.git.gitDiffToolbar.viewedFiles",
+              "{{viewed, number}}/{{total, number}} viewed",
+              {
+                viewed: files.filter((file) => viewedFiles.has(file.file)).length,
+                total: files.length,
+              },
+            )}
           </span>
         )}
       </div>

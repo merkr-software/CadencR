@@ -1,3 +1,4 @@
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { memo, type ReactElement } from "react";
 import type { Feature } from "@/api/generated";
 import { InboxCard } from "@/components/phone-inbox/PhoneInboxCard";
@@ -39,6 +40,8 @@ function PlainCard({
   kind,
   ...props
 }: CardProps & { kind: Exclude<NextActionKind, "waiting"> }): ReactElement {
+  // `actionView` reads the verbs' translated getters: re-render on a language change.
+  useUiTranslation();
   const prStatus = usePrStatusStore(selectPrStatus(props.feature.id));
   return <ForMeCardView {...props} kind={kind} view={actionView(kind, prStatus)} />;
 }

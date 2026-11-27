@@ -365,7 +365,8 @@
         "description": "How much of each agent turn stays expanded in the stream. This only changes what you see, never what the agent does.",
         "messageNavigator": "Message navigator",
         "messageNavigatorDescription": "Mark each of your messages with a small tick on the agent tab's right edge. Hover a tick to preview the message, click it to scroll there, or press {{previousCombo}} / {{nextCombo}}.",
-        "title": "Agent transcript"
+        "title": "Agent transcript",
+        "messageNavigatorDescriptionTouch": "Mark each of your messages with a small tick on the agent tab's right edge. Tap a tick to scroll to its message."
       }
     },
     "appSocket": {
@@ -559,7 +560,8 @@
         "archivingSession": "Archiving session…",
         "couldNotArchiveSession": "Could not archive session",
         "sessionArchived": "Session archived",
-        "sessionArchivedButItsCleanupDidNotReportBack": "Session archived, but its cleanup did not report back"
+        "sessionArchivedButItsCleanupDidNotReportBack": "Session archived, but its cleanup did not report back",
+        "undo": "Undo"
       },
       "archiveRelativeOptions": {
         "alsoArchiveEveryActiveDescendantSession": "Also archive every active descendant session.",
@@ -628,7 +630,9 @@
           "finishTypingToReviewIt": "Finish typing to review it",
           "permissionPending": "Permission request pending",
           "planPending": "Plan approval pending",
-          "questionPending": "Question pending"
+          "questionPending": "Question pending",
+          "answer": "Answer",
+          "review": "Review"
         },
         "agentQuestionDrawer": {
           "next": "Next",
@@ -639,7 +643,8 @@
         "assistMenu": {
           "keysSyntax": "Keys & syntax",
           "moreComposerActions": "More composer actions",
-          "session": "Session"
+          "session": "Session",
+          "sessionDetails": "Session details"
         },
         "autoMessageMenu": {
           "messageSendOptions": "Message send options",
@@ -764,7 +769,8 @@
           "bypass": "No guardrails",
           "changed": "Mode changed to {{label}}: {{risk}}",
           "edits": "Edits without asking",
-          "read": "Read-only"
+          "read": "Read-only",
+          "sheetTitle": "Mode"
         },
         "modelPickerRow": {
           "inheritModel": "Inherit ({{model}})",
@@ -1626,7 +1632,8 @@
           "resetZoom0": "Reset zoom (0)",
           "scrollToPanPinchToZoom": "Scroll to pan · pinch to zoom · {{PAN_MODIFIER}}-drag to pan",
           "zoomIn": "Zoom in (+)",
-          "zoomOut": "Zoom out (−)"
+          "zoomOut": "Zoom out (−)",
+          "expandDiagram": "Expand diagram"
         },
         "mermaidFullscreen": {
           "diagram": "Diagram"
@@ -1671,7 +1678,8 @@
           "on": "On",
           "openModelPicker": "Open model picker",
           "selectedModel": "Model: {{modelLabel}}",
-          "thinkingEffort": "Thinking effort: {{effort}}"
+          "thinkingEffort": "Thinking effort: {{effort}}",
+          "thinkingEffortTitle": "Thinking effort"
         },
         "planBlock": {
           "approved": "Approved",
@@ -2042,7 +2050,8 @@
           "saving": "Saving",
           "thisBranch": "This branch",
           "usesAWorktree": "Uses a worktree",
-          "whereTheAgentWorks": "Where the agent works: {{label}}"
+          "whereTheAgentWorks": "Where the agent works: {{label}}",
+          "sheetTitle": "Where the agent works"
         },
         "worktreePopover": {
           "baseBranch": "Base branch: {{branchLabel}}",
@@ -2065,6 +2074,9 @@
           "restart": "Interrupted: Cadencr restarted before this finished.",
           "quit": "Stopped: Cadencr quit before this finished.",
           "user": "Stopped by the user."
+        },
+        "messageActionsMenu": {
+          "messageActions": "Message actions"
         }
       },
       "subagent-presentation": {
@@ -2222,6 +2234,21 @@
         "streamFailed": "The auto-naming provider's connection failed before the title was ready. Try again.",
         "timeout": "The auto-naming provider did not finish in time. Try again or choose a faster naming model.",
         "warning": "Could not auto-name this conversation. {{detail}}"
+      },
+      "archiveUndo": {
+        "terminalsAndBrowserTabsClosed": "Its terminals and browser tabs stay closed.",
+        "terminalsClosed": "Its terminals stay closed.",
+        "browserTabsClosed": "Its browser tabs stay closed.",
+        "schedulesMaybePaused": "Any schedule the archive paused stays paused.",
+        "schedulesPaused_one": "{{count}} schedule stays paused.",
+        "schedulesPaused_other": "{{count}} schedules stay paused.",
+        "restoring": "Restoring session…",
+        "restored_one": "Session restored",
+        "restored_other": "{{count}} sessions restored",
+        "unarchiveFailed": "Unarchive failed",
+        "restoreFailed": "Could not restore session",
+        "partlyRestored_one": "{{restored}} of {{count}} session restored",
+        "partlyRestored_other": "{{restored}} of {{count}} sessions restored"
       }
     },
     "customActions": {
@@ -2398,9 +2425,7 @@
         "schedule": "Schedule {{name}}…"
       },
       "mobile": {
-        "failed": "Actions, one failed",
         "help": "Run in this conversation's working copy.",
-        "running": "Actions, one running",
         "terminal": "Opens a terminal"
       },
       "mobileCustomActionsSheet": {
@@ -2424,7 +2449,8 @@
       "runNamed": "Run “{{name}}”",
       "saving": "Saving…",
       "settings": {
-        "help": "Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings, or <shortcut />."
+        "help": "Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings, or <shortcut />.",
+        "helpTouch": "Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below. Run them from the header launcher, where each action also has a page with its output, runs and settings."
       },
       "starting": "Starting…",
       "status": {
@@ -2899,7 +2925,8 @@
     "home": {
       "emptyProject": {
         "hint": "Use the + button in the sidebar to create a new feature",
-        "title": "No features in this project yet"
+        "title": "No features in this project yet",
+        "phoneTitle": "No conversations in this project yet"
       },
       "feature": {
         "back": "Back to home",
@@ -2914,7 +2941,8 @@
       "loading": "Loading...",
       "noProjects": {
         "hint": "Use the + button in the sidebar to add a project",
-        "title": "No projects yet"
+        "title": "No projects yet",
+        "hintPhone": "Open the menu and use its + button to add a project"
       }
     },
     "marketplace": {
@@ -4599,71 +4627,70 @@
         "connected_zero": "Remote access ON — {{count, number}} devices connected",
         "connected_one": "Remote access ON — {{count, number}} device connected",
         "connected_other": "Remote access ON — {{count, number}} devices connected",
-        "description": "Use this workspace from another device over your network. Anyone who can reach your machine and pair gains full access — only enable it on networks you trust.",
-        "disabled": "Remote access is off",
-        "disabledHint": "Turn on to expose the workspace over your local network.",
         "enabled": "Remote access is on",
-        "enabledHint": "Reachable over TLS on your local network.",
         "errors": {
           "bind": "could not bind the remote listener (port may be in use)",
           "malformed": "Malformed remote status response.",
           "missingIndex": "Service unavailable: remote access needs a built frontend: no index.html at {{path}}",
           "request": "Remote access request failed.",
-          "unpacked": "Service unavailable: remote access requires a packaged build (no renderer dir)"
+          "unpacked": "Service unavailable: remote access requires a packaged build (no renderer dir)",
+          "poll": "Could not refresh remote access status."
         },
         "opening": "Opening remote access…",
-        "preventSleep": {
-          "description": "Keeps this computer awake while remote access is active. The screen can still lock or turn off. Manual sleep, lid close, or low battery may still interrupt hosting.",
-          "title": "Prevent sleep while hosting"
-        },
         "sections": {
           "activity": "Recent activity",
-          "connection": "Connection & certificate",
-          "devices": "Paired devices ({{deviceCount}})",
-          "tunnel": "Expose over the internet"
+          "pairedDevices": "Paired devices",
+          "addresses": "Addresses and certificate",
+          "awayFromHome": "Use it away from home"
         },
         "title": "Remote access",
-        "toggle": "Toggle remote access"
+        "subtitle": "Use this workspace from your phone or tablet.",
+        "off": {
+          "title": "Follow your agents from your phone",
+          "body": "Turn it on, scan a code with your phone, and read, answer and start conversations from anywhere on your network.",
+          "enable": "Turn on remote access",
+          "warning": "A paired device gets full access to this workspace. Turn it on only on networks you trust."
+        },
+        "status": {
+          "noDevices": "No device paired yet",
+          "devices_one": "{{count, number}} device paired · {{connected, number}} connected",
+          "devices_other": "{{count, number}} devices paired · {{connected, number}} connected"
+        },
+        "keepAwake": {
+          "title": "Keep this computer awake",
+          "description": "While remote access is on. The screen can still lock; closing the lid or a low battery still puts it to sleep."
+        }
       },
       "lan": {
-        "compareHint": "For LAN access, compare this SHA-256 fingerprint with the certificate shown by the other device's browser before accepting its warning. The pairing section above requires that comparison before showing a code:",
         "fingerprintCopied": "Fingerprint copied",
         "noAddress": "No local network address detected. Connect to Wi-Fi or use a tunnel.",
-        "urlCopied": "URL copied"
+        "urlCopied": "URL copied",
+        "fingerprintHint": "Phones on your network see this certificate. Its SHA-256 fingerprint, to compare with the one in the browser's warning details:"
       },
       "pairing": {
-        "certificate": {
-          "browserFingerprint": "SHA-256 fingerprint from the other device's browser",
-          "compare": "Compare and show pairing code",
-          "expected": "Expected host SHA-256 fingerprint",
-          "instructions": "On the other device, open this address without a pairing code. In the browser's certificate viewer, find the certificate's SHA-256 fingerprint. Compare it with this host before accepting the certificate warning. Cadencr cannot inspect that browser's certificate.",
-          "mismatch": "The SHA-256 fingerprint does not match. Do not pair; check the certificate and host again.",
-          "placeholder": "Paste the complete SHA-256 fingerprint",
-          "unavailable": "The host fingerprint is unavailable. Pairing is blocked.",
-          "urlCopied": "Certificate check URL copied"
-        },
         "code": {
           "errors": {
-            "addressChanged": "This connection address changed. Choose it again before pairing.",
-            "certificateChanged": "The host certificate changed. Close and reopen Remote access, then verify it again.",
             "disabled": "Conflict: Enable remote access before pairing",
             "malformed": "Malformed pairing-code response.",
-            "request": "Could not create a pairing code."
+            "request": "Could not create a pairing code.",
+            "certificateChangedReopen": "This computer's certificate changed. Close and reopen Remote access.",
+            "addressGone": "This address is no longer available. Pick another one."
           },
-          "expiresIn": "Expires in {{seconds}}s",
-          "generate": "Generate pairing code",
-          "generateAnother": "Generate a new code",
-          "instructions": "Generate a code, then scan the QR or open the link on the other device. The code is single-use and expires shortly.",
           "linkCopied": "Pairing link copied",
-          "qrLabel": "Pairing QR code",
-          "regenerate": "New code",
-          "used": "This code paired a device and is now used up. Each code works once — generate a new one to pair another device."
+          "showNew": "Show a new code",
+          "paired": "<name>{{device}}</name> is paired.",
+          "aDevice": "A device",
+          "pairAnother": "Scan the new code to pair another device, or its home-screen app.",
+          "notYou": "Not you? Revoke",
+          "qrTitle": "Pairing code",
+          "creating": "Creating a code",
+          "expired": "The code expired. Show a new one when you are ready to scan.",
+          "lifetime": "Code lifetime",
+          "newIn": "New code in {{time}}",
+          "copyLink": "Copy link"
         },
         "connected": "Connected to this workspace.",
-        "connectionAddress": "Connection address",
-        "connectionHint": "Recommended: use a private Tailscale connection with a browser-trusted certificate. For a LAN connection, compare its certificate before sharing a pairing code.",
         "error": {
-          "expired": "This pairing code has expired. Generate a fresh one on the host computer.",
           "failed": "Pairing failed.",
           "http": "Pairing failed (HTTP {{status}}).",
           "invalidInput": "Paste the pairing link or code from your computer.",
@@ -4671,35 +4698,61 @@
           "malformedResponse": "The pairing response was malformed.",
           "signInNotSaved": "Paired, but this browser couldn't save the sign-in. Try another browser.",
           "storageBlocked": "Paired, but this browser blocks storage — you'll need to re-pair after a reload.",
-          "unsafeAddress": "Could not remove the pairing code from this page's address. Pairing was stopped."
+          "unsafeAddress": "Could not remove the pairing code from this page's address. Pairing was stopped.",
+          "usedOrExpired": "This code was already used or has expired. Scan the new code shown on your computer.",
+          "rateLimited": "Too many pairing attempts. Wait a minute, then scan again."
         },
         "gate": {
-          "inputLabel": "Pairing link or code",
-          "instructions": "Open <setting>Remote access</setting> on your computer, then scan the QR code — or paste the pairing link below.",
-          "pairing": "Pairing…",
-          "pasteAlternative": "or paste the link",
-          "placeholder": "Paste pairing link…",
-          "scan": "Scan QR code",
-          "submit": "Pair device",
-          "title": "Pair this device"
+          "title": "Pair this device",
+          "openingCamera": "Opening the camera…",
+          "pairingDevice": "Pairing this device…",
+          "scanInstructions": "On your computer, open <name>Remote access</name> (<icon/> at the bottom of Cadencr's sidebar), then scan the code it shows.",
+          "radioIcon": "the radio icon",
+          "scanCode": "Scan the code",
+          "staySignedInHint": "Otherwise this device pairs again once it is closed.",
+          "staySignedInLabel": "Stay signed in on this device",
+          "pasteOpen": "No camera? Paste the pairing link",
+          "pastePlaceholder": "Paste the link from Copy link",
+          "pasteLabel": "Pairing link",
+          "pasteInvalid": "That isn't a pairing link. Use Copy link under the code on your computer.",
+          "pasteSubmit": "Pair with this link"
         },
-        "lanTarget": "{{host}} · LAN",
-        "noTarget": "Connect to a network or configure a private tunnel to pair a device.",
-        "privateTunnelTarget": "{{host}} · Private tunnel",
         "saveSignInFailed": "Couldn't save sign-in on this device.",
         "scanner": {
-          "aim": "Point at the QR code on your computer",
-          "backToPaste": "Back to paste",
           "cancel": "Cancel scan",
-          "failed": "Couldn't start the camera. Paste the link instead.",
-          "permissionDenied": "Camera permission was denied. Allow it in your browser settings, or paste the link instead.",
-          "unavailable": "This browser can't open the camera here. Paste the link instead.",
-          "viewfinder": "Camera viewfinder"
+          "viewfinder": "Camera viewfinder",
+          "unavailableLink": "This browser can't open the camera here. Paste the pairing link instead.",
+          "deniedLink": "Camera access was denied. Allow it in your browser's settings, or paste the pairing link instead.",
+          "failedLink": "Couldn't start the camera. Paste the pairing link instead.",
+          "looking": "Looking for the code…",
+          "foreignCode": "That QR code isn't a Cadencr pairing code.",
+          "hint": "Can't find it? Hold the phone 20–30 cm from the screen, with the whole code inside the square.",
+          "title": "Scan the code on your computer",
+          "back": "Back"
         },
         "staySignedIn": "Stay signed in",
         "staySignedInDetail": "Stay signed in on this device after closing the tab?",
-        "title": "Pair a new device",
-        "trusted": "This device will stay signed in."
+        "trusted": "This device will stay signed in.",
+        "targets": {
+          "tunnel": "Private tunnel",
+          "tailscale": "Tailscale",
+          "lan": "Local network"
+        },
+        "section": {
+          "title": "Pair a device",
+          "address": "Address the code points to",
+          "noAddress": "No network address found. Connect this computer to Wi-Fi, or set up a private tunnel under <name>Use it away from home</name>."
+        },
+        "steps": {
+          "label": "How to pair a device",
+          "scan": "Scan the code with your phone's camera",
+          "scanDetail": "Or open the copied link in a browser on the other device.",
+          "warning": "Continue past the privacy warning",
+          "warningDetail": "This computer signs its own certificate, so the browser warns once. In the warning's details, its SHA-256 fingerprint starts with <fingerprint>{{fingerprint}}</fingerprint>.",
+          "homeScreen": "Optional: add it to your Home Screen",
+          "homeScreenDetail": "For a full-screen app. It asks to pair once more: tap <em>Scan the code</em> in it and scan this code again."
+        },
+        "sessionChosen": "You'll pair again once this device closes Cadencr."
       },
       "tunnel": {
         "clear": "Clear",
@@ -5072,7 +5125,8 @@
           "description": "Browse every shortcut, or press <shortcut/> anywhere.",
           "shortcuts": "Keyboard shortcuts",
           "title": "Keyboard",
-          "view": "View shortcuts"
+          "view": "View shortcuts",
+          "descriptionTouch": "Browse every shortcut."
         },
         "language": {
           "loading": "Loading language preference…",
@@ -7984,7 +8038,8 @@
           "vimOffDescription": "Standard editing, no vim motions."
         },
         "editorPane": {
-          "emptyPane": "Open a file from the sidebar, press <newBuffer /> for a new buffer, or use <fuzzy />"
+          "emptyPane": "Open a file from the sidebar, press <newBuffer /> for a new buffer, or use <fuzzy />",
+          "emptyPaneTouch": "Open a file from the sidebar"
         },
         "editorPreviewSurface": {
           "htmlPreview": "HTML preview",
@@ -8593,7 +8648,8 @@
         },
         "diffViewer": {
           "loadingDiff": "Loading diff...",
-          "noChangesDetected": "No changes detected"
+          "noChangesDetected": "No changes detected",
+          "files": "Files"
         },
         "featurePrComments": {
           "couldNotOpenThisReviewThread": "Could not open this review thread.",
@@ -8653,11 +8709,7 @@
         "gitActionControls": {
           "git": "Git",
           "gitActions": "Git actions",
-          "gitActionsOnBranch": "Git actions, on {{branch}}",
           "moreGitActions": "More git actions"
-        },
-        "gitActionDialogs": {
-          "loadingGitAction": "Loading Git action…"
         },
         "gitActionPopover": {
           "commit": "Commit",
@@ -9462,6 +9514,27 @@
           "refreshing": "Refreshing Git status…",
           "retry": "Retry Git status",
           "issueWithDetail": "{{label}}. {{detail}}"
+        },
+        "phoneCommitBar": {
+          "unavailable": "Commit isn't available here",
+          "cannotCommit": "Cannot commit"
+        },
+        "phoneDiffFileList": {
+          "openPath": "Open {{path}}"
+        },
+        "phoneDiffFileStep": {
+          "actionsForPath": "Actions for {{path}}",
+          "markNotViewed": "Mark as not viewed",
+          "markViewed": "Mark as viewed",
+          "backTo": "Back to {{label}}",
+          "previousFile": "Previous file",
+          "nextFile": "Next file"
+        },
+        "phoneGitViewPicker": {
+          "conflicted_one": "{{count}} conflicted",
+          "conflicted_other": "{{count}} conflicted",
+          "currentView": "Git view: {{view}}",
+          "title": "Git view"
         }
       },
       "links": {
@@ -9996,7 +10069,82 @@
           "socketError": "Terminal WebSocket error",
           "terminalDisconnectedYourInputWasDropped": "Terminal disconnected — your input was dropped. Reconnecting…",
           "writeStalled": "Terminal write stalled"
+        },
+        "terminalCompatibility": {
+          "dismiss": "Dismiss compatibility terminal notice",
+          "hiddenUntilReload": "Hidden until the next reload",
+          "dismissNotRemembered": "This browser does not let Cadencr remember that you dismissed it."
         }
+      }
+    },
+    "lazy": {
+      "labels": {
+        "commandPalette": "command palette",
+        "search": "search",
+        "changelog": "changelog",
+        "projectSettings": "project settings",
+        "projectLocation": "project location",
+        "projectSetup": "project setup",
+        "import": "import",
+        "conversation": "conversation",
+        "fileSearch": "file search",
+        "gitAction": "Git action",
+        "page": "page",
+        "thisPage": "this page",
+        "onboarding": "onboarding",
+        "source": "source"
+      },
+      "loading": "Loading {{label}}…",
+      "failed": "Couldn’t load {{label}}. Check the connection."
+    },
+    "phone": {
+      "gate": {
+        "laterLabel": "Later: hide this request, the agent keeps waiting",
+        "later": "Later",
+        "stopConfirmTitle": "Stop the agent?",
+        "stopConfirmDescription": "It stops waiting for your answer and ends its turn. Later keeps it waiting instead."
+      },
+      "menu": {
+        "attentionCount_one": ", {{count}} for you",
+        "attentionCount_other": ", {{count}} for you"
+      },
+      "actionOnConversation": "{{action}} “{{title}}”",
+      "tabs": {
+        "barLabel": "Conversation tabs",
+        "more": "More",
+        "moreTitle": "More tabs",
+        "moreDescription": "Open a tab that has no place in the tab bar.",
+        "files": "Files"
+      },
+      "header": {
+        "worktree": "Worktree",
+        "hideSetup": "Hide setup",
+        "setupDetails": "Setup details",
+        "actions": "Conversation actions",
+        "actionsDescription": "Branch, worktree, Git and custom actions for this conversation.",
+        "customActionsLoadFailed": "Couldn't load custom actions.",
+        "actionsFailed": "Conversation actions, something failed",
+        "actionsRunning": "Conversation actions, something is running"
+      },
+      "inbox": {
+        "noConversationsDetail": "Start one: what your agents ask, work on and finish shows up here.",
+        "recentEmpty": "Nothing else lately",
+        "newConversationIn": "New conversation in",
+        "projectsLoadFailed": "Could not load projects"
+      }
+    },
+    "markdown": {
+      "richPreview": {
+        "expand": "Expand"
+      },
+      "richBlocks": {
+        "table": "Table",
+        "expandTable": "Expand table",
+        "expandCode": "Expand {{language}} code"
+      },
+      "richViewer": {
+        "copyTable": "Copy table",
+        "copyCode": "Copy {{language}}"
       }
     }
   }

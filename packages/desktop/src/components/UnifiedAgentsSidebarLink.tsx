@@ -42,6 +42,7 @@ export const UnifiedAgentsSidebarLink = memo(function UnifiedAgentsSidebarLink()
  * The unified agents grid is desktop-only (`/agents` sends a phone home).
  */
 export const PhoneInboxSidebarLink = memo(function PhoneInboxSidebarLink(): ReactElement {
+  const { t } = useUiTranslation();
   // `#/?projectId=` opens a project's conversation, not the inbox.
   const active = useRouterState({
     select: (state) => state.location.pathname === "/" && state.location.searchStr === "",
@@ -50,7 +51,9 @@ export const PhoneInboxSidebarLink = memo(function PhoneInboxSidebarLink(): Reac
   return (
     <AgentsSidebarAnchor active={active} to="/">
       <InboxIcon className="size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">Agents</span>
+      <span className="min-w-0 flex-1 truncate">
+        {t("sidebar.unifiedAgentsSidebarLink.agents", "Agents")}
+      </span>
       <RunningAgentsIndicator count={runningCount} />
     </AgentsSidebarAnchor>
   );

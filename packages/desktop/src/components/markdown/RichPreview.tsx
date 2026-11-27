@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Maximize2Icon } from "lucide-react";
 import { HEADER_BUTTON_CLASS } from "@/components/CodeBlockHeader";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 /**
  * The phone layout's rich blocks in a message (a wide table, a wide code
@@ -61,10 +62,11 @@ export function RichExpandButton({
   label: string;
   onClick: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <button type="button" onClick={onClick} aria-label={label} className={HEADER_BUTTON_CLASS}>
       <Maximize2Icon className="size-3" aria-hidden />
-      <span>Expand</span>
+      <span>{t("markdown.richPreview.expand", "Expand")}</span>
     </button>
   );
 }

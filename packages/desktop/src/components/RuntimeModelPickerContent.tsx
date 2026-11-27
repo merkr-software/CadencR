@@ -140,12 +140,13 @@ export function RuntimeModelPickerContent({
   selectedModelValue,
   setSearch,
 }: RuntimeModelPickerContentProps): React.ReactElement {
+  const { t } = useUiTranslation();
   const inSheet = useInPhoneSheet();
   // On phone the sheet never focuses the search field (that would raise the
   // keyboard over the list) and gives focus back to the model chip on close.
   return (
     <AdaptivePopoverContent
-      sheetTitle="Model"
+      sheetTitle={t("conversation.stream.modelMetaChip.model", "Model")}
       sheetClassName="min-h-0"
       align={align}
       className={cn(

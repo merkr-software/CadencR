@@ -25,11 +25,12 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
 }: {
   controller: ProjectTreeController;
 }) {
+  const { t } = useUiTranslation();
   return (
     <>
       {controller.settingsProject && (
         <LazyBoundary
-          label="project settings"
+          label={t("lazy.labels.projectSettings", "project settings")}
           variant="overlay"
           onDismiss={() => controller.setSettingsProject(null)}
         >
@@ -46,7 +47,7 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
       )}
       {controller.locationTarget && (
         <LazyBoundary
-          label="project location"
+          label={t("lazy.labels.projectLocation", "project location")}
           variant="overlay"
           onDismiss={() => controller.setLocationTarget(null)}
         >
@@ -59,7 +60,7 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
       )}
       {controller.onboarding.onboardingProject && (
         <LazyBoundary
-          label="project setup"
+          label={t("lazy.labels.projectSetup", "project setup")}
           variant="overlay"
           onDismiss={() => controller.onboarding.close()}
         >
@@ -75,7 +76,7 @@ export const ProjectTreeDialogs = memo(function ProjectTreeDialogs({
       )}
       {controller.importProject && (
         <LazyBoundary
-          label="import"
+          label={t("lazy.labels.import", "import")}
           variant="overlay"
           onDismiss={() => controller.setImportProject(null)}
         >

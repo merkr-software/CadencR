@@ -9,6 +9,7 @@ import {
 import { apiErrorMessage } from "@/lib/api-errors";
 import { invalidateFeatureLists } from "@/lib/featureUpdated";
 import { getCoarsePointerSnapshot, getPhoneShellSnapshot } from "@/lib/form-factor";
+import { translateUi } from "@/lib/i18n/ui";
 import { RESET_TOAST_STAGE } from "@/lib/staged-toast";
 
 /** An archive toast that offers Undo stays this long (as the sidebar preset's Undo). */
@@ -48,8 +49,23 @@ export function enabledScheduleFeatureIds(client: QueryClient): number[] | null 
   );
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
+function closedNote(terminals: boolean, browserTabs: boolean): string | null {
+  if (terminals && browserTabs) {
+    return translateUi(
+      "conversation.archiveUndo.terminalsAndBrowserTabsClosed",
+      "Its terminals and browser tabs stay closed.",
+    );
+  }
+  if (terminals) {
+    return translateUi("conversation.archiveUndo.terminalsClosed", "Its terminals stay closed.");
+  }
+  if (browserTabs) {
+    return translateUi(
+      "conversation.archiveUndo.browserTabsClosed",
+      "Its browser tabs stay closed.",
+    );
+  }
+  return null;
 }
 
 /**
@@ -63,19 +79,30 @@ export function archiveUndoCaveats(
   archivedIds: readonly number[],
   scheduleFeatureIds: readonly number[] | null,
 ): string | undefined {
-  const closed = [
-    report.terminals?.status === "done" ? "terminals" : null,
-    report.browser_tabs?.status === "done" ? "browser tabs" : null,
-  ].filter((name): name is string => name !== null);
   const notes: string[] = [];
-  if (closed.length > 0) notes.push(`Its ${closed.join(" and ")} stay closed.`);
+  const closed = closedNote(
+    report.terminals?.status === "done",
+    report.browser_tabs?.status === "done",
+  );
+  if (closed) notes.push(closed);
   if (scheduleFeatureIds === null) {
-    notes.push("Any schedule the archive paused stays paused.");
+    notes.push(
+      translateUi(
+        "conversation.archiveUndo.schedulesMaybePaused",
+        "Any schedule the archive paused stays paused.",
+      ),
+    );
   } else {
     const archived = new Set(archivedIds);
     const paused = scheduleFeatureIds.filter((featureId) => archived.has(featureId)).length;
     if (paused > 0) {
-      notes.push(`${plural(paused, "schedule")} ${paused === 1 ? "stays" : "stay"} paused.`);
+      notes.push(
+        translateUi("conversation.archiveUndo.schedulesPaused", {
+          count: paused,
+          defaultValue_one: "{{count}} schedule stays paused.",
+          defaultValue_other: "{{count}} schedules stay paused.",
+        }),
+      );
     }
   }
   return notes.length > 0 ? notes.join(" ") : undefined;
@@ -103,7 +130,10 @@ export async function undoArchive(
   { featureId, archivedIds, projectId, caveats }: ArchiveUndo,
 ): Promise<void> {
   const id = `archive-undo-${featureId}`;
-  toast.loading("Restoring session…", { ...RESET_TOAST_STAGE, id });
+  toast.loading(translateUi("conversation.archiveUndo.restoring", "Restoring session…"), {
+    ...RESET_TOAST_STAGE,
+    id,
+  });
   const results = await Promise.allSettled(
     archivedIds.map((archivedId) => updateFeatureStatus(archivedId, { status: "active" })),
   );
@@ -111,15 +141,27 @@ export async function undoArchive(
   const failure = results.find((result) => result.status === "rejected");
   const restored = results.length - results.filter((result) => result.status === "rejected").length;
   if (!failure) {
-    const title = restored === 1 ? "Session restored" : `${plural(restored, "session")} restored`;
+    const title = translateUi("conversation.archiveUndo.restored", {
+      count: restored,
+      defaultValue_one: "Session restored",
+      defaultValue_other: "{{count}} sessions restored",
+    });
     toast.success(title, { ...RESET_TOAST_STAGE, id, description: caveats });
     return;
   }
-  const reason = apiErrorMessage(failure.reason, "Unarchive failed");
+  const reason = apiErrorMessage(
+    failure.reason,
+    translateUi("conversation.archiveUndo.unarchiveFailed", "Unarchive failed"),
+  );
   toast.error(
     restored === 0
-      ? "Could not restore session"
-      : `${restored} of ${plural(results.length, "session")} restored`,
+      ? translateUi("conversation.archiveUndo.restoreFailed", "Could not restore session")
+      : translateUi("conversation.archiveUndo.partlyRestored", {
+          count: results.length,
+          restored,
+          defaultValue_one: "{{restored}} of {{count}} session restored",
+          defaultValue_other: "{{restored}} of {{count}} sessions restored",
+        }),
     { ...RESET_TOAST_STAGE, id, description: reason },
   );
 }

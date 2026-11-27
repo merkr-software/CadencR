@@ -3,6 +3,7 @@ import { EllipsisIcon } from "lucide-react";
 
 import type { TabKind } from "@/stores/feature-layout-schema";
 import { useTabRail } from "@/hooks/useTabRail";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 
 import { FeatureTabIcon } from "./FeatureTabIcon";
@@ -47,6 +48,7 @@ export const PhoneTabBar = memo(function PhoneTabBar({
   onActivateTab,
   onCloseTab,
 }: PhoneTabBarProps): ReactNode {
+  const { t } = useUiTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
   const rail = useTabRail();
   const { bar, more } = splitPhoneTabs(tabIds, tabs);
@@ -61,7 +63,7 @@ export const PhoneTabBar = memo(function PhoneTabBar({
   return (
     <div
       role="tablist"
-      aria-label="Conversation tabs"
+      aria-label={t("phone.tabs.barLabel", "Conversation tabs")}
       aria-orientation={rail ? "vertical" : "horizontal"}
       data-phone-tab-bar
       data-rail={rail ?? undefined}
@@ -95,7 +97,7 @@ export const PhoneTabBar = memo(function PhoneTabBar({
         >
           <EllipsisIcon aria-hidden className="size-5 shrink-0" />
           <span data-phone-tab-label className="max-w-full truncate text-[11px] font-medium">
-            More
+            {t("phone.tabs.more", "More")}
           </span>
         </button>
       )}
@@ -127,6 +129,7 @@ function PhoneTab({
   tabStop: boolean;
   onActivate: (tab: TabKind) => void;
 }): ReactNode {
+  const { t } = useUiTranslation();
   return (
     <button
       type="button"
@@ -141,7 +144,7 @@ function PhoneTab({
       <FeatureTabIcon def={def} className="size-5" />
       {/* The label comes first in reading order: the badge only adds to it. */}
       <span data-phone-tab-label className="max-w-full truncate text-[11px] font-medium">
-        {phoneTabLabel(tab, def)}
+        {phoneTabLabel(tab, def, t)}
       </span>
       {def.barBadge != null && (
         <span className="pointer-events-none absolute top-1 left-[calc(50%+0.375rem)]">

@@ -144,7 +144,9 @@ function PairingScreen(): ReactNode {
     );
   }
   if (pairing) {
-    return <FullScreenSpinner label={t("remote.pairing.gate.pairing", "Pairing this device…")} />;
+    return (
+      <FullScreenSpinner label={t("remote.pairing.gate.pairingDevice", "Pairing this device…")} />
+    );
   }
 
   return (
@@ -156,7 +158,7 @@ function PairingScreen(): ReactNode {
         </h1>
         <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">
           <UiTrans
-            i18nKey="remote.pairing.gate.instructions"
+            i18nKey="remote.pairing.gate.scanInstructions"
             defaults="On your computer, open <name>Remote access</name> (<icon/> at the bottom of Cadencr's sidebar), then scan the code it shows."
             components={{
               name: <span className="font-medium text-foreground" />,

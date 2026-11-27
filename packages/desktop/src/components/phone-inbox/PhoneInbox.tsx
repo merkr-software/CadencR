@@ -17,6 +17,7 @@ import { prefetchAgentSession } from "@/components/lazy/agent-session-chunk";
 import { scheduleIdle } from "@/lib/schedule-idle";
 import { navigateToConversation } from "@/lib/conversation-route";
 import { isStrongAction } from "@/lib/next-actions";
+import { useUiTranslation } from "@/lib/i18n/ui";
 
 /**
  * The phone layout's home: the "Agents" inbox. For me (what waits on the
@@ -25,6 +26,7 @@ import { isStrongAction } from "@/lib/next-actions";
  * projects. A card's body opens its conversation.
  */
 export function PhoneInbox(): ReactElement {
+  const { t } = useUiTranslation();
   const inbox = usePhoneInbox();
   const navigate = useNavigate();
   const { projectsById } = inbox;
@@ -42,7 +44,7 @@ export function PhoneInbox(): ReactElement {
   usePrefetchConversationView(!inbox.projects.loading && !inbox.recent.loading);
   return (
     <PhoneHomeFrame
-      title="Agents"
+      title={t("sidebar.unifiedAgentsSidebarLink.agents", "Agents")}
       menuBadge={false}
       actions={<NewConversation projects={inbox.projects.rows} variant="icon" />}
     >
@@ -90,14 +92,18 @@ interface ContentProps {
  * empty states wait for the projects to load.
  */
 function InboxContent({ inbox, onOpen, onQuickReply }: ContentProps): ReactElement {
+  const { t } = useUiTranslation();
   const { forMe, working, recent, projects } = inbox;
   const projectsKnown = !projects.loading && !projects.error;
   if (projectsKnown && projects.rows.length === 0) {
     return (
       <CenteredMessage
         tone="foreground"
-        title="No projects yet"
-        detail="Open the menu and use its + button to add a project"
+        title={t("home.noProjects.title", "No projects yet")}
+        detail={t(
+          "home.noProjects.hintPhone",
+          "Open the menu and use its + button to add a project",
+        )}
       />
     );
   }
@@ -108,8 +114,11 @@ function InboxContent({ inbox, onOpen, onQuickReply }: ContentProps): ReactEleme
     return (
       <CenteredMessage
         tone="foreground"
-        title="No conversations yet"
-        detail="Start one: what your agents ask, work on and finish shows up here."
+        title={t("sidebar.crossProjectList.noConversationsYet", "No conversations yet")}
+        detail={t(
+          "phone.inbox.noConversationsDetail",
+          "Start one: what your agents ask, work on and finish shows up here.",
+        )}
         action={<NewConversation projects={projects.rows} variant="button" />}
       />
     );
@@ -126,12 +135,12 @@ function InboxContent({ inbox, onOpen, onQuickReply }: ContentProps): ReactEleme
       )}
       <ForMeSection inbox={inbox} held={held} onOpen={onOpen} onQuickReply={onQuickReply} />
       <InboxSection
-        label="In progress"
+        label={t("sidebar.workingSection.inProgress", "In progress")}
         icon={LoaderIcon}
         count={held ? undefined : working.rows.length}
         loading={held || working.loading}
         error={working.error}
-        empty="No agent at work"
+        empty={t("sidebar.workingSection.noAgentAtWork", "No agent at work")}
         isEmpty={held || working.rows.length === 0}
       >
         {working.rows.map((feature) => (
@@ -145,11 +154,11 @@ function InboxContent({ inbox, onOpen, onQuickReply }: ContentProps): ReactEleme
         ))}
       </InboxSection>
       <InboxSection
-        label="Recent"
+        label={t("sidebar.recentSection.recent", "Recent")}
         icon={HistoryIcon}
         loading={held || recent.loading}
         error={recent.error}
-        empty="Nothing else lately"
+        empty={t("phone.inbox.recentEmpty", "Nothing else lately")}
         isEmpty={held || recent.rows.length === 0}
       >
         {recent.rows.map((feature) => (
@@ -172,17 +181,18 @@ function ForMeSection({
   onOpen,
   onQuickReply,
 }: ContentProps & { held: boolean }): ReactElement {
+  const { t } = useUiTranslation();
   const { forMe, projectsById } = inbox;
   const more = useForMeShowMore(forMe.rows.length);
   return (
     <InboxSection
-      label="For me"
+      label={t("sidebar.forMeSection.forMe", "For me")}
       icon={InboxIcon}
       count={held ? undefined : forMe.rows.length}
       strong={forMe.rows.some(isStrongAction)}
       loading={held || forMe.loading}
       error={forMe.error}
-      empty="Nothing waiting on you"
+      empty={t("sidebar.forMeSection.nothingWaitingOnYou", "Nothing waiting on you")}
       isEmpty={held || forMe.rows.length === 0}
       footer={held ? null : <SidebarShowMoreButton more={more} />}
     >
@@ -209,6 +219,7 @@ function ProjectsError({
   retrying: boolean;
   onRetry: () => void;
 }): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <div
       role="alert"
@@ -217,7 +228,7 @@ function ProjectsError({
       <p className="min-w-0 flex-1 text-sm text-destructive">{message}</p>
       <Button variant="outline" className="min-h-11 shrink-0" disabled={retrying} onClick={onRetry}>
         {retrying && <Loader2Icon className="animate-spin" />}
-        Retry
+        {t("common.retry", "Retry")}
       </Button>
     </div>
   );
