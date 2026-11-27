@@ -142,7 +142,11 @@ export function FeatureRowMetaItems({
           <NumStat
             additions={stats.insertions}
             deletions={stats.deletions}
-            notice={stats.unavailable_line_counts ? "Partial" : undefined}
+            notice={
+              stats.unavailable_line_counts
+                ? t("sidebar.row.partialDiffStats", "Partial")
+                : undefined
+            }
             className="text-[11px] leading-tight"
           />
         </span>

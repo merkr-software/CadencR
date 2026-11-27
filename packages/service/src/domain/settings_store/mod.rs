@@ -43,8 +43,8 @@ pub use dir::{global_dir, init};
 pub use paths::name_is_shared;
 pub use store::{
     global_get, global_get_nonempty, global_list, global_map, global_modify_object, global_read,
-    global_read_for_edit, global_read_object, global_set, global_set_if_current, global_set_many, global_snapshot,
-    global_write_content, project_get, project_list, project_map, project_path,
+    global_read_for_edit, global_read_object, global_set, global_set_if_current, global_set_many,
+    global_snapshot, global_write_content, project_get, project_list, project_map, project_path,
     project_read_for_edit, project_rename, project_set, project_set_many, project_write_content,
 };
 pub(crate) use store::{global_inspect_document, global_update_document};

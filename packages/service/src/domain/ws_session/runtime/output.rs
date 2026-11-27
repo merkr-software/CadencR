@@ -38,6 +38,7 @@ pub(crate) trait OutputTarget: Send + Sync {
             &WsSessionEvent::Warning(SessionWarningPayload {
                 code: code.into(),
                 message: message.into(),
+                auto_name_reason: None,
             }),
         )
         .expect("command warning should serialize");

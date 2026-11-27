@@ -223,6 +223,7 @@ pub(in crate::domain::ws_session) async fn broadcast_session_warning(
         crate::domain::ws_session::protocol::SessionWarningPayload {
             code: code.into(),
             message: message.into(),
+            auto_name_reason: None,
         },
     ))
     .expect("session warning should serialize");

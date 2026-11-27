@@ -149,6 +149,9 @@ impl From<RuntimePermissionOption> for PermissionOptionPayload {
 pub struct SessionWarningPayload {
     pub code: String,
     pub message: String,
+    /// Reason for presenting an auto-naming warning in the interface language.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_name_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]

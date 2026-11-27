@@ -6,7 +6,6 @@ import { persister, queryClient, revalidateRestoredQueries } from "./lib/queryCl
 import { shouldDehydrateQuery } from "./lib/persistedQueries";
 import { OnboardingGate } from "./components/onboarding/OnboardingGate";
 import { LanguageUpgradeSuggestion } from "./components/onboarding/LanguageUpgradeSuggestion";
-import { isBrowserRemote } from "./lib/remote/device-token";
 import { RemotePairingGate } from "./components/remote/RemotePairingGate";
 import { Toaster } from "./components/ui/sonner";
 import { AmbientBackground } from "./components/AmbientBackground";
@@ -36,9 +35,11 @@ export default function App() {
           <Toaster />
           <RemotePairingGate>
             <LanguageProvider>
-              <OnboardingGate openSettings={() => router.navigate({ to: "/settings" })}>
+              <OnboardingGate
+                openSettings={() => router.navigate({ to: "/settings" })}
+                languageSuggestion={<LanguageUpgradeSuggestion />}
+              >
                 <RouterProvider router={router} />
-                {!isBrowserRemote() && <LanguageUpgradeSuggestion />}
               </OnboardingGate>
             </LanguageProvider>
           </RemotePairingGate>

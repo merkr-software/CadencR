@@ -95,7 +95,7 @@ function ToolOutcome({
   agentRunning,
 }: Pick<SubagentActionRowProps, "block" | "result" | "agentRunning">): ReactElement | null {
   const { t } = useUiTranslation();
-  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
+  const failure = useMemo(() => toolCallFailure(block, result, t), [block, result, t]);
   if (failure) {
     return (
       <span className="shrink-0 text-[10px] text-destructive" title={failure.reason}>

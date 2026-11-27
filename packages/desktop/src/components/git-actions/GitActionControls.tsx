@@ -1,4 +1,3 @@
-import { useUiTranslation } from "@/lib/i18n/ui";
 /**
  * The split primary/menu control, in its desktop and mobile shapes.
  *
@@ -13,11 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { useShortcutKeys } from "@/hooks/useShortcutLabel";
+import { useUiTranslation } from "@/lib/i18n/ui";
 import { cn } from "@/lib/utils";
 import { gitActionIcon } from "./GitActionPopover";
 import {
   GitActionPopoverContent,
-  REFRESHING_GIT_STATUS,
+  refreshingGitStatusLabel,
+  retryGitStatusLabel,
   type GitStatusRetry,
 } from "./GitActionPopoverContent";
 import {
@@ -70,6 +71,11 @@ function MobileGitActionControl({
 }: GitActionControlsProps): ReactElement {
   const { t } = useUiTranslation();
   const active = activeGitActivity(activities);
+  const actionsLabel = checkedOut
+    ? t("workspace.git.gitActionControls.gitActionsOnBranch", "Git actions, on {{branch}}", {
+        branch: checkedOut,
+      })
+    : t("workspace.git.gitActionControls.gitActions", "Git actions");
   return (
     <div className="inline-flex items-center">
       {active && (
@@ -88,9 +94,8 @@ function MobileGitActionControl({
             className={cn(GIT_ACTION_BUTTON_CLASS, active ? "rounded-l-none px-1.5" : "min-w-0")}
             aria-label={
               active
-                ? "More git actions"
-                : (statusRetry.issue?.label ??
-                  (checkedOut ? `Git actions, on ${checkedOut}` : "Git actions"))
+                ? t("workspace.git.gitActionControls.moreGitActions", "More git actions")
+                : (statusRetry.issue?.label ?? actionsLabel)
             }
           >
             {active ? (
@@ -108,7 +113,9 @@ function MobileGitActionControl({
                     checkedOut && !statusRetry.issue && "font-mono",
                   )}
                 >
-                  {statusRetry.issue?.label ?? checkedOut ?? "Git"}
+                  {statusRetry.issue?.label ??
+                    checkedOut ??
+                    t("workspace.git.gitActionControls.git", "Git")}
                 </span>
               </>
             )}
@@ -173,7 +180,7 @@ function DesktopGitActionControl({
           }
           title={
             statusRetry.issue
-              ? `${statusRetry.issue.detail}\nRetry Git status`
+              ? `${statusRetry.issue.detail}\n${retryGitStatusLabel(t)}`
               : primaryDisabled
                 ? (state.disabled.commit ?? state.label)
                 : state.label
@@ -188,7 +195,7 @@ function DesktopGitActionControl({
             )}
           />
           <span>
-            {retrying ? REFRESHING_GIT_STATUS : (statusRetry.issue?.label ?? state.label)}
+            {retrying ? refreshingGitStatusLabel(t) : (statusRetry.issue?.label ?? state.label)}
           </span>
         </Button>
       )}

@@ -47,7 +47,9 @@ function updateGitPathPrefixToast(queryClient: QueryClient, featureId: number): 
           onClick: (event) => {
             event.preventDefault();
             const updateToast = () => updateGitPathPrefixToast(queryClient, featureId);
-            void queryClient.fetchQuery({ ...options, staleTime: 0 }).then(updateToast, updateToast);
+            void queryClient
+              .fetchQuery({ ...options, staleTime: 0 })
+              .then(updateToast, updateToast);
           },
         },
       },

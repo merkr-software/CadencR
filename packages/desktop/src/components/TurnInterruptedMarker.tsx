@@ -61,7 +61,11 @@ const INTERRUPTIONS: Record<
     resumePrompt: BACKGROUND_STOPPED_PROMPT,
   },
   "quit-background": {
-    label: "Background tasks stopped when you quit Cadencr",
+    label: (t) =>
+      t(
+        "conversation.stream.turnInterruptedMarker.quitBackground",
+        "Background tasks stopped when you quit Cadencr",
+      ),
     Icon: Power,
     iconClassName: "size-3",
     resumePrompt: QUIT_BACKGROUND_STOPPED_PROMPT,

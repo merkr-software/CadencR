@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { toast } from "sonner";
-import { fireEvent, render, screen } from "@/test-utils";
+import { act, fireEvent, render, screen } from "@/test-utils";
+import { changeUiLanguage } from "@/shared/ui-i18n";
 import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { formatCompactCombo } from "@/lib/shortcuts/format";
@@ -220,6 +221,60 @@ describe("FeatureTopBar", () => {
       showError.mockRestore();
     }
   });
+
+  it.each([
+    [
+      "AUTO_NAME_TIMEOUT",
+      undefined,
+      "The auto-naming provider did not finish in time.",
+      "Le fournisseur de renommage automatique n’a pas terminé à temps. Réessayez ou choisissez un modèle de renommage plus rapide.",
+    ],
+    [
+      "RUNTIME_CLOSE_FAILED",
+      "close_failed",
+      "The auto-naming provider did not close cleanly. Try again.",
+      "Le fournisseur de renommage automatique ne s’est pas arrêté correctement. Réessayez.",
+    ],
+    [
+      "RUNTIME_CLOSE_FAILED",
+      "close_timeout",
+      "The auto-naming provider did not close in time. Try again.",
+      "Le fournisseur de renommage automatique ne s’est pas arrêté à temps. Réessayez.",
+    ],
+    [
+      "SETTINGS_INVALID",
+      "settings_prompt",
+      "The settings for the auto-naming system prompt are invalid.",
+      "Les réglages concernant l’invite système de renommage automatique sont invalides. Vérifiez-les via Modifier le JSON dans les réglages de l’espace de travail.",
+    ],
+    [
+      "SETTINGS_INVALID",
+      undefined,
+      "/tmp/settings.json: expected an object",
+      "/tmp/settings.json: expected an object",
+    ],
+  ])(
+    "presents the right French auto-rename error for %s (%s)",
+    async (code, reason, error, expected) => {
+      await changeUiLanguage("fr-FR");
+      mockAutoNameError = {
+        isAxiosError: true,
+        response: {
+          data: { code, error, details: reason ? { auto_name_reason: reason } : undefined },
+        },
+      };
+      const showError = vi.spyOn(toast, "error").mockReturnValue("test-toast");
+      try {
+        const { user } = render(<FeatureTopBar featureId={1} projectId={1} />);
+        fireEvent.contextMenu(screen.getByRole("heading", { name: "My Test Feature" }));
+        await user.click(await screen.findByText("Renommer automatiquement"));
+        expect(showError).toHaveBeenCalledExactlyOnceWith(expected);
+      } finally {
+        showError.mockRestore();
+        await act(async () => changeUiLanguage("en-US"));
+      }
+    },
+  );
 
   it("shows auto-rename on default session titles so users can retry after a failure", async () => {
     mockFeatureData = {

@@ -380,12 +380,13 @@ pub(super) async fn write_marker(
         (false, true) => RESTART_BACKGROUND_MARKER_CONTENT,
         (false, false) => RESTART_MARKER_CONTENT,
     };
-    let tool_result = if stopped {
-        transcript::QUIT_TOOL_RESULT
+    let tool_interruption = if stopped {
+        transcript::ToolInterruption::Quit
     } else {
-        transcript::INTERRUPTED_TOOL_RESULT
+        transcript::ToolInterruption::Restart
     };
-    transcript::close_running_tool_calls(&mut tx, continuation.session_id, tool_result).await?;
+    transcript::close_running_tool_calls(&mut tx, continuation.session_id, tool_interruption)
+        .await?;
     let marker_id = transcript::insert_marker(&mut tx, continuation.session_id, marker).await?;
     sqlx::query("UPDATE restart_continuations SET marker_message_id = ? WHERE id = ?")
         .bind(marker_id)

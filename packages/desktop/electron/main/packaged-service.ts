@@ -46,7 +46,8 @@ export function createPackagedService(host: PackagedServiceHost): PackagedServic
     }).then(arm);
   const supervisor = createServiceSupervisor({
     respawn: async () => {
-      if (host.shuttingDown()) throw new Error("Cadencr is shutting down.");
+      if (host.shuttingDown())
+        throw new Error(t("system.service.shuttingDown", "Cadencr is shutting down."));
       const next = await spawn();
       if (host.shuttingDown()) {
         await next.stop();

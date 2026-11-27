@@ -73,7 +73,7 @@ export interface AgentBlockData {
   promptDeliveryState?: PromptDeliveryState;
   /** For `error` blocks — machine-readable code from the backend. */
   errorCode?: string;
-  /** Provenance for machine-generated user messages. */
+  /** Provenance for machine-generated prompts and tool results. */
   origin?: AgentMessageOrigin | null;
   /** Keep compact-flow rows stable across a paginated history seam. */
   compactFlowBreakBefore?: true;

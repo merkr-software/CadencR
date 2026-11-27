@@ -80,6 +80,8 @@ export interface ActiveCloseWork {
   background_only: boolean;
   feature_id: number;
   label: string;
+  /** The label is a placeholder that clients can translate. */
+  label_uses_fallback: boolean;
   session_id: number;
   waiting_on_you: boolean;
 }
@@ -6900,6 +6902,11 @@ export interface SessionUsageUpdatePayload {
  * event must preserve the live turn, pending receipts, and permission state.
  */
 export interface SessionWarningPayload {
+  /**
+   * Reason for presenting an auto-naming warning in the interface language.
+   * @nullable
+   */
+  auto_name_reason?: string | null;
   code: string;
   message: string;
 }

@@ -191,7 +191,7 @@
       "errors": {
         "backgroundUpdateFailed": "No se ha podido actualizar en segundo plano",
         "subscriptionRejected": "El servicio ha rechazado una suscripción en segundo plano.",
-        "watchingStopped": "La observación de archivos paró"
+        "editorWatchingStopped": "Se ha detenido la vigilancia de archivos del editor"
       }
     },
     "appearance": {
@@ -1084,7 +1084,8 @@
         "autoRenameFailed": "Auto-renombrado falló",
         "copiedFeatureName": "Nombre de la conversación copiado",
         "copy": "Copiar",
-        "rename": "Renombre…"
+        "rename": "Renombre…",
+        "autoRenameDatabaseError": "Un error en la base de datos ha impedido cambiar automáticamente el nombre de esta conversación. Vuelve a intentarlo."
       },
       "fork": {
         "failed": "No se ha podido bifurcar la conversación.",
@@ -1905,7 +1906,8 @@
           "restart": "Interrumpido por un reinicio de Cadencr",
           "resume": "Resumen",
           "resumedAfterRestart": "Reanudado tras el reinicio",
-          "user": "Lo has detenido"
+          "user": "Lo has detenido",
+          "quitBackground": "Tareas en segundo plano interrumpidas al salir de Cadencr"
         },
         "unreadable": "Una actualización fluida del agente no era legible y no se podía mostrar. La transcripción anterior puede ser incompleta.",
         "useAgentSessionModelAndProfile": {
@@ -1932,13 +1934,16 @@
           "forkANewSessionFromThisMessage": "Bifurcar una sesión nueva a partir de este mensaje",
           "image": "Imagen {{position}}",
           "isNoLongerHeldInMemory": "{{label}} ya no se mantiene en memoria",
-          "reloadTheConversationAndTryAgain": "{{error}}. Recarga la conversación y vuelve a intentarlo.",
           "retryDeliveryWithTheSameMessageIdentity": "Reintentar el envío con el mismo identificador de mensaje",
-          "retryUnavailableBecauseTheOriginalAttachmentData": "Retry no disponible porque los datos de acceso original no se almacenan",
           "retrying": "Reintentando",
           "retryingDeliveryWithTheSameMessageIdentity": "Reintentando el envío con el mismo identificador de mensaje",
           "rewind": "Retroceder",
-          "rewindTheSessionToThisMessage": "Retroceder en la sesión hasta este mensaje"
+          "rewindTheSessionToThisMessage": "Retroceder en la sesión hasta este mensaje",
+          "hasNoSavedBytes": "No hay datos guardados para {{label}}",
+          "noLongerInStorage": "Ya no se encuentra {{label}} en el almacenamiento",
+          "reattachAndResend": "Vuelve a adjuntar el archivo y reenvía el mensaje desde el cuadro de redacción.",
+          "retryAfterReconnect": "Revisa la conversación después de volver a conectarte. Si el mensaje no se entregó, vuelve a adjuntar el archivo y reenvía el mensaje desde el cuadro de redacción.",
+          "retryUnavailable": "No se puede reintentar"
         },
         "userMessageBlock": {
           "agentReceiptCouldNotBeConfirmed": "La recepción del agente no puede ser confirmada",
@@ -2028,6 +2033,11 @@
           "remote": "remoto",
           "searchBranches": "Buscar ramas…",
           "useTheBranchTheProjectIsCurrently": "Usa la rama en la que se encuentra actualmente el proyecto."
+        },
+        "toolInterruption": {
+          "restart": "Interrumpido: Cadencr se reinició antes de que terminara la operación.",
+          "quit": "Detenido: Cadencr se cerró antes de que terminara la operación.",
+          "user": "El usuario detuvo la operación."
         }
       },
       "subagent-presentation": {
@@ -2158,6 +2168,34 @@
         "retry": "Reintentar",
         "setupWorktreeCommands": "Configuración — comandos del árbol de trabajo",
         "worktreeRemoved": "Este árbol de trabajo se ha eliminado del ordenador. {{branchStatus}} Cadencr usa ahora la carpeta del proyecto."
+      },
+      "autoName": {
+        "cliNotFound": "No se ha encontrado la CLI del proveedor de nombres automáticos. Comprueba su instalación y vuelve a intentarlo.",
+        "closeFailed": "El proveedor de nombres automáticos no se ha cerrado correctamente. Vuelve a intentarlo.",
+        "closeTimeout": "El proveedor de nombres automáticos no se ha cerrado a tiempo. Vuelve a intentarlo.",
+        "conversationMissing": "La conversación ya no existe.",
+        "databaseBusy": "La base de datos está ocupada. Vuelve a intentarlo en un momento.",
+        "databaseReadFailed": "Cadencr no ha podido leer el título de la conversación. Vuelve a intentarlo.",
+        "databaseWriteFailed": "Cadencr no ha podido guardar el título de la conversación. Vuelve a intentarlo.",
+        "emptyResponse": "El proveedor de nombres automáticos ha devuelto un título vacío. Vuelve a intentarlo o elige otro modelo para generar nombres.",
+        "noModelAvailable": "El proveedor de nombres automáticos no ofrece ningún modelo utilizable. Comprueba que su CLI esté instalada y autenticada o selecciona otro proveedor.",
+        "profileInvalid": "El perfil del proveedor de nombres automáticos no es válido. Comprueba su configuración y vuelve a intentarlo.",
+        "profileLoadFailed": "No se ha podido cargar el perfil del proveedor de nombres automáticos. Comprueba su configuración y vuelve a intentarlo.",
+        "profileSetting": "el perfil activo de nombres automáticos",
+        "promptSetting": "la instrucción del sistema para los nombres automáticos",
+        "providerFailed": "El proveedor de nombres automáticos ha fallado al generar el título. Comprueba el modelo y la autenticación y vuelve a intentarlo.",
+        "providerUnavailable": "El proveedor de nombres automáticos no está disponible. Comprueba el proveedor en los ajustes del espacio de trabajo.",
+        "retryFromTitleMenu": "Vuelve a intentarlo desde el menú del título de la conversación.",
+        "selectionSetting": "el proveedor de nombres automáticos, el modelo o el perfil activo",
+        "settingsInvalid": "Los ajustes para {{setting}} no son válidos. Revísalos en los ajustes del espacio de trabajo mediante Editar JSON.",
+        "settingsLoadFailed": "No se han podido cargar los ajustes para {{setting}}. Revísalos en los ajustes del espacio de trabajo mediante Editar JSON.",
+        "settingsReadFailed": "No se han podido leer los ajustes para {{setting}}. Revísalos en los ajustes del espacio de trabajo mediante Editar JSON.",
+        "spawnFailed": "No se ha podido iniciar el proveedor de nombres automáticos. Comprueba su instalación y su perfil activo y vuelve a intentarlo.",
+        "startTimeout": "El proveedor de nombres automáticos no se ha iniciado a tiempo. Comprueba su instalación y su perfil activo y vuelve a intentarlo.",
+        "streamClosed": "El proveedor de nombres automáticos ha cerrado la conexión antes de confirmar un título. Vuelve a intentarlo.",
+        "streamFailed": "La conexión con el proveedor de nombres automáticos ha fallado antes de que el título estuviera listo. Vuelve a intentarlo.",
+        "timeout": "El proveedor de nombres automáticos no ha terminado a tiempo. Vuelve a intentarlo o elige un modelo más rápido para generar nombres.",
+        "warning": "No se ha podido renombrar esta conversación automáticamente. {{detail}}"
       }
     },
     "customActions": {
@@ -3824,7 +3862,10 @@
         "description": "La configuración inicial y las preferencias quedarán en pausa hasta que se pueda leer el archivo de ajustes. Corrígelo o sustitúyelo y vuelve a intentarlo.",
         "error": "No se ha podido leer el archivo de ajustes.",
         "openSettings": "Abrir ajustes",
-        "title": "Cadencr no puede leer tus ajustes"
+        "title": "Cadencr no puede leer tus ajustes",
+        "checking": "Comprobando los ajustes…",
+        "instructions": "Corrige o sustituye el archivo de ajustes y vuelve a intentarlo.",
+        "openSettingsFailed": "No se han podido abrir los ajustes."
       },
       "welcome": {
         "animations": "Animaciones fluidas",
@@ -5051,7 +5092,7 @@
           "readError": "No se ha podido leer el ajuste de idioma."
         },
         "restarts": {
-          "description": "Actualizar o reiniciar Cadencr detiene a los agentes que estén trabajando. Al iniciarse de nuevo, Cadencr retoma las conversaciones interrumpidas, pide a los agentes que repitan lo que quedó a medias y te indica cuáles ha reanudado.",
+          "description": "Tras una actualización, un reinicio del servicio o un fallo, Cadencr reanuda los agentes interrumpidos y les pide que repitan el trabajo que quedó a medias. Si sales de Cadencr, puedes reanudar el trabajo detenido desde su conversación.",
           "disabled_many": "La reanudación automática está desactivada. {{count}} agentes siguen detenidos: {{names}}.",
           "disabled_one": "La reanudación automática está desactivada. {{count}} agente sigue detenido: {{names}}.",
           "disabled_other": "La reanudación automática está desactivada. {{count}} agentes siguen detenidos: {{names}}.",
@@ -5572,7 +5613,9 @@
           "unsetCount_other": " · {{count}} variables hereditarias removidas",
           "usesYourUsualCodexConfiguration": "Usa tu configuración habitual de Codex",
           "usualConfig": "Usa la configuración habitual de Codex",
-          "usualHome": "Usa la casa de Codex normal"
+          "usualHome": "Usa la casa de Codex normal",
+          "invalidConfig": "Perfil no disponible. Para usarlo, corrige o sustituye su archivo {{file}}.",
+          "refreshProfileStatus": "Actualizar el estado de los perfiles"
         },
         "createProviderWorkspaceDialog": {
           "aGitRepositoryWithReadmeMdAndThe": "a Repositorio Git con `{{readme}}` y el contrato completo `{{contract}}`;",
@@ -5807,22 +5850,22 @@
     },
     "shell": {
       "close": {
-        "background_many": "{{count}} agentes siguen trabajando. Continuarán mientras Cadencr siga en el Dock.",
-        "background_one": "Un agente sigue trabajando. Continuará mientras Cadencr siga en el Dock.",
-        "background_other": "{{count}} agentes siguen trabajando. Continuarán mientras Cadencr siga en el Dock.",
         "failure": "No se ha podido cerrar Cadencr",
-        "quitAndResume": "Salir y reanudar al volver a abrir Cadencr",
         "quitTitle": "¿Salir de Cadencr?",
-        "resume_many": "{{count}} agentes siguen trabajando. Cadencr puede reanudarlos donde se quedaron la próxima vez que lo abras.",
-        "resume_one": "Un agente sigue trabajando. Cadencr puede reanudarlo donde se quedó la próxima vez que lo abras.",
-        "resume_other": "{{count}} agentes siguen trabajando. Cadencr puede reanudarlos donde se quedaron la próxima vez que lo abras.",
         "stopAndQuit": "Detener los agentes y salir",
-        "stop_many": "{{count}} agentes siguen trabajando. Si sales, se detendrán. La opción de reanudar los agentes al reiniciar está desactivada en Ajustes.",
-        "stop_one": "Un agente sigue trabajando. Si sales, se detendrá. La opción de reanudar los agentes al reiniciar está desactivada en Ajustes.",
-        "stop_other": "{{count}} agentes siguen trabajando. Si sales, se detendrán. La opción de reanudar los agentes al reiniciar está desactivada en Ajustes.",
         "untitled": "Conversación sin título",
         "waiting": "esperando tu intervención",
-        "windowTitle": "¿Cerrar la ventana?"
+        "windowTitle": "¿Cerrar la ventana?",
+        "backgroundWork": "trabajo en segundo plano",
+        "checkingAgents": "Buscando agentes activos…",
+        "closingWindow": "Cerrando la ventana…",
+        "continuesWork": "Los turnos activos y el trabajo en segundo plano continúan mientras Cadencr permanece en el Dock.",
+        "stoppingAgents": "Deteniendo agentes…",
+        "stopsWork": "Al salir se detienen los turnos activos y el trabajo en segundo plano que gestiona Cadencr. Puedes reanudarlos desde sus conversaciones.",
+        "workUnavailable": "Cadencr no pudo listar los agentes activos.",
+        "working_many": "{{count}} agentes siguen trabajando.",
+        "working_one": "Un agente sigue trabajando.",
+        "working_other": "{{count}} agentes siguen trabajando."
       },
       "errors": {
         "bootstrapFailed": "No se ha podido iniciar Cadencr: {{detail}}",
@@ -6982,7 +7025,8 @@
         "shellCommand_many": "{{count}} comandos de shell running",
         "shellCommand_one": "{{count}} comando shell running",
         "shellCommand_other": "{{count}} comandos de shell running",
-        "unpin": "Desfijar"
+        "unpin": "Desfijar",
+        "partialDiffStats": "Parcial"
       },
       "sampleBanner": {
         "playTheSamplesLastChangesAgain": "Juega los últimos cambios de las muestras de nuevo: remos flash, la nueva demanda de popover se abre",
@@ -7323,12 +7367,15 @@
         "unexpectedResponder": "El servicio que ha respondido a la comprobación se ha identificado como «{{service}}»"
       },
       "shutdown": {
-        "agentsWarning": "Cadencr no puede reanudar sus agentes después de un reinicio",
         "failed": "No se ha podido cerrar Cadencr",
-        "responseStatus": "el servicio devuelto {{status}}",
-        "resumeIntent": "Cadencr no pudo registrar que sus agentes deberían reanudar: {{detail}}",
-        "resumeWarning": "Cadencr puede reanudar el trabajo de fondo en su próximo comienzo",
-        "stopIntent": "Cadencr no pudo registrar que sus agentes deberían permanecer detenidos: {{detail}}"
+        "responseStatus": "el servicio devolvió {{status}}",
+        "agentsUnconfirmed": "Cadencr no pudo confirmar que tus agentes se hayan detenido: {{detail}}",
+        "alreadyClosing": "Cadencr ya se está preparando para cerrarse.",
+        "cleanupTimeout": "La limpieza no terminó a tiempo.",
+        "crashedServiceUnconfirmed": "Cadencr no pudo verificar que los agentes del servicio que falló se hayan detenido. Intenta salir de nuevo.\n\n{{detail}}",
+        "serviceRestarting": "Cadencr está reiniciando su servicio. Intenta salir de nuevo cuando esté listo.",
+        "serviceStarting": "Cadencr aún está iniciando su servicio. Intenta salir de nuevo cuando esté listo.",
+        "startingServiceUnconfirmed": "Cadencr no pudo confirmar que el servicio que se estaba iniciando se haya detenido. Intenta salir de nuevo cuando esté listo."
       },
       "startup": {
         "backingUp": {
@@ -9026,7 +9073,8 @@
           "loadingDiffStats": "Estadísticas de carga",
           "noFileListInThisView": "No hay lista de archivos en esta vista",
           "showFileList": "Mostrar lista de archivos",
-          "statsUnavailable": "Estatas no disponibles"
+          "statsUnavailable": "Estatas no disponibles",
+          "partialStats": "Estadísticas parciales"
         },
         "gitUpdateMessages": {
           "abortMerge": "Cancelar la integración",
@@ -9426,13 +9474,17 @@
         },
         "useDiffData": {
           "failedToLoadChangedFiles": "No se han podido cargar los archivos modificados",
-          "failedToReadFileVersions": "No se han podido leer las versiones del archivo",
           "failedToRemoveStaleCommentError": "No se puede quitar el comentario de establo: {{error}}",
           "removedStaleComments_many": "Eliminado {{count, number}} comentarios en archivos cambiados",
           "removedStaleComments_one": "Eliminado {{count, number}} comentario en archivos cambiados",
           "removedStaleComments_other": "Eliminado {{count, number}} comentarios en archivos cambiados",
-          "reviewCommentChecksPausedError": "Revisar los comprobaciones de comentarios pausados: {{error}}",
-          "unknownError": "Error desconocido"
+          "unknownError": "Error desconocido",
+          "reviewCommentChecksPaused": "Comprobación de los comentarios de revisión en pausa",
+          "couldNotLoadViewedFiles": "No se han podido cargar los archivos marcados como vistos",
+          "couldNotLoadReviewComments": "No se han podido cargar los comentarios de revisión",
+          "commentChecksPausedWorktreeUnavailable": "La comprobación de los comentarios de revisión está en pausa. El worktree de esta funcionalidad no está disponible.",
+          "commentChecksPausedNamedBranchUnavailable": "La comprobación de los comentarios de revisión está en pausa. La rama de destino «{{branch}}» no está disponible.",
+          "commentChecksPausedTargetUnavailable": "La comprobación de los comentarios de revisión está en pausa. La rama de destino no está disponible."
         },
         "useFileDiffSection": {
           "failedToLoadThisFileSDiff": "No se han podido cargar los cambios de este archivo"
@@ -9473,7 +9525,10 @@
           "updateRequestInProgress": "Solicitud de actualización en curso",
           "updateSourceUnresolved": "No se encuentra la referencia de origen «{{branch}}»",
           "updating": "Actualizando…",
-          "viewProposal": "Vista {{proposal}} #{{number}}"
+          "viewProposal": "Vista {{proposal}} #{{number}}",
+          "openMergeRequest": "Abrir solicitud de fusión",
+          "viewPullRequest": "Ver solicitud de integración n.º {{number}}",
+          "viewMergeRequest": "Ver solicitud de fusión n.º {{number}}"
         },
         "useGitDiffFileTreeModel": {
           "addedByThem": "añadidas por ellos",
@@ -9591,6 +9646,20 @@
         "wsGitStatusHandler": {
           "gitStatusError": "Error de estado de Git",
           "invalidPullRequestStatusUpdateReceived": "Se ha recibido una actualización no válida del estado de la solicitud de integración."
+        },
+        "diff": {
+          "lineCountUnavailable": "Recuento de líneas no disponible"
+        },
+        "status": {
+          "loading": "Cargando el estado de Git…",
+          "failedToLoad": "No se ha podido cargar el estado de Git",
+          "unavailable": "Estado de Git no disponible",
+          "worktreeUnavailable": "Worktree no disponible",
+          "worktreeUnavailableDetail": "El worktree de esta funcionalidad ya no está disponible.",
+          "liveUpdatesUnavailable": "Actualizaciones de Git en tiempo real no disponibles",
+          "refreshing": "Actualizando el estado de Git…",
+          "retry": "Volver a consultar el estado de Git",
+          "issueWithDetail": "{{label}}. {{detail}}"
         }
       },
       "links": {

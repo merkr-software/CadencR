@@ -7,6 +7,8 @@ use axum::http::StatusCode;
 use crate::domain::settings_store;
 use crate::error::AppError;
 
+use super::error_copy::{settings_failure, NamingSetting};
+
 /// Workspace setting holding the user's custom auto-naming system prompt. An
 /// empty or whitespace-only value means "use the built-in default".
 const AUTO_NAME_SYSTEM_PROMPT_KEY: &str = "auto_name_system_prompt";
@@ -26,7 +28,7 @@ pub(super) const NAME_END: &str = "__FEATURE_NAME_END__";
 /// set, otherwise the built-in default.
 pub(super) fn resolve_system_prompt() -> Result<String, AppError> {
     let stored = settings_store::global_read(AUTO_NAME_SYSTEM_PROMPT_KEY)
-        .map_err(|error| super::settings_failure(error, "the auto-naming system prompt"))?;
+        .map_err(|error| settings_failure(error, NamingSetting::SystemPrompt))?;
     Ok(stored
         .filter(|prompt| !prompt.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_AUTO_NAME_SYSTEM_PROMPT.to_string()))

@@ -29,28 +29,10 @@ export function CodexProfilesSection(): React.JSX.Element {
 
   return (
     <section className="space-y-4">
-      <SettingsHeading
-        title={t("settings.providers.codexProfilesSection.profiles", "Profiles")}
-        description={t(
-          "settings.providers.codexProfilesSection.namedCodexConfigurationsAndEnvironmentVariablesProfiles",
-          "Named Codex configurations and environment variables. Profiles without a custom {{file}} use your usual Codex home.",
-          { file: "config.toml" },
-        )}
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw className="size-3.5" aria-hidden /> Refresh profile status
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setEditing("new")}>
-              <Plus className="size-3.5" /> {t("settings.providers.codexProfilesSection.newProfile", "New profile")}
-            </Button>
-          </div>
-        }
+      <CodexProfilesHeading
+        refreshing={query.isFetching}
+        onRefresh={() => void query.refetch()}
+        onCreate={() => setEditing("new")}
       />
       {query.isLoading ? (
         <LoadingRow
@@ -60,7 +42,15 @@ export function CodexProfilesSection(): React.JSX.Element {
           )}
         />
       ) : query.isError ? (
-        <ErrorRow label={apiErrorMessage(query.error, t("settings.providers.codexProfilesSection.failedToLoadCodexProfiles", "Failed to load Codex profiles."))} />
+        <ErrorRow
+          label={apiErrorMessage(
+            query.error,
+            t(
+              "settings.providers.codexProfilesSection.failedToLoadCodexProfiles",
+              "Failed to load Codex profiles.",
+            ),
+          )}
+        />
       ) : (
         <div className="overflow-hidden rounded-md border border-border bg-card">
           <NativeProfileRow
@@ -117,6 +107,43 @@ export function CodexProfilesSection(): React.JSX.Element {
         onConfirm={confirmDelete}
       />
     </section>
+  );
+}
+
+function CodexProfilesHeading({
+  refreshing,
+  onRefresh,
+  onCreate,
+}: {
+  refreshing: boolean;
+  onRefresh: () => void;
+  onCreate: () => void;
+}) {
+  const { t } = useUiTranslation();
+  return (
+    <SettingsHeading
+      title={t("settings.providers.codexProfilesSection.profiles", "Profiles")}
+      description={t(
+        "settings.providers.codexProfilesSection.namedCodexConfigurationsAndEnvironmentVariablesProfiles",
+        "Named Codex configurations and environment variables. Profiles without a custom {{file}} use your usual Codex home.",
+        { file: "config.toml" },
+      )}
+      action={
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" disabled={refreshing} onClick={onRefresh}>
+            <RefreshCw className="size-3.5" aria-hidden />
+            {t(
+              "settings.providers.codexProfilesSection.refreshProfileStatus",
+              "Refresh profile status",
+            )}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onCreate}>
+            <Plus className="size-3.5" />
+            {t("settings.providers.codexProfilesSection.newProfile", "New profile")}
+          </Button>
+        </div>
+      }
+    />
   );
 }
 
@@ -262,56 +289,11 @@ function CodexProfileRow({
   onDelete: () => void;
 }): React.JSX.Element {
   const { t } = useUiTranslation();
-  const invalidConfig = profile.revision === "invalid";
   return (
     <div
       className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-4 py-2.5 ${profile.is_active ? "bg-primary/5" : ""}`}
     >
-      <div className="min-w-0 flex-1 basis-40 space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{profile.name}</span>
-          {profile.is_active && (
-            <ProfileBadge>
-              {t("settings.providers.codexProfilesSection.active", "Active")}
-            </ProfileBadge>
-          )}
-        </div>
-        <p
-          className="truncate font-mono text-xs text-muted-foreground"
-          title={
-            profile.effective_home ??
-            t("settings.providers.codexProfilesSection.usualHome", "Uses the normal Codex home")
-          }
-        >
-          {profile.config_path && profile.effective_home
-            ? `CODEX_HOME=${profile.effective_home}`
-            : t(
-                "settings.providers.codexProfilesSection.usualConfig",
-                "Uses usual Codex configuration",
-              )}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.providers.codexProfilesSection.envCount", "{{count}} env vars", {
-            count: profile.env_keys.length,
-            defaultValue_zero: "{{count}} env vars",
-            defaultValue_one: "{{count}} env var",
-          })}
-          {profile.env_unset.length > 0 &&
-            t(
-              "settings.providers.codexProfilesSection.unsetCount",
-              " · {{count}} removed inherited variables",
-              {
-                count: profile.env_unset.length,
-                defaultValue_one: " · {{count}} removed inherited variable",
-              },
-            )}
-        </p>
-        {invalidConfig && (
-          <p className="text-xs text-destructive">
-            Profile unavailable. Repair or replace its config.toml to use it.
-          </p>
-        )}
-      </div>
+      <CodexProfileDetails profile={profile} />
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {!profile.is_active && (
           <Button
@@ -347,6 +329,62 @@ function CodexProfileRow({
           <Trash2 className="size-3.5" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+function CodexProfileDetails({ profile }: { profile: CodexProfileSummary }) {
+  const { t } = useUiTranslation();
+  const invalidConfig = profile.revision === "invalid";
+  return (
+    <div className="min-w-0 flex-1 basis-40 space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="truncate text-sm font-medium">{profile.name}</span>
+        {profile.is_active && (
+          <ProfileBadge>
+            {t("settings.providers.codexProfilesSection.active", "Active")}
+          </ProfileBadge>
+        )}
+      </div>
+      <p
+        className="truncate font-mono text-xs text-muted-foreground"
+        title={
+          profile.effective_home ??
+          t("settings.providers.codexProfilesSection.usualHome", "Uses the normal Codex home")
+        }
+      >
+        {profile.config_path && profile.effective_home
+          ? `CODEX_HOME=${profile.effective_home}`
+          : t(
+              "settings.providers.codexProfilesSection.usualConfig",
+              "Uses usual Codex configuration",
+            )}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {t("settings.providers.codexProfilesSection.envCount", "{{count}} env vars", {
+          count: profile.env_keys.length,
+          defaultValue_zero: "{{count}} env vars",
+          defaultValue_one: "{{count}} env var",
+        })}
+        {profile.env_unset.length > 0 &&
+          t(
+            "settings.providers.codexProfilesSection.unsetCount",
+            " · {{count}} removed inherited variables",
+            {
+              count: profile.env_unset.length,
+              defaultValue_one: " · {{count}} removed inherited variable",
+            },
+          )}
+      </p>
+      {invalidConfig && (
+        <p className="text-xs text-destructive">
+          {t(
+            "settings.providers.codexProfilesSection.invalidConfig",
+            "Profile unavailable. Repair or replace its {{file}} to use it.",
+            { file: "config.toml" },
+          )}
+        </p>
+      )}
     </div>
   );
 }

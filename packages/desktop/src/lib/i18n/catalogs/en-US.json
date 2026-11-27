@@ -15,19 +15,21 @@
         "nativeError": "Could not update the native menu language"
       },
       "close": {
-        "background_one": "1 agent is still working. It keeps working while Cadencr stays in the Dock.",
-        "background_other": "{{count}} agents are still working. They keep working while Cadencr stays in the Dock.",
         "failure": "Could not close Cadencr",
-        "quitAndResume": "Quit and resume on next launch",
         "quitTitle": "Quit Cadencr?",
-        "resume_one": "1 agent is still working. Cadencr can pick it back up where it left off the next time it starts.",
-        "resume_other": "{{count}} agents are still working. Cadencr can pick them back up where they left off the next time it starts.",
-        "stop_one": "1 agent is still working. Quitting stops it, and resuming agents after a restart is turned off in Settings.",
-        "stop_other": "{{count}} agents are still working. Quitting stops them, and resuming agents after a restart is turned off in Settings.",
         "stopAndQuit": "Stop agents and quit",
         "untitled": "Untitled conversation",
         "waiting": "waiting on you",
-        "windowTitle": "Close the window?"
+        "windowTitle": "Close the window?",
+        "backgroundWork": "background work",
+        "checkingAgents": "Checking for active agents…",
+        "closingWindow": "Closing the window…",
+        "continuesWork": "Active turns and background work continue while Cadencr stays in the Dock.",
+        "stoppingAgents": "Stopping agents…",
+        "stopsWork": "Quitting stops active turns and the background work Cadencr manages. You can resume them from their conversations.",
+        "workUnavailable": "Cadencr could not list the active agents.",
+        "working_one": "1 agent is still working.",
+        "working_other": "{{count}} agents are still working."
       },
       "errors": {
         "bootstrapFailed": "Failed to start Cadencr: {{detail}}",
@@ -370,7 +372,7 @@
       "errors": {
         "backgroundUpdateFailed": "Background update failed",
         "subscriptionRejected": "The service rejected a background subscription.",
-        "watchingStopped": "File watching stopped"
+        "editorWatchingStopped": "Editor file watching stopped"
       }
     },
     "cli": {
@@ -1130,7 +1132,8 @@
         "autoRenameFailed": "Auto-rename failed",
         "copiedFeatureName": "Copied feature name",
         "copy": "Copy",
-        "rename": "Rename…"
+        "rename": "Rename…",
+        "autoRenameDatabaseError": "A database error prevented auto-renaming this conversation. Try again."
       },
       "fork": {
         "failed": "The conversation couldn't be forked.",
@@ -1932,7 +1935,8 @@
           "restart": "Interrupted by a Cadencr restart",
           "resume": "Resume",
           "resumedAfterRestart": "Resumed after restart",
-          "user": "Stopped by you"
+          "user": "Stopped by you",
+          "quitBackground": "Background tasks stopped when you quit Cadencr"
         },
         "unreadable": "A streamed update from the agent was unreadable and could not be displayed. The transcript above may be incomplete.",
         "useAgentSessionModelAndProfile": {
@@ -1956,13 +1960,16 @@
           "forkANewSessionFromThisMessage": "Fork a new session from this message",
           "image": "Image {{position}}",
           "isNoLongerHeldInMemory": "{{label}} is no longer held in memory",
-          "reloadTheConversationAndTryAgain": "{{error}}. Reload the conversation and try again.",
           "retryDeliveryWithTheSameMessageIdentity": "Retry delivery with the same message identity",
           "retrying": "Retrying",
           "retryingDeliveryWithTheSameMessageIdentity": "Retrying delivery with the same message identity",
-          "retryUnavailableBecauseTheOriginalAttachmentData": "Retry unavailable because the original attachment data is not stored",
           "rewind": "Rewind",
-          "rewindTheSessionToThisMessage": "Rewind the session to this message"
+          "rewindTheSessionToThisMessage": "Rewind the session to this message",
+          "hasNoSavedBytes": "{{label}} has no saved bytes",
+          "noLongerInStorage": "{{label}} is no longer in storage",
+          "reattachAndResend": "Reattach the file and resend the message from the composer.",
+          "retryAfterReconnect": "Check the conversation after reconnecting. If delivery failed, reattach the file and resend it from the composer.",
+          "retryUnavailable": "Retry unavailable"
         },
         "userMessageBlock": {
           "agentReceiptCouldNotBeConfirmed": "Agent receipt could not be confirmed",
@@ -2053,6 +2060,11 @@
           "remote": "remote",
           "searchBranches": "Search branches…",
           "useTheBranchTheProjectIsCurrently": "Use the branch the project is currently on."
+        },
+        "toolInterruption": {
+          "restart": "Interrupted: Cadencr restarted before this finished.",
+          "quit": "Stopped: Cadencr quit before this finished.",
+          "user": "Stopped by the user."
         }
       },
       "subagent-presentation": {
@@ -2182,6 +2194,34 @@
         "retry": "Retry",
         "setupWorktreeCommands": "Setup — worktree commands",
         "worktreeRemoved": "This worktree was removed from the machine. {{branchStatus}} Cadencr is using the project folder instead."
+      },
+      "autoName": {
+        "cliNotFound": "The auto-naming provider's CLI could not be found. Check its installation and try again.",
+        "closeFailed": "The auto-naming provider did not close cleanly. Try again.",
+        "closeTimeout": "The auto-naming provider did not close in time. Try again.",
+        "conversationMissing": "The conversation no longer exists.",
+        "databaseBusy": "The database is busy. Try again in a moment.",
+        "databaseReadFailed": "Cadencr could not read the conversation title. Try again.",
+        "databaseWriteFailed": "Cadencr could not save the conversation title. Try again.",
+        "emptyResponse": "The auto-naming provider returned an empty title. Try again or choose another naming model.",
+        "noModelAvailable": "The auto-naming provider exposes no usable models. Check that its CLI is installed and authenticated, or select another provider.",
+        "profileInvalid": "The auto-naming provider profile is invalid. Check its configuration and try again.",
+        "profileLoadFailed": "Could not load the auto-naming provider profile. Check its configuration and try again.",
+        "profileSetting": "the active auto-naming profile",
+        "promptSetting": "the auto-naming system prompt",
+        "providerFailed": "The auto-naming provider failed while generating the title. Check its model and authentication, then try again.",
+        "providerUnavailable": "The auto-naming provider is unavailable. Check the provider in workspace settings.",
+        "retryFromTitleMenu": "Try again from the conversation title menu.",
+        "selectionSetting": "the auto-naming provider, model or active profile",
+        "settingsInvalid": "The settings for {{setting}} are invalid. Check them in workspace settings via Edit JSON.",
+        "settingsLoadFailed": "The settings for {{setting}} could not be loaded. Check them in workspace settings via Edit JSON.",
+        "settingsReadFailed": "The settings for {{setting}} could not be read. Check them in workspace settings via Edit JSON.",
+        "spawnFailed": "Could not start the auto-naming provider. Check its installation and active profile, then try again.",
+        "startTimeout": "The auto-naming provider did not start in time. Check its installation and active profile, then try again.",
+        "streamClosed": "The auto-naming provider closed the connection before confirming a title. Try again.",
+        "streamFailed": "The auto-naming provider's connection failed before the title was ready. Try again.",
+        "timeout": "The auto-naming provider did not finish in time. Try again or choose a faster naming model.",
+        "warning": "Could not auto-name this conversation. {{detail}}"
       }
     },
     "customActions": {
@@ -3826,7 +3866,10 @@
         "description": "Setup and preferences stay on hold until the settings file can be read. Fix or replace it, then retry.",
         "error": "The settings file could not be read.",
         "openSettings": "Open Settings",
-        "title": "Cadencr can't read your settings"
+        "title": "Cadencr can't read your settings",
+        "checking": "Checking settings…",
+        "instructions": "Fix or replace the settings file, then retry.",
+        "openSettingsFailed": "Could not open Settings."
       },
       "welcome": {
         "animations": "Fluid animations",
@@ -5036,7 +5079,7 @@
           "readError": "Could not read the language setting."
         },
         "restarts": {
-          "description": "Updating or restarting Cadencr stops the agents that are working. When it starts again, Cadencr continues each interrupted conversation, asks the agent to redo what was cut off, and tells you which agents it resumed.",
+          "description": "After an update, a service restart, or a crash, Cadencr resumes interrupted agents and asks them to redo what was cut off. If you quit Cadencr, you can resume stopped work from its conversation.",
           "disabled_one": "Automatic resume is off, so {{count}} agent stayed stopped: {{names}}.",
           "disabled_other": "Automatic resume is off, so {{count}} agents stayed stopped: {{names}}.",
           "loopGuard": "Not resumed again after several restarts in a row: {{names}}. Open the conversation to continue.",
@@ -5551,7 +5594,9 @@
           "unsetCount_other": " · {{count}} removed inherited variables",
           "usesYourUsualCodexConfiguration": "Uses your usual Codex configuration",
           "usualConfig": "Uses usual Codex configuration",
-          "usualHome": "Uses the normal Codex home"
+          "usualHome": "Uses the normal Codex home",
+          "invalidConfig": "Profile unavailable. Repair or replace its {{file}} to use it.",
+          "refreshProfileStatus": "Refresh profile status"
         },
         "createProviderWorkspaceDialog": {
           "addProvider": "Add provider",
@@ -6861,7 +6906,8 @@
         "runningSubagents_other": "{{count}} sub-agents running",
         "shellCommand_one": "{{count}} shell command running",
         "shellCommand_other": "{{count}} shell commands running",
-        "unpin": "Unpin"
+        "unpin": "Unpin",
+        "partialDiffStats": "Partial"
       },
       "sampleBanner": {
         "playTheSamplesLastChangesAgain": "Play the samples' last changes again: rows flash, the newest request's popover opens",
@@ -7190,12 +7236,15 @@
         "unexpectedResponder": "Health responder identified itself as '{{service}}'"
       },
       "shutdown": {
-        "agentsWarning": "Cadencr may not resume your agents after a restart",
         "failed": "Could not close Cadencr",
         "responseStatus": "the service returned {{status}}",
-        "resumeIntent": "Cadencr could not record that your agents should resume: {{detail}}",
-        "resumeWarning": "Cadencr may resume background work on its next start",
-        "stopIntent": "Cadencr could not record that your agents should stay stopped: {{detail}}"
+        "agentsUnconfirmed": "Cadencr could not confirm that your agents stopped: {{detail}}",
+        "alreadyClosing": "Cadencr is already preparing to close.",
+        "cleanupTimeout": "The cleanup did not finish in time.",
+        "crashedServiceUnconfirmed": "Cadencr could not verify that the crashed service's agents stopped. Try quitting again.\n\n{{detail}}",
+        "serviceRestarting": "Cadencr is restarting its service. Try quitting again when it is ready.",
+        "serviceStarting": "Cadencr is still starting its service. Try quitting again when it is ready.",
+        "startingServiceUnconfirmed": "Cadencr could not confirm that its starting service stopped. Try quitting again when it is ready."
       },
       "startup": {
         "backingUp": {
@@ -8844,7 +8893,8 @@
           "loadingDiffStats": "Loading diff stats",
           "noFileListInThisView": "No file list in this view",
           "showFileList": "Show file list",
-          "statsUnavailable": "Stats unavailable"
+          "statsUnavailable": "Stats unavailable",
+          "partialStats": "Partial stats"
         },
         "gitUpdateMessages": {
           "abortMerge": "Abort merge",
@@ -9231,12 +9281,16 @@
         },
         "useDiffData": {
           "failedToLoadChangedFiles": "Failed to load changed files",
-          "failedToReadFileVersions": "Failed to read file versions",
           "failedToRemoveStaleCommentError": "Failed to remove stale comment: {{error}}",
           "removedStaleComments_one": "Removed {{count, number}} comment on changed files",
           "removedStaleComments_other": "Removed {{count, number}} comments on changed files",
-          "reviewCommentChecksPausedError": "Review comment checks paused: {{error}}",
-          "unknownError": "Unknown error"
+          "unknownError": "Unknown error",
+          "reviewCommentChecksPaused": "Review comment checks paused",
+          "couldNotLoadViewedFiles": "Could not load viewed files",
+          "couldNotLoadReviewComments": "Could not load review comments",
+          "commentChecksPausedWorktreeUnavailable": "Review comment checks paused. The feature's worktree is unavailable.",
+          "commentChecksPausedNamedBranchUnavailable": "Review comment checks paused. The target branch “{{branch}}” is unavailable.",
+          "commentChecksPausedTargetUnavailable": "Review comment checks paused. The target branch is unavailable."
         },
         "useFileDiffSection": {
           "failedToLoadThisFileSDiff": "Failed to load this file's diff"
@@ -9277,7 +9331,10 @@
           "updateRequestInProgress": "Update request in progress",
           "updateSourceUnresolved": "Update source '{{branch}}' does not resolve",
           "updating": "Updating…",
-          "viewProposal": "View {{proposal}} #{{number}}"
+          "viewProposal": "View {{proposal}} #{{number}}",
+          "openMergeRequest": "Open merge request",
+          "viewPullRequest": "View pull request #{{number}}",
+          "viewMergeRequest": "View merge request #{{number}}"
         },
         "useGitDiffFileTreeModel": {
           "addedByThem": "added by them",
@@ -9391,6 +9448,20 @@
         "wsGitStatusHandler": {
           "gitStatusError": "Git status error",
           "invalidPullRequestStatusUpdateReceived": "Invalid pull request status update received."
+        },
+        "diff": {
+          "lineCountUnavailable": "Line count unavailable"
+        },
+        "status": {
+          "loading": "Loading Git status…",
+          "failedToLoad": "Failed to load Git status",
+          "unavailable": "Git status unavailable",
+          "worktreeUnavailable": "Worktree unavailable",
+          "worktreeUnavailableDetail": "The feature's worktree is no longer available",
+          "liveUpdatesUnavailable": "Git live updates unavailable",
+          "refreshing": "Refreshing Git status…",
+          "retry": "Retry Git status",
+          "issueWithDetail": "{{label}}. {{detail}}"
         }
       },
       "links": {

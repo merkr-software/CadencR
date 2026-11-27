@@ -11,7 +11,12 @@ import { translateUi, type UiTranslator, useUiTranslation } from "@/lib/i18n/ui"
  */
 import { useMemo } from "react";
 import type { GitOperationKind, GitStatusSnapshot, PrSummary } from "@/api/generated";
-import { prNoun } from "@/lib/open-pull-request";
+import {
+  compareActionLabel,
+  primaryActionLabel,
+  updateBlockedReason,
+  viewProposalLabel,
+} from "./gitActionLabels";
 import { gitUpdateContinueDisabledReason } from "./gitUpdateMessages";
 
 /** Used until the backend names the host's own action ("Open merge request"). */
@@ -127,17 +132,11 @@ function disabledActions(reason: string): Record<GitAction, string> {
 }
 
 function loadingState(t: UiTranslator): GitActionState {
+  const label = t("workspace.git.useGitAction.loading", "Loading…");
   return {
     primary: null,
-    label: t("workspace.git.useGitAction.loading", "Loading…"),
-    disabled: {
-      commit: t("workspace.git.useGitAction.loading", "Loading…"),
-      stash: t("workspace.git.useGitAction.loading", "Loading…"),
-      update: t("workspace.git.useGitAction.loading", "Loading…"),
-      push: t("workspace.git.useGitAction.loading", "Loading…"),
-      pr: t("workspace.git.useGitAction.loading", "Loading…"),
-      merge: t("workspace.git.useGitAction.loading", "Loading…"),
-    },
+    label,
+    disabled: disabledActions(label),
     compareLabel: t("workspace.git.useGitAction.openPullRequest", "Open pull request"),
     updatePending: false,
     recovery: null,
@@ -300,7 +299,9 @@ export function deriveGitAction(
   }: GitActionOptions = {},
   t: UiTranslator = translateUi,
 ): GitActionState {
-  const unavailable = statusError ? "Git status unavailable" : null;
+  const unavailable = statusError
+    ? t("workspace.git.status.unavailable", "Git status unavailable")
+    : null;
   if (!snapshot) {
     return unavailable
       ? {
@@ -314,31 +315,18 @@ export function deriveGitAction(
 
   const operation = snapshot.operation ?? null;
   const operationConflictCount = snapshot.conflict_count ?? 0;
-  const mutationBlockedReason = unavailable ?? (updatePending
-    ? t("workspace.git.useGitAction.updateRequestInProgress", "Update request in progress")
-    : operation
-      ? operation === "rebase"
-        ? t(
-            "workspace.git.useGitAction.activeRebase",
-            "Finish or abort the active rebase update first",
-          )
-        : t(
-            "workspace.git.useGitAction.activeMerge",
-            "Finish or abort the active merge update first",
-          )
-      : null);
+  const mutationBlockedReason = unavailable ?? updateBlockedReason(updatePending, operation, t);
 
   // A project directory can be open before it has a Git checkout.
   if (!snapshot.current_branch) {
-    const reason = unavailable ?? t(
-      "workspace.git.useGitAction.noWorktreeAvailableYet",
-      "No worktree available yet",
-    );
+    const reason =
+      unavailable ??
+      t("workspace.git.useGitAction.noWorktreeAvailableYet", "No worktree available yet");
     return {
       primary: null,
       label: reason,
       disabled: disabledActions(reason),
-      compareLabel: snapshot.action_label ?? t("workspace.git.useGitAction.openPullRequest", "Open pull request"),
+      compareLabel: compareActionLabel(snapshot.action_label, t),
       updatePending,
       recovery: null,
       statusUnavailable: !!unavailable,
@@ -346,12 +334,8 @@ export function deriveGitAction(
   }
 
   const compareLabel = existingPr
-    ? t("workspace.git.useGitAction.viewProposal", "View {{proposal}} #{{number}}", {
-        proposal: prNoun(existingPr),
-        number: existingPr.number,
-      })
-    : (snapshot.action_label ??
-      t("workspace.git.useGitAction.openPullRequest", "Open pull request"));
+    ? viewProposalLabel(existingPr, t)
+    : compareActionLabel(snapshot.action_label, t);
   const disabled: Record<GitAction, string | null> = {
     commit: mutationBlockedReason ?? deriveCommitDisabled(snapshot, t),
     stash: mutationBlockedReason ?? stashMutationBlockedReason ?? deriveStashDisabled(snapshot, t),
@@ -366,19 +350,8 @@ export function deriveGitAction(
   const primary = mutationBlockedReason
     ? null
     : (PRIMARY_ORDER.find((action) => disabled[action] === null) ?? null);
-  const label = unavailable ?? (updatePending
-    ? t("workspace.git.useGitAction.updating", "Updating…")
-    : primary === "commit"
-      ? t("workspace.git.useGitAction.commit", "Commit")
-      : primary === "update"
-        ? t("workspace.git.useGitAction.update", "Update")
-        : primary === "push"
-          ? t("workspace.git.useGitAction.push", "Push")
-          : primary === "pr"
-            ? compareLabel
-            : primary === "merge"
-              ? t("workspace.git.useGitAction.merge", "Merge")
-              : (disabled.commit ?? t("workspace.git.useGitAction.noAction", "No action")));
+  const label =
+    unavailable ?? primaryActionLabel(primary, updatePending, compareLabel, disabled.commit, t);
 
   const recovery = operation
     ? {
@@ -412,12 +385,16 @@ export function useGitAction(
   const { t } = useUiTranslation();
   return useMemo(
     () =>
-      deriveGitAction(snapshot, {
-        updatePending,
-        stashMutationBlockedReason,
-        existingPr,
-        statusError,
-      }, t),
+      deriveGitAction(
+        snapshot,
+        {
+          updatePending,
+          stashMutationBlockedReason,
+          existingPr,
+          statusError,
+        },
+        t,
+      ),
     [existingPr, snapshot, stashMutationBlockedReason, statusError, t, updatePending],
   );
 }

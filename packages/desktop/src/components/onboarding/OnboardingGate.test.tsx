@@ -11,12 +11,21 @@ import userEvent from "@testing-library/user-event";
 import { AxiosError, AxiosHeaders, type AxiosRequestConfig } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TELEMETRY_QUERY_KEY, type TelemetryState } from "@/api/telemetry";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { invalidateSettingsDerivedQueries } from "@/lib/settingsInvalidation";
 import { OnboardingGate } from "./OnboardingGate";
+import { LanguageUpgradeSuggestion } from "./LanguageUpgradeSuggestion";
 
 const request = vi.hoisted(() => vi.fn<(config: AxiosRequestConfig) => Promise<unknown>>());
+const languagePreference = vi.hoisted(() => ({ value: "en-US" }));
 let history: ReturnType<typeof createHashHistory> | undefined;
-vi.mock("@/api/client", () => ({ customInstance: request }));
+vi.mock("@/api/client", () => ({
+  customInstance: (config: AxiosRequestConfig) =>
+    config.url === "/api/workspace/settings/ui_language"
+      ? Promise.resolve(languagePreference)
+      : request(config),
+  getRuntimeConfigSync: () => ({ preferredLanguages: ["fr-FR"] }),
+}));
 vi.mock("@/lib/remote/device-token", () => ({ isBrowserRemote: () => false }));
 vi.mock("./steps/WelcomeIntro", () => ({ WelcomeIntro: () => <p>Welcome intro</p> }));
 vi.mock("./steps/DiscoverCliStep", () => ({
@@ -107,9 +116,14 @@ function renderGate() {
   });
   render(
     <QueryClientProvider client={client}>
-      <OnboardingGate openSettings={() => router.navigate({ to: "/settings" })}>
-        <RouterProvider router={router} />
-      </OnboardingGate>
+      <LanguageProvider>
+        <OnboardingGate
+          openSettings={() => router.navigate({ to: "/settings" })}
+          languageSuggestion={<LanguageUpgradeSuggestion />}
+        >
+          <RouterProvider router={router} />
+        </OnboardingGate>
+      </LanguageProvider>
     </QueryClientProvider>,
   );
   return { client, router, stop };
@@ -118,6 +132,7 @@ function renderGate() {
 describe("OnboardingGate settings repair", () => {
   beforeEach(() => {
     request.mockReset();
+    languagePreference.value = "en-US";
   });
   afterEach(() => {
     cleanup();
@@ -140,6 +155,20 @@ describe("OnboardingGate settings repair", () => {
     expect(await screen.findByRole("heading", { name: "Edit JSON" })).toBeVisible();
     expect(router.state.resolvedLocation?.pathname).toBe("/settings");
     expect(screen.queryByText("Project workspace")).not.toBeInTheDocument();
+  });
+
+  it("waits until Settings is repaired before offering the system language", async () => {
+    languagePreference.value = "legacy-english";
+    serveSettings(settingsError(400));
+    const { client } = renderGate();
+    const offer = { name: "Switch to French?" };
+    await userEvent.click(await screen.findByRole("button", { name: "Open Settings" }));
+    expect(await screen.findByRole("heading", { name: "Edit JSON" })).toBeVisible();
+    expect(screen.queryByRole("dialog", offer)).not.toBeInTheDocument();
+
+    serveSettings();
+    await act(() => invalidateSettingsDerivedQueries(client));
+    expect(await screen.findByRole("dialog", offer)).toBeVisible();
   });
 
   it("keeps the saved refusal and opens a new repair episode after another corruption", async () => {

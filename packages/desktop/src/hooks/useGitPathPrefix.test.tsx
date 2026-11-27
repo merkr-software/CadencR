@@ -1,9 +1,10 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getGetGitPathPrefixQueryKey, type GitPathPrefixResponse } from "@/api/generated";
 import { createTestQueryClient } from "@/test-utils";
+import { uiI18n } from "@/lib/i18n/ui";
 import { useGitPathPrefix } from "./useGitPathPrefix";
 
 const mocks = vi.hoisted(() => ({
@@ -11,10 +12,11 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn<(featureId: number, signal: AbortSignal) => Promise<GitPathPrefixResponse>>(),
   error: vi.fn<
     (
-      title: string,
+      title: ReactNode,
       options: {
         id: string;
-        action: { label: string; onClick: (event: { preventDefault: () => void }) => void };
+        description: ReactNode;
+        action: { label: ReactNode; onClick: (event: { preventDefault: () => void }) => void };
       },
     ) => void
   >(),
@@ -76,7 +78,7 @@ describe("useGitPathPrefix error recovery", () => {
     const { rerender } = renderPrefix(4);
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "Could not resolve the project's Git paths",
+        expect.anything(),
         expect.objectContaining({ id: "git-path-prefix-4", duration: Infinity }),
       ),
     );
@@ -85,7 +87,7 @@ describe("useGitPathPrefix error recovery", () => {
     rerender({ id: 9 });
     await waitFor(() =>
       expect(mocks.error).toHaveBeenCalledWith(
-        "Could not resolve the project's Git paths",
+        expect.anything(),
         expect.objectContaining({ id: "git-path-prefix-9" }),
       ),
     );
@@ -153,5 +155,50 @@ describe("useGitPathPrefix error recovery", () => {
     await waitFor(() => expect(result.current).toBe("packages/app"));
     expect(mocks.error).not.toHaveBeenCalled();
     expect(mocks.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("updates the open notification without creating a new one on language changes", async () => {
+    const locale = uiI18n.language;
+    uiI18n.addResourceBundle("fr", "ui", {
+      common: { retry: "Réessayer" },
+      workspace: {
+        git: {
+          useGitPathPrefix: {
+            couldNotResolveTheProjectSGitPaths: "Impossible de résoudre les chemins Git du projet",
+            theProjectSGitRootIsUnavailable: "La racine Git du projet est indisponible",
+          },
+        },
+      },
+    });
+    mocks.request.mockRejectedValueOnce(null);
+    try {
+      const { rerender } = renderPrefix(4);
+      await waitFor(() => expect(mocks.error).toHaveBeenCalledOnce());
+      const [title, { action, description }] = mocks.error.mock.calls[0]!;
+      const notice = render(
+        <>
+          <p>{title}</p>
+          <p>{description}</p>
+          <button type="button">{action.label}</button>
+        </>,
+      );
+      const retry = screen.getByRole("button", { name: "Retry" });
+      expect(screen.getByText("Could not resolve the project's Git paths")).toBeVisible();
+      expect(screen.getByText("The project's Git root is unavailable")).toBeVisible();
+
+      await act(() => uiI18n.changeLanguage("fr"));
+      expect(screen.getByRole("button", { name: "Réessayer" })).toBe(retry);
+      expect(screen.getByText("Impossible de résoudre les chemins Git du projet")).toBeVisible();
+      expect(screen.getByText("La racine Git du projet est indisponible")).toBeVisible();
+
+      notice.unmount();
+      await act(() => uiI18n.changeLanguage(locale));
+      rerender({ id: 4 });
+      expect(mocks.error).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    } finally {
+      await act(() => uiI18n.changeLanguage(locale));
+      uiI18n.removeResourceBundle("fr", "ui");
+    }
   });
 });

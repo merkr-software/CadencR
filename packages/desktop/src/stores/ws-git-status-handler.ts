@@ -22,6 +22,7 @@ import {
 } from "@/api/generated";
 import { queryClient } from "@/lib/queryClient";
 import { WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
+import { translateUi } from "@/lib/i18n/ui";
 import { gitStatusSnapshotsEqual, useGitStatusStore } from "@/stores/useGitStatusStore";
 import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { usePushOutputStore } from "@/stores/usePushOutputStore";

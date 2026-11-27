@@ -1,6 +1,7 @@
+import { translateUi as t } from "../../src/shared/ui-i18n";
 import path from "node:path";
 import { installMainTelemetry } from "./main-telemetry";
-import * as windowShutdown from "./window-shutdown";
+import { closeAllWindowsForQuit, reportShutdownFailure } from "./window-shutdown";
 import { app, BrowserWindow, dialog, protocol } from "electron";
 import { loadDevEnv } from "./env";
 import { clearRegisteredFilePaths, registerIpc, registerThemeEvents } from "./ipc";
@@ -248,6 +249,7 @@ function wireMainProcess(): void {
 
 async function bootstrap(): Promise<void> {
   await initializeStartupLanguage();
+  if (voluntaryQuit.inProgress || shutdownReady) return;
   if (!app.isPackaged) {
     // Already loaded at module scope (see the `userData` block below); this is
     // where a failure becomes reportable. Throwing at module scope would land
@@ -361,7 +363,7 @@ app.on("before-quit", (event) => {
 
 async function prepareForUpdateInstall(): Promise<void> {
   if (voluntaryQuit.inProgress || preparingUpdate) {
-    throw new Error("Cadencr is already preparing to close.");
+    throw new Error(t("system.shutdown.alreadyClosing", "Cadencr is already preparing to close."));
   }
   preparingUpdate = true;
   try {
@@ -376,7 +378,12 @@ async function prepareForUpdateInstall(): Promise<void> {
 async function quitVoluntarily(): Promise<void> {
   await waitForStartupBeforeQuit(runtimeStarting);
   if (serviceSupervisor.status().state === "restarting") {
-    throw new Error("Cadencr is restarting its service. Try quitting again when it is ready.");
+    throw new Error(
+      t(
+        "system.shutdown.serviceRestarting",
+        "Cadencr is restarting its service. Try quitting again when it is ready.",
+      ),
+    );
   }
   await voluntaryQuit.prepare({
     service: app.isPackaged ? packagedService : sidecar,
@@ -407,7 +414,7 @@ async function finishExit(): Promise<void> {
 
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
-  windowShutdown.reportShutdownFailure(error);
+  reportShutdownFailure(error);
 }
 
 async function stopBrowserBridge(): Promise<void> {
@@ -421,7 +428,7 @@ async function stopSidecarForExit(): Promise<void> {
     const currentSidecar = sidecar;
     if (!currentSidecar) return;
     sidecar = null;
-    windowShutdown.closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
+    closeAllWindowsForQuit((win) => win === mainWindow && !rendererHealth.canAnswer(win));
     sidecarStopPromise = currentSidecar.stop().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Failed to stop cadencr-service cleanly: ${message}`);

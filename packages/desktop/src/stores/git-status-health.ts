@@ -2,7 +2,9 @@ import { toast } from "sonner";
 import { z } from "zod";
 import type { QueryClient } from "@tanstack/react-query";
 import { scopedToastDescription } from "@/components/ToastScope";
-import { WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
+import { WORKTREE_UNAVAILABLE, worktreeUnavailableMessage } from "@/lib/api-errors";
+import { localizedToastText } from "@/lib/i18n/toast-text";
+import { translateUi } from "@/lib/i18n/ui";
 import type { GitStatusHealth } from "./useGitStatusStore";
 
 export const statusHealthSchema = z.object({
@@ -13,8 +15,8 @@ export const statusHealthSchema = z.object({
 });
 
 const issues = [
-  { field: "statusError", prefix: "git-status-error", title: "Git status error" },
-  { field: "watcherError", prefix: "git-watcher-error", title: "Git live updates unavailable" },
+  { field: "statusError", prefix: "git-status-error" },
+  { field: "watcherError", prefix: "git-watcher-error" },
 ] as const;
 
 export function notifyGitStatusHealth(
@@ -22,16 +24,22 @@ export function notifyGitStatusHealth(
   previous: GitStatusHealth | undefined,
   next: GitStatusHealth | undefined,
 ): void {
-  for (const { field, prefix, title } of issues) {
+  for (const { field, prefix } of issues) {
     const error = next?.[field];
     if (error === previous?.[field]) continue;
     const id = `${prefix}-${featureId}`;
     if (error) {
-      const label =
-        field === "statusError" && next?.statusErrorCode === WORKTREE_UNAVAILABLE
-          ? "Worktree unavailable"
-          : title;
-      toast.error(label, { id, description: scopedToastDescription({ featureId }, error) });
+      const unavailable = field === "statusError" && next?.statusErrorCode === WORKTREE_UNAVAILABLE;
+      const label = unavailable
+        ? translateUi("workspace.git.status.worktreeUnavailable", "Worktree unavailable")
+        : field === "watcherError"
+          ? translateUi(
+              "workspace.git.status.liveUpdatesUnavailable",
+              "Git live updates unavailable",
+            )
+          : translateUi("workspace.git.wsGitStatusHandler.gitStatusError", "Git status error");
+      const detail = unavailable ? localizedToastText(worktreeUnavailableMessage) : error;
+      toast.error(label, { id, description: scopedToastDescription({ featureId }, detail) });
     } else {
       toast.dismiss(id);
     }

@@ -2,6 +2,7 @@ import { memo, useMemo, type ReactElement } from "react";
 
 import { BranchChip } from "@/components/branch-chip/BranchChip";
 import { Button } from "@/components/ui/button";
+import { useUiTranslation, type UiTranslator } from "@/lib/i18n/ui";
 import { GitActionPopover, type GitUpdateRecoveryControls } from "./GitActionPopover";
 import type { GitAction, GitActionState, GitActivities } from "./useGitAction";
 import { useGitUpdateRecoveryActions } from "./useGitUpdateRecoveryActions";
@@ -12,7 +13,13 @@ export interface GitStatusRetry {
   issue?: { label: string; detail: string };
 }
 
-export const REFRESHING_GIT_STATUS = "Refreshing Git status…";
+export function refreshingGitStatusLabel(t: UiTranslator): string {
+  return t("workspace.git.status.refreshing", "Refreshing Git status…");
+}
+
+export function retryGitStatusLabel(t: UiTranslator): string {
+  return t("workspace.git.status.retry", "Retry Git status");
+}
 
 interface GitActionPopoverContentProps {
   featureId: number;
@@ -26,6 +33,7 @@ interface GitActionPopoverContentProps {
 export const GitActionPopoverContent = memo(function GitActionPopoverContent(
   props: GitActionPopoverContentProps,
 ): ReactElement {
+  const { t } = useUiTranslation();
   return (
     <>
       <div className="border-b border-border px-3 py-2">
@@ -34,7 +42,11 @@ export const GitActionPopoverContent = memo(function GitActionPopoverContent(
       {props.statusRetry.issue && (
         <div className="space-y-2 border-b border-border px-3 py-2">
           <p className="whitespace-pre-line break-words text-xs text-destructive" role="status">
-            {props.statusRetry.issue.label}. {props.statusRetry.issue.detail}
+            {t(
+              "workspace.git.status.issueWithDetail",
+              "{{label}}. {{detail}}",
+              props.statusRetry.issue,
+            )}
           </p>
           <Button
             size="xs"
@@ -42,7 +54,7 @@ export const GitActionPopoverContent = memo(function GitActionPopoverContent(
             disabled={props.statusRetry.pending}
             onClick={props.statusRetry.run}
           >
-            {props.statusRetry.pending ? REFRESHING_GIT_STATUS : "Retry Git status"}
+            {props.statusRetry.pending ? refreshingGitStatusLabel(t) : retryGitStatusLabel(t)}
           </Button>
         </div>
       )}

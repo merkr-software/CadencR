@@ -61,7 +61,7 @@ export const CompactToolLine = memo(function CompactToolLine({
   reasonLine = true,
 }: CompactToolLineProps) {
   const { t } = useUiTranslation();
-  const failure = useMemo(() => toolCallFailure(block, result), [block, result]);
+  const failure = useMemo(() => toolCallFailure(block, result, t), [block, result, t]);
   if (!hasCompactLine(block)) return null;
   const gated = shouldGateFullContent(block);
   if (block.type === "thinking") {

@@ -31,32 +31,22 @@ export function ProfilesSection() {
 
   return (
     <section className="space-y-4">
-      <SettingsHeading
-        title={t("settings.providers.profilesSection.profiles", "Profiles")}
-        description={
-          <UiTrans
-            i18nKey="settings.providers.profilesSection.profileHelp"
-            defaults={
-              "Named sets of environment variables applied when spawning the CLI. The <code>{{name}}</code> profile injects nothing."
-            }
-            components={{ code: <code className="px-1 py-0.5 rounded bg-muted text-xs" /> }}
-            values={{ name: DEFAULT_CLAUDE_PROFILE_NAME }}
-          />
-        }
-        action={
-          <Button variant="outline" size="sm" onClick={() => setEditing({ mode: "create" })}>
-            <Plus className="size-3.5" />{" "}
-            {t("settings.providers.profilesSection.newProfile", "New profile")}
-          </Button>
-        }
-      />
+      <ClaudeProfilesHeading onCreate={() => setEditing({ mode: "create" })} />
 
       {profilesQuery.isLoading ? (
         <LoadingRow
           label={t("settings.providers.profilesSection.loadingProfiles", "Loading profiles…")}
         />
       ) : profilesQuery.isError ? (
-        <ErrorRow label={apiErrorMessage(profilesQuery.error, t("settings.providers.profilesSection.failedToLoadProfiles", "Failed to load profiles."))} />
+        <ErrorRow
+          label={apiErrorMessage(
+            profilesQuery.error,
+            t(
+              "settings.providers.profilesSection.failedToLoadProfiles",
+              "Failed to load profiles.",
+            ),
+          )}
+        />
       ) : (
         <div className="rounded-md border border-border bg-card overflow-hidden">
           <ProfileRow
@@ -115,6 +105,31 @@ export function ProfilesSection() {
         }}
       />
     </section>
+  );
+}
+
+function ClaudeProfilesHeading({ onCreate }: { onCreate: () => void }) {
+  const { t } = useUiTranslation();
+  return (
+    <SettingsHeading
+      title={t("settings.providers.profilesSection.profiles", "Profiles")}
+      description={
+        <UiTrans
+          i18nKey="settings.providers.profilesSection.profileHelp"
+          defaults={
+            "Named sets of environment variables applied when spawning the CLI. The <code>{{name}}</code> profile injects nothing."
+          }
+          components={{ code: <code className="px-1 py-0.5 rounded bg-muted text-xs" /> }}
+          values={{ name: DEFAULT_CLAUDE_PROFILE_NAME }}
+        />
+      }
+      action={
+        <Button variant="outline" size="sm" onClick={onCreate}>
+          <Plus className="size-3.5" />{" "}
+          {t("settings.providers.profilesSection.newProfile", "New profile")}
+        </Button>
+      }
+    />
   );
 }
 

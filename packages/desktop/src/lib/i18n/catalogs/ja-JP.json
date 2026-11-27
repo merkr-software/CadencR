@@ -177,7 +177,7 @@
       "errors": {
         "backgroundUpdateFailed": "背景更新が失敗しました",
         "subscriptionRejected": "バックグラウンドサブスクリプションを拒否したサービス。",
-        "watchingStopped": "ファイル監視停止"
+        "editorWatchingStopped": "エディターのファイル監視が停止しました"
       }
     },
     "appearance": {
@@ -1032,7 +1032,8 @@
         "autoRenameFailed": "名前を自動で付けられませんでした",
         "copiedFeatureName": "会話の名前をコピーしました",
         "copy": "コピー",
-        "rename": "名前を変更…"
+        "rename": "名前を変更…",
+        "autoRenameDatabaseError": "データベースエラーのため、この会話の名前を自動で変更できませんでした。もう一度お試しください。"
       },
       "fork": {
         "failed": "会話は禁止できませんでした。",
@@ -1815,7 +1816,8 @@
           "restart": "Cadencr 再起動による中断",
           "resume": "再開",
           "resumedAfterRestart": "再起動後に再開",
-          "user": "あなたによって停止される"
+          "user": "あなたによって停止される",
+          "quitBackground": "Cadencr の終了時にバックグラウンドタスクが停止しました"
         },
         "unreadable": "エージェントから受信した更新を読み取れず、表示できませんでした。上に表示された会話記録の一部が欠けている可能性があります。",
         "useAgentSessionModelAndProfile": {
@@ -1842,13 +1844,16 @@
           "forkANewSessionFromThisMessage": "このメッセージから新しいセッションをフォークする",
           "image": "イメージ {{position}}",
           "isNoLongerHeldInMemory": "{{label}} はメモリに残っていません",
-          "reloadTheConversationAndTryAgain": "{{error}}。会話を再読み込みしてから再試行してください。",
           "retryDeliveryWithTheSameMessageIdentity": "同じメッセージ ID で送信を再試行",
-          "retryUnavailableBecauseTheOriginalAttachmentData": "元の添付ファイルデータが保存されていないため、再試行不可",
           "retrying": "再試行中",
           "retryingDeliveryWithTheSameMessageIdentity": "同じメッセージのアイデンティティで配信を再試行する",
           "rewind": "巻き戻す",
-          "rewindTheSessionToThisMessage": "セッションをこのメッセージまで巻き戻す"
+          "rewindTheSessionToThisMessage": "セッションをこのメッセージまで巻き戻す",
+          "hasNoSavedBytes": "{{label}} のデータが保存されていません",
+          "noLongerInStorage": "{{label}} はストレージに残っていません",
+          "reattachAndResend": "入力欄でファイルを添付し直し、メッセージを再送信してください。",
+          "retryAfterReconnect": "再接続後に会話を確認してください。メッセージが届いていなければ、入力欄でファイルを添付し直して再送信してください。",
+          "retryUnavailable": "再試行できません"
         },
         "userMessageBlock": {
           "agentReceiptCouldNotBeConfirmed": "エージェントレシートは確認できません",
@@ -1934,6 +1939,11 @@
           "remote": "リモート",
           "searchBranches": "ブランチを検索…",
           "useTheBranchTheProjectIsCurrently": "プロジェクトが現在行っているブランチを使用します。"
+        },
+        "toolInterruption": {
+          "restart": "中断：処理が完了する前に Cadencr が再起動しました。",
+          "quit": "停止：処理が完了する前に Cadencr が終了しました。",
+          "user": "ユーザーが停止しました。"
         }
       },
       "subagent-presentation": {
@@ -2062,6 +2072,34 @@
         "retry": "再試行",
         "setupWorktreeCommands": "セットアップ — ワークツリーのコマンド",
         "worktreeRemoved": "このデバイスからワークツリーが削除されました。{{branchStatus}} Cadencr は代わりにプロジェクトフォルダーを使用しています。"
+      },
+      "autoName": {
+        "cliNotFound": "自動命名プロバイダーの CLI が見つかりませんでした。インストールを確認してから、もう一度お試しください。",
+        "closeFailed": "自動命名プロバイダーを正常に終了できませんでした。もう一度お試しください。",
+        "closeTimeout": "自動命名プロバイダーを制限時間内に終了できませんでした。もう一度お試しください。",
+        "conversationMissing": "この会話は存在しません。",
+        "databaseBusy": "データベースが使用中です。しばらくしてから、もう一度お試しください。",
+        "databaseReadFailed": "Cadencr が会話のタイトルを読み取れませんでした。もう一度お試しください。",
+        "databaseWriteFailed": "Cadencr が会話のタイトルを保存できませんでした。もう一度お試しください。",
+        "emptyResponse": "自動命名プロバイダーが空のタイトルを返しました。もう一度試すか、別の命名モデルを選んでください。",
+        "noModelAvailable": "自動命名プロバイダーに使用できるモデルがありません。CLI がインストール済みで認証されているか確認するか、別のプロバイダーを選んでください。",
+        "profileInvalid": "自動命名プロバイダーのプロファイルが無効です。設定を確認してから、もう一度お試しください。",
+        "profileLoadFailed": "自動命名プロバイダーのプロファイルを読み込めませんでした。設定を確認してから、もう一度お試しください。",
+        "profileSetting": "自動命名のアクティブなプロファイル",
+        "promptSetting": "自動命名のシステムプロンプト",
+        "providerFailed": "自動命名プロバイダーがタイトルの生成に失敗しました。モデルと認証を確認してから、もう一度お試しください。",
+        "providerUnavailable": "自動命名プロバイダーを利用できません。ワークスペースの設定でプロバイダーを確認してください。",
+        "retryFromTitleMenu": "会話タイトルのメニューから、もう一度お試しください。",
+        "selectionSetting": "自動命名のプロバイダー、モデル、またはアクティブなプロファイル",
+        "settingsInvalid": "{{setting}}の設定が無効です。ワークスペースの設定で「JSON を編集」を開いて確認してください。",
+        "settingsLoadFailed": "{{setting}}の設定を読み込めませんでした。ワークスペースの設定で「JSON を編集」を開いて確認してください。",
+        "settingsReadFailed": "{{setting}}の設定を読み取れませんでした。ワークスペースの設定で「JSON を編集」を開いて確認してください。",
+        "spawnFailed": "自動命名プロバイダーを起動できませんでした。インストールとアクティブなプロファイルを確認してから、もう一度お試しください。",
+        "startTimeout": "自動命名プロバイダーが制限時間内に起動しませんでした。インストールとアクティブなプロファイルを確認してから、もう一度お試しください。",
+        "streamClosed": "自動命名プロバイダーがタイトルを確定する前に接続を閉じました。もう一度お試しください。",
+        "streamFailed": "タイトルが完成する前に、自動命名プロバイダーとの接続でエラーが発生しました。もう一度お試しください。",
+        "timeout": "自動命名プロバイダーが制限時間内に処理を完了しませんでした。もう一度試すか、より高速な命名モデルを選んでください。",
+        "warning": "この会話の名前を自動で変更できませんでした。{{detail}}"
       }
     },
     "customActions": {
@@ -3684,7 +3722,10 @@
         "description": "設定ファイルを読み取れるまで、初期設定と環境設定は保留になります。ファイルを修正するか置き換えてから、もう一度お試しください。",
         "error": "設定ファイルを読み取れませんでした。",
         "openSettings": "設定を開く",
-        "title": "Cadencrが設定を読み取れません"
+        "title": "Cadencrが設定を読み取れません",
+        "checking": "設定を確認しています…",
+        "instructions": "設定ファイルを修正するか置き換えてから、もう一度お試しください。",
+        "openSettingsFailed": "設定を開けませんでした。"
       },
       "welcome": {
         "animations": "滑らかなアニメーション",
@@ -4877,7 +4918,7 @@
           "readError": "言語設定を読み取れませんでした。"
         },
         "restarts": {
-          "description": "Cadencr のアップデートや再起動時には、実行中のエージェントが停止します。再起動後は中断した会話を再開し、エージェントに途中で止まった作業をやり直すように依頼します。再開したエージェントは通知でお知らせします。",
+          "description": "アップデート、サービスの再起動、クラッシュの後、Cadencr は中断されたエージェントを再開し、途中で途切れた作業をやり直すように依頼します。Cadencr を終了した場合は、停止した作業を該当する会話から再開できます。",
           "disabled_other": "自動再開がオフのため、{{count}} 件のエージェントは停止したままです：{{names}}。",
           "loopGuard": "短時間に再起動が続いたため、次の会話は自動で再開されませんでした：{{names}}。続けるには会話を開いてください。",
           "more": "{{shown}}、ほか {{remaining}} 件",
@@ -5386,7 +5427,9 @@
           "unsetCount_other": " · {{count}} は継承された変数を削除しました",
           "usesYourUsualCodexConfiguration": "通常のCodex設定を使用する",
           "usualConfig": "通常のCodex設定を使用する",
-          "usualHome": "通常のCodexホームを使用する"
+          "usualHome": "通常のCodexホームを使用する",
+          "invalidConfig": "このプロファイルは利用できません。使用するには、{{file}} を修正するか置き換えてください。",
+          "refreshProfileStatus": "プロファイルの状態を更新"
         },
         "createProviderWorkspaceDialog": {
           "aGitRepositoryWithReadmeMdAndThe": "`{{readme}}`と完全な`{{contract}}`契約のGitリポジトリ。",
@@ -5619,16 +5662,20 @@
     },
     "shell": {
       "close": {
-        "background_other": "{{count}} 件のエージェントが作業中です。Cadencr が Dock に残っている間は作業を続けます。",
         "failure": "Cadencr を閉じられませんでした",
-        "quitAndResume": "終了し、次回起動時に再開",
         "quitTitle": "Cadencr を終了しますか？",
-        "resume_other": "{{count}} 件のエージェントが作業中です。Cadencr を次回起動したときに、中断したところから再開できます。",
         "stopAndQuit": "エージェントを停止して終了",
-        "stop_other": "{{count}} 件のエージェントが作業中です。終了すると停止します。設定で、再起動後の自動再開は無効になっています。",
         "untitled": "無題の会話",
         "waiting": "応答待ち",
-        "windowTitle": "ウィンドウを閉じますか？"
+        "windowTitle": "ウィンドウを閉じますか？",
+        "backgroundWork": "バックグラウンド作業",
+        "checkingAgents": "稼働中のエージェントを確認しています…",
+        "closingWindow": "ウィンドウを閉じています…",
+        "continuesWork": "Cadencr が Dock に残っている間は、進行中のターンとバックグラウンド作業が続きます。",
+        "stoppingAgents": "エージェントを停止しています…",
+        "stopsWork": "Cadencr を終了すると、進行中のターンと Cadencr が管理するバックグラウンド作業が停止します。それぞれの会話から再開できます。",
+        "workUnavailable": "Cadencr は稼働中のエージェントの一覧を取得できませんでした。",
+        "working_other": "{{count}} 件のエージェントがまだ作業中です。"
       },
       "errors": {
         "bootstrapFailed": "Cadencr を起動できませんでした：{{detail}}",
@@ -6740,7 +6787,8 @@
         "pin": "ピン留め",
         "runningSubagents_other": "{{count}} サブエージェントの実行",
         "shellCommand_other": "{{count}} シェルコマンド実行",
-        "unpin": "ピン留めを解除"
+        "unpin": "ピン留めを解除",
+        "partialDiffStats": "一部のみ"
       },
       "sampleBanner": {
         "playTheSamplesLastChangesAgain": "サンプルの直前の変更を再生します。該当する行が強調表示され、最新のリクエストがポップアップに表示されます",
@@ -7057,12 +7105,15 @@
         "unexpectedResponder": "ヘルスチェックの応答元が「{{service}}」を名乗りました"
       },
       "shutdown": {
-        "agentsWarning": "Cadencrは、再起動後にエージェントを再開しない可能性があります",
         "failed": "Cadencr を閉じない",
         "responseStatus": "返されたサービス {{status}}",
-        "resumeIntent": "Cadencrは、あなたのエージェントが再開すべきことを記録できませんでした: {{detail}}",
-        "resumeWarning": "Cadencr は、次の開始時にバックグラウンドワークを再開することがあります。",
-        "stopIntent": "Cadencrは、あなたのエージェントが停止してはならないことを記録できませんでした: {{detail}}"
+        "agentsUnconfirmed": "Cadencr はエージェントの停止を確認できませんでした：{{detail}}",
+        "alreadyClosing": "Cadencr はすでに終了の準備をしています。",
+        "cleanupTimeout": "後処理が時間内に完了しませんでした。",
+        "crashedServiceUnconfirmed": "Cadencr は、クラッシュしたサービスのエージェントが停止したことを確認できませんでした。もう一度終了してみてください。\n\n{{detail}}",
+        "serviceRestarting": "Cadencr はサービスを再起動しています。サービスの準備ができてから、もう一度終了してみてください。",
+        "serviceStarting": "Cadencr のサービスはまだ起動中です。サービスの準備ができてから、もう一度終了してみてください。",
+        "startingServiceUnconfirmed": "Cadencr は、起動中のサービスが停止したことを確認できませんでした。サービスの準備ができてから、もう一度終了してみてください。"
       },
       "startup": {
         "backingUp": {
@@ -8662,7 +8713,8 @@
           "loadingDiffStats": "差分の統計を読み込み中",
           "noFileListInThisView": "このビューのファイルリストはありません",
           "showFileList": "ファイルリストを表示",
-          "statsUnavailable": "統計は利用できません。"
+          "statsUnavailable": "統計は利用できません。",
+          "partialStats": "一部の統計のみ"
         },
         "gitUpdateMessages": {
           "abortMerge": "マージを中止",
@@ -9036,11 +9088,15 @@
         },
         "useDiffData": {
           "failedToLoadChangedFiles": "変更されたファイルを読み込めませんでした",
-          "failedToReadFileVersions": "ファイルの各バージョンを読み込めませんでした",
           "failedToRemoveStaleCommentError": "古いコメントを削除できませんでした：{{error}}",
           "removedStaleComments_other": "変更されたファイルに対する{{count, number}}コメントを削除",
-          "reviewCommentChecksPausedError": "レビューコメントの確認を一時停止しました：{{error}}",
-          "unknownError": "不明なエラー"
+          "unknownError": "不明なエラー",
+          "reviewCommentChecksPaused": "レビューコメントの確認を一時停止しました",
+          "couldNotLoadViewedFiles": "確認済みのファイルを読み込めませんでした",
+          "couldNotLoadReviewComments": "レビューコメントを読み込めませんでした",
+          "commentChecksPausedWorktreeUnavailable": "レビューコメントの確認を一時停止しました。この機能のワークツリーを使用できません。",
+          "commentChecksPausedNamedBranchUnavailable": "レビューコメントの確認を一時停止しました。対象ブランチ「{{branch}}」を使用できません。",
+          "commentChecksPausedTargetUnavailable": "レビューコメントの確認を一時停止しました。対象ブランチを使用できません。"
         },
         "useFileDiffSection": {
           "failedToLoadThisFileSDiff": "このファイルの差分を読み込めませんでした。"
@@ -9081,7 +9137,10 @@
           "updateRequestInProgress": "更新リクエストを処理中",
           "updateSourceUnresolved": "更新元のブランチ「{{branch}}」が見つかりません。",
           "updating": "更新中…",
-          "viewProposal": "{{proposal}} #{{number}} を表示"
+          "viewProposal": "{{proposal}} #{{number}} を表示",
+          "openMergeRequest": "マージリクエストを開く",
+          "viewPullRequest": "プルリクエスト #{{number}} を表示",
+          "viewMergeRequest": "マージリクエスト #{{number}} を表示"
         },
         "useGitDiffFileTreeModel": {
           "addedByThem": "取り込み元で追加",
@@ -9191,6 +9250,20 @@
         "wsGitStatusHandler": {
           "gitStatusError": "Gitステータスエラー",
           "invalidPullRequestStatusUpdateReceived": "受信したプルリクエストの状態更新が不正です。"
+        },
+        "diff": {
+          "lineCountUnavailable": "行数を取得できません"
+        },
+        "status": {
+          "loading": "Git の状態を読み込み中…",
+          "failedToLoad": "Git の状態を読み込めませんでした",
+          "unavailable": "Git の状態を取得できません",
+          "worktreeUnavailable": "ワークツリーを使用できません",
+          "worktreeUnavailableDetail": "この機能のワークツリーは使用できなくなりました。",
+          "liveUpdatesUnavailable": "Git のリアルタイム更新を利用できません",
+          "refreshing": "Git の状態を更新中…",
+          "retry": "Git の状態の取得を再試行",
+          "issueWithDetail": "{{label}}。{{detail}}"
         }
       },
       "links": {

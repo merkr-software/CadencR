@@ -73,7 +73,6 @@ printf '{"type":"control_response","response":{"subtype":"success","request_id":
 while read -r ignored; do :; done
 "#;
 
-
 #[tokio::test]
 async fn competing_language_invitations_preserve_the_first_confirmed_choice() {
     use cadencr_service::domain::settings_store::{

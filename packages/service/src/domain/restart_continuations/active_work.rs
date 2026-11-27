@@ -11,6 +11,8 @@ pub(crate) struct ActiveCloseWork {
     pub session_id: i64,
     pub feature_id: i64,
     pub label: String,
+    /// The label is a placeholder that clients can translate.
+    pub label_uses_fallback: bool,
     pub waiting_on_you: bool,
     pub background_only: bool,
 }
@@ -29,7 +31,7 @@ pub(super) async fn list(state: &AppState) -> Result<Vec<ActiveCloseWork>, sqlx:
     active_ids.extend(
         crate::domain::ws_session::runtime::prompt::runtime_hold_registry::sessions_holding_background_work(),
     );
-    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+    let rows: Vec<(i64, i64, Option<String>)> = sqlx::query_as(
         "WITH work AS (
              SELECT value AS session_id FROM json_each(?)
              UNION
@@ -37,7 +39,7 @@ pub(super) async fn list(state: &AppState) -> Result<Vec<ActiveCloseWork>, sqlx:
                  SELECT 1 FROM agent_user_stops u WHERE u.session_id = w.session_id
              )
          )
-         SELECT s.id, s.feature_id, COALESCE(NULLIF(f.title, ''), 'Untitled conversation')
+         SELECT s.id, s.feature_id, NULLIF(f.title, '')
          FROM work JOIN agent_sessions s ON s.id = work.session_id
          JOIN features f ON f.id = s.feature_id
          WHERE s.agent_type = 'session'
@@ -53,7 +55,8 @@ pub(super) async fn list(state: &AppState) -> Result<Vec<ActiveCloseWork>, sqlx:
             ActiveCloseWork {
                 session_id,
                 feature_id,
-                label,
+                label_uses_fallback: label.is_none(),
+                label: label.unwrap_or_else(|| "Untitled conversation".to_owned()),
                 waiting_on_you: status == Some(AgentStatus::Question),
                 background_only: matches!(status, None | Some(AgentStatus::Idle)),
             }
@@ -100,5 +103,30 @@ mod tests {
             [(active, false), (unopened, true)]
         );
         assert!(work.iter().all(|entry| !entry.label.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn distinguishes_a_placeholder_from_a_conversation_with_the_same_title() {
+        let (pool, _, feature_id) = fixture().await;
+        let state = AppState::with_pool(pool.clone());
+        let active = session(&pool, feature_id, "running").await;
+        state
+            .session_status_tx
+            .broadcast_running(active, feature_id);
+
+        for (title, is_fallback) in [("", true), ("Untitled conversation", false)] {
+            sqlx::query("UPDATE features SET title = ? WHERE id = ?")
+                .bind(title)
+                .bind(feature_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let work = list(&state).await.unwrap();
+
+            assert_eq!(work.len(), 1);
+            assert_eq!(work[0].label, "Untitled conversation");
+            assert_eq!(work[0].label_uses_fallback, is_fallback);
+        }
     }
 }

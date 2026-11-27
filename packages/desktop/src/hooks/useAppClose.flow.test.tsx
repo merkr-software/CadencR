@@ -37,6 +37,7 @@ const BACKGROUND: ActiveCloseWork = {
   session_id: 9,
   feature_id: 4,
   label: "Unopened conversation",
+  label_uses_fallback: false,
   waiting_on_you: false,
   background_only: true,
 };

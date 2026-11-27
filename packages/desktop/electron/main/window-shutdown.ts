@@ -13,22 +13,8 @@ export function closeAllWindowsForQuit(cannotAnswer: (win: BrowserWindow) => boo
   }
 }
 
-export function reportIgnoredQuitIntent(message: string): void {
-  dialog.showErrorBox(
-    t("system.shutdown.resumeWarning", "Cadencr may resume background work on its next start"),
-    message,
-  );
-}
-
 export function reportShutdownFailure(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);
   dialog.showErrorBox(t("system.shutdown.failed", "Could not close Cadencr"), message);
-}
-
-export function reportResumeFailure(error: unknown): void {
-  dialog.showErrorBox(
-    t("system.shutdown.agentsWarning", "Cadencr may not resume your agents after a restart"),
-    error instanceof Error ? error.message : String(error),
-  );
 }

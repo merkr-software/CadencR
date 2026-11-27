@@ -1,5 +1,5 @@
 import { onlineManager, QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { AxiosError, AxiosHeaders } from "axios";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   viewed: vi.fn<() => QueryState>(),
   deleteMutate: vi.fn(),
   toastInfo: vi.fn(),
-  toastError: vi.fn(),
+  toastError: vi.fn<(title: ReactNode, options: { id: string }) => void>(),
   toastDismiss: vi.fn(),
 }));
 
@@ -159,10 +159,9 @@ describe("useDiffData stale comment invalidation", () => {
 
     renderDiffData();
 
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      expect.stringContaining("Review comment checks paused"),
-      { id: "diff-blob-shas-7" },
-    );
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.anything(), { id: "diff-blob-shas-7" });
+    render(mocks.toastError.mock.calls[0][0]);
+    expect(screen.getByText("Review comment checks paused: git exploded")).toBeVisible();
   });
 
   it("holds pending comments during a checkout outage and waits for restored SHAs", () => {
@@ -247,10 +246,13 @@ describe("useDiffData stale comment invalidation", () => {
     mocks.blobShas.mockReturnValue({ ...failed(undefined), error });
     const { result } = renderDiffData();
     expect(result.current.commentChecksNotice).toBeNull();
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      "Review comment checks paused: The feature's worktree is no longer available",
-      { id: "diff-blob-shas-7" },
-    );
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.anything(), { id: "diff-blob-shas-7" });
+    render(mocks.toastError.mock.calls[0][0]);
+    expect(
+      screen.getByText(
+        "Review comment checks paused: The feature's worktree is no longer available",
+      ),
+    ).toBeVisible();
   });
 
   it("waits for a fresh successful SHA read after a paused target recovery", async () => {
@@ -297,7 +299,7 @@ describe("useDiffData stale comment invalidation", () => {
     mocks.comments.mockReturnValue(failed(undefined));
     const { rerender } = renderDiffData();
     for (const id of ["diff-blob-shas-7", "diff-viewed-7", "diff-comments-7"]) {
-      expect(mocks.toastError).toHaveBeenCalledWith(expect.any(String), { id });
+      expect(mocks.toastError).toHaveBeenCalledWith(expect.anything(), { id });
     }
     mocks.blobShas.mockReturnValue(settled([]));
     mocks.viewed.mockReturnValue(settled([]));

@@ -1,4 +1,5 @@
 import type { AgentMessageOrigin } from "@/api/generated";
+import type { UiTranslator } from "@/lib/i18n/ui";
 import type { AgentBlockData } from "@/types/agent-block";
 import { parseGeneratedSessionGate } from "@/lib/session-gate";
 import { parseGeneratedSessionReply } from "@/lib/session-reply";
@@ -56,6 +57,36 @@ export function isRestartContinuationMessage(block: AgentBlockData): boolean {
     block.origin?.originKind === "system_generated" &&
     block.origin.note === RESTART_CONTINUATION_NOTE
   );
+}
+
+/** Translate the generated interruption while preserving the canonical transcript. */
+export function interruptedToolResultText(
+  block: AgentBlockData,
+  t: UiTranslator,
+): string | undefined {
+  if (
+    block.type !== "tool_result" ||
+    !block.isError ||
+    block.origin?.originKind !== "system_generated"
+  ) {
+    return undefined;
+  }
+  switch (block.origin.note) {
+    case "tool_interrupted_by_restart":
+      return t(
+        "conversation.stream.toolInterruption.restart",
+        "Interrupted: Cadencr restarted before this finished.",
+      );
+    case "tool_interrupted_by_quit":
+      return t(
+        "conversation.stream.toolInterruption.quit",
+        "Stopped: Cadencr quit before this finished.",
+      );
+    case "tool_interrupted_by_user":
+      return t("conversation.stream.toolInterruption.user", "Stopped by the user.");
+    default:
+      return undefined;
+  }
 }
 
 /**

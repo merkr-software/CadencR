@@ -7,6 +7,7 @@ import {
   whileActive,
 } from "@/components/workspace-pool/workspace-activity";
 import { apiErrorCode, apiErrorMessage, WORKTREE_UNAVAILABLE } from "@/lib/api-errors";
+import { translateUi } from "@/lib/i18n/ui";
 import { clearGitCheckoutQueries, notifyGitStatusHealth } from "@/stores/git-status-health";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
 
@@ -77,7 +78,10 @@ export function useInitialGitStatus(featureId: number, enabled: boolean): void {
             const code = apiErrorCode(error) ?? undefined;
             before.hydrateStatus(
               featureId,
-              apiErrorMessage(error, "Failed to load Git status"),
+              apiErrorMessage(
+                error,
+                translateUi("workspace.git.status.failedToLoad", "Failed to load Git status"),
+              ),
               code,
             );
             if (code === WORKTREE_UNAVAILABLE && health?.statusErrorCode !== code) {

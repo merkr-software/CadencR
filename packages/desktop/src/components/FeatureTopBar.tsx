@@ -22,7 +22,7 @@ import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useFeatureSettingsShortcuts } from "./useFeatureSettingsShortcuts";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
-import { apiErrorCode, apiErrorMessage } from "@/lib/api-errors";
+import { autoNameErrorMessage } from "@/lib/auto-name-errors";
 import { copyToClipboard } from "@/lib/clipboard";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
@@ -154,13 +154,7 @@ function StandardFeatureTopBar({
   const title = wsTitle ?? feature?.title ?? titleOverride;
   const autoNameMutation = useAutoNameFeature({
     mutation: {
-      onError: (error) => {
-        const message =
-          apiErrorCode(error) === "DATABASE_ERROR"
-            ? "A database error prevented auto-renaming this conversation. Try again."
-            : apiErrorMessage(error, translateUi("conversation.featureTopBar.autoRenameFailed", "Auto-rename failed"));
-        toast.error(message);
-      },
+      onError: (error) => toast.error(autoNameErrorMessage(error)),
     },
   });
 

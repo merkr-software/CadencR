@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 
-use super::cache::{get_or_load, CachedEntry};
+use super::cache::inspect_document;
 use super::store::{read_key, update_document_locked, ReadPolicy};
 use super::{file, Scope};
 
@@ -24,34 +24,31 @@ const INITIALIZED: &str = "ui_language_initialized";
 
 /// Keep upgrade history separate from the editable preference so resetting it restores System.
 pub(super) async fn read(path: &Path) -> Result<Option<String>, AppError> {
-    match get_or_load(path).as_ref() {
-        CachedEntry::Present(doc) => {
-            doc.parsed_doc
-                .as_ref()
-                .map_err(|reason| AppError::BadRequest(reason.clone()))?;
-            if doc.get_validated(Scope::Workspace, INITIALIZED).as_deref() == Some("true") {
-                return Ok(doc.get_validated(Scope::Workspace, "ui_language"));
-            }
+    if let Some(preference) = inspect_document(path, |doc| {
+        let Some(doc) = doc else { return Ok(None) };
+        if file::read_scalar(doc, Scope::Workspace, INITIALIZED)?.as_deref() == Some("true") {
+            return Ok(Some(file::read_scalar(
+                doc,
+                Scope::Workspace,
+                "ui_language",
+            )?));
         }
-        CachedEntry::Unreadable(reason) => {
-            return Err(file::read_failed_from_message(reason.clone()))
-        }
-        CachedEntry::Missing => {}
+        Ok(None)
+    })? {
+        return Ok(preference);
     }
     update_document_locked(
         path,
         ReadPolicy::Strict,
         "initialize interface language",
         |doc| {
-            if doc
-                .get(INITIALIZED)
-                .is_some_and(|v| v.as_bool() == Some(true) || v.as_str() == Some("true"))
-            {
+            if file::read_scalar(doc, Scope::Workspace, INITIALIZED)?.as_deref() == Some("true") {
                 return Ok(((), false));
             }
-            if doc.get("ui_language").is_none_or(|value| value.is_null()) {
-                let completed =
-                    doc.get("onboarding_step").and_then(|v| v.as_str()) == Some("completed");
+            if file::read_scalar(doc, Scope::Workspace, "ui_language")?.is_none() {
+                let completed = file::read_scalar(doc, Scope::Workspace, "onboarding_step")?
+                    .as_deref()
+                    == Some("completed");
                 let language = if completed { LEGACY_ENGLISH } else { "system" };
                 doc.insert("ui_language".into(), language.into());
             }
@@ -117,11 +114,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn leaves_an_unreadable_document_intact() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        file::write_atomic(&path, "invalid json").unwrap();
-        assert!(read(&path).await.is_err());
-        assert_eq!(file::read_file(&path).unwrap().unwrap(), "invalid json");
+    async fn preserves_invalid_settings_and_reports_the_repair_error() {
+        for text in [
+            "invalid json",
+            r#"{"onboarding_step":{}}"#,
+            r#"{"ui_language_initialized":true,"ui_language":"unsupported"}"#,
+            r#"{"ui_language_initialized":"invalid"}"#,
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("settings.json");
+            file::write_atomic(&path, text).unwrap();
+            assert_eq!(read(&path).await.unwrap_err().code(), "SETTINGS_INVALID");
+            assert_eq!(file::read_file(&path).unwrap().as_deref(), Some(text));
+        }
     }
 }

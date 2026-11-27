@@ -215,7 +215,10 @@ export async function spawnProductionSidecar(
   options.onSpawn?.(() => {
     if (!watch.exited) {
       throw new Error(
-        "Cadencr could not confirm that its starting service stopped. Try quitting again when it is ready.",
+        t(
+          "system.shutdown.startingServiceUnconfirmed",
+          "Cadencr could not confirm that its starting service stopped. Try quitting again when it is ready.",
+        ),
       );
     }
     // The previous service may have armed the slot just before dying,

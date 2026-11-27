@@ -1,7 +1,8 @@
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { act, render, screen } from "@/test-utils";
 import type { AppCloseState } from "@/hooks/useAppClose";
+import { changeUiLanguage } from "@/shared/ui-i18n";
 import { AppCloseDialog } from "./AppCloseDialog";
 
 function state(quitting: boolean): AppCloseState {
@@ -12,10 +13,18 @@ function state(quitting: boolean): AppCloseState {
         session_id: 1,
         feature_id: 1,
         label: "Fix login",
+        label_uses_fallback: false,
         waiting_on_you: false,
         background_only: true,
       },
-      { session_id: 2, feature_id: 2, label: "Docs", waiting_on_you: true, background_only: false },
+      {
+        session_id: 2,
+        feature_id: 2,
+        label: "Docs",
+        label_uses_fallback: false,
+        waiting_on_you: true,
+        background_only: false,
+      },
     ],
     cancel: vi.fn(),
     close: vi.fn(),
@@ -53,6 +62,25 @@ describe("AppCloseDialog", () => {
     render(<AppCloseDialog state={{ ...state(true), agents: null }} />);
     expect(screen.getByText(/could not list the active agents/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop agents and quit" })).toBeEnabled();
+  });
+
+  it("translates the service fallback and preserves a conversation title with the same words", async () => {
+    await changeUiLanguage("fr-FR");
+    try {
+      const quit = state(true);
+      const agents =
+        quit.agents?.map((agent) => ({
+          ...agent,
+          label: "Untitled conversation",
+          label_uses_fallback: agent.session_id === 1,
+        })) ?? null;
+      render(<AppCloseDialog state={{ ...quit, agents }} />);
+
+      expect(screen.getByText("Conversation sans titre")).toBeInTheDocument();
+      expect(screen.getByText("Untitled conversation")).toBeInTheDocument();
+    } finally {
+      await act(async () => changeUiLanguage("en-US"));
+    }
   });
 
   it("renders nothing without a pending close", () => {

@@ -190,7 +190,7 @@ function GitToolbarNumStat({
       additions={additions}
       deletions={deletions}
       hideZero={false}
-      notice={partial ? "Partial stats" : undefined}
+      notice={partial ? t("workspace.git.gitTabToolbar.partialStats", "Partial stats") : undefined}
       className="shrink-0 text-[11.5px]"
     />
   );

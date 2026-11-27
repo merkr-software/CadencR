@@ -71,21 +71,15 @@ pub async fn global_set_if_current(
     value: String,
 ) -> Result<Option<String>, AppError> {
     let path = global_path();
-    let changed = super::update_document_locked(
+    let changed = update_document_locked(
         &path,
-        super::ReadPolicy::Strict,
+        ReadPolicy::Strict,
         "conditional workspace setting",
         {
             let key = key.clone();
             move |doc| {
-                let matches = doc.get(&key).is_some_and(|current| match current {
-                    serde_json::Value::String(text) => text == &expected,
-                    serde_json::Value::Bool(flag) => {
-                        expected == if *flag { "true" } else { "false" }
-                    }
-                    serde_json::Value::Number(number) => number.to_string() == expected,
-                    _ => false,
-                });
+                let matches =
+                    file::read_scalar(doc, Scope::Workspace, &key)?.as_deref() == Some(&expected);
                 let changed = matches && expected != value;
                 if changed {
                     doc.insert(key, value.into());
